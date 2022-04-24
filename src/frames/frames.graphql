@@ -1,0 +1,24 @@
+type Frame {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input CreateFrameInput {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input UpdateFrameInput {
+  id: Int!
+}
+
+type Query {
+  frames: [Frame]!
+  frame(id: Int!): Frame
+}
+
+type Mutation {
+  createFrame(createFrameInput: CreateFrameInput!): Frame!
+  updateFrame(updateFrameInput: UpdateFrameInput!): Frame!
+  removeFrame(id: Int!): Frame
+}

@@ -1,0 +1,24 @@
+type Model {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input CreateModelInput {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input UpdateModelInput {
+  id: Int!
+}
+
+type Query {
+  models: [Model]!
+  model(id: Int!): Model
+}
+
+type Mutation {
+  createModel(createModelInput: CreateModelInput!): Model!
+  updateModel(updateModelInput: UpdateModelInput!): Model!
+  removeModel(id: Int!): Model
+}

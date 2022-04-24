@@ -1,0 +1,24 @@
+type Manufacturer {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input CreateManufacturerInput {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input UpdateManufacturerInput {
+  id: Int!
+}
+
+type Query {
+  manufacturers: [Manufacturer]!
+  manufacturer(id: Int!): Manufacturer
+}
+
+type Mutation {
+  createManufacturer(createManufacturerInput: CreateManufacturerInput!): Manufacturer!
+  updateManufacturer(updateManufacturerInput: UpdateManufacturerInput!): Manufacturer!
+  removeManufacturer(id: Int!): Manufacturer
+}

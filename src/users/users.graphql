@@ -1,0 +1,47 @@
+type User {
+  # Example field (placeholder)
+  Id: Int
+  Username: String
+  Language: String
+  Enabled: Boolean
+  MaxBandwidth: String
+  TokenMinExpiry: BigInt
+  APIEnabled: Boolean
+  HomeView: String
+
+}
+
+input CreateUserInput {
+  # Example field (placeholder)
+  Id: Int
+  Username: String
+  Password: String
+  Language: String
+  Enabled: Boolean
+  MaxBandwidth: String
+  TokenMinExpiry: BigInt
+  APIEnabled: Boolean
+  HomeView: String
+}
+
+input UpdateUserInput {
+  Id: Int
+  Username: String
+  Language: String
+  Enabled: Boolean
+  MaxBandwidth: String
+  TokenMinExpiry: BigInt
+  APIEnabled: Boolean
+  HomeView: String
+}
+
+type Query {
+  users: [User]!
+  user(id: Int!): User
+}
+
+type Mutation {
+  createUser(createUserInput: CreateUserInput!): User!
+  updateUser(updateUserInput: UpdateUserInput!): User!
+  removeUser(id: Int!): User
+}

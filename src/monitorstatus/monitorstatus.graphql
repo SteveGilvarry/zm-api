@@ -1,0 +1,24 @@
+type Monitorstatus {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input CreateMonitorstatusInput {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input UpdateMonitorstatusInput {
+  id: Int!
+}
+
+type Query {
+  monitorsstatus: [Monitorstatus]!
+  monitorstatus(id: Int!): Monitorstatus
+}
+
+type Mutation {
+  createMonitorstatus(createMonitorstatusInput: CreateMonitorstatusInput!): Monitorstatus!
+  updateMonitorstatus(updateMonitorstatusInput: UpdateMonitorstatusInput!): Monitorstatus!
+  removeMonitorstatus(id: Int!): Monitorstatus
+}

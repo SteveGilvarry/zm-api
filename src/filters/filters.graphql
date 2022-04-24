@@ -1,0 +1,24 @@
+type Filter {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input CreateFilterInput {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input UpdateFilterInput {
+  id: Int!
+}
+
+type Query {
+  filters: [Filter]!
+  filter(id: Int!): Filter
+}
+
+type Mutation {
+  createFilter(createFilterInput: CreateFilterInput!): Filter!
+  updateFilter(updateFilterInput: UpdateFilterInput!): Filter!
+  removeFilter(id: Int!): Filter
+}

@@ -1,0 +1,28 @@
+type Controlpreset {
+  MonitorId: Int!
+  Preset: Int!
+  Label: String
+}
+
+input CreateControlpresetInput {
+  MonitorId: Int!
+  Preset: Int!
+  Label: String
+}
+
+input UpdateControlpresetInput {
+  MonitorId: Int!
+  Preset: Int!
+  Label: String
+}
+
+type Query {
+  controlpresets: [Controlpreset]!
+  controlpreset(monitorid: Int!, preset: Int!): Controlpreset
+}
+
+type Mutation {
+  createControlpreset(createControlpresetInput: CreateControlpresetInput!): Controlpreset!
+  updateControlpreset(updateControlpresetInput: UpdateControlpresetInput!): Controlpreset!
+  removeControlpreset(id: Int!): Controlpreset
+}

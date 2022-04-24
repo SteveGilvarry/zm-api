@@ -1,0 +1,24 @@
+type Storage {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input CreateStorageInput {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input UpdateStorageInput {
+  id: Int!
+}
+
+type Query {
+  storages: [Storage]!
+  storage(id: Int!): Storage
+}
+
+type Mutation {
+  createStorage(createStorageInput: CreateStorageInput!): Storage!
+  updateStorage(updateStorageInput: UpdateStorageInput!): Storage!
+  removeStorage(id: Int!): Storage
+}

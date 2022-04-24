@@ -1,0 +1,24 @@
+type State {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input CreateStateInput {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input UpdateStateInput {
+  id: Int!
+}
+
+type Query {
+  states: [State]!
+  state(id: Int!): State
+}
+
+type Mutation {
+  createState(createStateInput: CreateStateInput!): State!
+  updateState(updateStateInput: UpdateStateInput!): State!
+  removeState(id: Int!): State
+}

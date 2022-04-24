@@ -1,0 +1,24 @@
+type Monitorpreset {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input CreateMonitorpresetInput {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input UpdateMonitorpresetInput {
+  id: Int!
+}
+
+type Query {
+  monitorpresets: [Monitorpreset]!
+  monitorpreset(id: Int!): Monitorpreset
+}
+
+type Mutation {
+  createMonitorpreset(createMonitorpresetInput: CreateMonitorpresetInput!): Monitorpreset!
+  updateMonitorpreset(updateMonitorpresetInput: UpdateMonitorpresetInput!): Monitorpreset!
+  removeMonitorpreset(id: Int!): Monitorpreset
+}

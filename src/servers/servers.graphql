@@ -1,0 +1,24 @@
+type Server {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input CreateServerInput {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input UpdateServerInput {
+  id: Int!
+}
+
+type Query {
+  servers: [Server]!
+  server(id: Int!): Server
+}
+
+type Mutation {
+  createServer(createServerInput: CreateServerInput!): Server!
+  updateServer(updateServerInput: UpdateServerInput!): Server!
+  removeServer(id: Int!): Server
+}

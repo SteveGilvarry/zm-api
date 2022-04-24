@@ -1,0 +1,24 @@
+type Group {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input CreateGroupInput {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input UpdateGroupInput {
+  id: Int!
+}
+
+type Query {
+  groups: [Group]!
+  group(id: Int!): Group
+}
+
+type Mutation {
+  createGroup(createGroupInput: CreateGroupInput!): Group!
+  updateGroup(updateGroupInput: UpdateGroupInput!): Group!
+  removeGroup(id: Int!): Group
+}

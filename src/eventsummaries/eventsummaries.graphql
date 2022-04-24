@@ -1,0 +1,24 @@
+type Eventsummary {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input CreateEventsummaryInput {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input UpdateEventsummaryInput {
+  id: Int!
+}
+
+type Query {
+  eventsummaries: [Eventsummary]!
+  eventsummary(id: Int!): Eventsummary
+}
+
+type Mutation {
+  createEventsummary(createEventsummaryInput: CreateEventsummaryInput!): Eventsummary!
+  updateEventsummary(updateEventsummaryInput: UpdateEventsummaryInput!): Eventsummary!
+  removeEventsummary(id: Int!): Eventsummary
+}

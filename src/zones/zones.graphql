@@ -1,0 +1,24 @@
+type Zone {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input CreateZoneInput {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input UpdateZoneInput {
+  id: Int!
+}
+
+type Query {
+  zones: [Zone]!
+  zone(id: Int!): Zone
+}
+
+type Mutation {
+  createZone(createZoneInput: CreateZoneInput!): Zone!
+  updateZone(updateZoneInput: UpdateZoneInput!): Zone!
+  removeZone(id: Int!): Zone
+}

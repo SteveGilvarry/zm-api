@@ -1,0 +1,24 @@
+type Device {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input CreateDeviceInput {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input UpdateDeviceInput {
+  id: Int!
+}
+
+type Query {
+  devices: [Device]!
+  device(id: Int!): Device
+}
+
+type Mutation {
+  createDevice(createDeviceInput: CreateDeviceInput!): Device!
+  updateDevice(updateDeviceInput: UpdateDeviceInput!): Device!
+  removeDevice(id: Int!): Device
+}

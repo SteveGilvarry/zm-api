@@ -1,0 +1,24 @@
+type Montagelayout {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input CreateMontagelayoutInput {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input UpdateMontagelayoutInput {
+  id: Int!
+}
+
+type Query {
+  montagelayouts: [Montagelayout]!
+  montagelayout(id: Int!): Montagelayout
+}
+
+type Mutation {
+  createMontagelayout(createMontagelayoutInput: CreateMontagelayoutInput!): Montagelayout!
+  updateMontagelayout(updateMontagelayoutInput: UpdateMontagelayoutInput!): Montagelayout!
+  removeMontagelayout(id: Int!): Montagelayout
+}

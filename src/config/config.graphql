@@ -1,0 +1,59 @@
+type Config {
+  Id: Int
+  Name: String
+  Value: String
+  Type: String
+  DefaultValue: String
+  Hint: String
+  Pattern: String
+  Format: String
+  Prompt: String
+  Help: String
+  Category: String
+  Readonly: Boolean
+  Requires: String
+
+}
+
+input CreateConfigInput {
+  Id: Int
+  Name: String
+  Value: String
+  Type: String
+  DefaultValue: String
+  Hint: String
+  Pattern: String
+  Format: String
+  Prompt: String
+  Help: String
+  Category: String
+  Readonly: Boolean
+  Requires: String
+}
+
+input UpdateConfigInput {
+  Id: Int
+  Name: String!
+  Value: String
+  Type: String
+  DefaultValue: String
+  Hint: String
+  Pattern: String
+  Format: String
+  Prompt: String
+  Help: String
+  Category: String
+  Readonly: Boolean
+  Requires: String
+}
+
+type Query {
+  configs: [Config]!
+  config(Name: String!): Config
+}
+
+type Mutation {
+  createConfig(createConfigInput: CreateConfigInput!): Config!
+  updateConfig(updateConfigInput: UpdateConfigInput!): Config!
+  removeConfig(Name: String!): Config
+}

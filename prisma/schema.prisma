@@ -1,0 +1,863 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator nestgraphql {
+    provider = "node node_modules/prisma-nestjs-graphql"
+    output = "../src/@generated/prisma-nestjs-graphql"
+    fields_Validator_from = "class-validator"
+    fields_Validator_input = true
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Config {
+  Id           Int     @default(0) @db.UnsignedSmallInt
+  Name         String  @id @db.VarChar(32)
+  Value        String  @db.Text
+  Type         String  @db.TinyText
+  DefaultValue String? @db.Text
+  Hint         String? @db.TinyText
+  Pattern      String? @db.TinyText
+  Format       String? @db.TinyText
+  Prompt       String? @db.TinyText
+  Help         String? @db.Text
+  Category     String  @db.VarChar(32)
+  Readonly     Int     @default(0) @db.UnsignedTinyInt
+  Requires     String? @db.Text
+}
+
+model ControlPresets {
+  MonitorId Int    @default(0) @db.UnsignedInt
+  Preset    Int    @default(0) @db.UnsignedInt
+  Label     String @db.VarChar(64)
+
+  @@id([MonitorId, Preset])
+}
+
+model Controls {
+  Id             Int           @id @default(autoincrement()) @db.UnsignedInt
+  Name           String        @db.VarChar(64)
+  Type           Controls_Type @default(Local)
+  Protocol       String?       @db.VarChar(64)
+  CanWake        Int           @default(0) @db.UnsignedTinyInt
+  CanSleep       Int           @default(0) @db.UnsignedTinyInt
+  CanReset       Int           @default(0) @db.UnsignedTinyInt
+  CanReboot      Int           @default(0) @db.UnsignedTinyInt
+  CanZoom        Int           @default(0) @db.UnsignedTinyInt
+  CanAutoZoom    Int           @default(0) @db.UnsignedTinyInt
+  CanZoomAbs     Int           @default(0) @db.UnsignedTinyInt
+  CanZoomRel     Int           @default(0) @db.UnsignedTinyInt
+  CanZoomCon     Int           @default(0) @db.UnsignedTinyInt
+  MinZoomRange   Int?          @db.UnsignedInt
+  MaxZoomRange   Int?          @db.UnsignedInt
+  MinZoomStep    Int?          @db.UnsignedInt
+  MaxZoomStep    Int?          @db.UnsignedInt
+  HasZoomSpeed   Int           @default(0) @db.UnsignedTinyInt
+  MinZoomSpeed   Int?          @db.UnsignedInt
+  MaxZoomSpeed   Int?          @db.UnsignedInt
+  CanFocus       Int           @default(0) @db.UnsignedTinyInt
+  CanAutoFocus   Int           @default(0) @db.UnsignedTinyInt
+  CanFocusAbs    Int           @default(0) @db.UnsignedTinyInt
+  CanFocusRel    Int           @default(0) @db.UnsignedTinyInt
+  CanFocusCon    Int           @default(0) @db.UnsignedTinyInt
+  MinFocusRange  Int?          @db.UnsignedInt
+  MaxFocusRange  Int?          @db.UnsignedInt
+  MinFocusStep   Int?          @db.UnsignedInt
+  MaxFocusStep   Int?          @db.UnsignedInt
+  HasFocusSpeed  Int           @default(0) @db.UnsignedTinyInt
+  MinFocusSpeed  Int?          @db.UnsignedInt
+  MaxFocusSpeed  Int?          @db.UnsignedInt
+  CanIris        Int           @default(0) @db.UnsignedTinyInt
+  CanAutoIris    Int           @default(0) @db.UnsignedTinyInt
+  CanIrisAbs     Int           @default(0) @db.UnsignedTinyInt
+  CanIrisRel     Int           @default(0) @db.UnsignedTinyInt
+  CanIrisCon     Int           @default(0) @db.UnsignedTinyInt
+  MinIrisRange   Int?          @db.UnsignedInt
+  MaxIrisRange   Int?          @db.UnsignedInt
+  MinIrisStep    Int?          @db.UnsignedInt
+  MaxIrisStep    Int?          @db.UnsignedInt
+  HasIrisSpeed   Int           @default(0) @db.UnsignedTinyInt
+  MinIrisSpeed   Int?          @db.UnsignedInt
+  MaxIrisSpeed   Int?          @db.UnsignedInt
+  CanGain        Int           @default(0) @db.UnsignedTinyInt
+  CanAutoGain    Int           @default(0) @db.UnsignedTinyInt
+  CanGainAbs     Int           @default(0) @db.UnsignedTinyInt
+  CanGainRel     Int           @default(0) @db.UnsignedTinyInt
+  CanGainCon     Int           @default(0) @db.UnsignedTinyInt
+  MinGainRange   Int?          @db.UnsignedInt
+  MaxGainRange   Int?          @db.UnsignedInt
+  MinGainStep    Int?          @db.UnsignedInt
+  MaxGainStep    Int?          @db.UnsignedInt
+  HasGainSpeed   Int           @default(0) @db.UnsignedTinyInt
+  MinGainSpeed   Int?          @db.UnsignedInt
+  MaxGainSpeed   Int?          @db.UnsignedInt
+  CanWhite       Int           @default(0) @db.UnsignedTinyInt
+  CanAutoWhite   Int           @default(0) @db.UnsignedTinyInt
+  CanWhiteAbs    Int           @default(0) @db.UnsignedTinyInt
+  CanWhiteRel    Int           @default(0) @db.UnsignedTinyInt
+  CanWhiteCon    Int           @default(0) @db.UnsignedTinyInt
+  MinWhiteRange  Int?          @db.UnsignedInt
+  MaxWhiteRange  Int?          @db.UnsignedInt
+  MinWhiteStep   Int?          @db.UnsignedInt
+  MaxWhiteStep   Int?          @db.UnsignedInt
+  HasWhiteSpeed  Int           @default(0) @db.UnsignedTinyInt
+  MinWhiteSpeed  Int?          @db.UnsignedInt
+  MaxWhiteSpeed  Int?          @db.UnsignedInt
+  HasPresets     Int           @default(0) @db.UnsignedTinyInt
+  NumPresets     Int           @default(0) @db.UnsignedTinyInt
+  HasHomePreset  Int           @default(0) @db.UnsignedTinyInt
+  CanSetPresets  Int           @default(0) @db.UnsignedTinyInt
+  CanMove        Int           @default(0) @db.UnsignedTinyInt
+  CanMoveDiag    Int           @default(0) @db.UnsignedTinyInt
+  CanMoveMap     Int           @default(0) @db.UnsignedTinyInt
+  CanMoveAbs     Int           @default(0) @db.UnsignedTinyInt
+  CanMoveRel     Int           @default(0) @db.UnsignedTinyInt
+  CanMoveCon     Int           @default(0) @db.UnsignedTinyInt
+  CanPan         Int           @default(0) @db.UnsignedTinyInt
+  MinPanRange    Int?
+  MaxPanRange    Int?
+  MinPanStep     Int?
+  MaxPanStep     Int?
+  HasPanSpeed    Int           @default(0) @db.UnsignedTinyInt
+  MinPanSpeed    Int?
+  MaxPanSpeed    Int?
+  HasTurboPan    Int           @default(0) @db.UnsignedTinyInt
+  TurboPanSpeed  Int?
+  CanTilt        Int           @default(0) @db.UnsignedTinyInt
+  MinTiltRange   Int?
+  MaxTiltRange   Int?
+  MinTiltStep    Int?
+  MaxTiltStep    Int?
+  HasTiltSpeed   Int           @default(0) @db.UnsignedTinyInt
+  MinTiltSpeed   Int?
+  MaxTiltSpeed   Int?
+  HasTurboTilt   Int           @default(0) @db.UnsignedTinyInt
+  TurboTiltSpeed Int?
+  CanAutoScan    Int           @default(0) @db.UnsignedTinyInt
+  NumScanPaths   Int           @default(0) @db.UnsignedTinyInt
+}
+
+model Devices {
+  Id        Int          @id @default(autoincrement()) @db.UnsignedInt
+  Name      String       @db.TinyText
+  Type      Devices_Type @default(X10)
+  KeyString String       @default("") @db.VarChar(32)
+}
+
+model Event_Summaries {
+  MonitorId              Int     @id @db.UnsignedInt
+  TotalEvents            Int?
+  TotalEventDiskSpace    BigInt?
+  HourEvents             Int?
+  HourEventDiskSpace     BigInt?
+  DayEvents              Int?
+  DayEventDiskSpace      BigInt?
+  WeekEvents             Int?
+  WeekEventDiskSpace     BigInt?
+  MonthEvents            Int?
+  MonthEventDiskSpace    BigInt?
+  ArchivedEvents         Int?
+  ArchivedEventDiskSpace BigInt?
+}
+
+model Events {
+  Id                 BigInt             @id @default(autoincrement()) @db.UnsignedBigInt
+  MonitorId          Int                @default(0) @db.UnsignedInt
+  StorageId          Int                @default(0) @db.UnsignedSmallInt
+  SecondaryStorageId Int?               @default(0) @db.UnsignedSmallInt
+  Name               String             @default("") @db.VarChar(64)
+  Cause              String             @default("") @db.VarChar(32)
+  StartDateTime      DateTime?          @db.DateTime(0)
+  EndDateTime        DateTime?          @db.DateTime(0)
+  Width              Int                @default(0) @db.UnsignedSmallInt
+  Height             Int                @default(0) @db.UnsignedSmallInt
+  Length             Decimal            @default(0.00) @db.Decimal(10, 2)
+  Frames             Int?               @db.UnsignedInt
+  AlarmFrames        Int?               @db.UnsignedInt
+  DefaultVideo       String             @db.VarChar(64)
+  SaveJPEGs          Int?               @db.TinyInt
+  TotScore           Int                @default(0) @db.UnsignedInt
+  AvgScore           Int?               @default(0) @db.UnsignedSmallInt
+  MaxScore           Int?               @default(0) @db.UnsignedSmallInt
+  Archived           Int                @default(0) @db.UnsignedTinyInt
+  Videoed            Int                @default(0) @db.UnsignedTinyInt
+  Uploaded           Int                @default(0) @db.UnsignedTinyInt
+  Emailed            Int                @default(0) @db.UnsignedTinyInt
+  Messaged           Int                @default(0) @db.UnsignedTinyInt
+  Executed           Int                @default(0) @db.UnsignedTinyInt
+  Notes              String?            @db.Text
+  StateId            Int                @db.UnsignedInt
+  Orientation        Events_Orientation @default(ROTATE_0)
+  DiskSpace          BigInt?            @db.UnsignedBigInt
+  Scheme             Events_Scheme      @default(Deep)
+  Locked             Boolean            @default(false)
+
+  @@index([EndDateTime, DiskSpace], map: "Events_EndTime_DiskSpace_idx")
+  @@index([StorageId])
+  @@index([MonitorId], map: "MonitorId")
+  @@index([StartDateTime], map: "StartTime")
+}
+
+model Events_Archived {
+  EventId   Int     @id @db.UnsignedInt
+  MonitorId Int     @db.UnsignedInt
+  DiskSpace BigInt?
+
+  @@index([MonitorId], map: "Events_Month_MonitorId_idx")
+}
+
+model Events_Day {
+  EventId       Int       @id @db.UnsignedInt
+  MonitorId     Int       @db.UnsignedInt
+  StartDateTime DateTime? @db.DateTime(0)
+  DiskSpace     BigInt?
+
+  @@index([MonitorId])
+  @@index([StartDateTime], map: "Events_Day_StartTime_idx")
+}
+
+model Events_Hour {
+  EventId       Int       @id @db.UnsignedInt
+  MonitorId     Int       @db.UnsignedInt
+  StartDateTime DateTime? @db.DateTime(0)
+  DiskSpace     BigInt?
+
+  @@index([MonitorId])
+  @@index([StartDateTime], map: "Events_Hour_StartTime_idx")
+}
+
+model Events_Month {
+  EventId       Int       @id @db.UnsignedInt
+  MonitorId     Int       @db.UnsignedInt
+  StartDateTime DateTime? @db.DateTime(0)
+  DiskSpace     BigInt?
+
+  @@index([MonitorId])
+  @@index([StartDateTime], map: "Events_Month_StartTime_idx")
+}
+
+model Events_Week {
+  EventId       Int       @id @db.UnsignedInt
+  MonitorId     Int       @db.UnsignedInt
+  StartDateTime DateTime? @db.DateTime(0)
+  DiskSpace     BigInt?
+
+  @@index([MonitorId])
+  @@index([StartDateTime], map: "Events_Week_StartTime_idx")
+}
+
+model Filters {
+  Id              Int     @id @default(autoincrement()) @db.UnsignedInt
+  Name            String  @default("") @db.VarChar(64)
+  UserId          Int?    @db.UnsignedInt
+  Query_json      String  @db.Text
+  AutoArchive     Int     @default(0) @db.UnsignedTinyInt
+  AutoUnarchive   Int     @default(0) @db.UnsignedTinyInt
+  AutoVideo       Int     @default(0) @db.UnsignedTinyInt
+  AutoUpload      Int     @default(0) @db.UnsignedTinyInt
+  AutoEmail       Int     @default(0) @db.UnsignedTinyInt
+  EmailTo         String? @db.Text
+  EmailSubject    String? @db.Text
+  EmailBody       String? @db.Text
+  AutoMessage     Int     @default(0) @db.UnsignedTinyInt
+  AutoExecute     Int     @default(0) @db.UnsignedTinyInt
+  AutoExecuteCmd  String? @db.TinyText
+  AutoDelete      Int     @default(0) @db.UnsignedTinyInt
+  AutoMove        Int     @default(0) @db.UnsignedTinyInt
+  AutoCopy        Int     @default(0) @db.UnsignedTinyInt
+  AutoCopyTo      Int     @default(0) @db.UnsignedSmallInt
+  AutoMoveTo      Int     @default(0) @db.UnsignedSmallInt
+  UpdateDiskSpace Int     @default(0) @db.UnsignedTinyInt
+  Background      Int     @default(0) @db.UnsignedTinyInt
+  Concurrent      Int     @default(0) @db.UnsignedTinyInt
+  LockRows        Int     @default(0) @db.UnsignedTinyInt
+
+  @@index([Name], map: "Name")
+}
+
+model Frames {
+  Id        BigInt      @id @default(autoincrement()) @db.UnsignedBigInt
+  EventId   BigInt      @db.UnsignedBigInt
+  FrameId   Int         @default(0) @db.UnsignedInt
+  Type      Frames_Type @default(Normal)
+  TimeStamp DateTime    @default(now()) @db.Timestamp(0)
+  Delta     Decimal     @default(0.00) @db.Decimal(8, 2)
+  Score     Int         @default(0) @db.UnsignedSmallInt
+
+  @@index([EventId], map: "EventId_idx")
+  @@index([TimeStamp], map: "TimeStamp")
+  @@index([Type], map: "Type")
+}
+
+model Groups {
+  Id       Int    @id @default(autoincrement()) @db.UnsignedInt
+  Name     String @default("") @db.VarChar(64)
+  ParentId Int?   @db.UnsignedInt
+
+  @@index([ParentId], map: "ParentId")
+}
+
+model Groups_Monitors {
+  Id        Int @id @default(autoincrement()) @db.UnsignedInt
+  GroupId   Int @db.UnsignedInt
+  MonitorId Int @db.UnsignedInt
+
+  @@index([GroupId])
+  @@index([MonitorId])
+}
+
+model Logs {
+  Id        Int     @id @default(autoincrement()) @db.UnsignedInt
+  TimeKey   Decimal @db.Decimal(16, 6)
+  Component String  @db.VarChar(32)
+  ServerId  Int?    @db.UnsignedInt
+  Pid       Int?
+  Level     Int     @db.TinyInt
+  Code      String  @db.Char(3)
+  Message   String  @db.Text
+  File      String? @db.VarChar(255)
+  Line      Int?    @db.UnsignedSmallInt
+
+  @@index([Level])
+  @@index([TimeKey])
+  @@index([TimeKey], map: "TimeKey")
+}
+
+model Manufacturers {
+  Id   Int    @id @default(autoincrement()) @db.UnsignedInt
+  Name String @unique(map: "Name") @db.VarChar(64)
+}
+
+model Models {
+  Id             Int    @id @default(autoincrement()) @db.UnsignedInt
+  Name           String @db.VarChar(64)
+  ManufacturerId Int?
+
+  @@unique([ManufacturerId, Name], map: "ManufacturerId")
+}
+
+model MonitorPresets {
+  Id             Int                 @id @default(autoincrement()) @db.UnsignedInt
+  Name           String              @default("") @db.VarChar(64)
+  Type           MonitorPresets_Type @default(Local)
+  Device         String?             @db.TinyText
+  Channel        String?             @db.TinyText
+  Format         Int?                @db.UnsignedInt
+  Protocol       String?             @db.VarChar(16)
+  Method         String?             @db.VarChar(16)
+  Host           String?             @db.VarChar(64)
+  Port           String?             @db.VarChar(8)
+  Path           String?             @db.VarChar(255)
+  SubPath        String?             @db.VarChar(64)
+  Width          Int?                @db.UnsignedSmallInt
+  Height         Int?                @db.UnsignedSmallInt
+  Palette        Int?                @db.UnsignedInt
+  MaxFPS         Decimal?            @db.Decimal(5, 2)
+  Controllable   Int                 @default(0) @db.UnsignedTinyInt
+  ControlId      String?             @db.VarChar(16)
+  ControlDevice  String?             @db.VarChar(255)
+  ControlAddress String?             @db.VarChar(255)
+  DefaultRate    Int                 @default(100) @db.UnsignedSmallInt
+  DefaultScale   Int                 @default(100) @db.UnsignedSmallInt
+}
+
+model Monitor_Status {
+  MonitorId         Int                   @id @db.UnsignedInt
+  Status            Monitor_Status_Status @default(Unknown)
+  CaptureFPS        Decimal               @default(0.00) @db.Decimal(10, 2)
+  AnalysisFPS       Decimal               @default(0.00) @db.Decimal(5, 2)
+  CaptureBandwidth  Int                   @default(0)
+  DayEventDiskSpace BigInt?
+}
+
+model Monitors {
+  Id                   Int                       @id @default(autoincrement()) @db.UnsignedInt
+  /// @Validator.MaxLength(64)
+  Name                 String                    @default("") @db.VarChar(64)
+  Notes                String?                   @db.Text
+  ServerId             Int?                      @db.UnsignedInt
+  StorageId            Int                       @default(0) @db.UnsignedSmallInt
+  Type                 Monitors_Type             @default(Local)
+  Function             Monitors_Function         @default(Monitor)
+  Enabled              Int                       @default(1) @db.UnsignedTinyInt
+  DecodingEnabled      Int                       @default(1) @db.UnsignedTinyInt
+  LinkedMonitors       String?                   @db.VarChar(255)
+  Triggers             String                    @default("")
+  ONVIF_URL            String                    @default("") @db.VarChar(255)
+  ONVIF_Username       String                    @default("") @db.VarChar(64)
+  ONVIF_Password       String                    @default("") @db.VarChar(64)
+  ONVIF_Options        String                    @default("") @db.VarChar(64)
+  Device               String                    @db.TinyText
+  Channel              Int                       @default(0) @db.UnsignedTinyInt
+  Format               Int                       @default(0) @db.UnsignedInt
+  V4LMultiBuffer       Int?                      @db.UnsignedTinyInt
+  V4LCapturesPerFrame  Int?                      @db.UnsignedTinyInt
+  Protocol             String?                   @db.VarChar(16)
+  Method               String?                   @db.VarChar(16)
+  Host                 String?                   @db.VarChar(64)
+  Port                 String                    @default("") @db.VarChar(8)
+  SubPath              String                    @default("") @db.VarChar(64)
+  Path                 String?                   @db.VarChar(255)
+  SecondPath           String?                   @db.VarChar(255)
+  Options              String?                   @db.VarChar(255)
+  User                 String?                   @db.VarChar(64)
+  Pass                 String?                   @db.VarChar(64)
+  Width                Int                       @default(0) @db.UnsignedSmallInt
+  Height               Int                       @default(0) @db.UnsignedSmallInt
+  Colours              Int                       @default(1) @db.UnsignedTinyInt
+  Palette              Int                       @default(0) @db.UnsignedInt
+  Orientation          Monitors_Orientation      @default(ROTATE_0)
+  Deinterlacing        Int                       @default(0) @db.UnsignedInt
+  DecoderHWAccelName   String?                   @db.VarChar(64)
+  DecoderHWAccelDevice String?                   @db.VarChar(255)
+  SaveJPEGs            Int                       @default(3) @db.TinyInt
+  VideoWriter          Int                       @default(0) @db.TinyInt
+  OutputCodec          Int?                      @default(0) @db.UnsignedInt
+  Encoder              String?                   @db.VarChar(32)
+  OutputContainer      Monitors_OutputContainer? @default(auto)
+  EncoderParameters    String?                   @db.Text
+  RecordAudio          Int                       @default(0) @db.TinyInt
+  RTSPDescribe         Int?                      @db.UnsignedTinyInt
+  Brightness           Int                       @default(-1) @db.MediumInt
+  Contrast             Int                       @default(-1) @db.MediumInt
+  Hue                  Int                       @default(-1) @db.MediumInt
+  Colour               Int                       @default(-1) @db.MediumInt
+  EventPrefix          String                    @default("Event-") @db.VarChar(32)
+  LabelFormat          String?                   @db.VarChar(64)
+  LabelX               Int                       @default(0) @db.UnsignedSmallInt
+  LabelY               Int                       @default(0) @db.UnsignedSmallInt
+  LabelSize            Int                       @default(1) @db.UnsignedSmallInt
+  ImageBufferCount     Int                       @default(100) @db.UnsignedSmallInt
+  MaxImageBufferCount  Int                       @default(0) @db.UnsignedSmallInt
+  WarmupCount          Int                       @default(25) @db.UnsignedSmallInt
+  PreEventCount        Int                       @default(10) @db.UnsignedSmallInt
+  PostEventCount       Int                       @default(10) @db.UnsignedSmallInt
+  StreamReplayBuffer   Int                       @default(1000) @db.UnsignedInt
+  AlarmFrameCount      Int                       @default(1) @db.UnsignedSmallInt
+  SectionLength        Int                       @default(600) @db.UnsignedInt
+  MinSectionLength     Int                       @default(10) @db.UnsignedInt
+  FrameSkip            Int                       @default(0) @db.UnsignedSmallInt
+  MotionFrameSkip      Int                       @default(0) @db.UnsignedSmallInt
+  AnalysisFPSLimit     Decimal?                  @db.Decimal(5, 2)
+  AnalysisUpdateDelay  Int                       @default(0) @db.UnsignedSmallInt
+  MaxFPS               Decimal?                  @db.Decimal(5, 3)
+  AlarmMaxFPS          Decimal?                  @db.Decimal(5, 2)
+  FPSReportInterval    Int                       @default(250) @db.UnsignedSmallInt
+  RefBlendPerc         Int                       @default(6) @db.UnsignedTinyInt
+  AlarmRefBlendPerc    Int                       @default(6) @db.UnsignedTinyInt
+  Controllable         Int                       @default(0) @db.UnsignedTinyInt
+  ControlId            Int?                      @db.UnsignedInt
+  ControlDevice        String?                   @db.VarChar(255)
+  ControlAddress       String?                   @db.VarChar(255)
+  AutoStopTimeout      Decimal?                  @db.Decimal(5, 2)
+  TrackMotion          Int                       @default(0) @db.UnsignedTinyInt
+  TrackDelay           Int?                      @db.UnsignedSmallInt
+  ReturnLocation       Int                       @default(-1) @db.TinyInt
+  ReturnDelay          Int?                      @db.UnsignedSmallInt
+  ModectDuringPTZ      Int                       @default(0) @db.UnsignedTinyInt
+  DefaultRate          Int                       @default(100) @db.UnsignedSmallInt
+  DefaultScale         Int                       @default(100) @db.UnsignedSmallInt
+  DefaultCodec         Monitors_DefaultCodec     @default(auto)
+  SignalCheckPoints    Int                       @default(0) @db.UnsignedInt
+  SignalCheckColour    String                    @default("#0000BE") @db.VarChar(32)
+  WebColour            String                    @default("red") @db.VarChar(32)
+  Exif                 Int                       @default(0) @db.UnsignedTinyInt
+  Sequence             Int?                      @db.UnsignedSmallInt
+  TotalEvents          Int?
+  ZoneCount            Int                       @default(0) @db.TinyInt
+  TotalEventDiskSpace  BigInt?
+  Refresh              Int?                      @db.UnsignedInt
+  Latitude             Decimal?                  @db.Decimal(10, 8)
+  Longitude            Decimal?                  @db.Decimal(11, 8)
+  RTSPServer           Boolean                   @default(false)
+  RTSPStreamName       String                    @default("") @db.VarChar(255)
+  Importance           Monitors_Importance?
+
+  @@index([ServerId])
+}
+
+model MontageLayouts {
+  Id        Int     @id @default(autoincrement()) @db.UnsignedInt
+  Name      String  @db.Text
+  Positions String? @db.LongText
+}
+
+model Servers {
+  Id                  Int            @id @default(autoincrement()) @db.UnsignedInt
+  Protocol            String?        @db.Text
+  Hostname            String?        @db.Text
+  Port                Int?           @db.UnsignedInt
+  PathToIndex         String?        @db.Text
+  PathToZMS           String?        @db.Text
+  PathToApi           String?        @db.Text
+  Name                String         @default("") @db.VarChar(64)
+  State_Id            Int?           @db.UnsignedInt
+  Status              Servers_Status @default(Unknown)
+  CpuLoad             Decimal?       @db.Decimal(5, 1)
+  TotalMem            BigInt?        @db.UnsignedBigInt
+  FreeMem             BigInt?        @db.UnsignedBigInt
+  TotalSwap           BigInt?        @db.UnsignedBigInt
+  FreeSwap            BigInt?        @db.UnsignedBigInt
+  zmstats             Boolean        @default(false)
+  zmaudit             Boolean        @default(false)
+  zmtrigger           Boolean        @default(false)
+  zmeventnotification Boolean        @default(false)
+
+  @@index([Name])
+}
+
+model Sessions {
+  id     String  @id @db.Char(32)
+  access Int?    @db.UnsignedInt
+  data   String? @db.Text
+}
+
+model Snapshot_Events {
+  Id         Int    @id @default(autoincrement()) @db.UnsignedInt
+  SnapshotId Int    @db.UnsignedInt
+  EventId    BigInt @db.UnsignedBigInt
+
+  @@index([EventId], map: "EventId")
+  @@index([SnapshotId])
+}
+
+model Snapshots {
+  Id          Int       @id @default(autoincrement()) @db.UnsignedInt
+  Name        String?   @db.VarChar(64)
+  Description String?   @db.Text
+  CreatedBy   Int?
+  CreatedOn   DateTime? @db.DateTime(0)
+}
+
+model States {
+  Id         Int    @id @default(autoincrement()) @db.UnsignedInt
+  Name       String @unique(map: "Name") @default("") @db.VarChar(64)
+  Definition String @db.Text
+  IsActive   Int    @default(0) @db.UnsignedTinyInt
+}
+
+model Stats {
+  Id           Int    @id @default(autoincrement()) @db.UnsignedInt
+  MonitorId    Int    @default(0) @db.UnsignedInt
+  ZoneId       Int    @default(0) @db.UnsignedInt
+  EventId      BigInt @db.UnsignedBigInt
+  FrameId      Int    @default(0) @db.UnsignedInt
+  PixelDiff    Int    @default(0) @db.UnsignedTinyInt
+  AlarmPixels  Int    @default(0) @db.UnsignedInt
+  FilterPixels Int    @default(0) @db.UnsignedInt
+  BlobPixels   Int    @default(0) @db.UnsignedInt
+  Blobs        Int    @default(0) @db.UnsignedSmallInt
+  MinBlobSize  Int    @default(0) @db.UnsignedInt
+  MaxBlobSize  Int    @default(0) @db.UnsignedInt
+  MinX         Int    @default(0) @db.UnsignedSmallInt
+  MaxX         Int    @default(0) @db.UnsignedSmallInt
+  MinY         Int    @default(0) @db.UnsignedSmallInt
+  MaxY         Int    @default(0) @db.UnsignedSmallInt
+  Score        Int    @default(0) @db.UnsignedSmallInt
+
+  @@index([EventId], map: "EventId")
+  @@index([MonitorId], map: "MonitorId")
+  @@index([ZoneId], map: "ZoneId")
+}
+
+model Storage {
+  Id        Int            @id @default(autoincrement()) @db.UnsignedSmallInt
+  Path      String         @default("") @db.VarChar(64)
+  Name      String         @default("") @db.VarChar(64)
+  Type      Storage_Type   @default(local)
+  Url       String?        @db.VarChar(255)
+  DiskSpace BigInt?
+  Scheme    Storage_Scheme @default(Medium)
+  ServerId  Int?           @db.UnsignedInt
+  DoDelete  Boolean        @default(true)
+  Enabled   Boolean        @default(true)
+}
+
+model TriggersX10 {
+  MonitorId   Int     @id @default(0) @db.UnsignedInt
+  Activation  String? @db.VarChar(32)
+  AlarmInput  String? @db.VarChar(32)
+  AlarmOutput String? @db.VarChar(32)
+}
+
+model Users {
+  Id             Int             @id @default(autoincrement()) @db.UnsignedInt
+  Username       String          @unique(map: "UC_Username") @default("") @db.VarChar(32)
+  Password       String          @default("") @db.VarChar(64)
+  Language       String?         @db.VarChar(8)
+  Enabled        Int             @default(1) @db.UnsignedTinyInt
+  Stream         Users_Stream    @default(None)
+  Events         Users_Events    @default(None)
+  Control        Users_Control   @default(None)
+  Monitors       Users_Monitors  @default(None)
+  Groups         Users_Groups    @default(None)
+  Devices        Users_Devices   @default(None)
+  Snapshots      Users_Snapshots @default(None)
+  System         Users_System    @default(None)
+  MaxBandwidth   String?         @db.VarChar(16)
+  MonitorIds     String?         @db.Text
+  TokenMinExpiry BigInt          @default(0) @db.UnsignedBigInt
+  APIEnabled     Int             @default(1) @db.UnsignedTinyInt
+  HomeView       String          @default("") @db.VarChar(64)
+}
+
+model ZonePresets {
+  Id                Int                     @id @default(autoincrement()) @db.UnsignedInt
+  Name              String                  @default("") @db.VarChar(64)
+  Type              ZonePresets_Type        @default(Active)
+  Units             ZonePresets_Units       @default(Pixels)
+  CheckMethod       ZonePresets_CheckMethod @default(Blobs)
+  MinPixelThreshold Int?                    @db.UnsignedSmallInt
+  MaxPixelThreshold Int?                    @db.UnsignedSmallInt
+  MinAlarmPixels    Int?                    @db.UnsignedInt
+  MaxAlarmPixels    Int?                    @db.UnsignedInt
+  FilterX           Int?                    @db.UnsignedTinyInt
+  FilterY           Int?                    @db.UnsignedTinyInt
+  MinFilterPixels   Int?                    @db.UnsignedInt
+  MaxFilterPixels   Int?                    @db.UnsignedInt
+  MinBlobPixels     Int?                    @db.UnsignedInt
+  MaxBlobPixels     Int?                    @db.UnsignedInt
+  MinBlobs          Int?                    @db.UnsignedSmallInt
+  MaxBlobs          Int?                    @db.UnsignedSmallInt
+  OverloadFrames    Int                     @default(0) @db.UnsignedSmallInt
+  ExtendAlarmFrames Int                     @default(0) @db.UnsignedSmallInt
+}
+
+model Zones {
+  Id                Int               @id @default(autoincrement()) @db.UnsignedInt
+  MonitorId         Int               @default(0) @db.UnsignedInt
+  Name              String            @default("") @db.VarChar(64)
+  Type              Zones_Type        @default(Active)
+  Units             Zones_Units       @default(Pixels)
+  NumCoords         Int               @default(0) @db.UnsignedTinyInt
+  Coords            String            @db.TinyText
+  Area              Int               @default(0) @db.UnsignedInt
+  AlarmRGB          Int?              @default(0) @db.UnsignedInt
+  CheckMethod       Zones_CheckMethod @default(Blobs)
+  MinPixelThreshold Int?              @db.UnsignedSmallInt
+  MaxPixelThreshold Int?              @db.UnsignedSmallInt
+  MinAlarmPixels    Int?              @db.UnsignedInt
+  MaxAlarmPixels    Int?              @db.UnsignedInt
+  FilterX           Int?              @db.UnsignedTinyInt
+  FilterY           Int?              @db.UnsignedTinyInt
+  MinFilterPixels   Int?              @db.UnsignedInt
+  MaxFilterPixels   Int?              @db.UnsignedInt
+  MinBlobPixels     Int?              @db.UnsignedInt
+  MaxBlobPixels     Int?              @db.UnsignedInt
+  MinBlobs          Int?              @db.UnsignedSmallInt
+  MaxBlobs          Int?              @db.UnsignedSmallInt
+  OverloadFrames    Int               @default(0) @db.UnsignedSmallInt
+  ExtendAlarmFrames Int               @default(0) @db.UnsignedSmallInt
+
+  @@index([MonitorId], map: "MonitorId")
+}
+
+enum Controls_Type {
+  Local
+  Remote
+  File
+  Ffmpeg
+  Libvlc
+  cURL
+  WebSite
+  NVSocket
+}
+
+enum Devices_Type {
+  X10
+}
+
+enum Events_Orientation {
+  ROTATE_0
+  ROTATE_90
+  ROTATE_180
+  ROTATE_270
+  FLIP_HORI
+  FLIP_VERT
+}
+
+enum Events_Scheme {
+  Deep
+  Medium
+  Shallow
+}
+
+enum Frames_Type {
+  Normal
+  Bulk
+  Alarm
+}
+
+enum MonitorPresets_Type {
+  Local
+  Remote
+  File
+  Ffmpeg
+  Libvlc
+  cURL
+  WebSite
+  NVSocket
+}
+
+enum Monitor_Status_Status {
+  Unknown
+  NotRunning
+  Running
+  Connected
+  Signal
+}
+
+enum Monitors_Type {
+  Local
+  Remote
+  File
+  Ffmpeg
+  Libvlc
+  cURL
+  NVSocket
+  VNC
+}
+
+enum Monitors_Function {
+  None
+  Monitor
+  Modect
+  Record
+  Mocord
+  Nodect
+}
+
+enum Monitors_Orientation {
+  ROTATE_0
+  ROTATE_90
+  ROTATE_180
+  ROTATE_270
+  FLIP_HORI
+  FLIP_VERT
+}
+
+enum Monitors_OutputContainer {
+  auto
+  mp4
+  mkv
+}
+
+enum Monitors_DefaultCodec {
+  auto
+  MP4
+  MJPEG
+}
+
+enum Monitors_Importance {
+  Not
+  Less
+  Normal
+}
+
+enum Servers_Status {
+  Unknown
+  NotRunning
+  Running
+}
+
+enum Storage_Type {
+  local
+  s3fs
+}
+
+enum Storage_Scheme {
+  Deep
+  Medium
+  Shallow
+}
+
+enum Users_Stream {
+  None
+  View
+}
+
+enum Users_Events {
+  None
+  View
+  Edit
+}
+
+enum Users_Control {
+  None
+  View
+  Edit
+}
+
+enum Users_Monitors {
+  None
+  View
+  Edit
+}
+
+enum Users_Groups {
+  None
+  View
+  Edit
+}
+
+enum Users_Devices {
+  None
+  View
+  Edit
+}
+
+enum Users_Snapshots {
+  None
+  View
+  Edit
+}
+
+enum Users_System {
+  None
+  View
+  Edit
+}
+
+enum ZonePresets_Type {
+  Active
+  Inclusive
+  Exclusive
+  Preclusive
+  Inactive
+  Privacy
+}
+
+enum ZonePresets_Units {
+  Pixels
+  Percent
+}
+
+enum ZonePresets_CheckMethod {
+  AlarmedPixels
+  FilteredPixels
+  Blobs
+}
+
+enum Zones_Type {
+  Active
+  Inclusive
+  Exclusive
+  Preclusive
+  Inactive
+  Privacy
+}
+
+enum Zones_Units {
+  Pixels
+  Percent
+}
+
+enum Zones_CheckMethod {
+  AlarmedPixels
+  FilteredPixels
+  Blobs
+}

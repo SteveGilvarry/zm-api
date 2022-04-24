@@ -1,0 +1,24 @@
+type Zonepreset {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input CreateZonepresetInput {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input UpdateZonepresetInput {
+  id: Int!
+}
+
+type Query {
+  zonepresets: [Zonepreset]!
+  zonepreset(id: Int!): Zonepreset
+}
+
+type Mutation {
+  createZonepreset(createZonepresetInput: CreateZonepresetInput!): Zonepreset!
+  updateZonepreset(updateZonepresetInput: UpdateZonepresetInput!): Zonepreset!
+  removeZonepreset(id: Int!): Zonepreset
+}

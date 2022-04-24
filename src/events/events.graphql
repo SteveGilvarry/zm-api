@@ -1,0 +1,24 @@
+type Event {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input CreateEventInput {
+  # Example field (placeholder)
+  exampleField: Int
+}
+
+input UpdateEventInput {
+  id: Int!
+}
+
+type Query {
+  events: [Event]!
+  event(id: Int!): Event
+}
+
+type Mutation {
+  createEvent(createEventInput: CreateEventInput!): Event!
+  updateEvent(updateEventInput: UpdateEventInput!): Event!
+  removeEvent(id: Int!): Event
+}
