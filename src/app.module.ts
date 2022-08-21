@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { ApolloDriver, ApolloDriverConfig } from '@nestjs/apollo';
 import { GraphQLModule } from '@nestjs/graphql';
 import { ApolloServerPluginLandingPageLocalDefault } from 'apollo-server-core';
 import { MonitorsModule } from './monitors/monitors.module';
@@ -29,7 +30,8 @@ import { MontagelayoutsModule } from './montagelayouts/montagelayouts.module';
 
 @Module({
   imports: [
-    GraphQLModule.forRoot({
+    GraphQLModule.forRoot<ApolloDriverConfig>({
+      driver: ApolloDriver,
       playground: false,
       plugins: [ApolloServerPluginLandingPageLocalDefault()],
       typePaths: ['./**/*.graphql'],
