@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { Snapshot_EventsWhereInput } from '../snapshot-events/snapshot-events-where.input';
+import { Type } from 'class-transformer';
 import { Snapshot_EventsOrderByWithAggregationInput } from '../snapshot-events/snapshot-events-order-by-with-aggregation.input';
 import { Snapshot_EventsScalarFieldEnum } from '../snapshot-events/snapshot-events-scalar-field.enum';
 import { Snapshot_EventsScalarWhereWithAggregatesInput } from '../snapshot-events/snapshot-events-scalar-where-with-aggregates.input';
@@ -10,6 +11,7 @@ import { Int } from '@nestjs/graphql';
 export class GroupBySnapshotEventsArgs {
 
     @Field(() => Snapshot_EventsWhereInput, {nullable:true})
+    @Type(() => Snapshot_EventsWhereInput)
     where?: Snapshot_EventsWhereInput;
 
     @Field(() => [Snapshot_EventsOrderByWithAggregationInput], {nullable:true})

@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { DevicesWhereInput } from './devices-where.input';
+import { Type } from 'class-transformer';
 import { DevicesOrderByWithAggregationInput } from './devices-order-by-with-aggregation.input';
 import { DevicesScalarFieldEnum } from './devices-scalar-field.enum';
 import { DevicesScalarWhereWithAggregatesInput } from './devices-scalar-where-with-aggregates.input';
@@ -15,6 +16,7 @@ import { DevicesMaxAggregateInput } from './devices-max-aggregate.input';
 export class DevicesGroupByArgs {
 
     @Field(() => DevicesWhereInput, {nullable:true})
+    @Type(() => DevicesWhereInput)
     where?: DevicesWhereInput;
 
     @Field(() => [DevicesOrderByWithAggregationInput], {nullable:true})

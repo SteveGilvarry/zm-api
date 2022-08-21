@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { ControlsWhereInput } from './controls-where.input';
+import { Type } from 'class-transformer';
 import { ControlsOrderByWithAggregationInput } from './controls-order-by-with-aggregation.input';
 import { ControlsScalarFieldEnum } from './controls-scalar-field.enum';
 import { ControlsScalarWhereWithAggregatesInput } from './controls-scalar-where-with-aggregates.input';
@@ -15,6 +16,7 @@ import { ControlsMaxAggregateInput } from './controls-max-aggregate.input';
 export class ControlsGroupByArgs {
 
     @Field(() => ControlsWhereInput, {nullable:true})
+    @Type(() => ControlsWhereInput)
     where?: ControlsWhereInput;
 
     @Field(() => [ControlsOrderByWithAggregationInput], {nullable:true})

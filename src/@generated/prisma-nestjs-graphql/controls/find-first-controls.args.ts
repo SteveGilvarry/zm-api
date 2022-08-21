@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { ControlsWhereInput } from './controls-where.input';
+import { Type } from 'class-transformer';
 import { ControlsOrderByWithRelationInput } from './controls-order-by-with-relation.input';
 import { ControlsWhereUniqueInput } from './controls-where-unique.input';
 import { Int } from '@nestjs/graphql';
@@ -10,6 +11,7 @@ import { ControlsScalarFieldEnum } from './controls-scalar-field.enum';
 export class FindFirstControlsArgs {
 
     @Field(() => ControlsWhereInput, {nullable:true})
+    @Type(() => ControlsWhereInput)
     where?: ControlsWhereInput;
 
     @Field(() => [ControlsOrderByWithRelationInput], {nullable:true})

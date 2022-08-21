@@ -1,5 +1,6 @@
 import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
+import { Type } from 'class-transformer';
 import { IntFilter } from '../prisma/int-filter.input';
 import { StringFilter } from '../prisma/string-filter.input';
 import { StringNullableFilter } from '../prisma/string-nullable-filter.input';
@@ -18,12 +19,15 @@ import { EnumMonitors_ImportanceNullableFilter } from '../prisma/enum-monitors-i
 export class MonitorsWhereInput {
 
     @Field(() => [MonitorsWhereInput], {nullable:true})
+    @Type(() => MonitorsWhereInput)
     AND?: Array<MonitorsWhereInput>;
 
     @Field(() => [MonitorsWhereInput], {nullable:true})
+    @Type(() => MonitorsWhereInput)
     OR?: Array<MonitorsWhereInput>;
 
     @Field(() => [MonitorsWhereInput], {nullable:true})
+    @Type(() => MonitorsWhereInput)
     NOT?: Array<MonitorsWhereInput>;
 
     @Field(() => IntFilter, {nullable:true})
@@ -225,15 +229,18 @@ export class MonitorsWhereInput {
     MotionFrameSkip?: IntFilter;
 
     @Field(() => DecimalNullableFilter, {nullable:true})
+    @Type(() => DecimalNullableFilter)
     AnalysisFPSLimit?: DecimalNullableFilter;
 
     @Field(() => IntFilter, {nullable:true})
     AnalysisUpdateDelay?: IntFilter;
 
     @Field(() => DecimalNullableFilter, {nullable:true})
+    @Type(() => DecimalNullableFilter)
     MaxFPS?: DecimalNullableFilter;
 
     @Field(() => DecimalNullableFilter, {nullable:true})
+    @Type(() => DecimalNullableFilter)
     AlarmMaxFPS?: DecimalNullableFilter;
 
     @Field(() => IntFilter, {nullable:true})
@@ -258,6 +265,7 @@ export class MonitorsWhereInput {
     ControlAddress?: StringNullableFilter;
 
     @Field(() => DecimalNullableFilter, {nullable:true})
+    @Type(() => DecimalNullableFilter)
     AutoStopTimeout?: DecimalNullableFilter;
 
     @Field(() => IntFilter, {nullable:true})
@@ -312,9 +320,11 @@ export class MonitorsWhereInput {
     Refresh?: IntNullableFilter;
 
     @Field(() => DecimalNullableFilter, {nullable:true})
+    @Type(() => DecimalNullableFilter)
     Latitude?: DecimalNullableFilter;
 
     @Field(() => DecimalNullableFilter, {nullable:true})
+    @Type(() => DecimalNullableFilter)
     Longitude?: DecimalNullableFilter;
 
     @Field(() => BoolFilter, {nullable:true})

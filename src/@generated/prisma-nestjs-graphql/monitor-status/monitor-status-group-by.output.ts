@@ -2,6 +2,7 @@ import { Field } from '@nestjs/graphql';
 import { ObjectType } from '@nestjs/graphql';
 import { Int } from '@nestjs/graphql';
 import { Monitor_Status_Status } from '../prisma/monitor-status-status.enum';
+import { Decimal } from '@prisma/client/runtime';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
 import { Monitor_StatusCountAggregate } from './monitor-status-count-aggregate.output';
 import { Monitor_StatusAvgAggregate } from './monitor-status-avg-aggregate.output';
@@ -19,10 +20,10 @@ export class Monitor_StatusGroupBy {
     Status!: keyof typeof Monitor_Status_Status;
 
     @Field(() => GraphQLDecimal, {nullable:false})
-    CaptureFPS!: any;
+    CaptureFPS!: Decimal;
 
     @Field(() => GraphQLDecimal, {nullable:false})
-    AnalysisFPS!: any;
+    AnalysisFPS!: Decimal;
 
     @Field(() => Int, {nullable:false})
     CaptureBandwidth!: number;

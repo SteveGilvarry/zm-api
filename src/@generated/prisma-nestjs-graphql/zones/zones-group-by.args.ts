@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { ZonesWhereInput } from './zones-where.input';
+import { Type } from 'class-transformer';
 import { ZonesOrderByWithAggregationInput } from './zones-order-by-with-aggregation.input';
 import { ZonesScalarFieldEnum } from './zones-scalar-field.enum';
 import { ZonesScalarWhereWithAggregatesInput } from './zones-scalar-where-with-aggregates.input';
@@ -15,6 +16,7 @@ import { ZonesMaxAggregateInput } from './zones-max-aggregate.input';
 export class ZonesGroupByArgs {
 
     @Field(() => ZonesWhereInput, {nullable:true})
+    @Type(() => ZonesWhereInput)
     where?: ZonesWhereInput;
 
     @Field(() => [ZonesOrderByWithAggregationInput], {nullable:true})

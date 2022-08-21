@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { ConfigWhereInput } from './config-where.input';
+import { Type } from 'class-transformer';
 import { ConfigOrderByWithAggregationInput } from './config-order-by-with-aggregation.input';
 import { ConfigScalarFieldEnum } from './config-scalar-field.enum';
 import { ConfigScalarWhereWithAggregatesInput } from './config-scalar-where-with-aggregates.input';
@@ -15,6 +16,7 @@ import { ConfigMaxAggregateInput } from './config-max-aggregate.input';
 export class ConfigGroupByArgs {
 
     @Field(() => ConfigWhereInput, {nullable:true})
+    @Type(() => ConfigWhereInput)
     where?: ConfigWhereInput;
 
     @Field(() => [ConfigOrderByWithAggregationInput], {nullable:true})

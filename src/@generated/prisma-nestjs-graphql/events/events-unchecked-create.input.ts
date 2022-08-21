@@ -1,7 +1,11 @@
 import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
 import { Int } from '@nestjs/graphql';
+import { Decimal } from '@prisma/client/runtime';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
+import { transformToDecimal } from 'prisma-graphql-type-decimal';
+import { Transform } from 'class-transformer';
+import { Type } from 'class-transformer';
 import { Events_Orientation } from './events-orientation.enum';
 import { Events_Scheme } from '../prisma/events-scheme.enum';
 
@@ -39,7 +43,9 @@ export class EventsUncheckedCreateInput {
     Height?: number;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    Length?: any;
+    @Type(() => Object)
+    @Transform(transformToDecimal)
+    Length?: Decimal;
 
     @Field(() => Int, {nullable:true})
     Frames?: number;

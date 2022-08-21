@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { StorageWhereInput } from './storage-where.input';
+import { Type } from 'class-transformer';
 import { StorageOrderByWithAggregationInput } from './storage-order-by-with-aggregation.input';
 import { StorageScalarFieldEnum } from './storage-scalar-field.enum';
 import { StorageScalarWhereWithAggregatesInput } from './storage-scalar-where-with-aggregates.input';
@@ -15,6 +16,7 @@ import { StorageMaxAggregateInput } from './storage-max-aggregate.input';
 export class StorageGroupByArgs {
 
     @Field(() => StorageWhereInput, {nullable:true})
+    @Type(() => StorageWhereInput)
     where?: StorageWhereInput;
 
     @Field(() => [StorageOrderByWithAggregationInput], {nullable:true})

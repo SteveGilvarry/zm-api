@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { ManufacturersWhereInput } from './manufacturers-where.input';
+import { Type } from 'class-transformer';
 import { ManufacturersOrderByWithAggregationInput } from './manufacturers-order-by-with-aggregation.input';
 import { ManufacturersScalarFieldEnum } from './manufacturers-scalar-field.enum';
 import { ManufacturersScalarWhereWithAggregatesInput } from './manufacturers-scalar-where-with-aggregates.input';
@@ -15,6 +16,7 @@ import { ManufacturersMaxAggregateInput } from './manufacturers-max-aggregate.in
 export class ManufacturersGroupByArgs {
 
     @Field(() => ManufacturersWhereInput, {nullable:true})
+    @Type(() => ManufacturersWhereInput)
     where?: ManufacturersWhereInput;
 
     @Field(() => [ManufacturersOrderByWithAggregationInput], {nullable:true})

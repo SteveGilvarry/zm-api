@@ -5,6 +5,7 @@ import { IntFieldUpdateOperationsInput } from '../prisma/int-field-update-operat
 import { EnumFrames_TypeFieldUpdateOperationsInput } from '../prisma/enum-frames-type-field-update-operations.input';
 import { DateTimeFieldUpdateOperationsInput } from '../prisma/date-time-field-update-operations.input';
 import { DecimalFieldUpdateOperationsInput } from '../prisma/decimal-field-update-operations.input';
+import { Type } from 'class-transformer';
 
 @InputType()
 export class FramesUncheckedUpdateInput {
@@ -25,6 +26,7 @@ export class FramesUncheckedUpdateInput {
     TimeStamp?: DateTimeFieldUpdateOperationsInput;
 
     @Field(() => DecimalFieldUpdateOperationsInput, {nullable:true})
+    @Type(() => DecimalFieldUpdateOperationsInput)
     Delta?: DecimalFieldUpdateOperationsInput;
 
     @Field(() => IntFieldUpdateOperationsInput, {nullable:true})

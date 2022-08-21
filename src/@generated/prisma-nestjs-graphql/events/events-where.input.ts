@@ -1,5 +1,6 @@
 import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
+import { Type } from 'class-transformer';
 import { BigIntFilter } from '../prisma/big-int-filter.input';
 import { IntFilter } from '../prisma/int-filter.input';
 import { IntNullableFilter } from '../prisma/int-nullable-filter.input';
@@ -16,12 +17,15 @@ import { BoolFilter } from '../prisma/bool-filter.input';
 export class EventsWhereInput {
 
     @Field(() => [EventsWhereInput], {nullable:true})
+    @Type(() => EventsWhereInput)
     AND?: Array<EventsWhereInput>;
 
     @Field(() => [EventsWhereInput], {nullable:true})
+    @Type(() => EventsWhereInput)
     OR?: Array<EventsWhereInput>;
 
     @Field(() => [EventsWhereInput], {nullable:true})
+    @Type(() => EventsWhereInput)
     NOT?: Array<EventsWhereInput>;
 
     @Field(() => BigIntFilter, {nullable:true})
@@ -55,6 +59,7 @@ export class EventsWhereInput {
     Height?: IntFilter;
 
     @Field(() => DecimalFilter, {nullable:true})
+    @Type(() => DecimalFilter)
     Length?: DecimalFilter;
 
     @Field(() => IntNullableFilter, {nullable:true})

@@ -3,6 +3,7 @@ import { InputType } from '@nestjs/graphql';
 import { StringFilter } from '../prisma/string-filter.input';
 import { IntNullableFilter } from '../prisma/int-nullable-filter.input';
 import { StringNullableFilter } from '../prisma/string-nullable-filter.input';
+import { Type } from 'class-transformer';
 
 @InputType()
 export class SessionsWhereInput {
@@ -23,5 +24,6 @@ export class SessionsWhereInput {
     access?: IntNullableFilter;
 
     @Field(() => StringNullableFilter, {nullable:true})
+    @Type(() => StringNullableFilter)
     data?: StringNullableFilter;
 }

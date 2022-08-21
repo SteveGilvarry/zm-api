@@ -2,7 +2,11 @@ import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
 import { Int } from '@nestjs/graphql';
 import { Frames_Type } from '../prisma/frames-type.enum';
+import { Decimal } from '@prisma/client/runtime';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
+import { transformToDecimal } from 'prisma-graphql-type-decimal';
+import { Transform } from 'class-transformer';
+import { Type } from 'class-transformer';
 
 @InputType()
 export class FramesCreateManyInput {
@@ -23,7 +27,9 @@ export class FramesCreateManyInput {
     TimeStamp?: Date | string;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    Delta?: any;
+    @Type(() => Object)
+    @Transform(transformToDecimal)
+    Delta?: Decimal;
 
     @Field(() => Int, {nullable:true})
     Score?: number;

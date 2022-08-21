@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { ControlPresetsWhereInput } from './control-presets-where.input';
+import { Type } from 'class-transformer';
 import { ControlPresetsOrderByWithRelationInput } from './control-presets-order-by-with-relation.input';
 import { ControlPresetsWhereUniqueInput } from './control-presets-where-unique.input';
 import { Int } from '@nestjs/graphql';
@@ -14,6 +15,7 @@ import { ControlPresetsMaxAggregateInput } from './control-presets-max-aggregate
 export class ControlPresetsAggregateArgs {
 
     @Field(() => ControlPresetsWhereInput, {nullable:true})
+    @Type(() => ControlPresetsWhereInput)
     where?: ControlPresetsWhereInput;
 
     @Field(() => [ControlPresetsOrderByWithRelationInput], {nullable:true})

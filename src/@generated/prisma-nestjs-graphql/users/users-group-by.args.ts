@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { UsersWhereInput } from './users-where.input';
+import { Type } from 'class-transformer';
 import { UsersOrderByWithAggregationInput } from './users-order-by-with-aggregation.input';
 import { UsersScalarFieldEnum } from './users-scalar-field.enum';
 import { UsersScalarWhereWithAggregatesInput } from './users-scalar-where-with-aggregates.input';
@@ -15,6 +16,7 @@ import { UsersMaxAggregateInput } from './users-max-aggregate.input';
 export class UsersGroupByArgs {
 
     @Field(() => UsersWhereInput, {nullable:true})
+    @Type(() => UsersWhereInput)
     where?: UsersWhereInput;
 
     @Field(() => [UsersOrderByWithAggregationInput], {nullable:true})

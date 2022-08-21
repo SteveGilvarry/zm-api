@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { TriggersX10WhereInput } from './triggers-x-10-where.input';
+import { Type } from 'class-transformer';
 import { TriggersX10OrderByWithRelationInput } from './triggers-x-10-order-by-with-relation.input';
 import { TriggersX10WhereUniqueInput } from './triggers-x-10-where-unique.input';
 import { Int } from '@nestjs/graphql';
@@ -10,6 +11,7 @@ import { TriggersX10ScalarFieldEnum } from './triggers-x-10-scalar-field.enum';
 export class FindFirstTriggersX10Args {
 
     @Field(() => TriggersX10WhereInput, {nullable:true})
+    @Type(() => TriggersX10WhereInput)
     where?: TriggersX10WhereInput;
 
     @Field(() => [TriggersX10OrderByWithRelationInput], {nullable:true})

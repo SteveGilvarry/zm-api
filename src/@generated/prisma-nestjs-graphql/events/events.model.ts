@@ -3,6 +3,7 @@ import { ObjectType } from '@nestjs/graphql';
 import { ID } from '@nestjs/graphql';
 import { Int } from '@nestjs/graphql';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
+import { Decimal } from '@prisma/client/runtime';
 import { Events_Orientation } from './events-orientation.enum';
 import { Events_Scheme } from '../prisma/events-scheme.enum';
 
@@ -40,7 +41,7 @@ export class Events {
     Height!: number;
 
     @Field(() => GraphQLDecimal, {nullable:false,defaultValue:0})
-    Length!: any;
+    Length!: Decimal;
 
     @Field(() => Int, {nullable:true})
     Frames!: number | null;

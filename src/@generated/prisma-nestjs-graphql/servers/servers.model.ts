@@ -4,6 +4,7 @@ import { ID } from '@nestjs/graphql';
 import { Int } from '@nestjs/graphql';
 import { Servers_Status } from '../prisma/servers-status.enum';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
+import { Decimal } from '@prisma/client/runtime';
 
 @ObjectType()
 export class Servers {
@@ -39,7 +40,7 @@ export class Servers {
     Status!: keyof typeof Servers_Status;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    CpuLoad!: any | null;
+    CpuLoad!: Decimal | null;
 
     @Field(() => String, {nullable:true})
     TotalMem!: bigint | null;

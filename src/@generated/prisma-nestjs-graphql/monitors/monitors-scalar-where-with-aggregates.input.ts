@@ -1,5 +1,6 @@
 import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
+import { Type } from 'class-transformer';
 import { IntWithAggregatesFilter } from '../prisma/int-with-aggregates-filter.input';
 import { StringWithAggregatesFilter } from '../prisma/string-with-aggregates-filter.input';
 import { StringNullableWithAggregatesFilter } from '../prisma/string-nullable-with-aggregates-filter.input';
@@ -18,12 +19,15 @@ import { EnumMonitors_ImportanceNullableWithAggregatesFilter } from '../prisma/e
 export class MonitorsScalarWhereWithAggregatesInput {
 
     @Field(() => [MonitorsScalarWhereWithAggregatesInput], {nullable:true})
+    @Type(() => MonitorsScalarWhereWithAggregatesInput)
     AND?: Array<MonitorsScalarWhereWithAggregatesInput>;
 
     @Field(() => [MonitorsScalarWhereWithAggregatesInput], {nullable:true})
+    @Type(() => MonitorsScalarWhereWithAggregatesInput)
     OR?: Array<MonitorsScalarWhereWithAggregatesInput>;
 
     @Field(() => [MonitorsScalarWhereWithAggregatesInput], {nullable:true})
+    @Type(() => MonitorsScalarWhereWithAggregatesInput)
     NOT?: Array<MonitorsScalarWhereWithAggregatesInput>;
 
     @Field(() => IntWithAggregatesFilter, {nullable:true})
@@ -225,15 +229,18 @@ export class MonitorsScalarWhereWithAggregatesInput {
     MotionFrameSkip?: IntWithAggregatesFilter;
 
     @Field(() => DecimalNullableWithAggregatesFilter, {nullable:true})
+    @Type(() => DecimalNullableWithAggregatesFilter)
     AnalysisFPSLimit?: DecimalNullableWithAggregatesFilter;
 
     @Field(() => IntWithAggregatesFilter, {nullable:true})
     AnalysisUpdateDelay?: IntWithAggregatesFilter;
 
     @Field(() => DecimalNullableWithAggregatesFilter, {nullable:true})
+    @Type(() => DecimalNullableWithAggregatesFilter)
     MaxFPS?: DecimalNullableWithAggregatesFilter;
 
     @Field(() => DecimalNullableWithAggregatesFilter, {nullable:true})
+    @Type(() => DecimalNullableWithAggregatesFilter)
     AlarmMaxFPS?: DecimalNullableWithAggregatesFilter;
 
     @Field(() => IntWithAggregatesFilter, {nullable:true})
@@ -258,6 +265,7 @@ export class MonitorsScalarWhereWithAggregatesInput {
     ControlAddress?: StringNullableWithAggregatesFilter;
 
     @Field(() => DecimalNullableWithAggregatesFilter, {nullable:true})
+    @Type(() => DecimalNullableWithAggregatesFilter)
     AutoStopTimeout?: DecimalNullableWithAggregatesFilter;
 
     @Field(() => IntWithAggregatesFilter, {nullable:true})
@@ -312,9 +320,11 @@ export class MonitorsScalarWhereWithAggregatesInput {
     Refresh?: IntNullableWithAggregatesFilter;
 
     @Field(() => DecimalNullableWithAggregatesFilter, {nullable:true})
+    @Type(() => DecimalNullableWithAggregatesFilter)
     Latitude?: DecimalNullableWithAggregatesFilter;
 
     @Field(() => DecimalNullableWithAggregatesFilter, {nullable:true})
+    @Type(() => DecimalNullableWithAggregatesFilter)
     Longitude?: DecimalNullableWithAggregatesFilter;
 
     @Field(() => BoolWithAggregatesFilter, {nullable:true})

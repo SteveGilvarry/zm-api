@@ -1,5 +1,6 @@
 import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
+import { Type } from 'class-transformer';
 import { IntFilter } from '../prisma/int-filter.input';
 import { StringNullableFilter } from '../prisma/string-nullable-filter.input';
 import { IntNullableFilter } from '../prisma/int-nullable-filter.input';
@@ -13,12 +14,15 @@ import { BoolFilter } from '../prisma/bool-filter.input';
 export class ServersWhereInput {
 
     @Field(() => [ServersWhereInput], {nullable:true})
+    @Type(() => ServersWhereInput)
     AND?: Array<ServersWhereInput>;
 
     @Field(() => [ServersWhereInput], {nullable:true})
+    @Type(() => ServersWhereInput)
     OR?: Array<ServersWhereInput>;
 
     @Field(() => [ServersWhereInput], {nullable:true})
+    @Type(() => ServersWhereInput)
     NOT?: Array<ServersWhereInput>;
 
     @Field(() => IntFilter, {nullable:true})
@@ -52,6 +56,7 @@ export class ServersWhereInput {
     Status?: EnumServers_StatusFilter;
 
     @Field(() => DecimalNullableFilter, {nullable:true})
+    @Type(() => DecimalNullableFilter)
     CpuLoad?: DecimalNullableFilter;
 
     @Field(() => BigIntNullableFilter, {nullable:true})

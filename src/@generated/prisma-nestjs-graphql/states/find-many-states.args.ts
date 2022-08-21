@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { StatesWhereInput } from './states-where.input';
+import { Type } from 'class-transformer';
 import { StatesOrderByWithRelationInput } from './states-order-by-with-relation.input';
 import { StatesWhereUniqueInput } from './states-where-unique.input';
 import { Int } from '@nestjs/graphql';
@@ -10,6 +11,7 @@ import { StatesScalarFieldEnum } from './states-scalar-field.enum';
 export class FindManyStatesArgs {
 
     @Field(() => StatesWhereInput, {nullable:true})
+    @Type(() => StatesWhereInput)
     where?: StatesWhereInput;
 
     @Field(() => [StatesOrderByWithRelationInput], {nullable:true})

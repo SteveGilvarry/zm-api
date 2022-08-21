@@ -1,5 +1,6 @@
 import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
+import { Type } from 'class-transformer';
 import { IntWithAggregatesFilter } from '../prisma/int-with-aggregates-filter.input';
 import { StringWithAggregatesFilter } from '../prisma/string-with-aggregates-filter.input';
 import { EnumMonitorPresets_TypeWithAggregatesFilter } from '../prisma/enum-monitor-presets-type-with-aggregates-filter.input';
@@ -11,12 +12,15 @@ import { DecimalNullableWithAggregatesFilter } from '../prisma/decimal-nullable-
 export class MonitorPresetsScalarWhereWithAggregatesInput {
 
     @Field(() => [MonitorPresetsScalarWhereWithAggregatesInput], {nullable:true})
+    @Type(() => MonitorPresetsScalarWhereWithAggregatesInput)
     AND?: Array<MonitorPresetsScalarWhereWithAggregatesInput>;
 
     @Field(() => [MonitorPresetsScalarWhereWithAggregatesInput], {nullable:true})
+    @Type(() => MonitorPresetsScalarWhereWithAggregatesInput)
     OR?: Array<MonitorPresetsScalarWhereWithAggregatesInput>;
 
     @Field(() => [MonitorPresetsScalarWhereWithAggregatesInput], {nullable:true})
+    @Type(() => MonitorPresetsScalarWhereWithAggregatesInput)
     NOT?: Array<MonitorPresetsScalarWhereWithAggregatesInput>;
 
     @Field(() => IntWithAggregatesFilter, {nullable:true})
@@ -65,6 +69,7 @@ export class MonitorPresetsScalarWhereWithAggregatesInput {
     Palette?: IntNullableWithAggregatesFilter;
 
     @Field(() => DecimalNullableWithAggregatesFilter, {nullable:true})
+    @Type(() => DecimalNullableWithAggregatesFilter)
     MaxFPS?: DecimalNullableWithAggregatesFilter;
 
     @Field(() => IntWithAggregatesFilter, {nullable:true})

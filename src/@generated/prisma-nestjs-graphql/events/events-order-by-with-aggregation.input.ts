@@ -2,6 +2,7 @@ import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
 import { SortOrder } from '../prisma/sort-order.enum';
 import { EventsCountOrderByAggregateInput } from './events-count-order-by-aggregate.input';
+import { Type } from 'class-transformer';
 import { EventsAvgOrderByAggregateInput } from './events-avg-order-by-aggregate.input';
 import { EventsMaxOrderByAggregateInput } from './events-max-order-by-aggregate.input';
 import { EventsMinOrderByAggregateInput } from './events-min-order-by-aggregate.input';
@@ -101,17 +102,22 @@ export class EventsOrderByWithAggregationInput {
     Locked?: keyof typeof SortOrder;
 
     @Field(() => EventsCountOrderByAggregateInput, {nullable:true})
+    @Type(() => EventsCountOrderByAggregateInput)
     _count?: EventsCountOrderByAggregateInput;
 
     @Field(() => EventsAvgOrderByAggregateInput, {nullable:true})
+    @Type(() => EventsAvgOrderByAggregateInput)
     _avg?: EventsAvgOrderByAggregateInput;
 
     @Field(() => EventsMaxOrderByAggregateInput, {nullable:true})
+    @Type(() => EventsMaxOrderByAggregateInput)
     _max?: EventsMaxOrderByAggregateInput;
 
     @Field(() => EventsMinOrderByAggregateInput, {nullable:true})
+    @Type(() => EventsMinOrderByAggregateInput)
     _min?: EventsMinOrderByAggregateInput;
 
     @Field(() => EventsSumOrderByAggregateInput, {nullable:true})
+    @Type(() => EventsSumOrderByAggregateInput)
     _sum?: EventsSumOrderByAggregateInput;
 }

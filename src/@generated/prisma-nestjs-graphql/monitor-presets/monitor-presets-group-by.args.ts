@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { MonitorPresetsWhereInput } from './monitor-presets-where.input';
+import { Type } from 'class-transformer';
 import { MonitorPresetsOrderByWithAggregationInput } from './monitor-presets-order-by-with-aggregation.input';
 import { MonitorPresetsScalarFieldEnum } from './monitor-presets-scalar-field.enum';
 import { MonitorPresetsScalarWhereWithAggregatesInput } from './monitor-presets-scalar-where-with-aggregates.input';
@@ -15,15 +16,18 @@ import { MonitorPresetsMaxAggregateInput } from './monitor-presets-max-aggregate
 export class MonitorPresetsGroupByArgs {
 
     @Field(() => MonitorPresetsWhereInput, {nullable:true})
+    @Type(() => MonitorPresetsWhereInput)
     where?: MonitorPresetsWhereInput;
 
     @Field(() => [MonitorPresetsOrderByWithAggregationInput], {nullable:true})
+    @Type(() => MonitorPresetsOrderByWithAggregationInput)
     orderBy?: Array<MonitorPresetsOrderByWithAggregationInput>;
 
     @Field(() => [MonitorPresetsScalarFieldEnum], {nullable:false})
     by!: Array<keyof typeof MonitorPresetsScalarFieldEnum>;
 
     @Field(() => MonitorPresetsScalarWhereWithAggregatesInput, {nullable:true})
+    @Type(() => MonitorPresetsScalarWhereWithAggregatesInput)
     having?: MonitorPresetsScalarWhereWithAggregatesInput;
 
     @Field(() => Int, {nullable:true})
@@ -33,17 +37,22 @@ export class MonitorPresetsGroupByArgs {
     skip?: number;
 
     @Field(() => MonitorPresetsCountAggregateInput, {nullable:true})
+    @Type(() => MonitorPresetsCountAggregateInput)
     _count?: MonitorPresetsCountAggregateInput;
 
     @Field(() => MonitorPresetsAvgAggregateInput, {nullable:true})
+    @Type(() => MonitorPresetsAvgAggregateInput)
     _avg?: MonitorPresetsAvgAggregateInput;
 
     @Field(() => MonitorPresetsSumAggregateInput, {nullable:true})
+    @Type(() => MonitorPresetsSumAggregateInput)
     _sum?: MonitorPresetsSumAggregateInput;
 
     @Field(() => MonitorPresetsMinAggregateInput, {nullable:true})
+    @Type(() => MonitorPresetsMinAggregateInput)
     _min?: MonitorPresetsMinAggregateInput;
 
     @Field(() => MonitorPresetsMaxAggregateInput, {nullable:true})
+    @Type(() => MonitorPresetsMaxAggregateInput)
     _max?: MonitorPresetsMaxAggregateInput;
 }

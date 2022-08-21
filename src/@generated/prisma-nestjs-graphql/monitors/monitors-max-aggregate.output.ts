@@ -5,6 +5,7 @@ import { Monitors_Type } from '../prisma/monitors-type.enum';
 import { Monitors_Function } from '../prisma/monitors-function.enum';
 import { Monitors_Orientation } from './monitors-orientation.enum';
 import { Monitors_OutputContainer } from '../prisma/monitors-output-container.enum';
+import { Decimal } from '@prisma/client/runtime';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
 import { Monitors_DefaultCodec } from './monitors-default-codec.enum';
 import { Monitors_Importance } from './monitors-importance.enum';
@@ -211,16 +212,16 @@ export class MonitorsMaxAggregate {
     MotionFrameSkip?: number;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    AnalysisFPSLimit?: any;
+    AnalysisFPSLimit?: Decimal;
 
     @Field(() => Int, {nullable:true})
     AnalysisUpdateDelay?: number;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    MaxFPS?: any;
+    MaxFPS?: Decimal;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    AlarmMaxFPS?: any;
+    AlarmMaxFPS?: Decimal;
 
     @Field(() => Int, {nullable:true})
     FPSReportInterval?: number;
@@ -244,7 +245,7 @@ export class MonitorsMaxAggregate {
     ControlAddress?: string;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    AutoStopTimeout?: any;
+    AutoStopTimeout?: Decimal;
 
     @Field(() => Int, {nullable:true})
     TrackMotion?: number;
@@ -298,10 +299,10 @@ export class MonitorsMaxAggregate {
     Refresh?: number;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    Latitude?: any;
+    Latitude?: Decimal;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    Longitude?: any;
+    Longitude?: Decimal;
 
     @Field(() => Boolean, {nullable:true})
     RTSPServer?: boolean;

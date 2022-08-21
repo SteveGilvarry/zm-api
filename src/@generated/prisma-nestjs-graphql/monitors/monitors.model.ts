@@ -7,6 +7,7 @@ import { Monitors_Function } from '../prisma/monitors-function.enum';
 import { Monitors_Orientation } from './monitors-orientation.enum';
 import { Monitors_OutputContainer } from '../prisma/monitors-output-container.enum';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
+import { Decimal } from '@prisma/client/runtime';
 import { Monitors_DefaultCodec } from './monitors-default-codec.enum';
 import { Monitors_Importance } from './monitors-importance.enum';
 
@@ -212,16 +213,16 @@ export class Monitors {
     MotionFrameSkip!: number;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    AnalysisFPSLimit!: any | null;
+    AnalysisFPSLimit!: Decimal | null;
 
     @Field(() => Int, {nullable:false,defaultValue:0})
     AnalysisUpdateDelay!: number;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    MaxFPS!: any | null;
+    MaxFPS!: Decimal | null;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    AlarmMaxFPS!: any | null;
+    AlarmMaxFPS!: Decimal | null;
 
     @Field(() => Int, {nullable:false,defaultValue:250})
     FPSReportInterval!: number;
@@ -245,7 +246,7 @@ export class Monitors {
     ControlAddress!: string | null;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    AutoStopTimeout!: any | null;
+    AutoStopTimeout!: Decimal | null;
 
     @Field(() => Int, {nullable:false,defaultValue:0})
     TrackMotion!: number;
@@ -299,10 +300,10 @@ export class Monitors {
     Refresh!: number | null;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    Latitude!: any | null;
+    Latitude!: Decimal | null;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    Longitude!: any | null;
+    Longitude!: Decimal | null;
 
     @Field(() => Boolean, {nullable:false,defaultValue:false})
     RTSPServer!: boolean;

@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { Events_MonthWhereInput } from '../events-month/events-month-where.input';
+import { Type } from 'class-transformer';
 import { Events_MonthOrderByWithRelationInput } from '../events-month/events-month-order-by-with-relation.input';
 import { Events_MonthWhereUniqueInput } from '../events-month/events-month-where-unique.input';
 import { Int } from '@nestjs/graphql';
@@ -10,6 +11,7 @@ import { Events_MonthScalarFieldEnum } from '../events-month/events-month-scalar
 export class FindManyEventsMonthArgs {
 
     @Field(() => Events_MonthWhereInput, {nullable:true})
+    @Type(() => Events_MonthWhereInput)
     where?: Events_MonthWhereInput;
 
     @Field(() => [Events_MonthOrderByWithRelationInput], {nullable:true})

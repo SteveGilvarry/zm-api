@@ -2,6 +2,7 @@ import { Field } from '@nestjs/graphql';
 import { ObjectType } from '@nestjs/graphql';
 import { Int } from '@nestjs/graphql';
 import { Servers_Status } from '../prisma/servers-status.enum';
+import { Decimal } from '@prisma/client/runtime';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
 
 @ObjectType()
@@ -38,7 +39,7 @@ export class ServersMaxAggregate {
     Status?: keyof typeof Servers_Status;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    CpuLoad?: any;
+    CpuLoad?: Decimal;
 
     @Field(() => String, {nullable:true})
     TotalMem?: bigint | number;

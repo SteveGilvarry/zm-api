@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { TriggersX10WhereInput } from './triggers-x-10-where.input';
+import { Type } from 'class-transformer';
 import { TriggersX10OrderByWithAggregationInput } from './triggers-x-10-order-by-with-aggregation.input';
 import { TriggersX10ScalarFieldEnum } from './triggers-x-10-scalar-field.enum';
 import { TriggersX10ScalarWhereWithAggregatesInput } from './triggers-x-10-scalar-where-with-aggregates.input';
@@ -15,6 +16,7 @@ import { TriggersX10MaxAggregateInput } from './triggers-x-10-max-aggregate.inpu
 export class TriggersX10GroupByArgs {
 
     @Field(() => TriggersX10WhereInput, {nullable:true})
+    @Type(() => TriggersX10WhereInput)
     where?: TriggersX10WhereInput;
 
     @Field(() => [TriggersX10OrderByWithAggregationInput], {nullable:true})

@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { MontageLayoutsWhereInput } from './montage-layouts-where.input';
+import { Type } from 'class-transformer';
 import { MontageLayoutsOrderByWithRelationInput } from './montage-layouts-order-by-with-relation.input';
 import { MontageLayoutsWhereUniqueInput } from './montage-layouts-where-unique.input';
 import { Int } from '@nestjs/graphql';
@@ -14,6 +15,7 @@ import { MontageLayoutsMaxAggregateInput } from './montage-layouts-max-aggregate
 export class MontageLayoutsAggregateArgs {
 
     @Field(() => MontageLayoutsWhereInput, {nullable:true})
+    @Type(() => MontageLayoutsWhereInput)
     where?: MontageLayoutsWhereInput;
 
     @Field(() => [MontageLayoutsOrderByWithRelationInput], {nullable:true})

@@ -2,6 +2,7 @@ import { Field } from '@nestjs/graphql';
 import { ObjectType } from '@nestjs/graphql';
 import { Int } from '@nestjs/graphql';
 import { Frames_Type } from '../prisma/frames-type.enum';
+import { Decimal } from '@prisma/client/runtime';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
 
 @ObjectType()
@@ -23,7 +24,7 @@ export class FramesMinAggregate {
     TimeStamp?: Date | string;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    Delta?: any;
+    Delta?: Decimal;
 
     @Field(() => Int, {nullable:true})
     Score?: number;

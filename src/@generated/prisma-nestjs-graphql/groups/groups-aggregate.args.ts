@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { GroupsWhereInput } from './groups-where.input';
+import { Type } from 'class-transformer';
 import { GroupsOrderByWithRelationInput } from './groups-order-by-with-relation.input';
 import { GroupsWhereUniqueInput } from './groups-where-unique.input';
 import { Int } from '@nestjs/graphql';
@@ -14,6 +15,7 @@ import { GroupsMaxAggregateInput } from './groups-max-aggregate.input';
 export class GroupsAggregateArgs {
 
     @Field(() => GroupsWhereInput, {nullable:true})
+    @Type(() => GroupsWhereInput)
     where?: GroupsWhereInput;
 
     @Field(() => [GroupsOrderByWithRelationInput], {nullable:true})

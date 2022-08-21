@@ -2,7 +2,11 @@ import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
 import { Int } from '@nestjs/graphql';
 import { Monitor_Status_Status } from '../prisma/monitor-status-status.enum';
+import { Decimal } from '@prisma/client/runtime';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
+import { transformToDecimal } from 'prisma-graphql-type-decimal';
+import { Transform } from 'class-transformer';
+import { Type } from 'class-transformer';
 
 @InputType()
 export class Monitor_StatusCreateManyInput {
@@ -14,10 +18,14 @@ export class Monitor_StatusCreateManyInput {
     Status?: keyof typeof Monitor_Status_Status;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    CaptureFPS?: any;
+    @Type(() => Object)
+    @Transform(transformToDecimal)
+    CaptureFPS?: Decimal;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    AnalysisFPS?: any;
+    @Type(() => Object)
+    @Transform(transformToDecimal)
+    AnalysisFPS?: Decimal;
 
     @Field(() => Int, {nullable:true})
     CaptureBandwidth?: number;

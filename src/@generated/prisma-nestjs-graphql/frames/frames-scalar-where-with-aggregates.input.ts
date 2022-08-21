@@ -1,5 +1,6 @@
 import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
+import { Type } from 'class-transformer';
 import { BigIntWithAggregatesFilter } from '../prisma/big-int-with-aggregates-filter.input';
 import { IntWithAggregatesFilter } from '../prisma/int-with-aggregates-filter.input';
 import { EnumFrames_TypeWithAggregatesFilter } from '../prisma/enum-frames-type-with-aggregates-filter.input';
@@ -10,12 +11,15 @@ import { DecimalWithAggregatesFilter } from '../prisma/decimal-with-aggregates-f
 export class FramesScalarWhereWithAggregatesInput {
 
     @Field(() => [FramesScalarWhereWithAggregatesInput], {nullable:true})
+    @Type(() => FramesScalarWhereWithAggregatesInput)
     AND?: Array<FramesScalarWhereWithAggregatesInput>;
 
     @Field(() => [FramesScalarWhereWithAggregatesInput], {nullable:true})
+    @Type(() => FramesScalarWhereWithAggregatesInput)
     OR?: Array<FramesScalarWhereWithAggregatesInput>;
 
     @Field(() => [FramesScalarWhereWithAggregatesInput], {nullable:true})
+    @Type(() => FramesScalarWhereWithAggregatesInput)
     NOT?: Array<FramesScalarWhereWithAggregatesInput>;
 
     @Field(() => BigIntWithAggregatesFilter, {nullable:true})
@@ -34,6 +38,7 @@ export class FramesScalarWhereWithAggregatesInput {
     TimeStamp?: DateTimeWithAggregatesFilter;
 
     @Field(() => DecimalWithAggregatesFilter, {nullable:true})
+    @Type(() => DecimalWithAggregatesFilter)
     Delta?: DecimalWithAggregatesFilter;
 
     @Field(() => IntWithAggregatesFilter, {nullable:true})

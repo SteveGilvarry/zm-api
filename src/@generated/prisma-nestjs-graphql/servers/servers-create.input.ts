@@ -2,7 +2,11 @@ import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
 import { Int } from '@nestjs/graphql';
 import { Servers_Status } from '../prisma/servers-status.enum';
+import { Decimal } from '@prisma/client/runtime';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
+import { transformToDecimal } from 'prisma-graphql-type-decimal';
+import { Transform } from 'class-transformer';
+import { Type } from 'class-transformer';
 
 @InputType()
 export class ServersCreateInput {
@@ -35,7 +39,9 @@ export class ServersCreateInput {
     Status?: keyof typeof Servers_Status;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    CpuLoad?: any;
+    @Type(() => Object)
+    @Transform(transformToDecimal)
+    CpuLoad?: Decimal;
 
     @Field(() => String, {nullable:true})
     TotalMem?: bigint | number;

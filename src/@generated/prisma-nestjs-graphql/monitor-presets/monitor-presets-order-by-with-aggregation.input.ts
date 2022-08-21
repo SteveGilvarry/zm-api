@@ -2,6 +2,7 @@ import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
 import { SortOrder } from '../prisma/sort-order.enum';
 import { MonitorPresetsCountOrderByAggregateInput } from './monitor-presets-count-order-by-aggregate.input';
+import { Type } from 'class-transformer';
 import { MonitorPresetsAvgOrderByAggregateInput } from './monitor-presets-avg-order-by-aggregate.input';
 import { MonitorPresetsMaxOrderByAggregateInput } from './monitor-presets-max-order-by-aggregate.input';
 import { MonitorPresetsMinOrderByAggregateInput } from './monitor-presets-min-order-by-aggregate.input';
@@ -77,17 +78,22 @@ export class MonitorPresetsOrderByWithAggregationInput {
     DefaultScale?: keyof typeof SortOrder;
 
     @Field(() => MonitorPresetsCountOrderByAggregateInput, {nullable:true})
+    @Type(() => MonitorPresetsCountOrderByAggregateInput)
     _count?: MonitorPresetsCountOrderByAggregateInput;
 
     @Field(() => MonitorPresetsAvgOrderByAggregateInput, {nullable:true})
+    @Type(() => MonitorPresetsAvgOrderByAggregateInput)
     _avg?: MonitorPresetsAvgOrderByAggregateInput;
 
     @Field(() => MonitorPresetsMaxOrderByAggregateInput, {nullable:true})
+    @Type(() => MonitorPresetsMaxOrderByAggregateInput)
     _max?: MonitorPresetsMaxOrderByAggregateInput;
 
     @Field(() => MonitorPresetsMinOrderByAggregateInput, {nullable:true})
+    @Type(() => MonitorPresetsMinOrderByAggregateInput)
     _min?: MonitorPresetsMinOrderByAggregateInput;
 
     @Field(() => MonitorPresetsSumOrderByAggregateInput, {nullable:true})
+    @Type(() => MonitorPresetsSumOrderByAggregateInput)
     _sum?: MonitorPresetsSumOrderByAggregateInput;
 }

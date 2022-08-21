@@ -1,5 +1,6 @@
 import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
+import { Type } from 'class-transformer';
 import { BigIntWithAggregatesFilter } from '../prisma/big-int-with-aggregates-filter.input';
 import { IntWithAggregatesFilter } from '../prisma/int-with-aggregates-filter.input';
 import { IntNullableWithAggregatesFilter } from '../prisma/int-nullable-with-aggregates-filter.input';
@@ -16,12 +17,15 @@ import { BoolWithAggregatesFilter } from '../prisma/bool-with-aggregates-filter.
 export class EventsScalarWhereWithAggregatesInput {
 
     @Field(() => [EventsScalarWhereWithAggregatesInput], {nullable:true})
+    @Type(() => EventsScalarWhereWithAggregatesInput)
     AND?: Array<EventsScalarWhereWithAggregatesInput>;
 
     @Field(() => [EventsScalarWhereWithAggregatesInput], {nullable:true})
+    @Type(() => EventsScalarWhereWithAggregatesInput)
     OR?: Array<EventsScalarWhereWithAggregatesInput>;
 
     @Field(() => [EventsScalarWhereWithAggregatesInput], {nullable:true})
+    @Type(() => EventsScalarWhereWithAggregatesInput)
     NOT?: Array<EventsScalarWhereWithAggregatesInput>;
 
     @Field(() => BigIntWithAggregatesFilter, {nullable:true})
@@ -55,6 +59,7 @@ export class EventsScalarWhereWithAggregatesInput {
     Height?: IntWithAggregatesFilter;
 
     @Field(() => DecimalWithAggregatesFilter, {nullable:true})
+    @Type(() => DecimalWithAggregatesFilter)
     Length?: DecimalWithAggregatesFilter;
 
     @Field(() => IntNullableWithAggregatesFilter, {nullable:true})

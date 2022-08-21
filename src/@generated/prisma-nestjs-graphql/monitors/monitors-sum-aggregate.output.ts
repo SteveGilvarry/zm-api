@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ObjectType } from '@nestjs/graphql';
 import { Int } from '@nestjs/graphql';
+import { Decimal } from '@prisma/client/runtime';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
 
 @ObjectType()
@@ -118,16 +119,16 @@ export class MonitorsSumAggregate {
     MotionFrameSkip?: number;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    AnalysisFPSLimit?: any;
+    AnalysisFPSLimit?: Decimal;
 
     @Field(() => Int, {nullable:true})
     AnalysisUpdateDelay?: number;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    MaxFPS?: any;
+    MaxFPS?: Decimal;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    AlarmMaxFPS?: any;
+    AlarmMaxFPS?: Decimal;
 
     @Field(() => Int, {nullable:true})
     FPSReportInterval?: number;
@@ -145,7 +146,7 @@ export class MonitorsSumAggregate {
     ControlId?: number;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    AutoStopTimeout?: any;
+    AutoStopTimeout?: Decimal;
 
     @Field(() => Int, {nullable:true})
     TrackMotion?: number;
@@ -190,8 +191,8 @@ export class MonitorsSumAggregate {
     Refresh?: number;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    Latitude?: any;
+    Latitude?: Decimal;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    Longitude?: any;
+    Longitude?: Decimal;
 }

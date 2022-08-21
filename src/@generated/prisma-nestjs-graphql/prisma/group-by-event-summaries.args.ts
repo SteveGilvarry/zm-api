@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { Event_SummariesWhereInput } from '../event-summaries/event-summaries-where.input';
+import { Type } from 'class-transformer';
 import { Event_SummariesOrderByWithAggregationInput } from '../event-summaries/event-summaries-order-by-with-aggregation.input';
 import { Event_SummariesScalarFieldEnum } from '../event-summaries/event-summaries-scalar-field.enum';
 import { Event_SummariesScalarWhereWithAggregatesInput } from '../event-summaries/event-summaries-scalar-where-with-aggregates.input';
@@ -10,6 +11,7 @@ import { Int } from '@nestjs/graphql';
 export class GroupByEventSummariesArgs {
 
     @Field(() => Event_SummariesWhereInput, {nullable:true})
+    @Type(() => Event_SummariesWhereInput)
     where?: Event_SummariesWhereInput;
 
     @Field(() => [Event_SummariesOrderByWithAggregationInput], {nullable:true})

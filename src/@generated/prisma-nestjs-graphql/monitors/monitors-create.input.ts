@@ -6,7 +6,11 @@ import { Monitors_Type } from '../prisma/monitors-type.enum';
 import { Monitors_Function } from '../prisma/monitors-function.enum';
 import { Monitors_Orientation } from './monitors-orientation.enum';
 import { Monitors_OutputContainer } from '../prisma/monitors-output-container.enum';
+import { Decimal } from '@prisma/client/runtime';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
+import { transformToDecimal } from 'prisma-graphql-type-decimal';
+import { Transform } from 'class-transformer';
+import { Type } from 'class-transformer';
 import { Monitors_DefaultCodec } from './monitors-default-codec.enum';
 import { Monitors_Importance } from './monitors-importance.enum';
 
@@ -210,16 +214,22 @@ export class MonitorsCreateInput {
     MotionFrameSkip?: number;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    AnalysisFPSLimit?: any;
+    @Type(() => Object)
+    @Transform(transformToDecimal)
+    AnalysisFPSLimit?: Decimal;
 
     @Field(() => Int, {nullable:true})
     AnalysisUpdateDelay?: number;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    MaxFPS?: any;
+    @Type(() => Object)
+    @Transform(transformToDecimal)
+    MaxFPS?: Decimal;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    AlarmMaxFPS?: any;
+    @Type(() => Object)
+    @Transform(transformToDecimal)
+    AlarmMaxFPS?: Decimal;
 
     @Field(() => Int, {nullable:true})
     FPSReportInterval?: number;
@@ -243,7 +253,9 @@ export class MonitorsCreateInput {
     ControlAddress?: string;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    AutoStopTimeout?: any;
+    @Type(() => Object)
+    @Transform(transformToDecimal)
+    AutoStopTimeout?: Decimal;
 
     @Field(() => Int, {nullable:true})
     TrackMotion?: number;
@@ -297,10 +309,14 @@ export class MonitorsCreateInput {
     Refresh?: number;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    Latitude?: any;
+    @Type(() => Object)
+    @Transform(transformToDecimal)
+    Latitude?: Decimal;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    Longitude?: any;
+    @Type(() => Object)
+    @Transform(transformToDecimal)
+    Longitude?: Decimal;
 
     @Field(() => Boolean, {nullable:true})
     RTSPServer?: boolean;

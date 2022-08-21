@@ -1,5 +1,6 @@
 import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
+import { Type } from 'class-transformer';
 import { IntFilter } from '../prisma/int-filter.input';
 import { StringFilter } from '../prisma/string-filter.input';
 import { EnumMonitorPresets_TypeFilter } from '../prisma/enum-monitor-presets-type-filter.input';
@@ -11,12 +12,15 @@ import { DecimalNullableFilter } from '../prisma/decimal-nullable-filter.input';
 export class MonitorPresetsWhereInput {
 
     @Field(() => [MonitorPresetsWhereInput], {nullable:true})
+    @Type(() => MonitorPresetsWhereInput)
     AND?: Array<MonitorPresetsWhereInput>;
 
     @Field(() => [MonitorPresetsWhereInput], {nullable:true})
+    @Type(() => MonitorPresetsWhereInput)
     OR?: Array<MonitorPresetsWhereInput>;
 
     @Field(() => [MonitorPresetsWhereInput], {nullable:true})
+    @Type(() => MonitorPresetsWhereInput)
     NOT?: Array<MonitorPresetsWhereInput>;
 
     @Field(() => IntFilter, {nullable:true})
@@ -65,6 +69,7 @@ export class MonitorPresetsWhereInput {
     Palette?: IntNullableFilter;
 
     @Field(() => DecimalNullableFilter, {nullable:true})
+    @Type(() => DecimalNullableFilter)
     MaxFPS?: DecimalNullableFilter;
 
     @Field(() => IntFilter, {nullable:true})

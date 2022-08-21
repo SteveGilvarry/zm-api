@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { Events_HourWhereInput } from '../events-hour/events-hour-where.input';
+import { Type } from 'class-transformer';
 import { Events_HourOrderByWithAggregationInput } from '../events-hour/events-hour-order-by-with-aggregation.input';
 import { Events_HourScalarFieldEnum } from '../events-hour/events-hour-scalar-field.enum';
 import { Events_HourScalarWhereWithAggregatesInput } from '../events-hour/events-hour-scalar-where-with-aggregates.input';
@@ -10,6 +11,7 @@ import { Int } from '@nestjs/graphql';
 export class GroupByEventsHourArgs {
 
     @Field(() => Events_HourWhereInput, {nullable:true})
+    @Type(() => Events_HourWhereInput)
     where?: Events_HourWhereInput;
 
     @Field(() => [Events_HourOrderByWithAggregationInput], {nullable:true})

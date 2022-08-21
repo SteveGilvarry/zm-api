@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { UsersWhereInput } from './users-where.input';
+import { Type } from 'class-transformer';
 import { UsersOrderByWithRelationInput } from './users-order-by-with-relation.input';
 import { UsersWhereUniqueInput } from './users-where-unique.input';
 import { Int } from '@nestjs/graphql';
@@ -10,6 +11,7 @@ import { UsersScalarFieldEnum } from './users-scalar-field.enum';
 export class FindManyUsersArgs {
 
     @Field(() => UsersWhereInput, {nullable:true})
+    @Type(() => UsersWhereInput)
     where?: UsersWhereInput;
 
     @Field(() => [UsersOrderByWithRelationInput], {nullable:true})

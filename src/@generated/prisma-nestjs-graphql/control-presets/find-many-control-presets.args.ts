@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { ControlPresetsWhereInput } from './control-presets-where.input';
+import { Type } from 'class-transformer';
 import { ControlPresetsOrderByWithRelationInput } from './control-presets-order-by-with-relation.input';
 import { ControlPresetsWhereUniqueInput } from './control-presets-where-unique.input';
 import { Int } from '@nestjs/graphql';
@@ -10,6 +11,7 @@ import { ControlPresetsScalarFieldEnum } from './control-presets-scalar-field.en
 export class FindManyControlPresetsArgs {
 
     @Field(() => ControlPresetsWhereInput, {nullable:true})
+    @Type(() => ControlPresetsWhereInput)
     where?: ControlPresetsWhereInput;
 
     @Field(() => [ControlPresetsOrderByWithRelationInput], {nullable:true})

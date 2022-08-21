@@ -5,6 +5,7 @@ import { EnumMonitorPresets_TypeFieldUpdateOperationsInput } from '../prisma/enu
 import { NullableStringFieldUpdateOperationsInput } from '../prisma/nullable-string-field-update-operations.input';
 import { NullableIntFieldUpdateOperationsInput } from '../prisma/nullable-int-field-update-operations.input';
 import { NullableDecimalFieldUpdateOperationsInput } from '../prisma/nullable-decimal-field-update-operations.input';
+import { Type } from 'class-transformer';
 import { IntFieldUpdateOperationsInput } from '../prisma/int-field-update-operations.input';
 
 @InputType()
@@ -53,6 +54,7 @@ export class MonitorPresetsUpdateInput {
     Palette?: NullableIntFieldUpdateOperationsInput;
 
     @Field(() => NullableDecimalFieldUpdateOperationsInput, {nullable:true})
+    @Type(() => NullableDecimalFieldUpdateOperationsInput)
     MaxFPS?: NullableDecimalFieldUpdateOperationsInput;
 
     @Field(() => IntFieldUpdateOperationsInput, {nullable:true})

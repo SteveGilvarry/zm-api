@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { SnapshotsWhereInput } from './snapshots-where.input';
+import { Type } from 'class-transformer';
 import { SnapshotsOrderByWithAggregationInput } from './snapshots-order-by-with-aggregation.input';
 import { SnapshotsScalarFieldEnum } from './snapshots-scalar-field.enum';
 import { SnapshotsScalarWhereWithAggregatesInput } from './snapshots-scalar-where-with-aggregates.input';
@@ -15,6 +16,7 @@ import { SnapshotsMaxAggregateInput } from './snapshots-max-aggregate.input';
 export class SnapshotsGroupByArgs {
 
     @Field(() => SnapshotsWhereInput, {nullable:true})
+    @Type(() => SnapshotsWhereInput)
     where?: SnapshotsWhereInput;
 
     @Field(() => [SnapshotsOrderByWithAggregationInput], {nullable:true})

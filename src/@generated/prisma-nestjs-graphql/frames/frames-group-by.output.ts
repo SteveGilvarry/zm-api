@@ -2,6 +2,7 @@ import { Field } from '@nestjs/graphql';
 import { ObjectType } from '@nestjs/graphql';
 import { Int } from '@nestjs/graphql';
 import { Frames_Type } from '../prisma/frames-type.enum';
+import { Decimal } from '@prisma/client/runtime';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
 import { FramesCountAggregate } from './frames-count-aggregate.output';
 import { FramesAvgAggregate } from './frames-avg-aggregate.output';
@@ -28,7 +29,7 @@ export class FramesGroupBy {
     TimeStamp!: Date | string;
 
     @Field(() => GraphQLDecimal, {nullable:false})
-    Delta!: any;
+    Delta!: Decimal;
 
     @Field(() => Int, {nullable:false})
     Score!: number;

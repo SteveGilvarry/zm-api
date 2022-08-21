@@ -2,6 +2,7 @@ import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
 import { SortOrder } from '../prisma/sort-order.enum';
 import { ServersCountOrderByAggregateInput } from './servers-count-order-by-aggregate.input';
+import { Type } from 'class-transformer';
 import { ServersAvgOrderByAggregateInput } from './servers-avg-order-by-aggregate.input';
 import { ServersMaxOrderByAggregateInput } from './servers-max-order-by-aggregate.input';
 import { ServersMinOrderByAggregateInput } from './servers-min-order-by-aggregate.input';
@@ -68,17 +69,22 @@ export class ServersOrderByWithAggregationInput {
     zmeventnotification?: keyof typeof SortOrder;
 
     @Field(() => ServersCountOrderByAggregateInput, {nullable:true})
+    @Type(() => ServersCountOrderByAggregateInput)
     _count?: ServersCountOrderByAggregateInput;
 
     @Field(() => ServersAvgOrderByAggregateInput, {nullable:true})
+    @Type(() => ServersAvgOrderByAggregateInput)
     _avg?: ServersAvgOrderByAggregateInput;
 
     @Field(() => ServersMaxOrderByAggregateInput, {nullable:true})
+    @Type(() => ServersMaxOrderByAggregateInput)
     _max?: ServersMaxOrderByAggregateInput;
 
     @Field(() => ServersMinOrderByAggregateInput, {nullable:true})
+    @Type(() => ServersMinOrderByAggregateInput)
     _min?: ServersMinOrderByAggregateInput;
 
     @Field(() => ServersSumOrderByAggregateInput, {nullable:true})
+    @Type(() => ServersSumOrderByAggregateInput)
     _sum?: ServersSumOrderByAggregateInput;
 }

@@ -2,6 +2,7 @@ import { Field } from '@nestjs/graphql';
 import { ObjectType } from '@nestjs/graphql';
 import { Int } from '@nestjs/graphql';
 import { MonitorPresets_Type } from '../prisma/monitor-presets-type.enum';
+import { Decimal } from '@prisma/client/runtime';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
 import { MonitorPresetsCountAggregate } from './monitor-presets-count-aggregate.output';
 import { MonitorPresetsAvgAggregate } from './monitor-presets-avg-aggregate.output';
@@ -58,7 +59,7 @@ export class MonitorPresetsGroupBy {
     Palette?: number;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    MaxFPS?: any;
+    MaxFPS?: Decimal;
 
     @Field(() => Int, {nullable:false})
     Controllable!: number;

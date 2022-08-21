@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { SessionsWhereInput } from './sessions-where.input';
+import { Type } from 'class-transformer';
 import { SessionsOrderByWithAggregationInput } from './sessions-order-by-with-aggregation.input';
 import { SessionsScalarFieldEnum } from './sessions-scalar-field.enum';
 import { SessionsScalarWhereWithAggregatesInput } from './sessions-scalar-where-with-aggregates.input';
@@ -15,6 +16,7 @@ import { SessionsMaxAggregateInput } from './sessions-max-aggregate.input';
 export class SessionsGroupByArgs {
 
     @Field(() => SessionsWhereInput, {nullable:true})
+    @Type(() => SessionsWhereInput)
     where?: SessionsWhereInput;
 
     @Field(() => [SessionsOrderByWithAggregationInput], {nullable:true})

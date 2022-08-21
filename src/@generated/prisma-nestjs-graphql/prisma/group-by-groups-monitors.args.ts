@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { Groups_MonitorsWhereInput } from '../groups-monitors/groups-monitors-where.input';
+import { Type } from 'class-transformer';
 import { Groups_MonitorsOrderByWithAggregationInput } from '../groups-monitors/groups-monitors-order-by-with-aggregation.input';
 import { Groups_MonitorsScalarFieldEnum } from '../groups-monitors/groups-monitors-scalar-field.enum';
 import { Groups_MonitorsScalarWhereWithAggregatesInput } from '../groups-monitors/groups-monitors-scalar-where-with-aggregates.input';
@@ -10,6 +11,7 @@ import { Int } from '@nestjs/graphql';
 export class GroupByGroupsMonitorsArgs {
 
     @Field(() => Groups_MonitorsWhereInput, {nullable:true})
+    @Type(() => Groups_MonitorsWhereInput)
     where?: Groups_MonitorsWhereInput;
 
     @Field(() => [Groups_MonitorsOrderByWithAggregationInput], {nullable:true})

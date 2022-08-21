@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { Events_WeekWhereInput } from '../events-week/events-week-where.input';
+import { Type } from 'class-transformer';
 import { Events_WeekOrderByWithAggregationInput } from '../events-week/events-week-order-by-with-aggregation.input';
 import { Events_WeekScalarFieldEnum } from '../events-week/events-week-scalar-field.enum';
 import { Events_WeekScalarWhereWithAggregatesInput } from '../events-week/events-week-scalar-where-with-aggregates.input';
@@ -10,6 +11,7 @@ import { Int } from '@nestjs/graphql';
 export class GroupByEventsWeekArgs {
 
     @Field(() => Events_WeekWhereInput, {nullable:true})
+    @Type(() => Events_WeekWhereInput)
     where?: Events_WeekWhereInput;
 
     @Field(() => [Events_WeekOrderByWithAggregationInput], {nullable:true})

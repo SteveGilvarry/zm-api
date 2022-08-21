@@ -5,6 +5,7 @@ import { NullableIntFieldUpdateOperationsInput } from '../prisma/nullable-int-fi
 import { StringFieldUpdateOperationsInput } from '../prisma/string-field-update-operations.input';
 import { EnumServers_StatusFieldUpdateOperationsInput } from '../prisma/enum-servers-status-field-update-operations.input';
 import { NullableDecimalFieldUpdateOperationsInput } from '../prisma/nullable-decimal-field-update-operations.input';
+import { Type } from 'class-transformer';
 import { NullableBigIntFieldUpdateOperationsInput } from '../prisma/nullable-big-int-field-update-operations.input';
 import { BoolFieldUpdateOperationsInput } from '../prisma/bool-field-update-operations.input';
 
@@ -39,6 +40,7 @@ export class ServersUpdateInput {
     Status?: EnumServers_StatusFieldUpdateOperationsInput;
 
     @Field(() => NullableDecimalFieldUpdateOperationsInput, {nullable:true})
+    @Type(() => NullableDecimalFieldUpdateOperationsInput)
     CpuLoad?: NullableDecimalFieldUpdateOperationsInput;
 
     @Field(() => NullableBigIntFieldUpdateOperationsInput, {nullable:true})

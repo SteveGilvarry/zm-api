@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { StatesWhereInput } from './states-where.input';
+import { Type } from 'class-transformer';
 import { StatesOrderByWithAggregationInput } from './states-order-by-with-aggregation.input';
 import { StatesScalarFieldEnum } from './states-scalar-field.enum';
 import { StatesScalarWhereWithAggregatesInput } from './states-scalar-where-with-aggregates.input';
@@ -15,6 +16,7 @@ import { StatesMaxAggregateInput } from './states-max-aggregate.input';
 export class StatesGroupByArgs {
 
     @Field(() => StatesWhereInput, {nullable:true})
+    @Type(() => StatesWhereInput)
     where?: StatesWhereInput;
 
     @Field(() => [StatesOrderByWithAggregationInput], {nullable:true})

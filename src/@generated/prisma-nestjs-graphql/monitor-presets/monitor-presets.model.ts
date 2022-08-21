@@ -4,6 +4,7 @@ import { ID } from '@nestjs/graphql';
 import { MonitorPresets_Type } from '../prisma/monitor-presets-type.enum';
 import { Int } from '@nestjs/graphql';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
+import { Decimal } from '@prisma/client/runtime';
 
 @ObjectType()
 export class MonitorPresets {
@@ -54,7 +55,7 @@ export class MonitorPresets {
     Palette!: number | null;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    MaxFPS!: any | null;
+    MaxFPS!: Decimal | null;
 
     @Field(() => Int, {nullable:false,defaultValue:0})
     Controllable!: number;

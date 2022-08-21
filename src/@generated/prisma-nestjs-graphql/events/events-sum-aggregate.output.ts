@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ObjectType } from '@nestjs/graphql';
 import { Int } from '@nestjs/graphql';
+import { Decimal } from '@prisma/client/runtime';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
 
 @ObjectType()
@@ -25,7 +26,7 @@ export class EventsSumAggregate {
     Height?: number;
 
     @Field(() => GraphQLDecimal, {nullable:true})
-    Length?: any;
+    Length?: Decimal;
 
     @Field(() => Int, {nullable:true})
     Frames?: number;

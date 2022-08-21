@@ -1,6 +1,7 @@
 import { Field } from '@nestjs/graphql';
 import { ArgsType } from '@nestjs/graphql';
 import { Events_ArchivedWhereInput } from '../events-archived/events-archived-where.input';
+import { Type } from 'class-transformer';
 import { Events_ArchivedOrderByWithAggregationInput } from '../events-archived/events-archived-order-by-with-aggregation.input';
 import { Events_ArchivedScalarFieldEnum } from '../events-archived/events-archived-scalar-field.enum';
 import { Events_ArchivedScalarWhereWithAggregatesInput } from '../events-archived/events-archived-scalar-where-with-aggregates.input';
@@ -10,6 +11,7 @@ import { Int } from '@nestjs/graphql';
 export class GroupByEventsArchivedArgs {
 
     @Field(() => Events_ArchivedWhereInput, {nullable:true})
+    @Type(() => Events_ArchivedWhereInput)
     where?: Events_ArchivedWhereInput;
 
     @Field(() => [Events_ArchivedOrderByWithAggregationInput], {nullable:true})

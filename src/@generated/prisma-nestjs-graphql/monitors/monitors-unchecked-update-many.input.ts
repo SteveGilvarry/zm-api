@@ -9,6 +9,7 @@ import { EnumMonitors_FunctionFieldUpdateOperationsInput } from '../prisma/enum-
 import { EnumMonitors_OrientationFieldUpdateOperationsInput } from '../prisma/enum-monitors-orientation-field-update-operations.input';
 import { NullableEnumMonitors_OutputContainerFieldUpdateOperationsInput } from '../prisma/nullable-enum-monitors-output-container-field-update-operations.input';
 import { NullableDecimalFieldUpdateOperationsInput } from '../prisma/nullable-decimal-field-update-operations.input';
+import { Type } from 'class-transformer';
 import { EnumMonitors_DefaultCodecFieldUpdateOperationsInput } from '../prisma/enum-monitors-default-codec-field-update-operations.input';
 import { NullableBigIntFieldUpdateOperationsInput } from '../prisma/nullable-big-int-field-update-operations.input';
 import { BoolFieldUpdateOperationsInput } from '../prisma/bool-field-update-operations.input';
@@ -216,15 +217,18 @@ export class MonitorsUncheckedUpdateManyInput {
     MotionFrameSkip?: IntFieldUpdateOperationsInput;
 
     @Field(() => NullableDecimalFieldUpdateOperationsInput, {nullable:true})
+    @Type(() => NullableDecimalFieldUpdateOperationsInput)
     AnalysisFPSLimit?: NullableDecimalFieldUpdateOperationsInput;
 
     @Field(() => IntFieldUpdateOperationsInput, {nullable:true})
     AnalysisUpdateDelay?: IntFieldUpdateOperationsInput;
 
     @Field(() => NullableDecimalFieldUpdateOperationsInput, {nullable:true})
+    @Type(() => NullableDecimalFieldUpdateOperationsInput)
     MaxFPS?: NullableDecimalFieldUpdateOperationsInput;
 
     @Field(() => NullableDecimalFieldUpdateOperationsInput, {nullable:true})
+    @Type(() => NullableDecimalFieldUpdateOperationsInput)
     AlarmMaxFPS?: NullableDecimalFieldUpdateOperationsInput;
 
     @Field(() => IntFieldUpdateOperationsInput, {nullable:true})
@@ -249,6 +253,7 @@ export class MonitorsUncheckedUpdateManyInput {
     ControlAddress?: NullableStringFieldUpdateOperationsInput;
 
     @Field(() => NullableDecimalFieldUpdateOperationsInput, {nullable:true})
+    @Type(() => NullableDecimalFieldUpdateOperationsInput)
     AutoStopTimeout?: NullableDecimalFieldUpdateOperationsInput;
 
     @Field(() => IntFieldUpdateOperationsInput, {nullable:true})
@@ -303,9 +308,11 @@ export class MonitorsUncheckedUpdateManyInput {
     Refresh?: NullableIntFieldUpdateOperationsInput;
 
     @Field(() => NullableDecimalFieldUpdateOperationsInput, {nullable:true})
+    @Type(() => NullableDecimalFieldUpdateOperationsInput)
     Latitude?: NullableDecimalFieldUpdateOperationsInput;
 
     @Field(() => NullableDecimalFieldUpdateOperationsInput, {nullable:true})
+    @Type(() => NullableDecimalFieldUpdateOperationsInput)
     Longitude?: NullableDecimalFieldUpdateOperationsInput;
 
     @Field(() => BoolFieldUpdateOperationsInput, {nullable:true})

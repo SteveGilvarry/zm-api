@@ -4,6 +4,7 @@ import { ID } from '@nestjs/graphql';
 import { Int } from '@nestjs/graphql';
 import { Frames_Type } from '../prisma/frames-type.enum';
 import { GraphQLDecimal } from 'prisma-graphql-type-decimal';
+import { Decimal } from '@prisma/client/runtime';
 
 @ObjectType()
 export class Frames {
@@ -24,7 +25,7 @@ export class Frames {
     TimeStamp!: Date;
 
     @Field(() => GraphQLDecimal, {nullable:false,defaultValue:0})
-    Delta!: any;
+    Delta!: Decimal;
 
     @Field(() => Int, {nullable:false,defaultValue:0})
     Score!: number;

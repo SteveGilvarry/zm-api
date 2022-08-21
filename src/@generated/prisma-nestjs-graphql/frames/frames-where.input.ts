@@ -1,5 +1,6 @@
 import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
+import { Type } from 'class-transformer';
 import { BigIntFilter } from '../prisma/big-int-filter.input';
 import { IntFilter } from '../prisma/int-filter.input';
 import { EnumFrames_TypeFilter } from '../prisma/enum-frames-type-filter.input';
@@ -10,12 +11,15 @@ import { DecimalFilter } from '../prisma/decimal-filter.input';
 export class FramesWhereInput {
 
     @Field(() => [FramesWhereInput], {nullable:true})
+    @Type(() => FramesWhereInput)
     AND?: Array<FramesWhereInput>;
 
     @Field(() => [FramesWhereInput], {nullable:true})
+    @Type(() => FramesWhereInput)
     OR?: Array<FramesWhereInput>;
 
     @Field(() => [FramesWhereInput], {nullable:true})
+    @Type(() => FramesWhereInput)
     NOT?: Array<FramesWhereInput>;
 
     @Field(() => BigIntFilter, {nullable:true})
@@ -34,6 +38,7 @@ export class FramesWhereInput {
     TimeStamp?: DateTimeFilter;
 
     @Field(() => DecimalFilter, {nullable:true})
+    @Type(() => DecimalFilter)
     Delta?: DecimalFilter;
 
     @Field(() => IntFilter, {nullable:true})

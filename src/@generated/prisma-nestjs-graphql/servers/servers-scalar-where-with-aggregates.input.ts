@@ -1,5 +1,6 @@
 import { Field } from '@nestjs/graphql';
 import { InputType } from '@nestjs/graphql';
+import { Type } from 'class-transformer';
 import { IntWithAggregatesFilter } from '../prisma/int-with-aggregates-filter.input';
 import { StringNullableWithAggregatesFilter } from '../prisma/string-nullable-with-aggregates-filter.input';
 import { IntNullableWithAggregatesFilter } from '../prisma/int-nullable-with-aggregates-filter.input';
@@ -13,12 +14,15 @@ import { BoolWithAggregatesFilter } from '../prisma/bool-with-aggregates-filter.
 export class ServersScalarWhereWithAggregatesInput {
 
     @Field(() => [ServersScalarWhereWithAggregatesInput], {nullable:true})
+    @Type(() => ServersScalarWhereWithAggregatesInput)
     AND?: Array<ServersScalarWhereWithAggregatesInput>;
 
     @Field(() => [ServersScalarWhereWithAggregatesInput], {nullable:true})
+    @Type(() => ServersScalarWhereWithAggregatesInput)
     OR?: Array<ServersScalarWhereWithAggregatesInput>;
 
     @Field(() => [ServersScalarWhereWithAggregatesInput], {nullable:true})
+    @Type(() => ServersScalarWhereWithAggregatesInput)
     NOT?: Array<ServersScalarWhereWithAggregatesInput>;
 
     @Field(() => IntWithAggregatesFilter, {nullable:true})
@@ -52,6 +56,7 @@ export class ServersScalarWhereWithAggregatesInput {
     Status?: EnumServers_StatusWithAggregatesFilter;
 
     @Field(() => DecimalNullableWithAggregatesFilter, {nullable:true})
+    @Type(() => DecimalNullableWithAggregatesFilter)
     CpuLoad?: DecimalNullableWithAggregatesFilter;
 
     @Field(() => BigIntNullableWithAggregatesFilter, {nullable:true})
