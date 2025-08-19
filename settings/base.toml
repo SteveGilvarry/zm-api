@@ -1,0 +1,42 @@
+[server]
+addr = "0.0.0.0"
+port = 8080
+
+[db]
+host = "127.0.0.1"
+port = 5_432
+username = "username"
+password = "password"
+database_name = "database_name"
+max_connections = 5
+
+[redis]
+username = "redis_user"
+password = ""
+host = "127.0.0.1"
+port = 6_379
+database_name = ""
+
+[sentry]
+key = "https://ceaa8e5d40646d02986f3afecf3807c7@o4507954772705280.ingest.de.sentry.io/4507954781356112"
+
+[email]
+username = "email_user"
+password = "email_pass"
+host = "127.0.0.1"
+port = 1_025
+
+[env]
+RUST_LOG = "info"
+[secret]
+private_access_key = "static/key/private_access_rsa_key.pem"
+public_access_key = "static/key/public_access_rsa_key.pem"
+private_refresh_key = "static/key/private_refresh_rsa_key.pem"
+public_refresh_key = "static/key/public_refresh_rsa_key.pem"
+
+[worker]
+failed_task_delay = 50
+
+[http]
+timeout = 10
+
