@@ -270,6 +270,8 @@ pub enum Status {
     NotRunning,
     #[sea_orm(string_value = "Running")]
     Running,
+    #[sea_orm(string_value = "Connected")]
+    Connected,
 }
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Stream")]
@@ -326,7 +328,7 @@ pub enum MonitorType {
     Vnc,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "DeviceType")]
 pub enum DeviceType {
     #[sea_orm(string_value = "X10")]

@@ -7,7 +7,7 @@ use serde::Deserialize;
 use crate::util::dir::get_project_root;
 
 use self::{
-  db::DatabaseConfig, email::EmailConfig, http::HttpClientConfig, redis::RedisConfig,
+  db::DatabaseConfig, email::EmailConfig, http::HttpClientConfig,
   secret::SecretConfig, sentry::SentryConfig, server::ServerConfig, worker::WorkerConfig,
 };
 
@@ -15,7 +15,6 @@ pub mod db;
 pub mod email;
 pub mod env;
 pub mod http;
-pub mod redis;
 pub mod secret;
 pub mod sentry;
 pub mod server;
@@ -28,7 +27,6 @@ pub struct AppConfig {
   pub profile: Profile,
   pub server: ServerConfig,
   pub db: DatabaseConfig,
-  pub redis: RedisConfig,
   pub email: EmailConfig,
   pub sentry: SentryConfig,
   pub secret: SecretConfig,

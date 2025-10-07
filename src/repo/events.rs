@@ -1,6 +1,6 @@
 use sea_orm::*;
 use tracing::instrument;
-use sea_orm::sea_query::{SqliteQueryBuilder, Order, NullOrdering, Alias};
+use sea_orm::sea_query::{SqliteQueryBuilder, Order, Alias};
 
 use crate::entity::{events, prelude::Events};
 use crate::server::state::AppState;
@@ -93,7 +93,7 @@ pub async fn get_counts_by_monitor(
     state: &AppState,
     hours_back: i64,
 ) -> Result<Vec<(u32, u64)>, DbErr> {
-    use sea_orm::sea_query::{Expr, Query, Func};
+    use sea_orm::sea_query::{Expr, Query};
     use sea_orm::{Statement, FromQueryResult};
     
     #[derive(FromQueryResult)]
@@ -143,7 +143,7 @@ pub async fn get_counts_by_hour(
     state: &AppState,
     hours_back: i64,
 ) -> Result<Vec<(chrono::NaiveDateTime, u64)>, DbErr> {
-    use sea_orm::sea_query::{Expr, Query, Func};
+    use sea_orm::sea_query::{Expr, Query};
     use sea_orm::{Statement, FromQueryResult};
     
     #[derive(FromQueryResult)]

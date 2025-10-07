@@ -1,5 +1,5 @@
 use axum::{
-    routing::{delete, get, patch, post}, // Ensure all needed methods are imported
+    routing::get,
     Router,
 };
 
@@ -16,14 +16,14 @@ pub fn add_event_routes(router: Router<AppState>) -> Router<AppState> {
 pub fn routes() -> Router<AppState> {
     Router::new()
         // Use fully qualified handler paths
-        .route("/", get(handlers::events::index).post(handlers::events::create))
+        .route("/", get(handlers::events::list_events).post(handlers::events::create_event))
         .route(
             "/{id}",
             // Use fully qualified handler paths
-            get(handlers::events::get)
-                .patch(handlers::events::update)
-                .delete(handlers::events::delete),
+            get(handlers::events::get_event)
+                .patch(handlers::events::update_event)
+                .delete(handlers::events::delete_event),
         )
         // Use fully qualified handler path
-        .route("/counts/{hours}", get(handlers::events::counts))
+        .route("/counts/{hours}", get(handlers::events::get_event_counts))
 }

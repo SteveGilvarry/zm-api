@@ -1,0 +1,13 @@
+[profile.default]
+# Show failing test output immediately, and again at the end
+failure-output = "immediate-final"
+
+# Retry transiently failing tests once
+retries = 1
+
+# Consider tests slow after 60s; allow them to run up to 2x that before termination
+slow-timeout = { period = "60s", terminate-after = 2 }
+
+# Run tests in parallel by default (nextest picks sensible defaults)
+run-ignored = "never"
+

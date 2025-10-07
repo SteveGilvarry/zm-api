@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, error, info, warn};
 
@@ -27,7 +28,7 @@ pub enum MseError {
 }
 
 /// Statistics for an MSE stream
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct MseStats {
     pub camera_id: u32,
     pub buffer_size: usize,
@@ -337,7 +338,7 @@ impl MseClient {
                         };
 
                         // Broadcast to subscribers
-                        if let Err(_) = segment_sender.send(segment) {
+                        if segment_sender.send(segment).is_err() {
                             debug!("No active subscribers for camera {}", camera_id);
                         }
                         
@@ -496,7 +497,7 @@ impl MseStreamManager {
     /// Remove a client
     pub async fn remove_client(&self, camera_id: u32) {
         let mut clients = self.clients.write().await;
-        if let Some(_) = clients.remove(&camera_id) {
+        if clients.remove(&camera_id).is_some() {
             info!("Removed MSE client for camera {}", camera_id);
         }
     }

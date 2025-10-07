@@ -1,12 +1,13 @@
 use axum::{
     routing::{get, post, delete},
-    Router,
+    Router, middleware,
 };
 use tower_http::services::ServeDir;
 
 use crate::{
     handlers::mse,
     server::state::AppState,
+    util::middleware::auth_middleware,
 };
 
 /// Add MSE (Media Source Extensions) routes
@@ -45,4 +46,6 @@ fn mse_routes() -> Router<AppState> {
         // Statistics
         .route("/streams/{camera_id}/stats", get(mse::get_stream_stats))
         .route("/stats", get(mse::get_all_stats))
+        // Apply JWT auth to all MSE routes
+        .layer(middleware::from_fn(auth_middleware))
 }

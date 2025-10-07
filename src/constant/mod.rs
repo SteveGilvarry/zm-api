@@ -4,7 +4,7 @@ use std::{path::PathBuf, time::Duration};
 use utoipa::OpenApi;
 
 use crate::{
-  client::{email::EmailClient, http::HttpClient, redis::RedisClient, ClientBuilder},
+  client::{email::EmailClient, http::HttpClient, ClientBuilder},
   configure::{env::get_env_source, get_static_dir, template::TemplateEngine},
   handlers::openapi::ApiDoc,
 };
@@ -14,6 +14,7 @@ pub const API_NAME: &str = env!("CARGO_PKG_NAME");
 pub const ENV_PREFIX: &str = "APP";
 pub const CODE_LEN: usize = 5;
 pub const CLIENT_TIMEOUT: Duration = Duration::from_secs(120);
+// Expiry constants previously used with Redis for short-lived codes.
 pub const EXPIRE_SESSION_CODE_SECS: Duration = Duration::from_secs(2000);
 pub const EXPIRE_INVITATION_CODE_SECS: Duration = Duration::from_secs(86000);
 pub const EXPIRE_BLOCKED_EMAIL_SECS: Duration = Duration::from_secs(100);
@@ -35,8 +36,6 @@ pub static CONFIG: Lazy<crate::configure::AppConfig> =
   Lazy::new(|| crate::configure::AppConfig::read(get_env_source(ENV_PREFIX)).unwrap());
 pub static HTTP: Lazy<reqwest::Client> =
   Lazy::new(|| HttpClient::build_from_config(&CONFIG).unwrap());
-pub static REDIS: Lazy<RedisClient> =
-  Lazy::new(|| RedisClient::build_from_config(&CONFIG).unwrap());
 pub static EMAIL: Lazy<EmailClient> =
   Lazy::new(|| EmailClient::build_from_config(&CONFIG).unwrap());
 pub const MAX_RETRY: u32 = 10;

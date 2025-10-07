@@ -17,11 +17,11 @@ pub fn add_monitor_routes(router: Router<AppState>) -> Router<AppState> {
     let protected_routes = Router::new()
         .route(
             &format!("{}/monitors", api_prefix),
-            get(monitor::index).post(monitor::create)
+            get(monitor::list_monitors).post(monitor::create_monitor)
         )
         .route(
             &format!("{}/monitors/{{id}}", api_prefix),
-            get(monitor::view).patch(monitor::edit).delete(monitor::delete)
+            get(monitor::get_monitor).patch(monitor::update_monitor).delete(monitor::delete_monitor)
         )
         .route(
             &format!("{}/monitors/{{id}}/state", api_prefix),

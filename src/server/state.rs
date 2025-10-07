@@ -1,13 +1,11 @@
 use std::sync::Arc;
 
-use tokio::sync::Notify;
 use sea_orm::DatabaseConnection;
 
 use crate::client::{
   database::{DatabaseClient, DatabaseClientExt},
   email::EmailClient,
   http::HttpClient,
-  redis::RedisClient,
   webrtc_signaling::WebRtcSignalingClient,
   ClientBuilder,
 };
@@ -18,10 +16,8 @@ use crate::mse_client::MseStreamManager;
 #[derive(Clone)]
 pub struct AppState {
   pub config: Arc<AppConfig>,
-  pub redis: Arc<RedisClient>,
   pub db: Arc<DatabaseClient>,
   pub email: Arc<EmailClient>,
-  pub messenger_notify: Arc<Notify>,
   pub http: HttpClient,
   pub webrtc_client: WebRtcSignalingClient,
   pub mse_manager: Arc<MseStreamManager>,
@@ -29,10 +25,9 @@ pub struct AppState {
 
 impl AppState {
   pub async fn new(config: AppConfig) -> AppResult<Self> {
-    let redis = Arc::new(RedisClient::build_from_config(&config)?);
     let email = Arc::new(EmailClient::build_from_config(&config)?);
     let db = Arc::new(DatabaseClient::build_from_config(&config).await?);
-    let http = HttpClient::build_from_config(&config)?;
+    let http = reqwest::Client::builder().no_proxy().build().expect("http client");
     
     // Initialize WebRTC signaling client
     let webrtc_client = WebRtcSignalingClient::new("127.0.0.1:9050".to_string());
@@ -43,9 +38,7 @@ impl AppState {
     Ok(Self {
       config: Arc::new(config),
       db,
-      redis,
       email,
-      messenger_notify: Default::default(),
       http,
       webrtc_client,
       mse_manager,
@@ -55,11 +48,31 @@ impl AppState {
   /// Returns a reference to the DatabaseConnection for use with Sea-ORM.
   /// This handles dereferencing the Arc<DatabaseClient> automatically.
   pub fn db(&self) -> &DatabaseConnection {
-    &*self.db
+    &self.db
   }
   
   /// Returns a reference to the MSE stream manager
   pub fn mse_manager(&self) -> &Arc<MseStreamManager> {
     &self.mse_manager
+  }
+
+  pub fn for_test_with_db(db: DatabaseConnection) -> Self {
+    use crate::client::email::EmailClient;
+    use crate::configure::{self, env::get_env_source};
+    use crate::constant::ENV_PREFIX;
+
+    let config = configure::AppConfig::read(get_env_source(ENV_PREFIX)).expect("read config for test");
+    let email = std::sync::Arc::new(EmailClient::builder_dangerous("127.0.0.1").build());
+    let http = crate::client::http::HttpClient::builder().build().expect("http client");
+    let webrtc_client = crate::client::webrtc_signaling::WebRtcSignalingClient::new("127.0.0.1:0".to_string());
+    let mse_manager = std::sync::Arc::new(crate::mse_client::MseStreamManager::new());
+    Self {
+      config: std::sync::Arc::new(config),
+      db: std::sync::Arc::new(db),
+      email,
+      http,
+      webrtc_client,
+      mse_manager,
+    }
   }
 }

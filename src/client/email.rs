@@ -47,12 +47,14 @@ mod tests {
   use super::*;
 
   #[tokio::test]
+  #[ignore = "requires real SMTP server/config"]
   async fn test_smtp_email_connection() {
     let client = EmailClient::build_from_config(&CONFIG).unwrap();
     assert!(client.test_connection().await.unwrap());
   }
 
   #[tokio::test]
+  #[ignore = "requires real SMTP server/config"]
   async fn test_smtp_send_email() {
     let email: Email = Faker.fake();
     let email_client = EmailClient::build_from_config(&CONFIG).unwrap();

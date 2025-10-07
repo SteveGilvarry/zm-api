@@ -1,10 +1,9 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use chrono::{DateTime, Utc, NaiveDateTime};
 use garde::Validate;
 
-use crate::dto::wrappers::{DateTimeWrapper, DecimalWrapper, SchemeWrapper, NaiveDateTimeWrapper};
-use crate::entity::sea_orm_active_enums::{Orientation, Scheme};
+use crate::dto::wrappers::{DateTimeWrapper, DecimalWrapper};
+use crate::entity::sea_orm_active_enums::Orientation;
 
 #[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
 pub struct EventQueryParams {

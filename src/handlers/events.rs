@@ -3,7 +3,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use chrono::{DateTime, Local, Utc};
+// use chrono::Utc; // not needed in this module
 use garde::Validate;
 use tracing::{info, instrument};
 
@@ -12,7 +12,7 @@ use crate::{
         request::events::{EventCreateRequest, EventQueryParams, EventUpdateRequest},
         response::events::{EventCountsResponse, EventResponse, PaginatedEventsResponse},
     },
-    error::{AppError, AppResult, ResourceType, AppResponseError},
+    error::{AppError, AppResult, AppResponseError},
     server::state::AppState,
     service,
 };
@@ -42,7 +42,7 @@ use crate::{
     )
 )]
 #[instrument(skip(state))]
-pub async fn index(
+pub async fn list_events(
     State(state): State<AppState>,
     Query(params): Query<EventQueryParams>,
 ) -> AppResult<Json<PaginatedEventsResponse>> {
@@ -86,7 +86,7 @@ pub async fn index(
     )
 )]
 #[instrument(skip(state))]
-pub async fn get(
+pub async fn get_event(
     State(state): State<AppState>,
     Path(id): Path<u32>,
 ) -> AppResult<Json<EventResponse>> {
@@ -113,7 +113,7 @@ pub async fn get(
     )
 )]
 #[instrument(skip(state, event))]
-pub async fn create(
+pub async fn create_event(
     State(state): State<AppState>,
     Json(event): Json<EventCreateRequest>,
 ) -> AppResult<(StatusCode, Json<EventResponse>)> {
@@ -146,7 +146,7 @@ pub async fn create(
     )
 )]
 #[instrument(skip(state, event_update))]
-pub async fn update(
+pub async fn update_event(
     State(state): State<AppState>,
     Path(id): Path<u32>,
     Json(event_update): Json<EventUpdateRequest>,
@@ -177,7 +177,7 @@ pub async fn update(
     )
 )]
 #[instrument(skip(state))]
-pub async fn delete(
+pub async fn delete_event(
     State(state): State<AppState>,
     Path(id): Path<u32>,
 ) -> AppResult<StatusCode> {
@@ -206,7 +206,7 @@ pub async fn delete(
     )
 )]
 #[instrument(skip(state))]
-pub async fn counts(
+pub async fn get_event_counts(
     State(state): State<AppState>,
     Path(hours): Path<i64>,
 ) -> AppResult<Json<EventCountsResponse>> {

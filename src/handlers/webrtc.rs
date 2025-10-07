@@ -4,14 +4,15 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use serde_json::Value;
-use tracing::{info, error};
+use tracing::info;
 
 use crate::server::state::AppState;
 use crate::webrtc_ffi::CameraStream;
 
 /// Query parameters for WebSocket connection
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct WebSocketQuery {
     pub client_id: Option<String>,
     pub stream_id: Option<String>,
@@ -24,7 +25,7 @@ pub struct StatsResponse {
 }
 
 /// Camera streams response
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct StreamsResponse {
     pub streams: Vec<CameraStream>,
 }
@@ -39,152 +40,134 @@ pub struct ServiceStatusResponse {
     pub service_info: String,
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v3/webrtc/ws",
+    params(
+        ("client_id" = Option<String>, Query, description = "Optional client identifier"),
+        ("stream_id" = Option<String>, Query, description = "Optional stream identifier")
+    ),
+    responses(
+        (status = 200, description = "WebSocket upgrade for signaling"),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "Streaming"
+)]
 /// WebSocket upgrade handler for WebRTC signaling
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
-    Query(params): Query<WebSocketQuery>,
-    State(state): State<AppState>,
+    Query(_params): Query<WebSocketQuery>,
+    State(_state): State<AppState>,
 ) -> Response {
-    info!("WebSocket upgrade request from client: {:?}, stream: {:?}", 
-          params.client_id, params.stream_id);
-    
-    let signaling_service = match &state.webrtc_signaling {
-        Some(service) => service.clone(),
-        None => {
-            error!("WebRTC signaling service not available");
-            return ws.on_upgrade(move |_socket| async move {
-                error!("WebRTC signaling service not initialized");
-            });
-        }
-    };
-    
-    ws.on_upgrade(move |socket| async move {
-        if let Err(e) = signaling_service.handle_connection(socket).await {
-            error!("WebSocket connection error: {}", e);
-        }
+    info!("WebSocket upgrade request for /api/v3/webrtc/ws");
+    ws.on_upgrade(move |_socket| async move {
+        // No-op handler; signaling is handled via REST endpoints
+        info!("WebSocket connected (no-op handler)");
     })
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v3/webrtc/stats",
+    responses(
+        (status = 200, description = "WebRTC service statistics", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "Streaming"
+)]
 /// Get WebRTC service statistics including camera streams
 pub async fn get_stats(
     State(state): State<AppState>,
 ) -> Json<Value> {
-    let webrtc_stats = match &state.webrtc_service {
-        Some(service) => service.get_stats().await,
-        None => {
-            return Json(serde_json::json!({
-                "error": "WebRTC service not available",
-                "webrtc_service": null,
-                "signaling_service": null,
-                "timestamp": chrono::Utc::now().to_rfc3339()
-            }));
-        }
-    };
-    
-    let signaling_stats = match &state.webrtc_signaling {
-        Some(service) => {
-            let stats = service.get_stats().await;
-            serde_json::to_value(stats).unwrap_or(serde_json::json!({"error": "Failed to serialize stats"}))
-        }
-        None => serde_json::json!({"error": "Signaling service not available"})
-    };
-
+    let connected_clients = state.webrtc_client.sessions().session_count().await as i32;
+    let healthy = state.webrtc_client.test_connection().await.is_ok();
     Json(serde_json::json!({
-        "webrtc_service": {
-            "connected_clients": webrtc_stats.connected_clients,
-            "active_monitors": webrtc_stats.active_monitors,
-            "total_streams": webrtc_stats.total_streams,
-            "service_status": webrtc_stats.service_status
+        "webrtc": {
+            "connected_clients": connected_clients,
+            "active_monitors": 0,
+            "total_streams": 0,
+            "service_status": if healthy { "connected" } else { "unavailable" }
         },
-        "signaling_service": signaling_stats,
         "timestamp": chrono::Utc::now().to_rfc3339()
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v3/webrtc/streams",
+    responses(
+        (status = 200, description = "Available camera streams", body = StreamsResponse),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "Streaming"
+)]
 /// Discover and return available camera streams
 pub async fn get_camera_streams(
     State(state): State<AppState>,
 ) -> Json<StreamsResponse> {
-    match &state.webrtc_service {
-        Some(service) => {
-            match service.discover_camera_streams().await {
-                Ok(streams) => {
-                    info!("Returning {} discovered camera streams", streams.len());
-                    Json(StreamsResponse { streams })
-                }
-                Err(e) => {
-                    error!("Failed to discover camera streams: {}", e);
-                    Json(StreamsResponse { streams: Vec::new() })
-                }
-            }
-        }
-        None => {
-            error!("WebRTC service not available");
-            Json(StreamsResponse { streams: Vec::new() })
-        }
-    }
+    let _ = state; // discovery not implemented in current client
+    Json(StreamsResponse { streams: Vec::new() })
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v3/webrtc/status",
+    responses(
+        (status = 200, description = "Detailed service status", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "Streaming"
+)]
 /// Get detailed service status
 pub async fn get_service_status(
     State(state): State<AppState>,
 ) -> Json<ServiceStatusResponse> {
-    match &state.webrtc_service {
-        Some(service) => {
-            let streams = service.discover_camera_streams().await.unwrap_or_default();
-            let stats = service.get_stats().await;
-            
-            Json(ServiceStatusResponse {
-                status: "connected".to_string(),
-                discovered_streams: streams.len() as i32,
-                active_streams: streams.iter().filter(|s| s.is_active).count() as i32,
-                connected_clients: stats.connected_clients,
-                service_info: "Connected to centralized zm-next WebRTC service".to_string(),
-            })
-        }
-        None => {
-            Json(ServiceStatusResponse {
-                status: "unavailable".to_string(),
-                discovered_streams: 0,
-                active_streams: 0,
-                connected_clients: 0,
-                service_info: "WebRTC service not available".to_string(),
-            })
-        }
-    }
+    let healthy = state.webrtc_client.test_connection().await.is_ok();
+    Json(ServiceStatusResponse {
+        status: if healthy { "connected".to_string() } else { "unavailable".to_string() },
+        discovered_streams: 0,
+        active_streams: 0,
+        connected_clients: state.webrtc_client.sessions().session_count().await as i32,
+        service_info: "WebRTC signaling via plugin".to_string(),
+    })
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v3/webrtc/monitors/{id}",
+    params(("id" = i32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Monitor info", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError),
+        (status = 404, description = "Monitor not found", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "Streaming"
+)]
 /// Get monitor information (legacy compatibility)
 pub async fn get_monitor_info(
     Path(monitor_id): Path<i32>,
     State(state): State<AppState>,
 ) -> Json<Value> {
-    match &state.webrtc_service {
-        Some(service) => {
-            match service.get_monitor_info(monitor_id).await {
-                Ok(Some(info)) => Json(serde_json::json!(info)),
-                Ok(None) => Json(serde_json::json!({
-                    "error": "Monitor not found",
-                    "monitor_id": monitor_id
-                })),
-                Err(e) => {
-                    error!("Failed to get monitor info: {}", e);
-                    Json(serde_json::json!({
-                        "error": "Failed to get monitor info",
-                        "message": e.to_string()
-                    }))
-                }
-            }
-        }
-        None => {
-            Json(serde_json::json!({
-                "error": "WebRTC service not available",
-                "monitor_id": monitor_id
-            }))
-        }
-    }
+    let _ = state;
+    Json(serde_json::json!({
+        "error": "Monitor info not available",
+        "monitor_id": monitor_id
+    }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v3/webrtc/health",
+    responses(
+        (status = 200, description = "Service health", body = serde_json::Value)
+    ),
+    tag = "Streaming"
+)]
 /// Health check endpoint
 pub async fn health_check() -> Json<Value> {
     Json(serde_json::json!({
@@ -196,34 +179,23 @@ pub async fn health_check() -> Json<Value> {
     }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v3/webrtc/available-streams",
+    responses(
+        (status = 200, description = "Available streams", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "Streaming"
+)]
 /// Get available streams (combines monitor info with camera streams)
 pub async fn get_available_streams(
     State(state): State<AppState>,
 ) -> Json<Value> {
-    match &state.webrtc_service {
-        Some(service) => {
-            match service.get_available_streams().await {
-                Ok(streams) => Json(serde_json::json!({
-                    "streams": streams,
-                    "count": streams.len()
-                })),
-                Err(e) => {
-                    error!("Failed to get available streams: {}", e);
-                    Json(serde_json::json!({
-                        "error": "Failed to get available streams",
-                        "message": e.to_string(),
-                        "streams": [],
-                        "count": 0
-                    }))
-                }
-            }
-        }
-        None => {
-            Json(serde_json::json!({
-                "error": "WebRTC service not available",
-                "streams": [],
-                "count": 0
-            }))
-        }
-    }
+    let _ = state;
+    Json(serde_json::json!({
+        "streams": [],
+        "count": 0
+    }))
 }

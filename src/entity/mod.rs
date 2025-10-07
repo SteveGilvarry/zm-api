@@ -9,9 +9,6 @@ use crate::{
 };
 pub mod app_entity_impl;
 pub mod prelude;
-pub mod role;
-pub mod user;
-pub mod message;
 pub mod config;
 pub mod control_presets;
 pub mod controls;

@@ -1,8 +1,9 @@
+#![allow(clippy::result_large_err)]
 use tracing::info;
 use crate::error::{AppResult, AppError, Resource, ResourceType};
 use crate::server::state::AppState;
-use crate::dto::*;
-use crate::dto::response::MonitorStreamingDetails;
+use crate::dto::request::{CreateMonitorRequest, UpdateMonitorRequest, UpdateStateRequest, AlarmControlRequest};
+use crate::dto::response::{MonitorResponse, MonitorStreamingDetails};
 use crate::entity::monitors;
 use crate::repo;
 use sea_orm::ActiveValue::Set;
@@ -693,21 +694,30 @@ fn parse_host_port(url_str: &Option<String>) -> AppResult<(String, u16)> {
             // Try to parse as URL
             match Url::parse(url_string) {
                 Ok(url) => {
-                    let host = url.host_str()
-                        .ok_or_else(|| AppError::BadRequestError("URL is missing host".to_string()))?
-                        .to_string();
-                    
-                    let port = url.port().unwrap_or(default_port);
-                    
-                    Ok((host, port))
-                },
+                    if let Some(host) = url.host_str() {
+                        let port = url.port().unwrap_or(default_port);
+                        Ok((host.to_string(), port))
+                    } else {
+                        // Handle inputs like "host:port" where Url::parse treated it as a scheme.
+                        if url_string.contains("://") {
+                            return Err(AppError::BadRequestError("URL is missing host".to_string()));
+                        }
+                        if let Some((host, port_str)) = url_string.rsplit_once(':') {
+                            let port = port_str
+                                .parse::<u16>()
+                                .map_err(|_| AppError::BadRequestError("Invalid port number".to_string()))?;
+                            Ok((host.to_string(), port))
+                        } else {
+                            Ok((url_string.to_string(), default_port))
+                        }
+                    }
+                }
                 Err(_) => {
                     // If URL parsing fails, try to extract host:port directly
-                    if let Some((host, port_str)) = url_string.split_once(':') {
+                    if let Some((host, port_str)) = url_string.rsplit_once(':') {
                         let port = port_str
                             .parse::<u16>()
                             .map_err(|_| AppError::BadRequestError("Invalid port number".to_string()))?;
-                        
                         Ok((host.to_string(), port))
                     } else {
                         // If no port, return host with default port
@@ -759,4 +769,32 @@ pub async fn control_alarm(state: &AppState, id: u32, req: AlarmControlRequest) 
     // For now, simply return the current monitor state
     // In a complete implementation, this would reflect the alarm status
     Ok(MonitorResponse::from(monitor_model))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_host_port_variants() {
+        // Host:port string
+        let hp = Some("host.local:9090".to_string());
+        let (h2, p2) = parse_host_port(&hp).unwrap();
+        assert_eq!(h2, "host.local");
+        assert_eq!(p2, 9090);
+
+        // Bare host
+        let host_only = Some("camera.lan".to_string());
+        let (h4, p4) = parse_host_port(&host_only).unwrap();
+        assert_eq!(h4, "camera.lan");
+        assert_eq!(p4, 80);
+
+        // Missing input
+        let none: Option<String> = None;
+        assert!(matches!(parse_host_port(&none).err().unwrap(), AppError::BadRequestError(_)));
+
+        // Invalid port
+        let bad_port = Some("camera.lan:notaport".to_string());
+        assert!(matches!(parse_host_port(&bad_port).err().unwrap(), AppError::BadRequestError(_)));
+    }
 }

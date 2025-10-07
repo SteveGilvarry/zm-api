@@ -4,7 +4,10 @@ use tracing::{info, warn};
 
 use crate::error::AppResult;
 use crate::server::state::AppState;
-use crate::{dto::*, service};
+use crate::service;
+use crate::dto::request::{CreateMonitorRequest, UpdateMonitorRequest, UpdateStateRequest, AlarmControlRequest};
+use crate::dto::response::MonitorResponse;
+use crate::error::AppResponseError;
 
 #[utoipa::path(
     get,
@@ -19,7 +22,7 @@ use crate::{dto::*, service};
     ),
     tag = "Monitors"
 )]
-pub async fn index(State(state): State<AppState>) -> AppResult<Json<Vec<MonitorResponse>>> {
+pub async fn list_monitors(State(state): State<AppState>) -> AppResult<Json<Vec<MonitorResponse>>> {
     info!("Listing all monitors.");
     match service::monitor::list_all(&state).await {
         Ok(monitors) => Ok(Json(monitors)),
@@ -47,7 +50,7 @@ pub async fn index(State(state): State<AppState>) -> AppResult<Json<Vec<MonitorR
     ),
     tag = "Monitors"
 )]
-pub async fn view(State(state): State<AppState>, Path(id): Path<u32>) -> AppResult<Json<MonitorResponse>> {
+pub async fn get_monitor(State(state): State<AppState>, Path(id): Path<u32>) -> AppResult<Json<MonitorResponse>> {
     info!("Viewing monitor with ID: {id}.");
     match service::monitor::get_by_id(&state, id).await {
         Ok(monitor) => Ok(Json(monitor)),
@@ -73,7 +76,7 @@ pub async fn view(State(state): State<AppState>, Path(id): Path<u32>) -> AppResu
     ),
     tag = "Monitors"
 )]
-pub async fn create(State(state): State<AppState>, Json(req): Json<CreateMonitorRequest>) -> AppResult<Json<MonitorResponse>> {
+pub async fn create_monitor(State(state): State<AppState>, Json(req): Json<CreateMonitorRequest>) -> AppResult<Json<MonitorResponse>> {
     info!("Creating new monitor with request: {req:?}.");
     match service::monitor::create(&state, req).await {
         Ok(monitor) => Ok(Json(monitor)),
@@ -103,7 +106,7 @@ pub async fn create(State(state): State<AppState>, Json(req): Json<CreateMonitor
     ),
     tag = "Monitors"
 )]
-pub async fn edit(
+pub async fn update_monitor(
     State(state): State<AppState>,
     Path(id): Path<u32>,
     Json(req): Json<UpdateMonitorRequest>
@@ -135,7 +138,7 @@ pub async fn edit(
     ),
     tag = "Monitors"
 )]
-pub async fn delete(State(state): State<AppState>, Path(id): Path<u32>) -> AppResult<Json<()>> {
+pub async fn delete_monitor(State(state): State<AppState>, Path(id): Path<u32>) -> AppResult<Json<()>> {
     info!("Deleting monitor with ID: {id}.");
     match service::monitor::delete(&state, id).await {
         Ok(_) => Ok(Json(())),

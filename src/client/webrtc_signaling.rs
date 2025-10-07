@@ -174,11 +174,18 @@ impl SessionManager {
     }
 }
 
+impl Default for SessionManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// WebRTC signaling client for communicating with the C++ plugin
 #[derive(Debug)]
 pub struct WebRtcSignalingClient {
     plugin_address: String,
     session_manager: SessionManager,
+    #[allow(dead_code)]
     connection_pool: Arc<Mutex<Option<TcpStream>>>,
 }
 

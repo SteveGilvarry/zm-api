@@ -18,6 +18,7 @@ pub async fn send_email(
   Ok(())
 }
 
+#[allow(clippy::result_large_err)]
 pub fn create_email(template: &Template, subject: &str, receiver_addr: &str) -> AppResult<Email> {
   info!("Create the email object: {template:?}.");
   Ok(Email::new(

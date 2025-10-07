@@ -14,3 +14,4 @@ pub mod service;
 pub mod util;
 pub mod mse_client;
 pub mod mse_socket_client;
+pub mod webrtc_ffi;

@@ -10,66 +10,64 @@ default = []
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.95"
-argon2 = "0.5.3"
-async-trait = "0.1.85"
-axum = { version = "0.8.1", features = ["ws"] }
-axum-extra = { version = "0.10.0", features = ["typed-header"] }
-base64 = "0.22.1"
-bcrypt = "0.16.0"
-chrono = "0.4.39"
-config = "0.15.5"
-dotenv = "0.15"
-fake = { version = "3.1.0", features = ["derive", "uuid", "chrono"] }
-futures = "0.3.31"
-futures-util = "0.3.31"
-garde = { version = "0.21.1", features = ["full"] }
-itertools = "0.14.0"
-jsonwebtoken = "9.3.0"
-lazy_static = "1.5.0"
-lettre = { version = "0.11.11", features = ["tokio1-native-tls", "builder"] }
-log = "0.4.22"
-openssl = "0.10.68"
-once_cell = "1.20.2"
-rand = "0.8.5"
-rand_core = { version = "0.6.4", features = ["std"] }
-redis = { version = "0.28.1", features = ["tokio-comp"] }
-regex = "1.11.1"
-reqwest = "0.12.12"
-rust_decimal = "1.35.0"
-tera = "1.20.0"
-test-context = "0.3.0"
-thiserror = "2.0.11"
-tokio = { version = "1.43.0", features = ["full"] }
-tokio-tungstenite = "0.26.1"
-tracing = { version = "0.1.41", features = ["attributes"] }
-tracing-appender = "0.2.3"
-tracing-bunyan-formatter = "0.3.10"
-tracing-log = "0.2.0"
-tracing-subscriber = { version = "0.3.19", features = [
-    "registry",
-    "env-filter",
-] }
-sentry = "0.36.0"
-serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.135"
-strum = { version = "0.26.3", features = ["derive"] }
-url = "2.5.4"
-utoipa = { version = "5.3.1", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "8.1.1", features = ["axum"] }
-uuid = { version = "1.0", features = ["v4"] }
-tower-http = { version = "0.5", features = ["cors", "trace", "fs"] }
+anyhow = "1"
+argon2 = "0.5"
+async-trait = "0.1"
+axum = { version = "0.8", features = ["ws"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
+base64 = "0.22"
+bcrypt = "0.17"
+chrono = "0.4"
+config = "0.15"
+dotenvy = "0.15"
+fake = { version = "4", features = ["derive", "uuid", "chrono"] }
+futures = "0.3"
+futures-util = "0.3"
+garde = { version = "0.22", features = ["full"] }
+itertools = "0.14"
+jsonwebtoken = "9"
+lazy_static = "1"
+lettre = { version = "0.11", features = ["tokio1-native-tls", "builder"] }
+log = "0.4"
+openssl = "0.10"
+once_cell = "1"
+rand = "0.9"
+rand_core = { version = "0.9", features = ["std"] }
+regex = "1"
+reqwest = "0.12"
+rust_decimal = "1"
+tera = "1"
+test-context = "0.4"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.27"
+tracing = { version = "0.1", features = ["attributes"] }
+tracing-appender = "0.2"
+tracing-bunyan-formatter = "0.3"
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3", features = ["registry", "env-filter"] }
+sentry = "0.42"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+strum = { version = "0.27", features = ["derive"] }
+url = "2"
+utoipa = { version = "5", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
+uuid = { version = "1", features = ["v4"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+libloading = "0.8"
+mockall = "0.13"
 
 [dependencies.sea-orm]
-version = "1.1.4"
-features = ["sqlx-mysql", "sqlx-postgres", "runtime-tokio-rustls"]
+version = "1"
+features = ["sqlx-mysql", "sqlx-postgres", "runtime-tokio-rustls", "mock"]
 
 [dependencies.sea-orm-migration]
-version = "1.1.4"
+version = "1"
 features = ["runtime-tokio-rustls", "sqlx-postgres","sqlx-mysql"]
 
 [dependencies.sqlx]
-version = "0.8.3"
+version = "0.8.6"
 features = ["mysql", "postgres"]
 
 [build-dependencies]
@@ -78,3 +76,16 @@ pkg-config = "0.3"
 # Link to the MSE plugin library
 # Note: You'll need to build the MSE plugin library first
 # and ensure it's in your library path or specify the path
+
+[dev-dependencies]
+# HTTP server testing helpers for Axum
+axum-test = { version = "18", features = ["typed-routing"] }
+# Parameterized tests
+rstest = "0.26"
+# Snapshot testing for JSON/OpenAPI
+insta = { version = "1", features = ["json"] }
+# JSON diffing in assertions (crate name uses hyphens)
+assert-json-diff = "2"
+# Mocking traits in unit tests
+mockall = "0.13"
+tower = "0.5"

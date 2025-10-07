@@ -1,4 +1,5 @@
 use super::hash;
+use bcrypt::verify as bcrypt_verify_bool;
 use crate::error::{invalid_input_error, AppResult};
 use tracing::debug;
 
@@ -9,15 +10,17 @@ pub async fn hash(password: String) -> AppResult<String> {
 }
 
 pub async fn verify(password: String, hashed_pass: String) -> AppResult {
-  let jh = tokio::task::spawn_blocking(move || hash::bcrypt_verify(password, hashed_pass));
-  if let Err(e) = jh.await? {
-    debug!("The password is not correct: {e}");
-    Err(invalid_input_error(
-      "password",
-      "The password is not correct.",
-    ))
-  } else {
-    Ok(())
+  let jh = tokio::task::spawn_blocking(move || bcrypt_verify_bool(password, &hashed_pass));
+  match jh.await? {
+    Ok(true) => Ok(()),
+    Ok(false) => {
+      debug!("The password is not correct");
+      Err(invalid_input_error("password", "The password is not correct."))
+    }
+    Err(e) => {
+      debug!("Password verification error: {e}");
+      Err(invalid_input_error("password", "The password is not correct."))
+    }
   }
 }
 

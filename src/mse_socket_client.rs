@@ -1,6 +1,5 @@
 /// Socket-based MSE client for the new plugin architecture
 /// Communicates with MSE plugin TCP server on 127.0.0.1:9051
-
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::time::Duration;

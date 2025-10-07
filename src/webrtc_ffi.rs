@@ -2,6 +2,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use anyhow::{Result, anyhow};
 use libloading::{Library, Symbol};
 use once_cell::sync::OnceCell;
@@ -48,7 +49,7 @@ pub struct SessionDescription {
 }
 
 /// Camera stream information
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CameraStream {
     pub stream_id: String,
     pub camera_name: String,
@@ -411,6 +412,7 @@ pub fn get_webrtc_lib() -> Result<Arc<Mutex<WebRTCLibrary>>> {
 #[derive(Debug)]
 pub struct WebRTCSession {
     client_id: String,
+    #[allow(dead_code)]
     camera_id: u32,
 }
 

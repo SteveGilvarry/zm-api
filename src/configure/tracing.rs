@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 use tracing::{subscriber, Subscriber};
 use tracing_appender::{
   non_blocking::WorkerGuard,

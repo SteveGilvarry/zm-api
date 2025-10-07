@@ -28,7 +28,7 @@ pub async fn list_all(
 
     let (events, total) = events_repo::find_all(state, page - 1, page_size).await?;
 
-    let total_pages = (total + page_size - 1) / page_size; // Ceiling division
+    let total_pages = total.div_ceil(page_size);
 
     let event_responses = events.into_iter().map(EventResponse::from).collect();
 
@@ -64,7 +64,7 @@ pub async fn list_by_monitor(
     )
     .await?;
 
-    let total_pages = (total + page_size - 1) / page_size; // Ceiling division
+    let total_pages = total.div_ceil(page_size);
 
     let event_responses = events.into_iter().map(EventResponse::from).collect();
 
@@ -171,4 +171,116 @@ pub async fn get_event_counts(state: &AppState, hours: i64) -> AppResult<EventCo
         counts: event_counts,
         hours,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
+    use crate::entity::events::Model as EventModel;
+    use rust_decimal::Decimal;
+    use chrono::DateTime;
+
+    fn mk_event(id: u64, name: &str) -> EventModel {
+        use crate::entity::sea_orm_active_enums::{Orientation, Scheme};
+        EventModel {
+            id,
+            monitor_id: 1,
+            storage_id: 1,
+            secondary_storage_id: None,
+            name: name.into(),
+            cause: None,
+            start_date_time: DateTime::from_timestamp(1_700_000_000, 0).map(|dt| dt.naive_utc()),
+            end_date_time: None,
+            width: 1920,
+            height: 1080,
+            length: Decimal::new(0, 0),
+            frames: Some(0),
+            alarm_frames: Some(0),
+            default_video: "v.mp4".into(),
+            save_jpe_gs: None,
+            tot_score: 0,
+            avg_score: None,
+            max_score: None,
+            archived: 0,
+            videoed: 0,
+            uploaded: 0,
+            emailed: 0,
+            messaged: 0,
+            executed: 0,
+            notes: None,
+            state_id: 1,
+            orientation: Orientation::Rotate0,
+            disk_space: None,
+            scheme: Scheme::Deep,
+            locked: 0,
+            latitude: None,
+            longitude: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_by_id_ok_and_not_found() {
+        let db_ok = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<EventModel, _, _>(vec![vec![mk_event(5, "ev")]])
+            .into_connection();
+        let state_ok = AppState::for_test_with_db(db_ok);
+        assert_eq!(get_by_id(&state_ok, 5).await.unwrap().id, 5);
+
+        let empty: Vec<EventModel> = vec![];
+        let db_none = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<EventModel, _, _>(vec![empty])
+            .into_connection();
+        let state_none = AppState::for_test_with_db(db_none);
+        assert!(matches!(get_by_id(&state_none, 1).await.err().unwrap(), AppError::NotFoundError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_create_update_delete_ok() {
+        use crate::dto::request::events::{EventCreateRequest, EventUpdateRequest};
+        use crate::dto::wrappers::DecimalWrapper;
+        use crate::entity::sea_orm_active_enums::Orientation;
+        // Create: insert exec result is enough for MockDatabase
+        let db_create = MockDatabase::new(DatabaseBackend::MySql)
+            .append_exec_results(vec![MockExecResult { last_insert_id: 100, rows_affected: 1 }])
+            .append_query_results::<EventModel, _, _>(vec![vec![mk_event(100, "name")]])
+            .into_connection();
+        let state_create = AppState::for_test_with_db(db_create);
+        let req = EventCreateRequest {
+            monitor_id: 1,
+            storage_id: 1,
+            secondary_storage_id: None,
+            name: "name".into(),
+            cause: None,
+            start_date_time: None,
+            end_date_time: None,
+            width: 1280,
+            height: 720,
+            length: DecimalWrapper(Decimal::new(0,0)),
+            notes: None,
+            orientation: Orientation::Rotate0,
+        };
+        let out = create(&state_create, req).await.unwrap();
+        assert_eq!(out.name, "name");
+
+        // Update: first find_by_id returns a model; then exec + query returns updated
+        let initial = mk_event(7, "old");
+        let mut after = initial.clone();
+        after.name = "new".into();
+        let db_update = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<EventModel, _, _>(vec![vec![initial]])
+            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_query_results::<EventModel, _, _>(vec![vec![after.clone()]])
+            .into_connection();
+        let state_update = AppState::for_test_with_db(db_update);
+        let out_upd = update(&state_update, 7, EventUpdateRequest { name: Some("new".into()), cause: None, notes: None, orientation: None }).await.unwrap();
+        assert_eq!(out_upd.name, "new");
+
+        // Delete
+        let db_del = MockDatabase::new(DatabaseBackend::MySql)
+            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .into_connection();
+        let state_del = AppState::for_test_with_db(db_del);
+        assert!(delete(&state_del, 7).await.is_ok());
+    }
 }

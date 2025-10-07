@@ -9,6 +9,7 @@ use serde_json::json;
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 use futures_util::{SinkExt, StreamExt};
+use utoipa::ToSchema;
 
 use crate::{
     error::AppResult,
@@ -25,7 +26,7 @@ pub struct SegmentQuery {
 }
 
 /// Response for stream info
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct StreamInfo {
     pub camera_id: u32,
     pub current_sequence: u64,
@@ -35,7 +36,7 @@ pub struct StreamInfo {
 }
 
 /// Response for available streams
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct StreamsResponse {
     pub streams: Vec<StreamInfo>,
     pub total_count: usize,
@@ -91,6 +92,16 @@ mod base64 {
 }
 
 /// Get list of available streams
+#[utoipa::path(
+    get,
+    path = "/api/v3/mse/streams",
+    responses(
+        (status = 200, description = "List available MSE streams", body = StreamsResponse),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "MSE"
+)]
 pub async fn get_streams(
     State(state): State<AppState>,
 ) -> AppResult<Json<StreamsResponse>> {
@@ -121,6 +132,18 @@ pub async fn get_streams(
 }
 
 /// Get stream information for a specific camera
+#[utoipa::path(
+    get,
+    path = "/api/v3/mse/streams/{camera_id}",
+    params(("camera_id" = u32, Path, description = "Camera ID")),
+    responses(
+        (status = 200, description = "MSE stream info", body = StreamInfo),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError),
+        (status = 404, description = "Stream not found", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "MSE"
+)]
 pub async fn get_stream_info(
     State(state): State<AppState>,
     Path(camera_id): Path<u32>,
@@ -147,6 +170,18 @@ pub async fn get_stream_info(
 }
 
 /// Get initialization segment for a camera
+#[utoipa::path(
+    get,
+    path = "/api/v3/mse/streams/{camera_id}/init.mp4",
+    params(("camera_id" = u32, Path, description = "Camera ID")),
+    responses(
+        (status = 200, description = "fMP4 init segment (video/mp4)"),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError),
+        (status = 404, description = "No init segment available", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "MSE"
+)]
 pub async fn get_init_segment(
     State(state): State<AppState>,
     Path(camera_id): Path<u32>,
@@ -192,6 +227,21 @@ pub async fn get_init_segment(
 }
 
 /// Get a specific segment
+#[utoipa::path(
+    get,
+    path = "/api/v3/mse/streams/{camera_id}/segments/{sequence}",
+    params(
+        ("camera_id" = u32, Path, description = "Camera ID"),
+        ("sequence" = u64, Path, description = "Segment sequence number")
+    ),
+    responses(
+        (status = 200, description = "fMP4 segment (video/mp4)"),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError),
+        (status = 404, description = "Segment not found", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "MSE"
+)]
 pub async fn get_segment(
     State(state): State<AppState>,
     Path((camera_id, sequence)): Path<(u32, u64)>,
@@ -219,6 +269,18 @@ pub async fn get_segment(
 }
 
 /// Get the latest segment
+#[utoipa::path(
+    get,
+    path = "/api/v3/mse/streams/{camera_id}/segments/latest.mp4",
+    params(("camera_id" = u32, Path, description = "Camera ID")),
+    responses(
+        (status = 200, description = "Latest fMP4 segment (video/mp4)"),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError),
+        (status = 404, description = "No segments available", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "MSE"
+)]
 pub async fn get_latest_segment(
     State(state): State<AppState>,
     Path(camera_id): Path<u32>,
@@ -260,6 +322,20 @@ pub async fn get_latest_segment(
 }
 
 /// Get multiple segments from a starting sequence
+#[utoipa::path(
+    get,
+    path = "/api/v3/mse/streams/{camera_id}/segments/from/{start_sequence}",
+    params(
+        ("camera_id" = u32, Path, description = "Camera ID"),
+        ("start_sequence" = u64, Path, description = "Starting sequence number")
+    ),
+    responses(
+        (status = 200, description = "Segment index from starting sequence", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "MSE"
+)]
 pub async fn get_segments_from(
     State(state): State<AppState>,
     Path((camera_id, start_sequence)): Path<(u32, u64)>,
@@ -296,6 +372,17 @@ pub async fn get_segments_from(
 }
 
 /// Create a new stream for a camera
+#[utoipa::path(
+    post,
+    path = "/api/v3/mse/streams/{camera_id}",
+    params(("camera_id" = u32, Path, description = "Camera ID")),
+    responses(
+        (status = 200, description = "Stream created or already exists", body = StreamInfo),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "MSE"
+)]
 pub async fn create_stream(
     State(state): State<AppState>,
     Path(camera_id): Path<u32>,
@@ -358,6 +445,17 @@ pub async fn create_stream(
 }
 
 /// Remove a stream
+#[utoipa::path(
+    delete,
+    path = "/api/v3/mse/streams/{camera_id}",
+    params(("camera_id" = u32, Path, description = "Camera ID")),
+    responses(
+        (status = 200, description = "Stream removed", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "MSE"
+)]
 pub async fn delete_stream(
     State(state): State<AppState>,
     Path(camera_id): Path<u32>,
@@ -373,6 +471,17 @@ pub async fn delete_stream(
 }
 
 /// WebSocket handler for live streaming
+#[utoipa::path(
+    get,
+    path = "/api/v3/mse/streams/{camera_id}/live",
+    params(("camera_id" = u32, Path, description = "Camera ID")),
+    responses(
+        (status = 200, description = "WebSocket upgraded for live MSE streaming"),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "MSE"
+)]
 pub async fn websocket_handler(
     State(state): State<AppState>,
     Path(camera_id): Path<u32>,
@@ -430,18 +539,11 @@ async fn handle_websocket(state: AppState, camera_id: u32, socket: WebSocket) {
             msg = receiver.next() => {
                 match msg {
                     Some(Ok(axum::extract::ws::Message::Text(text))) => {
-                        if let Ok(msg) = serde_json::from_str::<WebSocketMessage>(&text) {
-                            match msg {
-                                WebSocketMessage::Ping => {
-                                    let pong = WebSocketMessage::Pong;
-                                    if let Ok(json) = serde_json::to_string(&pong) {
-                                        if sender.send(axum::extract::ws::Message::Text(json.into())).await.is_err() {
-                                            break;
-                                        }
-                                    }
-                                }
-                                _ => {
-                                    // Ignore other message types
+                        if let Ok(WebSocketMessage::Ping) = serde_json::from_str::<WebSocketMessage>(&text) {
+                            let pong = WebSocketMessage::Pong;
+                            if let Ok(json) = serde_json::to_string(&pong) {
+                                if sender.send(axum::extract::ws::Message::Text(json.into())).await.is_err() {
+                                    break;
                                 }
                             }
                         }
@@ -495,6 +597,18 @@ async fn handle_websocket(state: AppState, camera_id: u32, socket: WebSocket) {
 }
 
 /// Get stream statistics
+#[utoipa::path(
+    get,
+    path = "/api/v3/mse/streams/{camera_id}/stats",
+    params(("camera_id" = u32, Path, description = "Camera ID")),
+    responses(
+        (status = 200, description = "Stream statistics", body = MseStats),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError),
+        (status = 404, description = "Stream not found", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "MSE"
+)]
 pub async fn get_stream_stats(
     State(state): State<AppState>,
     Path(camera_id): Path<u32>,
@@ -510,6 +624,16 @@ pub async fn get_stream_stats(
 }
 
 /// Get statistics for all streams
+#[utoipa::path(
+    get,
+    path = "/api/v3/mse/stats",
+    responses(
+        (status = 200, description = "All streams statistics", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "MSE"
+)]
 pub async fn get_all_stats(
     State(state): State<AppState>,
 ) -> AppResult<Json<std::collections::HashMap<u32, MseStats>>> {

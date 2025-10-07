@@ -128,7 +128,7 @@ pub async fn get_stream(
     })?;
     
     // Check if our stream is in the list
-    if !streams.as_object().map_or(false, |obj| obj.contains_key(&stream_name)) {
+    if !streams.as_object().is_some_and(|obj| obj.contains_key(&stream_name)) {
         warn!("Stream '{}' not found in go2rtc", stream_name);
         return Err(AppError::NotFoundError(crate::error::Resource {
             details: vec![("id".to_string(), id.to_string())],

@@ -17,12 +17,11 @@ mod tests {
   use std::path::PathBuf;
 
   use super::store_file;
-  use crate::constant::{APP_IMAGE, IMAGES_PATH};
-
-  use once_cell::sync::Lazy;
   use test_context::{test_context, AsyncTestContext};
   use tokio::fs;
   use uuid::Uuid;
+  
+  use std::env;
 
   #[allow(dead_code)]
   struct FileTestContext {
@@ -32,18 +31,15 @@ mod tests {
 
   impl AsyncTestContext for FileTestContext {
     async fn setup() -> Self {
-      let image = Lazy::force(&APP_IMAGE);
-      let content = fs::read(image).await.unwrap();
-      let path = Lazy::force(&IMAGES_PATH).join("tmp").join(format!(
-        "{}_{}",
-        Uuid::new_v4(),
-        image.file_name().unwrap().to_str().unwrap()
-      ));
+      // Use simple in-memory content and a temp file path to avoid external dependencies
+      let content = b"test-bytes".to_vec();
+      let path = env::temp_dir().join(format!("zm_api_test_{}.bin", Uuid::new_v4()));
       Self { content, path }
     }
 
     async fn teardown(self) {
-      fs::remove_file(self.path).await.unwrap();
+      // Best-effort cleanup
+      let _ = fs::remove_file(self.path).await;
     }
   }
 

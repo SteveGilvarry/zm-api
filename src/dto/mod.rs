@@ -2,8 +2,6 @@ pub mod request;
 pub mod response;
 pub mod wrappers;
 
-pub use request::*;
-pub use response::*;
 pub use wrappers::*;
 
 use fake::faker::internet::en::SafeEmail;

@@ -69,9 +69,6 @@ pub enum AppError {
   #[schema(value_type = String, example = "HTTP client error")]
   HttpClientError(#[from] reqwest::Error),
   
-  #[error(transparent)]
-  #[schema(value_type = String, example = "Redis error")]
-  RedisError(#[from] redis::RedisError),
   
   #[error(transparent)]
   #[schema(value_type = String, example = "Config error")]
@@ -313,12 +310,6 @@ impl AppError {
         vec![],
         StatusCode::UNAUTHORIZED,
       ),
-      RedisError(_err) => (
-        "REDIS_ERROR".to_string(),
-        None,
-        vec![],
-        StatusCode::INTERNAL_SERVER_ERROR,
-      ),
       SmtpError(_err) => (
         "SMTP_ERROR".to_string(),
         None,
@@ -447,6 +438,8 @@ pub enum ResourceType {
   Message,
   #[strum(serialize = "MONITOR")]
   Monitor,
+  #[strum(serialize = "CONFIG")]
+  Config,
 }
 
 pub fn invalid_input_error(field: &'static str, message: &'static str) -> AppError {
@@ -455,6 +448,7 @@ pub fn invalid_input_error(field: &'static str, message: &'static str) -> AppErr
   AppError::InvalidInputError(report)
 }
 
+#[allow(clippy::result_large_err)]
 pub trait ToAppResult {
   type Output: entity::AppEntity;
   fn to_result(self) -> AppResult<Self::Output>;

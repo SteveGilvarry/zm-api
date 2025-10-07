@@ -1,15 +1,40 @@
 use sea_orm::{ColumnTrait, EntityTrait, Condition, QueryFilter, DbErr, DatabaseConnection, ActiveModelTrait, IntoActiveModel, PrimaryKeyTrait, Value};
 
-pub mod user;
-pub mod message;
 pub mod monitors;
 pub mod config;
 pub mod events;
-
-pub use message::*;
-pub use monitors::*;
-pub use config::*;
-pub use events::*;
+pub mod zones;
+pub mod filters;
+pub mod users;
+pub mod groups;
+pub mod servers;
+pub mod logs;
+pub mod storage;
+pub mod manufacturers;
+pub mod models;
+pub mod zone_presets;
+pub mod controls;
+pub mod control_presets;
+pub mod devices;
+pub mod monitor_presets;
+pub mod montage_layouts;
+pub mod snapshots;
+pub mod tags;
+pub mod triggers_x10;
+pub mod user_preferences;
+pub mod sessions;
+pub mod states;
+pub mod stats;
+pub mod frames;
+pub mod monitor_status;
+pub mod object_types;
+pub mod server_stats;
+pub mod reports;
+pub mod groups_monitors;
+pub mod groups_permissions;
+pub mod monitors_permissions;
+pub mod snapshots_events;
+pub mod event_data;
 
 // Create a new entity record
 pub async fn create<T>(entity: T::ActiveModel, db: &DatabaseConnection) -> Result<T::Model, DbErr>
