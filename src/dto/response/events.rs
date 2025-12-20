@@ -2,7 +2,8 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::dto::wrappers::{DateTimeWrapper, DecimalWrapper, SchemeWrapper, NaiveDateTimeWrapper};
+use crate::dto::response::events_tags::TagSummary;
+use crate::dto::wrappers::{DateTimeWrapper, DecimalWrapper, NaiveDateTimeWrapper, SchemeWrapper};
 use crate::entity::events::Model as EventModel;
 use crate::entity::sea_orm_active_enums::Orientation;
 
@@ -104,6 +105,10 @@ pub struct EventResponse {
     
     #[schema(example = "-75.12345678", nullable = true)]
     pub longitude: Option<DecimalWrapper>,
+
+    /// Tags associated with this event
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<TagSummary>>,
 }
 
 impl From<EventModel> for EventResponse {
@@ -149,7 +154,17 @@ impl From<EventModel> for EventResponse {
             locked: model.locked,
             latitude: model.latitude.map(DecimalWrapper::from),
             longitude: model.longitude.map(DecimalWrapper::from),
+            tags: None,
         }
+    }
+}
+
+impl EventResponse {
+    /// Create an EventResponse with tags
+    pub fn with_tags(model: EventModel, tags: Vec<TagSummary>) -> Self {
+        let mut response = Self::from(model);
+        response.tags = if tags.is_empty() { None } else { Some(tags) };
+        response
     }
 }
 

@@ -1,8 +1,10 @@
+use std::collections::HashMap;
+
+use sea_orm::sea_query::{Alias, Order, SqliteQueryBuilder};
 use sea_orm::*;
 use tracing::instrument;
-use sea_orm::sea_query::{SqliteQueryBuilder, Order, Alias};
 
-use crate::entity::{events, prelude::Events};
+use crate::entity::{events, events_tags, prelude::Events, tags};
 use crate::server::state::AppState;
 
 /// Find all events with pagination
@@ -189,6 +191,67 @@ pub async fn get_counts_by_hour(
             (naive_date, r.count)
         })
         .collect();
-        
+
     Ok(counts)
+}
+
+/// Find tags for a list of event IDs (batch loading to prevent N+1)
+#[instrument(skip(state))]
+pub async fn find_tags_for_events(
+    state: &AppState,
+    event_ids: &[u64],
+) -> Result<HashMap<u64, Vec<tags::Model>>, DbErr> {
+    if event_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    // Fetch all event-tag associations for the given events
+    let associations = events_tags::Entity::find()
+        .filter(events_tags::Column::EventId.is_in(event_ids.to_vec()))
+        .all(state.db())
+        .await?;
+
+    if associations.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    // Collect unique tag IDs
+    let tag_ids: Vec<u64> = associations.iter().map(|a| a.tag_id).collect();
+
+    // Fetch all tags
+    let all_tags = tags::Entity::find()
+        .filter(tags::Column::Id.is_in(tag_ids))
+        .all(state.db())
+        .await?;
+
+    // Create a map of tag_id -> tag model
+    let tag_map: HashMap<u64, tags::Model> = all_tags.into_iter().map(|t| (t.id, t)).collect();
+
+    // Group tags by event_id
+    let mut result: HashMap<u64, Vec<tags::Model>> = HashMap::new();
+    for assoc in associations {
+        if let Some(tag) = tag_map.get(&assoc.tag_id) {
+            result.entry(assoc.event_id).or_default().push(tag.clone());
+        }
+    }
+
+    Ok(result)
+}
+
+/// Find a single event with its tags
+#[instrument(skip(state))]
+pub async fn find_by_id_with_tags(
+    state: &AppState,
+    id: u64,
+) -> Result<Option<(events::Model, Vec<tags::Model>)>, DbErr> {
+    let event = Events::find_by_id(id).one(state.db()).await?;
+
+    match event {
+        Some(e) => {
+            let tags_map = find_tags_for_events(state, &[id]).await?;
+            let tags = tags_map.get(&id).cloned().unwrap_or_default();
+            Ok(Some((e, tags)))
+        }
+        None => Ok(None),
+    }
 }

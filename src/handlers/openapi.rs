@@ -77,6 +77,12 @@ use crate::util::claim::UserClaims;
         crate::handlers::events::list_events,
         crate::handlers::events::update_event,
 
+        // events tags
+        crate::handlers::events_tags::create_event_tag,
+        crate::handlers::events_tags::delete_event_tag,
+        crate::handlers::events_tags::get_event_tag,
+        crate::handlers::events_tags::list_events_tags,
+
         // filters
         crate::handlers::filters::create_filter,
         crate::handlers::filters::delete_filter,
@@ -352,6 +358,13 @@ use crate::util::claim::UserClaims;
             crate::dto::response::events::EventResponse,
             crate::dto::response::events::PaginatedEventsResponse,
 
+            // events tags
+            crate::dto::request::events_tags::CreateEventTagRequest,
+            crate::dto::response::events_tags::EventTagResponse,
+            crate::dto::response::events_tags::TagSummary,
+            crate::dto::response::events_tags::EventSummary,
+            crate::dto::response::events_tags::TagDetailResponse,
+
             // filters
             crate::dto::request::filters::CreateFilterRequest,
             crate::dto::response::filters::FilterResponse,
@@ -515,6 +528,7 @@ use crate::util::claim::UserClaims;
         (name = "Devices", description = "X10 device controllers"),
         (name = "Event Data", description = "Event binary data storage"),
         (name = "Events", description = "Event management endpoints"),
+        (name = "Events Tags", description = "Event-tag associations"),
         (name = "Filters", description = "Event filter endpoints"),
         (name = "Frames", description = "Individual frames within events"),
         (name = "Groups", description = "Group management endpoints"),

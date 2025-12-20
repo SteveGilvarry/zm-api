@@ -440,6 +440,8 @@ pub enum ResourceType {
   Monitor,
   #[strum(serialize = "CONFIG")]
   Config,
+  #[strum(serialize = "EVENT_TAG")]
+  EventTag,
 }
 
 pub fn invalid_input_error(field: &'static str, message: &'static str) -> AppError {

@@ -1,16 +1,20 @@
-use axum::{extract::{Path, State}, Json};
+use axum::extract::{Path, Query, State};
+use axum::Json;
+
+use crate::dto::request::tags::{CreateTagRequest, TagDetailQuery, UpdateTagRequest};
+use crate::dto::response::events_tags::TagDetailResponse;
 use crate::dto::response::TagResponse;
-use crate::dto::request::tags::{CreateTagRequest, UpdateTagRequest};
 use crate::error::AppResult;
 use crate::server::state::AppState;
 
 /// List all tags.
 ///
 /// - Requires a valid JWT.
+/// - Returns event_count for each tag.
 #[utoipa::path(
     get,
     path = "/api/v3/tags",
-    responses((status = 200, description = "List tags", body = [TagResponse])),
+    responses((status = 200, description = "List tags with event counts", body = [TagResponse])),
     tag = "Tags",
     security(("jwt" = []))
 )]
@@ -19,19 +23,30 @@ pub async fn list_tags(State(state): State<AppState>) -> AppResult<Json<Vec<TagR
     Ok(Json(items))
 }
 
-/// Get a tag by id.
+/// Get a tag by id with paginated events.
 ///
 /// - Requires a valid JWT; responds 404 if not found.
+/// - Returns associated events with pagination.
 #[utoipa::path(
     get,
     path = "/api/v3/tags/{id}",
-    params(("id" = u64, Path, description = "Tag ID")),
-    responses((status = 200, description = "Tag detail", body = TagResponse)),
+    params(
+        ("id" = u64, Path, description = "Tag ID"),
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)"),
+        ("page_size" = Option<u64>, Query, description = "Items per page (default 20)")
+    ),
+    responses((status = 200, description = "Tag detail with paginated events", body = TagDetailResponse)),
     tag = "Tags",
     security(("jwt" = []))
 )]
-pub async fn get_tag(Path(id): Path<u64>, State(state): State<AppState>) -> AppResult<Json<TagResponse>> {
-    let item = crate::service::tags::get_by_id(&state, id).await?;
+pub async fn get_tag(
+    Path(id): Path<u64>,
+    Query(params): Query<TagDetailQuery>,
+    State(state): State<AppState>,
+) -> AppResult<Json<TagDetailResponse>> {
+    let item =
+        crate::service::tags::get_by_id_with_events(&state, id, params.page, params.page_size)
+            .await?;
     Ok(Json(item))
 }
 

@@ -1,21 +1,76 @@
-use crate::dto::response::TagResponse;
 use crate::dto::request::tags::{CreateTagRequest, UpdateTagRequest};
+use crate::dto::response::events_tags::{EventSummary, TagDetailResponse};
+use crate::dto::response::TagResponse;
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
 
+/// Default page size for paginated event listing
+const DEFAULT_PAGE_SIZE: u64 = 20;
+
 pub async fn list_all(state: &AppState) -> AppResult<Vec<TagResponse>> {
     let items = repo::tags::find_all(state.db()).await?;
-    Ok(items.iter().map(TagResponse::from).collect())
+    let counts = repo::tags::get_event_counts(state.db()).await?;
+
+    Ok(items
+        .iter()
+        .map(|t| {
+            let count = counts.get(&t.id).copied().unwrap_or(0);
+            TagResponse::with_event_count(t, count)
+        })
+        .collect())
 }
 
 pub async fn get_by_id(state: &AppState, id: u64) -> AppResult<TagResponse> {
     let item = repo::tags::find_by_id(state.db(), id).await?;
-    let item = item.ok_or_else(|| AppError::NotFoundError(Resource{
-        details: vec![("id".into(), id.to_string())],
-        resource_type: ResourceType::Message
-    }))?;
+    let item = item.ok_or_else(|| {
+        AppError::NotFoundError(Resource {
+            details: vec![("id".into(), id.to_string())],
+            resource_type: ResourceType::Message,
+        })
+    })?;
     Ok(TagResponse::from(&item))
+}
+
+/// Get tag detail with paginated events
+pub async fn get_by_id_with_events(
+    state: &AppState,
+    id: u64,
+    page: Option<u64>,
+    page_size: Option<u64>,
+) -> AppResult<TagDetailResponse> {
+    let page = page.unwrap_or(1);
+    let page_size = page_size.unwrap_or(DEFAULT_PAGE_SIZE);
+
+    let tag = repo::tags::find_by_id(state.db(), id).await?;
+    let tag = tag.ok_or_else(|| {
+        AppError::NotFoundError(Resource {
+            details: vec![("id".into(), id.to_string())],
+            resource_type: ResourceType::Message,
+        })
+    })?;
+
+    let (events, total) =
+        repo::tags::find_events_for_tag(state.db(), id, page - 1, page_size).await?;
+
+    let total_pages = if total == 0 {
+        0
+    } else {
+        total.div_ceil(page_size)
+    };
+
+    let event_summaries: Vec<EventSummary> = events.iter().map(EventSummary::from).collect();
+
+    Ok(TagDetailResponse {
+        id: tag.id,
+        name: tag.name,
+        create_date: tag.create_date,
+        events: event_summaries,
+        total_events: total,
+        per_page: page_size,
+        current_page: page,
+        last_page: total_pages,
+    })
 }
 
 pub async fn create(state: &AppState, req: CreateTagRequest) -> AppResult<TagResponse> {

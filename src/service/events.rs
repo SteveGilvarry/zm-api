@@ -5,10 +5,13 @@ use tracing::instrument;
 use crate::{
     dto::{
         request::events::{EventCreateRequest, EventUpdateRequest},
-        response::events::{EventCountResponse, EventCountsResponse, EventResponse, PaginatedEventsResponse},
+        response::events::{
+            EventCountResponse, EventCountsResponse, EventResponse, PaginatedEventsResponse,
+        },
+        response::events_tags::TagSummary,
     },
-    entity::{events},
-    error::{AppResult, AppError},
+    entity::events,
+    error::{AppError, AppResult},
     repo::events as events_repo,
     server::state::AppState,
 };
@@ -30,7 +33,21 @@ pub async fn list_all(
 
     let total_pages = total.div_ceil(page_size);
 
-    let event_responses = events.into_iter().map(EventResponse::from).collect();
+    // Batch load tags for all events
+    let event_ids: Vec<u64> = events.iter().map(|e| e.id).collect();
+    let tags_map = events_repo::find_tags_for_events(state, &event_ids).await?;
+
+    let event_responses = events
+        .into_iter()
+        .map(|e| {
+            let event_id = e.id;
+            let tags: Vec<TagSummary> = tags_map
+                .get(&event_id)
+                .map(|t| t.iter().map(TagSummary::from).collect())
+                .unwrap_or_default();
+            EventResponse::with_tags(e, tags)
+        })
+        .collect();
 
     Ok(PaginatedEventsResponse {
         events: event_responses,
@@ -66,7 +83,21 @@ pub async fn list_by_monitor(
 
     let total_pages = total.div_ceil(page_size);
 
-    let event_responses = events.into_iter().map(EventResponse::from).collect();
+    // Batch load tags for all events
+    let event_ids: Vec<u64> = events.iter().map(|e| e.id).collect();
+    let tags_map = events_repo::find_tags_for_events(state, &event_ids).await?;
+
+    let event_responses = events
+        .into_iter()
+        .map(|e| {
+            let event_id = e.id;
+            let tags: Vec<TagSummary> = tags_map
+                .get(&event_id)
+                .map(|t| t.iter().map(TagSummary::from).collect())
+                .unwrap_or_default();
+            EventResponse::with_tags(e, tags)
+        })
+        .collect();
 
     Ok(PaginatedEventsResponse {
         events: event_responses,
@@ -80,12 +111,16 @@ pub async fn list_by_monitor(
 /// Get event by ID
 #[instrument(skip(state))]
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<EventResponse> {
-    let event = events_repo::find_by_id(state, id as u64).await?
-        .ok_or_else(|| AppError::NotFoundError(crate::error::Resource {
-            details: vec![("id".to_string(), id.to_string())],
-            resource_type: crate::error::ResourceType::Message,
-        }))?;
-    Ok(EventResponse::from(event))
+    let (event, tags) = events_repo::find_by_id_with_tags(state, id as u64)
+        .await?
+        .ok_or_else(|| {
+            AppError::NotFoundError(crate::error::Resource {
+                details: vec![("id".to_string(), id.to_string())],
+                resource_type: crate::error::ResourceType::Message,
+            })
+        })?;
+    let tag_summaries: Vec<TagSummary> = tags.iter().map(TagSummary::from).collect();
+    Ok(EventResponse::with_tags(event, tag_summaries))
 }
 
 /// Create a new event
@@ -221,8 +256,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_by_id_ok_and_not_found() {
+        use crate::entity::events_tags::Model as EventTagModel;
+
+        // Mock needs results for: 1) find event, 2) find event_tags associations
+        let empty_event_tags: Vec<EventTagModel> = vec![];
         let db_ok = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<EventModel, _, _>(vec![vec![mk_event(5, "ev")]])
+            .append_query_results::<EventTagModel, _, _>(vec![empty_event_tags])
             .into_connection();
         let state_ok = AppState::for_test_with_db(db_ok);
         assert_eq!(get_by_id(&state_ok, 5).await.unwrap().id, 5);
@@ -232,7 +272,10 @@ mod tests {
             .append_query_results::<EventModel, _, _>(vec![empty])
             .into_connection();
         let state_none = AppState::for_test_with_db(db_none);
-        assert!(matches!(get_by_id(&state_none, 1).await.err().unwrap(), AppError::NotFoundError(_)));
+        assert!(matches!(
+            get_by_id(&state_none, 1).await.err().unwrap(),
+            AppError::NotFoundError(_)
+        ));
     }
 
     #[tokio::test]

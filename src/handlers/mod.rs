@@ -32,6 +32,7 @@ pub mod groups_permissions;
 pub mod monitors_permissions;
 pub mod snapshots_events;
 pub mod event_data;
+pub mod events_tags;
 
 pub mod server;
 pub mod auth;

@@ -46,6 +46,7 @@ pub mod groups_permissions; // Groups Permissions
 pub mod monitors_permissions; // Monitors Permissions
 pub mod snapshots_events; // Snapshots Events
 pub mod event_data; // Event Data
+pub mod events_tags; // Events Tags
 
 async fn fallback_handler(path: MatchedPath) -> &'static str {
     tracing::error!("Unknown route: {}", path.as_str());
@@ -121,6 +122,7 @@ pub fn create_router_app(state: AppState) -> Router {
     let monitor_permission_routes = monitors_permissions::add_monitor_permission_routes(Router::new());
     let snapshot_event_routes = snapshots_events::add_snapshot_event_routes(Router::new());
     let event_data_routes = event_data::add_event_data_routes(Router::new());
+    let event_tag_routes = events_tags::add_event_tag_routes(Router::new());
 
     Router::new()
         .merge(
@@ -167,6 +169,7 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(monitor_permission_routes)
         .merge(snapshot_event_routes)
         .merge(event_data_routes)
+        .merge(event_tag_routes)
         .fallback(any(fallback_handler))
         .layer(cors)  // Apply CORS middleware to all routes
         .with_state(state)

@@ -38,6 +38,7 @@ pub mod groups_permissions;
 pub mod monitors_permissions;
 pub mod snapshots_events;
 pub mod event_data;
+pub mod events_tags;
 
 pub use monitor::*;
 pub use response::*;
@@ -79,3 +80,4 @@ pub use groups_permissions::*;
 pub use monitors_permissions::*;
 pub use snapshots_events::*;
 pub use event_data::*;
+pub use events_tags::*;
