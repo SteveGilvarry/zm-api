@@ -5,6 +5,7 @@ Cargo.lock
 # IDE
 .idea/
 .vscode/
+.VSCodeCounter
 *.swp
 *.swo
 
@@ -20,3 +21,7 @@ settings/test.toml
 logs/
 .env
 static/key/*.pem
+
+# Database
+zm_schema.sql
+*.sql

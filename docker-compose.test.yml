@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  # MySQL/MariaDB test database for ZoneMinder schema
+  test-db:
+    image: mariadb:11.4
+    container_name: zm-test-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: test_root_pass
+      MYSQL_DATABASE: zm_test
+      MYSQL_USER: zm_test_user
+      MYSQL_PASSWORD: zm_test_pass
+    ports:
+      - "3307:3306"
+    volumes:
+      - test-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    command: 
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --max-connections=200
+
+  # PostgreSQL test database for schema comparison
+  test-db-postgres:
+    image: postgres:16-alpine
+    container_name: zm-test-postgres
+    environment:
+      POSTGRES_PASSWORD: test_root_pass
+      POSTGRES_USER: postgres
+      POSTGRES_DB: zm_test_pg
+    ports:
+      - "5433:5432"
+    volumes:
+      - test-db-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  test-db-data:
+  test-db-postgres-data:
