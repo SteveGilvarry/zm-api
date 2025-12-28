@@ -9,8 +9,9 @@ use tower::ServiceExt;
 use zm_api::entity::devices::Model as DeviceModel;
 use zm_api::entity::sea_orm_active_enums::DeviceType;
 use zm_api::dto::response::DeviceResponse;
-use sea_orm::{EntityTrait, ActiveModelTrait, Set};
+use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use common::test_db::get_test_db;
+use common::test_db::{cleanup_by_prefix, test_prefix};
 
 fn auth_header() -> String {
     let token = zm_api::service::token::generate_tokens("tester".to_string())
@@ -19,11 +20,11 @@ fn auth_header() -> String {
     format!("Bearer {}", token)
 }
 
-async fn create_test_device(db: &sea_orm::DatabaseConnection) -> Result<DeviceModel, sea_orm::DbErr> {
-    use zm_api::entity::devices::{self, ActiveModel};
+async fn create_device_db(db: &sea_orm::DatabaseConnection) -> Result<DeviceModel, sea_orm::DbErr> {
+    use zm_api::entity::devices::ActiveModel;
     
     let device = ActiveModel {
-        name: Set("Test X10 Controller".to_string()),
+        name: Set(format!("{}X10_Controller", test_prefix())),
         r#type: Set(DeviceType::X10),
         key_string: Set("A1".to_string()),
         ..Default::default()
@@ -32,17 +33,11 @@ async fn create_test_device(db: &sea_orm::DatabaseConnection) -> Result<DeviceMo
     device.insert(db).await
 }
 
-async fn cleanup_test_devices(db: &sea_orm::DatabaseConnection) -> Result<(), sea_orm::DbErr> {
-    use zm_api::entity::devices::{self, Entity as Device};
-    use sea_orm::QueryFilter;
-    use sea_orm::sea_query::Expr;
-    use sea_orm::ColumnTrait;
+async fn cleanup_devices_db(db: &sea_orm::DatabaseConnection) -> Result<(), sea_orm::DbErr> {
+    use zm_api::entity::devices::Entity as Device;
     
-    // Delete test devices (ones created by tests)
-    Device::delete_many()
-        .filter(devices::Column::Name.like("%Test%"))
-        .exec(db)
-        .await?;
+    let _ = Device::find().one(db).await?;
+    cleanup_by_prefix(db, "Devices", "Name", &test_prefix()).await?;
     
     Ok(())
 }
@@ -53,7 +48,7 @@ async fn test_list_devices_real_db() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     
     // Setup: Create a test device
-    let device = create_test_device(&db).await.expect("Failed to create test device");
+    let device = create_device_db(&db).await.expect("Failed to create test device");
     
     // Test: List devices
     let state = zm_api::server::state::AppState::for_test_with_db(db);
@@ -78,7 +73,7 @@ async fn test_list_devices_real_db() {
     
     // Note: Cleanup is done in a separate connection since we consumed db
     let cleanup_db = get_test_db().await.expect("Failed to get cleanup connection");
-    cleanup_test_devices(&cleanup_db).await.expect("Failed to cleanup");
+    cleanup_devices_db(&cleanup_db).await.expect("Failed to cleanup");
 }
 
 #[tokio::test]
@@ -87,7 +82,7 @@ async fn test_get_device_by_id_real_db() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     
     // Setup: Create a test device
-    let device = create_test_device(&db).await.expect("Failed to create test device");
+    let device = create_device_db(&db).await.expect("Failed to create test device");
     
     // Test: Get device by ID
     let state = zm_api::server::state::AppState::for_test_with_db(db);
@@ -108,12 +103,12 @@ async fn test_get_device_by_id_real_db() {
     let body: DeviceResponse = serde_json::from_slice(&bytes).unwrap();
     
     assert_eq!(body.id, device.id);
-    assert_eq!(body.name, "Test X10 Controller");
+    assert_eq!(body.name, format!("{}X10_Controller", test_prefix()));
     assert_eq!(body.key_string, "A1");
     
     // Cleanup
     let cleanup_db = get_test_db().await.expect("Failed to get cleanup connection");
-    cleanup_test_devices(&cleanup_db).await.expect("Failed to cleanup");
+    cleanup_devices_db(&cleanup_db).await.expect("Failed to cleanup");
 }
 
 #[tokio::test]
@@ -125,7 +120,7 @@ async fn test_create_and_delete_device_real_db() {
     // Note: You'll need to implement the POST endpoint for this test
     // For now, we'll create directly and test delete
     
-    let device = create_test_device(&db).await.expect("Failed to create test device");
+    let device = create_device_db(&db).await.expect("Failed to create test device");
     let device_id = device.id;
     
     // Test: Delete device

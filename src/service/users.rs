@@ -90,7 +90,6 @@ mod tests {
             snapshots: E::Snapshots::View,
             system: E::System::View,
             max_bandwidth: None,
-            monitor_ids: None,
             token_min_expiry: 0,
             api_enabled: 1,
             home_view: "console".into(),

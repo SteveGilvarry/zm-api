@@ -46,9 +46,19 @@ mod tests {
 
   use super::*;
 
+  fn smtp_tests_enabled() -> bool {
+    matches!(
+      std::env::var("RUN_SMTP_TESTS").as_deref(),
+      Ok("1") | Ok("true") | Ok("TRUE")
+    )
+  }
+
   #[tokio::test]
   #[ignore = "requires real SMTP server/config"]
   async fn test_smtp_email_connection() {
+    if !smtp_tests_enabled() {
+      return;
+    }
     let client = EmailClient::build_from_config(&CONFIG).unwrap();
     assert!(client.test_connection().await.unwrap());
   }
@@ -56,6 +66,9 @@ mod tests {
   #[tokio::test]
   #[ignore = "requires real SMTP server/config"]
   async fn test_smtp_send_email() {
+    if !smtp_tests_enabled() {
+      return;
+    }
     let email: Email = Faker.fake();
     let email_client = EmailClient::build_from_config(&CONFIG).unwrap();
     email_client.send_email(&email).await.unwrap();

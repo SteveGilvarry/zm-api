@@ -63,7 +63,10 @@ impl AppState {
 
     let config = configure::AppConfig::read(get_env_source(ENV_PREFIX)).expect("read config for test");
     let email = std::sync::Arc::new(EmailClient::builder_dangerous("127.0.0.1").build());
-    let http = crate::client::http::HttpClient::builder().build().expect("http client");
+    let http = crate::client::http::HttpClient::builder()
+      .no_proxy()
+      .build()
+      .expect("http client");
     let webrtc_client = crate::client::webrtc_signaling::WebRtcSignalingClient::new("127.0.0.1:0".to_string());
     let mse_manager = std::sync::Arc::new(crate::mse_client::MseStreamManager::new());
     Self {

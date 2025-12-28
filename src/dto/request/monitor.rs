@@ -367,14 +367,8 @@ pub struct CreateMonitorRequest {
     #[garde(skip)]  // Option<u16> can be None
     pub sequence: Option<u16>,
     
-    #[garde(skip)]  // Option<i32> can be None
-    pub total_events: Option<i32>,
-    
     #[garde(range(min = -128, max = 127))]
     pub zone_count: i8,
-    
-    #[garde(skip)]  // Option<i64> can be None
-    pub total_event_disk_space: Option<i64>,
     
     #[garde(skip)]  // Option<u32> can be None
     pub refresh: Option<u32>,
@@ -773,14 +767,8 @@ pub struct UpdateMonitorRequest {
     #[garde(skip)]
     pub sequence: Option<u16>,
     
-    #[garde(skip)]
-    pub total_events: Option<i32>,
-    
     #[garde(range(min = -128, max = 127))]
     pub zone_count: Option<i8>,
-    
-    #[garde(skip)]
-    pub total_event_disk_space: Option<i64>,
     
     #[garde(skip)]
     pub refresh: Option<u32>,

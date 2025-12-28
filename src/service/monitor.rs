@@ -164,9 +164,7 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         web_colour: Set(req.web_colour),
         exif: Set(req.exif),
         sequence: Set(req.sequence),
-        total_events: Set(req.total_events),
         zone_count: Set(req.zone_count),
-        total_event_disk_space: Set(req.total_event_disk_space),
         refresh: Set(req.refresh),
         latitude: Set(req.latitude.map(|f| Decimal::from_f64(f).unwrap_or_default())),
         longitude: Set(req.longitude.map(|f| Decimal::from_f64(f).unwrap_or_default())),
@@ -544,14 +542,8 @@ pub async fn update(state: &AppState, id: u32, req: UpdateMonitorRequest) -> App
     if req.sequence.is_some() {
         monitor.sequence = Set(req.sequence);
     }
-    if req.total_events.is_some() {
-        monitor.total_events = Set(req.total_events);
-    }
     if let Some(zone_count) = req.zone_count {
         monitor.zone_count = Set(zone_count);
-    }
-    if req.total_event_disk_space.is_some() {
-        monitor.total_event_disk_space = Set(req.total_event_disk_space);
     }
     if req.refresh.is_some() {
         monitor.refresh = Set(req.refresh);

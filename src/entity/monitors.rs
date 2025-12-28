@@ -264,12 +264,8 @@ pub struct Model {
     pub exif: u8,
     #[sea_orm(column_name = "Sequence")]
     pub sequence: Option<u16>,
-    #[sea_orm(column_name = "TotalEvents")]
-    pub total_events: Option<i32>,
     #[sea_orm(column_name = "ZoneCount")]
     pub zone_count: i8,
-    #[sea_orm(column_name = "TotalEventDiskSpace")]
-    pub total_event_disk_space: Option<i64>,
     #[sea_orm(column_name = "Refresh")]
     pub refresh: Option<u32>,
     #[sea_orm(
