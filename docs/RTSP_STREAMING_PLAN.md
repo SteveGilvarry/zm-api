@@ -316,12 +316,99 @@ The zm-api currently implements three streaming mechanisms:
 
 ## 3. Phase 1: go2rtc Integration Enhancement
 
+### 3.0 ZoneMinder's go2rtc Integration Analysis
+
+Based on analysis of ZoneMinder's [zm_monitor_go2rtc.cpp](https://github.com/ZoneMinder/zoneminder/blob/master/src/zm_monitor_go2rtc.cpp) and [go2rtc's video-rtc.js](https://github.com/AlexxIT/go2rtc/blob/master/www/video-rtc.js):
+
+#### 3.0.1 ZoneMinder Go2RTCManager Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        ZoneMinder go2rtc Integration                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Monitor (C++)                                                               │
+│  └── Go2RTCManager                                                           │
+│       ├── Go2RTC_endpoint    (from ZM_GO2RTC_PATH config)                   │
+│       ├── rtsp_path          (primary camera RTSP URL)                       │
+│       ├── rtsp_second_path   (secondary stream URL)                         │
+│       └── rtsp_restream_path (ZM's own RTSP server URL)                     │
+│                                                                              │
+│  Registration Flow (libcurl HTTP):                                          │
+│                                                                              │
+│  1. add_to_Go2RTC():                                                        │
+│     PUT /api/streams?src={rtsp_url}&name={monitor_id}_0                     │
+│     PUT /api/streams?src={rtsp_url}&name={monitor_id}_1  (if secondary)     │
+│     PUT /api/streams?src={rtsp_url}&name={monitor_id}_2  (if RTSP enabled)  │
+│                                                                              │
+│  2. check_Go2RTC():                                                         │
+│     GET /api/streams?src={monitor_id}                                       │
+│                                                                              │
+│  3. remove_from_Go2RTC():                                                   │
+│     DELETE /api/streams?src={monitor_id}                                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 3.0.2 go2rtc WebRTC/MSE Protocol
+
+go2rtc uses a WebSocket-based signaling protocol with automatic format negotiation:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        go2rtc Streaming Protocol                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Browser                              go2rtc Server                          │
+│     │                                      │                                 │
+│     │──── WebSocket Connect ──────────────▶│                                 │
+│     │      ws://host:1984/api/ws?src=zm5   │                                 │
+│     │                                      │                                 │
+│     │◀─── {type:"stream", streams:[...]} ──│  Available formats              │
+│     │                                      │  (webrtc/mse/hls/mjpeg)         │
+│     │                                      │                                 │
+│  WebRTC Mode:                              │                                 │
+│     │──── {type:"webrtc/offer", sdp:...} ─▶│                                 │
+│     │◀─── {type:"webrtc/answer", sdp:...}──│                                 │
+│     │◀──▶ {type:"webrtc/candidate"} ──────▶│  ICE Trickle                    │
+│     │                                      │                                 │
+│  MSE Mode:                                 │                                 │
+│     │◀─── Codec info + binary segments ────│  MediaSource API                │
+│     │                                      │                                 │
+│  ICE Servers (default):                    │                                 │
+│     • stun:stun.cloudflare.com:3478        │                                 │
+│     • stun:stun.l.google.com:19302         │                                 │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 3.0.3 ZoneMinder Web UI Integration
+
+Player options available in ZoneMinder watch page:
+- `go2rtc` - Auto-select best format
+- `go2rtc_webrtc` - Force WebRTC
+- `go2rtc_mse` - Force Media Source Extensions
+- `go2rtc_hls` - Force HLS
+
+The UI embeds go2rtc's `video-stream.js` component which handles all protocol negotiation.
+
+#### 3.0.4 Key Learnings for zm-api
+
+| ZoneMinder Approach | zm-api Improvement |
+|---------------------|-------------------|
+| libcurl for HTTP calls | Use `reqwest` with async/retry |
+| Hardcoded port 1984 | Configurable endpoint |
+| 3 channels per monitor | Dynamic channel management |
+| No health monitoring | Periodic health checks |
+| Credentials in URL | Token-based auth option |
+
 ### 3.1 Objectives
 
 - Move go2rtc configuration from hardcoded to config file
 - Add proper error handling and retry logic
 - Implement stream health monitoring
 - Add automatic stream registration on monitor creation
+- **Mirror ZoneMinder's multi-channel registration** (primary, secondary, restream)
 
 ### 3.2 Configuration Schema
 
