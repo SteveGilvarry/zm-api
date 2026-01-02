@@ -402,6 +402,102 @@ The UI embeds go2rtc's `video-stream.js` component which handles all protocol ne
 | No health monitoring | Periodic health checks |
 | Credentials in URL | Token-based auth option |
 
+#### 3.0.5 ⚠️ CRITICAL: go2rtc Security Gaps
+
+**go2rtc has NO built-in per-stream authentication.** This is a major security concern:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     go2rtc Security Vulnerabilities                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. NO PER-STREAM AUTH                                                      │
+│     • Anyone who reaches go2rtc can access ANY registered stream            │
+│     • Stream names (zm1, zm2, etc.) are easily guessable                    │
+│     • Basic auth applies to entire API, not individual streams              │
+│                                                                              │
+│  2. LOCALHOST BYPASS                                                        │
+│     • Requests from localhost SKIP authentication entirely                  │
+│     • Even with basic auth configured, local access is unrestricted         │
+│                                                                              │
+│  3. CREDENTIAL EXPOSURE                                                     │
+│     • Camera RTSP credentials embedded in registration URLs                 │
+│     • go2rtc stores these in plaintext in go2rtc.yaml                       │
+│     • API exposes stream sources: GET /api/streams shows credentials        │
+│                                                                              │
+│  4. CVE-2024-29192 (CVSS 8.8)                                               │
+│     • CSRF vulnerability in /api/config endpoint                            │
+│     • Can lead to arbitrary command execution via exec source               │
+│     • Fixed in go2rtc > 1.8.5                                               │
+│                                                                              │
+│  5. NO ENCRYPTION                                                           │
+│     • WebSocket (ws://) and HTTP used by default                            │
+│     • Requires external reverse proxy for HTTPS/WSS                         │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Current ZoneMinder + go2rtc Attack Scenario:**
+
+```
+Attacker                                    go2rtc                  Cameras
+   │                                           │                        │
+   │── Scan network, find port 1984 ──────────▶│                        │
+   │                                           │                        │
+   │── GET /api/streams ──────────────────────▶│                        │
+   │◀── {streams: {zm1: {src: "rtsp://        │                        │
+   │     admin:password@192.168.1.50:554"}}}   │  CREDENTIALS EXPOSED!  │
+   │                                           │                        │
+   │── ws://host:1984/api/ws?src=zm1 ─────────▶│                        │
+   │◀── Live video stream ────────────────────│◀───────────────────────│
+   │                                           │                        │
+   │   FULL ACCESS TO ALL CAMERAS              │                        │
+   │   NO AUTHENTICATION REQUIRED              │                        │
+```
+
+**zm-api Solution: Authenticated Streaming Proxy**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      zm-api Secure Streaming Architecture                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Client                      zm-api                        go2rtc           │
+│     │                           │                             │             │
+│     │── JWT Token ─────────────▶│                             │             │
+│     │                           │── Validate token            │             │
+│     │                           │── Check camera permissions  │             │
+│     │                           │── Generate short-lived      │             │
+│     │                           │   stream token              │             │
+│     │                           │                             │             │
+│     │◀── Proxied WebSocket ─────│── Internal request ────────▶│             │
+│     │    (wss://zm-api/...)     │   (localhost bypass OK)     │             │
+│     │                           │                             │             │
+│     │   BENEFITS:               │                             │             │
+│     │   ✓ JWT auth required     │   go2rtc bound to          │             │
+│     │   ✓ Per-camera RBAC       │   127.0.0.1 only           │             │
+│     │   ✓ Audit logging         │   (not exposed externally)  │             │
+│     │   ✓ HTTPS/WSS             │                             │             │
+│     │   ✓ Credentials hidden    │                             │             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Recommended go2rtc Security Configuration:**
+
+```yaml
+# go2rtc.yaml - SECURE configuration
+api:
+  listen: "127.0.0.1:1984"     # CRITICAL: localhost only!
+  origin: ""                    # Disable CORS
+
+rtsp:
+  listen: "127.0.0.1:8554"     # RTSP also localhost only
+
+# Do NOT expose these ports externally
+# All external access goes through zm-api proxy
+```
+
 ### 3.1 Objectives
 
 - Move go2rtc configuration from hardcoded to config file
