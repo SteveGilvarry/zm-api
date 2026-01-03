@@ -25,7 +25,7 @@ fn build_app(db: sea_orm::DatabaseConnection) -> axum::Router {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_server_health_check_real_db() {
+async fn test_api_server_health_check() {
     let db = common::test_db::get_test_db()
         .await
         .expect("Failed to connect to test database");
@@ -48,7 +48,7 @@ async fn test_server_health_check_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_server_get_version_real_db() {
+async fn test_api_server_get_version() {
     let db = common::test_db::get_test_db()
         .await
         .expect("Failed to connect to test database");
@@ -73,7 +73,7 @@ async fn test_server_get_version_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_server_stats_create_get_delete_real_db() {
+async fn test_api_server_stats_create_get_delete() {
     let db = common::test_db::get_test_db()
         .await
         .expect("Failed to connect to test database");
@@ -140,7 +140,7 @@ async fn test_server_stats_create_get_delete_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_stats_create_get_update_delete_real_db() {
+async fn test_api_stats_create_get_update_delete() {
     let db = common::test_db::get_test_db()
         .await
         .expect("Failed to connect to test database");

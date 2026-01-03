@@ -30,14 +30,13 @@ key = "https://ceaa8e5d40646d02986f3afecf3807c7@o4507954772705280.ingest.de.sent
 
 
 [secret]
-private_access_key = "static/key/private_access_rsa_key.pem"
-public_access_key = "static/key/public_access_rsa_key.pem"
-private_refresh_key = "static/key/private_refresh_rsa_key.pem"
-public_refresh_key = "static/key/public_refresh_rsa_key.pem"
+private_access_key = "/var/lib/zm_api/keys/private_access_rsa_key.pem"
+public_access_key = "/var/lib/zm_api/keys/public_access_rsa_key.pem"
+private_refresh_key = "/var/lib/zm_api/keys/private_refresh_rsa_key.pem"
+public_refresh_key = "/var/lib/zm_api/keys/public_refresh_rsa_key.pem"
 
 [worker]
 failed_task_delay = 100
 
 [http]
 timeout = 10
-

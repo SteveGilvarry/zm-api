@@ -2,6 +2,20 @@
 addr = "0.0.0.0"
 port = 8080
 
+[server.tls]
+enabled = false
+cert_path = "/etc/letsencrypt/live/example.com/fullchain.pem"
+key_path = "/etc/letsencrypt/live/example.com/privkey.pem"
+
+[server.acme]
+enabled = false
+domains = []
+contact_emails = []
+cache_dir = "/var/lib/zm_api/acme"
+production = false
+challenge = "tls-alpn-01"
+http_port = 80
+
 [db]
 host = "127.0.0.1"
 port = 5_432
@@ -39,4 +53,3 @@ failed_task_delay = 50
 
 [http]
 timeout = 10
-

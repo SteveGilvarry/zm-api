@@ -46,7 +46,7 @@ async fn cleanup_log_db(db: &DatabaseConnection, id: u32) -> Result<(), DbErr> {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_configs_list_and_get_not_found_real_db() {
+async fn test_api_configs_list_get_not_found() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     let app = build_app(db);
 
@@ -80,7 +80,7 @@ async fn test_configs_list_and_get_not_found_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_storage_create_get_delete_real_db() {
+async fn test_api_storage_create_get_delete() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     let app = build_app(db);
 
@@ -146,7 +146,7 @@ async fn test_storage_create_get_delete_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_logs_list_get_real_db() {
+async fn test_api_logs_list_get() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     let log = create_log_db(&db).await.expect("Failed to create log");
     let app = build_app(db);
@@ -185,7 +185,7 @@ async fn test_logs_list_get_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_reports_create_get_delete_real_db() {
+async fn test_api_reports_create_get_delete() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     let app = build_app(db);
 
@@ -254,7 +254,7 @@ async fn test_reports_create_get_delete_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_tags_create_get_delete_real_db() {
+async fn test_api_tags_create_get_delete() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     let app = build_app(db);
 

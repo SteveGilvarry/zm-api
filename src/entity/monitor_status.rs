@@ -18,8 +18,6 @@ pub struct Model {
     pub capture_bandwidth: i32,
     #[sea_orm(column_name = "UpdatedOn")]
     pub updated_on: DateTimeUtc,
-    #[sea_orm(column_name = "DayEventDiskSpace")]
-    pub day_event_disk_space: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

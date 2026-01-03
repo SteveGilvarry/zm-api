@@ -16,12 +16,8 @@ pub struct Model {
     pub r#type: MonitorType,
     #[sea_orm(column_name = "Device", column_type = "custom(\"TINYTEXT\")", nullable)]
     pub device: Option<String>,
-    #[sea_orm(
-        column_name = "Channel",
-        column_type = "custom(\"TINYTEXT\")",
-        nullable
-    )]
-    pub channel: Option<String>,
+    #[sea_orm(column_name = "Channel", nullable)]
+    pub channel: Option<u8>,
     #[sea_orm(column_name = "Format")]
     pub format: Option<u32>,
     #[sea_orm(column_name = "Protocol")]

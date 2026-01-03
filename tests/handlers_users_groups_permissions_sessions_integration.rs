@@ -45,7 +45,7 @@ async fn cleanup_monitor_db(db: &DatabaseConnection, id: u32) -> Result<(), DbEr
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_users_create_get_delete_real_db() {
+async fn test_api_users_create_get_delete() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     let app = build_app(db);
 
@@ -105,7 +105,7 @@ async fn test_users_create_get_delete_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_groups_create_get_delete_real_db() {
+async fn test_api_groups_create_get_delete() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     let app = build_app(db);
 
@@ -161,7 +161,7 @@ async fn test_groups_create_get_delete_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_groups_permissions_create_delete_real_db() {
+async fn test_api_groups_permissions_create_delete() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     let app = build_app(db);
 
@@ -274,7 +274,7 @@ async fn test_groups_permissions_create_delete_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_monitors_permissions_create_delete_real_db() {
+async fn test_api_monitors_permissions_create_delete() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     let monitor = create_monitor_db(&db).await.expect("Failed to create monitor");
     let app = build_app(db);
@@ -360,7 +360,7 @@ async fn test_monitors_permissions_create_delete_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_sessions_create_update_delete_real_db() {
+async fn test_api_sessions_create_update_delete() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     let app = build_app(db);
 

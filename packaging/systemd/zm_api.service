@@ -1,0 +1,26 @@
+[Unit]
+Description=ZoneMinder API Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+SupplementaryGroups=ssl-cert
+EnvironmentFile=-/etc/zm_api/zm_api.env
+ExecStart=/usr/bin/zm_api
+WorkingDirectory=/var/lib/zm_api
+StateDirectory=zm_api
+RuntimeDirectory=zm_api
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=true
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

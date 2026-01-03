@@ -55,7 +55,7 @@ pub async fn update(db: &DatabaseConnection, id: u32, req: &UpdateMonitorPresetR
     if let Some(v) = &req.name { am.name = Set(v.clone()); }
     if let Some(v) = &req.r#type { am.r#type = Set(v.clone()); }
     if let Some(v) = &req.device { am.device = Set(Some(v.clone())); }
-    if let Some(v) = &req.channel { am.channel = Set(Some(v.clone())); }
+    if let Some(v) = req.channel { am.channel = Set(Some(v)); }
     if let Some(v) = req.format { am.format = Set(Some(v)); }
     if let Some(v) = &req.protocol { am.protocol = Set(Some(v.clone())); }
     if let Some(v) = &req.method { am.method = Set(Some(v.clone())); }

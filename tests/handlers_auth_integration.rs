@@ -38,7 +38,7 @@ async fn cleanup_users_db(db: &sea_orm::DatabaseConnection) -> Result<(), sea_or
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_auth_login_refresh_logout_real_db() {
+async fn test_api_auth_login_refresh_logout() {
     let username = format!("{}auth_user", test_prefix());
     let password = "TestPass123!";
 

@@ -245,7 +245,7 @@ async fn cleanup_frame_db(db: &DatabaseConnection, id: u64) -> Result<(), DbErr>
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_monitors_create_update_delete_real_db() {
+async fn test_api_monitors_create_update_delete() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     let app = build_app(db);
 
@@ -295,7 +295,7 @@ async fn test_monitors_create_update_delete_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_monitors_state_alarm_real_db() {
+async fn test_api_monitors_state_alarm() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     let app = build_app(db);
 
@@ -348,7 +348,7 @@ async fn test_monitors_state_alarm_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_monitors_list_get_real_db() {
+async fn test_api_monitors_list_get() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     let monitor = create_monitor_db(&db).await.expect("Failed to create monitor");
     let app = build_app(db);
@@ -392,7 +392,7 @@ async fn test_monitors_list_get_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_events_list_get_real_db() {
+async fn test_api_events_list_get() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     let monitor = create_monitor_db(&db).await.expect("Failed to create monitor");
     let event = create_event_db(&db, monitor.id).await.expect("Failed to create event");
@@ -440,7 +440,7 @@ async fn test_events_list_get_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_frames_list_get_real_db() {
+async fn test_api_frames_list_get() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     let monitor = create_monitor_db(&db).await.expect("Failed to create monitor");
     let event = create_event_db(&db, monitor.id).await.expect("Failed to create event");

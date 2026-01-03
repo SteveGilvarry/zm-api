@@ -10,7 +10,6 @@ pub struct MonitorStatusResponse {
     pub analysis_fps: String,
     pub capture_bandwidth: i32,
     pub updated_on: String,
-    pub day_event_disk_space: Option<i64>,
 }
 
 impl From<&MonitorStatusModel> for MonitorStatusResponse {
@@ -22,7 +21,6 @@ impl From<&MonitorStatusModel> for MonitorStatusResponse {
             analysis_fps: model.analysis_fps.to_string(),
             capture_bandwidth: model.capture_bandwidth,
             updated_on: model.updated_on.to_rfc3339(),
-            day_event_disk_space: model.day_event_disk_space,
         }
     }
 }

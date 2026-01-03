@@ -44,7 +44,7 @@ async fn cleanup_devices_db(db: &sea_orm::DatabaseConnection) -> Result<(), sea_
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/test-db.sh start"]
-async fn test_list_devices_real_db() {
+async fn test_api_devices_list() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     
     // Setup: Create a test device
@@ -78,7 +78,7 @@ async fn test_list_devices_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/test-db.sh start"]
-async fn test_get_device_by_id_real_db() {
+async fn test_api_devices_get() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     
     // Setup: Create a test device
@@ -113,7 +113,7 @@ async fn test_get_device_by_id_real_db() {
 
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/test-db.sh start"]
-async fn test_create_and_delete_device_real_db() {
+async fn test_api_devices_create_delete() {
     let db = get_test_db().await.expect("Failed to connect to test database");
     
     // Create a device through the API
