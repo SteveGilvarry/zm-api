@@ -13,5 +13,6 @@ pub mod repo;
 pub mod routes;
 pub mod server;
 pub mod service;
+pub mod streaming;
 pub mod util;
 pub mod webrtc_ffi;

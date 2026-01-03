@@ -6,6 +6,11 @@ use tokio::io::{AsyncReadExt, BufReader};
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
+use crate::configure::streaming::ZoneMinderConfig;
+
+/// Default broadcast channel capacity for FIFO packets
+const DEFAULT_BROADCAST_CAPACITY: usize = 100;
+
 /// Video codec detected from FIFO data
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoCodec {
@@ -56,33 +61,6 @@ pub struct FifoPacket {
     pub codec: VideoCodec,
 }
 
-/// Configuration for ZoneMinder FIFO paths
-#[derive(Debug, Clone)]
-pub struct ZoneMinderConfig {
-    /// Base path for ZoneMinder events (default: /var/cache/zoneminder/events)
-    pub events_path: PathBuf,
-    /// Video FIFO suffix (default: .video_fifo)
-    pub video_suffix: String,
-    /// Audio FIFO suffix (default: .audio_fifo)
-    pub audio_suffix: String,
-    /// Broadcast channel capacity (default: 100)
-    pub broadcast_capacity: usize,
-    /// Read timeout in milliseconds (default: 5000)
-    pub read_timeout_ms: u64,
-}
-
-impl Default for ZoneMinderConfig {
-    fn default() -> Self {
-        Self {
-            events_path: PathBuf::from("/var/cache/zoneminder/events"),
-            video_suffix: ".video_fifo".to_string(),
-            audio_suffix: ".audio_fifo".to_string(),
-            broadcast_capacity: 100,
-            read_timeout_ms: 5000,
-        }
-    }
-}
-
 /// Reader for ZoneMinder's video FIFO
 pub struct ZmFifoReader {
     monitor_id: u32,
@@ -91,6 +69,7 @@ pub struct ZmFifoReader {
     video_reader: Option<BufReader<File>>,
     codec: VideoCodec,
     config: ZoneMinderConfig,
+    broadcast_capacity: usize,
     /// Broadcast channel for distributing packets to multiple consumers
     tx: broadcast::Sender<FifoPacket>,
 }
@@ -102,23 +81,34 @@ impl ZmFifoReader {
     /// * `monitor_id` - The ZoneMinder monitor ID
     /// * `config` - Configuration for FIFO paths and behavior
     pub fn new(monitor_id: u32, config: ZoneMinderConfig) -> Self {
-        let video_path = config
-            .events_path
-            .join(monitor_id.to_string())
-            .join(&config.video_suffix);
+        Self::with_capacity(monitor_id, config, DEFAULT_BROADCAST_CAPACITY)
+    }
 
-        let audio_path = if !config.audio_suffix.is_empty() {
+    /// Create a new FIFO reader with custom broadcast capacity
+    ///
+    /// # Arguments
+    /// * `monitor_id` - The ZoneMinder monitor ID
+    /// * `config` - Configuration for FIFO paths and behavior
+    /// * `broadcast_capacity` - Channel capacity for packet broadcasting
+    pub fn with_capacity(
+        monitor_id: u32,
+        config: ZoneMinderConfig,
+        broadcast_capacity: usize,
+    ) -> Self {
+        // Construct paths: /dev/shm/{monitor_id}-v.fifo
+        let video_path = PathBuf::from(&config.fifo_base_path)
+            .join(format!("{}{}", monitor_id, config.video_fifo_suffix));
+
+        let audio_path = if !config.audio_fifo_suffix.is_empty() {
             Some(
-                config
-                    .events_path
-                    .join(monitor_id.to_string())
-                    .join(&config.audio_suffix),
+                PathBuf::from(&config.fifo_base_path)
+                    .join(format!("{}{}", monitor_id, config.audio_fifo_suffix)),
             )
         } else {
             None
         };
 
-        let (tx, _rx) = broadcast::channel(config.broadcast_capacity);
+        let (tx, _rx) = broadcast::channel(broadcast_capacity);
 
         Self {
             monitor_id,
@@ -127,6 +117,7 @@ impl ZmFifoReader {
             video_reader: None,
             codec: VideoCodec::Unknown,
             config,
+            broadcast_capacity,
             tx,
         }
     }
@@ -135,19 +126,23 @@ impl ZmFifoReader {
     ///
     /// # Arguments
     /// * `monitor_id` - The ZoneMinder monitor ID
-    /// * `fifo_base_path` - Base path like "/var/cache/zoneminder/events"
-    /// * `video_suffix` - FIFO suffix like ".video_fifo"
+    /// * `fifo_base_path` - Base path like "/dev/shm"
+    /// * `video_suffix` - FIFO suffix like "-v.fifo"
     /// * `audio_suffix` - Audio FIFO suffix (optional)
     pub fn with_custom_paths(
         monitor_id: u32,
-        fifo_base_path: &Path,
+        fifo_base_path: &str,
         video_suffix: &str,
         audio_suffix: Option<&str>,
     ) -> Self {
-        let mut config = ZoneMinderConfig::default();
-        config.events_path = fifo_base_path.to_path_buf();
-        config.video_suffix = video_suffix.to_string();
-        config.audio_suffix = audio_suffix.unwrap_or("").to_string();
+        let config = ZoneMinderConfig {
+            enabled: true,
+            fifo_base_path: fifo_base_path.to_string(),
+            video_fifo_suffix: video_suffix.to_string(),
+            audio_fifo_suffix: audio_suffix.unwrap_or("").to_string(),
+            fifo_read_timeout_ms: 5000,
+            reconnect_delay_ms: 1000,
+        };
 
         Self::new(monitor_id, config)
     }
@@ -183,25 +178,21 @@ impl ZmFifoReader {
     /// Read a single packet from the video FIFO
     /// This will block until data is available or timeout
     pub async fn read_packet(&mut self) -> Result<FifoPacket, FifoError> {
+        // Read with timeout
+        let timeout = Duration::from_millis(self.config.fifo_read_timeout_ms);
+        let timeout_ms = self.config.fifo_read_timeout_ms;
+
+        tokio::time::timeout(timeout, self.read_packet_internal())
+            .await
+            .map_err(|_| FifoError::Timeout { timeout_ms })?
+    }
+
+    /// Internal packet reading logic
+    async fn read_packet_internal(&mut self) -> Result<FifoPacket, FifoError> {
         let reader = self
             .video_reader
             .as_mut()
             .ok_or(FifoError::NotCapturing)?;
-
-        // Read with timeout
-        let timeout = Duration::from_millis(self.config.read_timeout_ms);
-        tokio::time::timeout(timeout, self.read_packet_internal(reader))
-            .await
-            .map_err(|_| FifoError::Timeout {
-                timeout_ms: self.config.read_timeout_ms,
-            })?
-    }
-
-    /// Internal packet reading logic
-    async fn read_packet_internal(
-        &mut self,
-        reader: &mut BufReader<File>,
-    ) -> Result<FifoPacket, FifoError> {
         // Read 4 bytes: NAL unit length (big-endian u32)
         let length = reader.read_u32().await?;
 
@@ -294,7 +285,10 @@ impl ZmFifoReader {
                     Err(e) => {
                         error!("Error reading from FIFO for monitor {}: {}", self.monitor_id, e);
                         // Small delay before retrying
-                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        tokio::time::sleep(Duration::from_millis(
+                            self.config.reconnect_delay_ms,
+                        ))
+                        .await;
                     }
                 }
             }
@@ -437,14 +431,21 @@ pub enum FifoError {
 pub struct FifoManager {
     readers: HashMap<u32, ZmFifoReader>,
     config: ZoneMinderConfig,
+    broadcast_capacity: usize,
 }
 
 impl FifoManager {
     /// Create a new FIFO manager
     pub fn new(config: ZoneMinderConfig) -> Self {
+        Self::with_capacity(config, DEFAULT_BROADCAST_CAPACITY)
+    }
+
+    /// Create a new FIFO manager with custom broadcast capacity
+    pub fn with_capacity(config: ZoneMinderConfig, broadcast_capacity: usize) -> Self {
         Self {
             readers: HashMap::new(),
             config,
+            broadcast_capacity,
         }
     }
 
@@ -456,7 +457,8 @@ impl FifoManager {
     /// Get or create a FIFO reader for a monitor
     pub async fn get_reader(&mut self, monitor_id: u32) -> Result<&mut ZmFifoReader, FifoError> {
         if !self.readers.contains_key(&monitor_id) {
-            let mut reader = ZmFifoReader::new(monitor_id, self.config.clone());
+            let mut reader =
+                ZmFifoReader::with_capacity(monitor_id, self.config.clone(), self.broadcast_capacity);
             reader.open().await?;
             self.readers.insert(monitor_id, reader);
         }
@@ -560,14 +562,11 @@ mod tests {
     #[test]
     fn test_config_default() {
         let config = ZoneMinderConfig::default();
-        assert_eq!(
-            config.events_path,
-            PathBuf::from("/var/cache/zoneminder/events")
-        );
-        assert_eq!(config.video_suffix, ".video_fifo");
-        assert_eq!(config.audio_suffix, ".audio_fifo");
-        assert_eq!(config.broadcast_capacity, 100);
-        assert_eq!(config.read_timeout_ms, 5000);
+        assert_eq!(config.fifo_base_path, "/dev/shm");
+        assert_eq!(config.video_fifo_suffix, "-v.fifo");
+        assert_eq!(config.audio_fifo_suffix, "-a.fifo");
+        assert_eq!(config.fifo_read_timeout_ms, 5000);
+        assert_eq!(config.reconnect_delay_ms, 1000);
     }
 
     #[test]
@@ -577,14 +576,17 @@ mod tests {
 
         assert_eq!(reader.monitor_id(), 1);
         assert_eq!(reader.codec(), VideoCodec::Unknown);
-        assert_eq!(
-            reader.video_path(),
-            Path::new("/var/cache/zoneminder/events/1/.video_fifo")
-        );
-        assert_eq!(
-            reader.audio_path(),
-            Some(Path::new("/var/cache/zoneminder/events/1/.audio_fifo"))
-        );
+        assert_eq!(reader.video_path(), Path::new("/dev/shm/1-v.fifo"));
+        assert_eq!(reader.audio_path(), Some(Path::new("/dev/shm/1-a.fifo")));
+    }
+
+    #[test]
+    fn test_fifo_reader_custom_paths() {
+        let reader = ZmFifoReader::with_custom_paths(42, "/tmp", ".video", Some(".audio"));
+
+        assert_eq!(reader.monitor_id(), 42);
+        assert_eq!(reader.video_path(), Path::new("/tmp/42.video"));
+        assert_eq!(reader.audio_path(), Some(Path::new("/tmp/42.audio")));
     }
 
     #[test]

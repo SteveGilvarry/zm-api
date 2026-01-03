@@ -40,3 +40,62 @@ failed_task_delay = 50
 [http]
 timeout = 10
 
+# Streaming configuration for RTSP/WebRTC/HLS/MSE
+[streaming]
+enabled = true
+default_protocol = "auto"
+
+[streaming.source]
+priority = ["fifo", "rtsp", "go2rtc"]
+prefer_direct_rtsp = false
+fallback_to_go2rtc = true
+cache_sdp_seconds = 300
+
+[streaming.zoneminder]
+enabled = true
+fifo_base_path = "/dev/shm"
+video_fifo_suffix = "-v.fifo"
+audio_fifo_suffix = "-a.fifo"
+fifo_read_timeout_ms = 5000
+reconnect_delay_ms = 1000
+
+[streaming.go2rtc]
+enabled = false
+base_url = "http://localhost:1984"
+timeout_seconds = 10
+auto_register = true
+health_check_interval_seconds = 30
+retry_attempts = 3
+
+[streaming.webrtc]
+enabled = true
+mode = "go2rtc"
+max_connections = 100
+connection_timeout_seconds = 30
+stun_servers = ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]
+
+[streaming.hls]
+enabled = true
+segment_duration_seconds = 2
+playlist_size = 10
+ll_hls_enabled = false
+partial_segment_ms = 200
+
+[streaming.hls.storage]
+path = "/tmp/hls"
+retention_minutes = 60
+
+[streaming.mse]
+enabled = true
+mode = "native"
+max_buffer_segments = 20
+segment_duration_ms = 1000
+
+[streaming.rtsp_proxy]
+enabled = false
+port = 8554
+rtp_port_range_start = 20000
+rtp_port_range_end = 30000
+max_sessions = 100
+transport = "auto"
+

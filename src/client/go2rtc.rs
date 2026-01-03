@@ -358,7 +358,7 @@ impl Go2RtcClient {
     ///
     /// # Returns
     /// * `StreamEndpoints` - Structure containing all endpoint URLs
-    fn build_endpoints(&self, stream_name: &str) -> StreamEndpoints {
+    pub fn build_endpoints(&self, stream_name: &str) -> StreamEndpoints {
         let encoded_stream_name = encode(stream_name);
 
         StreamEndpoints {
