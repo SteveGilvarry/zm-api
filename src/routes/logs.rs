@@ -1,7 +1,7 @@
-use axum::{Router, routing::get, middleware};
 use crate::handlers::logs;
 use crate::server::state::AppState;
 use crate::util::middleware::auth_middleware;
+use axum::{middleware, routing::get, Router};
 
 pub fn add_log_routes(router: Router<AppState>) -> Router<AppState> {
     let api_prefix = "/api/v3";
@@ -11,4 +11,3 @@ pub fn add_log_routes(router: Router<AppState>) -> Router<AppState> {
         .layer(middleware::from_fn(auth_middleware));
     router.merge(protected)
 }
-

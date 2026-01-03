@@ -21,4 +21,3 @@ impl From<&crate::entity::zone_presets::Model> for ZonePresetResponse {
         }
     }
 }
-

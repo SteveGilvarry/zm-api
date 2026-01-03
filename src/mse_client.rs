@@ -6,9 +6,9 @@ use std::{
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 use tokio::sync::{broadcast, RwLock};
 use tracing::{debug, error, info, warn};
+use utoipa::ToSchema;
 
 use crate::mse_socket_client::MseSocketClient;
 
@@ -87,24 +87,33 @@ impl SegmentManager {
         };
 
         if is_init {
-            info!("Camera {} received initialization segment ({} bytes)", 
-                  self.camera_id, segment.data.len());
+            info!(
+                "Camera {} received initialization segment ({} bytes)",
+                self.camera_id,
+                segment.data.len()
+            );
             self.init_segment = Some(segment);
         } else {
-            debug!("Camera {} received media segment {} ({} bytes)", 
-                   self.camera_id, self.sequence_number, segment.data.len());
-            
+            debug!(
+                "Camera {} received media segment {} ({} bytes)",
+                self.camera_id,
+                self.sequence_number,
+                segment.data.len()
+            );
+
             // Add to buffer
             self.segments.push_back(segment);
-            
+
             // Remove old segments if buffer is full
             while self.segments.len() > self.max_segments {
                 if let Some(removed) = self.segments.pop_front() {
-                    debug!("Removed old segment {} from camera {}", 
-                           removed.sequence, self.camera_id);
+                    debug!(
+                        "Removed old segment {} from camera {}",
+                        removed.sequence, self.camera_id
+                    );
                 }
             }
-            
+
             self.sequence_number += 1;
         }
 
@@ -161,7 +170,7 @@ impl MseClient {
     /// Create a new MSE client for a camera
     pub fn new(camera_id: u32, width: u32, height: u32) -> Result<Self> {
         let (segment_sender, _) = broadcast::channel(1000);
-        
+
         let client = Self {
             camera_id,
             stream_id: 0, // Default stream ID
@@ -183,16 +192,20 @@ impl MseClient {
         }
 
         // Use socket communication (new architecture)
-        self.socket_client.register_stream(
-            self.camera_id, 
-            self.stream_id, 
-            "h264", 
-            self.width as i32, 
-            self.height as i32
-        ).map_err(|e| MseError::SocketError(e.to_string()))?;
+        self.socket_client
+            .register_stream(
+                self.camera_id,
+                self.stream_id,
+                "h264",
+                self.width as i32,
+                self.height as i32,
+            )
+            .map_err(|e| MseError::SocketError(e.to_string()))?;
 
-        info!("Registered MSE stream for camera {} ({}x{}) via socket", 
-              self.camera_id, self.width, self.height);
+        info!(
+            "Registered MSE stream for camera {} ({}x{}) via socket",
+            self.camera_id, self.width, self.height
+        );
         self.is_registered = true;
         Ok(())
     }
@@ -204,8 +217,14 @@ impl MseClient {
         }
 
         // Use socket communication (new architecture)
-        if let Err(e) = self.socket_client.unregister_stream(self.camera_id, self.stream_id) {
-            error!("Failed to unregister MSE stream for camera {}: {}", self.camera_id, e);
+        if let Err(e) = self
+            .socket_client
+            .unregister_stream(self.camera_id, self.stream_id)
+        {
+            error!(
+                "Failed to unregister MSE stream for camera {}: {}",
+                self.camera_id, e
+            );
         } else {
             info!("Unregistered MSE stream for camera {}", self.camera_id);
         }
@@ -232,30 +251,35 @@ impl MseClient {
     /// Try to get segment (non-blocking)
     pub fn try_get_segment(&self) -> Result<Option<Vec<u8>>, MseError> {
         // Use socket communication to try pop a segment (non-blocking)
-        self.socket_client.try_pop_segment(self.camera_id)
+        self.socket_client
+            .try_pop_segment(self.camera_id)
             .map_err(|e| MseError::SocketError(e.to_string()))
     }
 
     /// Get stream statistics
     pub fn get_stats(&self) -> MseStats {
         // Use socket communication to get stats
-        let (buffer_size, total_segments, dropped_segments, bytes_received, frame_count) = match self.socket_client.get_buffer_stats(self.camera_id) {
-            Ok(stats) => stats,
-            Err(e) => {
-                warn!("Failed to get stats via socket for camera {}: {}", self.camera_id, e);
-                // Return default stats on error
-                return MseStats {
-                    camera_id: self.camera_id,
-                    buffer_size: 0,
-                    total_segments: 0,
-                    dropped_segments: 0,
-                    bytes_received: 0,
-                    frame_count: 0,
-                    active_clients: 0,
-                    last_segment_time: 0,
-                };
-            }
-        };
+        let (buffer_size, total_segments, dropped_segments, bytes_received, frame_count) =
+            match self.socket_client.get_buffer_stats(self.camera_id) {
+                Ok(stats) => stats,
+                Err(e) => {
+                    warn!(
+                        "Failed to get stats via socket for camera {}: {}",
+                        self.camera_id, e
+                    );
+                    // Return default stats on error
+                    return MseStats {
+                        camera_id: self.camera_id,
+                        buffer_size: 0,
+                        total_segments: 0,
+                        dropped_segments: 0,
+                        bytes_received: 0,
+                        frame_count: 0,
+                        active_clients: 0,
+                        last_segment_time: 0,
+                    };
+                }
+            };
 
         // Use try_lock to avoid deadlock with background segment processing
         let last_segment_time = if let Ok(segment_manager) = self.segment_manager.try_lock() {
@@ -299,22 +323,29 @@ impl MseClient {
         let socket_client = MseSocketClient::new();
 
         tokio::spawn(async move {
-            info!("Starting socket-based segment processing for camera {}", camera_id);
-            
+            info!(
+                "Starting socket-based segment processing for camera {}",
+                camera_id
+            );
+
             let mut sequence = 0u64;
             let mut no_data_count = 0u64;
-            
+
             loop {
                 // Poll for segments from the socket-based plugin (non-blocking)
                 match socket_client.try_pop_segment(camera_id) {
                     Ok(Some(segment_data)) => {
                         // We got a segment from the plugin
                         let is_init = sequence == 0; // First segment is initialization
-                        
-                        info!("Got segment from socket plugin for camera {}: {} bytes, seq {}", 
-                               camera_id, segment_data.len(), sequence);
+
+                        info!(
+                            "Got segment from socket plugin for camera {}: {} bytes, seq {}",
+                            camera_id,
+                            segment_data.len(),
+                            sequence
+                        );
                         no_data_count = 0; // Reset counter
-                        
+
                         // Add to segment manager
                         let _sequence_num = {
                             if let Ok(mut manager) = segment_manager.try_lock() {
@@ -341,37 +372,48 @@ impl MseClient {
                         if segment_sender.send(segment).is_err() {
                             debug!("No active subscribers for camera {}", camera_id);
                         }
-                        
+
                         sequence += 1;
                     }
                     Ok(None) => {
                         // No segment available, wait a bit before polling again
                         no_data_count += 1;
-                        
+
                         // Log periodically to show we're polling but not getting data
                         if no_data_count % 100 == 0 {
-                            debug!("No data from socket plugin for camera {} after {} polls", 
-                                   camera_id, no_data_count);
-                            
+                            debug!(
+                                "No data from socket plugin for camera {} after {} polls",
+                                camera_id, no_data_count
+                            );
+
                             // Check buffer status
-                            if let Ok((buffer_size, total_segments, dropped_segments, bytes_received, frame_count)) = socket_client.get_buffer_stats(camera_id) {
+                            if let Ok((
+                                buffer_size,
+                                total_segments,
+                                dropped_segments,
+                                bytes_received,
+                                frame_count,
+                            )) = socket_client.get_buffer_stats(camera_id)
+                            {
                                 debug!("Socket plugin stats for camera {}: buffer_size={}, total_segments={}, dropped_segments={}, bytes_received={}, frame_count={}", 
                                        camera_id, buffer_size, total_segments, dropped_segments, bytes_received, frame_count);
                             }
                         }
-                        
+
                         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                     }
                     Err(e) => {
                         // Error occurred, wait a bit before polling again
                         no_data_count += 1;
-                        
+
                         // Log periodically to show we're polling but getting errors
                         if no_data_count % 100 == 0 {
-                            debug!("Error from socket plugin for camera {} after {} polls: {}", 
-                                   camera_id, no_data_count, e);
+                            debug!(
+                                "Error from socket plugin for camera {} after {} polls: {}",
+                                camera_id, no_data_count, e
+                            );
                         }
-                        
+
                         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
                     }
                 }
@@ -392,17 +434,25 @@ impl MseClient {
         match self.socket_client.get_init_segment(self.camera_id) {
             Ok(data) => {
                 if let Some(segment_data) = data {
-                    info!("Got initialization segment via socket for camera {}: {} bytes", 
-                          self.camera_id, segment_data.len());
+                    info!(
+                        "Got initialization segment via socket for camera {}: {} bytes",
+                        self.camera_id,
+                        segment_data.len()
+                    );
                     Ok(Some(segment_data))
                 } else {
-                    debug!("No initialization segment available via socket for camera {}", self.camera_id);
+                    debug!(
+                        "No initialization segment available via socket for camera {}",
+                        self.camera_id
+                    );
                     Ok(None)
                 }
             }
             Err(e) => {
-                error!("Failed to get initialization segment for camera {}: {}", 
-                       self.camera_id, e);
+                error!(
+                    "Failed to get initialization segment for camera {}: {}",
+                    self.camera_id, e
+                );
                 Err(MseError::SocketError(e.to_string()))
             }
         }
@@ -414,17 +464,25 @@ impl MseClient {
         match self.socket_client.get_latest_segment(self.camera_id) {
             Ok(data) => {
                 if let Some(segment_data) = data {
-                    info!("Got latest segment via socket for camera {}: {} bytes", 
-                          self.camera_id, segment_data.len());
+                    info!(
+                        "Got latest segment via socket for camera {}: {} bytes",
+                        self.camera_id,
+                        segment_data.len()
+                    );
                     Ok(Some(segment_data))
                 } else {
-                    debug!("No latest segment available via socket for camera {}", self.camera_id);
+                    debug!(
+                        "No latest segment available via socket for camera {}",
+                        self.camera_id
+                    );
                     Ok(None)
                 }
             }
             Err(e) => {
-                error!("Failed to get latest segment for camera {}: {}", 
-                       self.camera_id, e);
+                error!(
+                    "Failed to get latest segment for camera {}: {}",
+                    self.camera_id, e
+                );
                 Err(MseError::SocketError(e.to_string()))
             }
         }
@@ -450,7 +508,12 @@ impl MseStreamManager {
     }
 
     /// Get or create an MSE client for a camera
-    pub async fn get_or_create_client(&self, camera_id: u32, width: u32, height: u32) -> Result<Arc<MseClient>> {
+    pub async fn get_or_create_client(
+        &self,
+        camera_id: u32,
+        width: u32,
+        height: u32,
+    ) -> Result<Arc<MseClient>> {
         // First, try to get existing client with a read lock
         {
             let clients = self.clients.read().await;
@@ -462,28 +525,31 @@ impl MseStreamManager {
 
         // Create new client outside of any locks to prevent deadlocks
         let mut client = MseClient::new(camera_id, width, height)?;
-        
+
         // Register the stream
         client.register_stream()?;
-        
+
         // Start processing (this spawns a background task, should not block)
         client.start_segment_processing()?;
-        
+
         let client = Arc::new(client);
-        
+
         // Now acquire write lock only for insertion
         {
             let mut clients = self.clients.write().await;
-            
+
             // Double-check in case another task created it while we were working
             if let Some(existing) = clients.get(&camera_id) {
-                debug!("MSE client was created by another task, using existing for camera {}", camera_id);
+                debug!(
+                    "MSE client was created by another task, using existing for camera {}",
+                    camera_id
+                );
                 return Ok(existing.clone());
             }
-            
+
             clients.insert(camera_id, client.clone());
         }
-        
+
         info!("Created and started MSE client for camera {}", camera_id);
         Ok(client)
     }
@@ -512,11 +578,11 @@ impl MseStreamManager {
     pub async fn get_all_stats(&self) -> HashMap<u32, MseStats> {
         let clients = self.clients.read().await;
         let mut stats = HashMap::new();
-        
+
         for (camera_id, client) in clients.iter() {
             stats.insert(*camera_id, client.get_stats());
         }
-        
+
         stats
     }
 }

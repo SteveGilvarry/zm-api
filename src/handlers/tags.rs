@@ -62,7 +62,10 @@ pub async fn get_tag(
     tag = "Tags",
     security(("jwt" = []))
 )]
-pub async fn create_tag(State(state): State<AppState>, Json(req): Json<CreateTagRequest>) -> AppResult<(axum::http::StatusCode, Json<TagResponse>)> {
+pub async fn create_tag(
+    State(state): State<AppState>,
+    Json(req): Json<CreateTagRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<TagResponse>)> {
     let item = crate::service::tags::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -80,7 +83,11 @@ pub async fn create_tag(State(state): State<AppState>, Json(req): Json<CreateTag
     tag = "Tags",
     security(("jwt" = []))
 )]
-pub async fn update_tag(Path(id): Path<u64>, State(state): State<AppState>, Json(req): Json<UpdateTagRequest>) -> AppResult<Json<TagResponse>> {
+pub async fn update_tag(
+    Path(id): Path<u64>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateTagRequest>,
+) -> AppResult<Json<TagResponse>> {
     let item = crate::service::tags::update(&state, id, req).await?;
     Ok(Json(item))
 }
@@ -97,7 +104,10 @@ pub async fn update_tag(Path(id): Path<u64>, State(state): State<AppState>, Json
     tag = "Tags",
     security(("jwt" = []))
 )]
-pub async fn delete_tag(Path(id): Path<u64>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_tag(
+    Path(id): Path<u64>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::tags::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

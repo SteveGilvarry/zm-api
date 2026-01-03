@@ -25,4 +25,3 @@ impl From<&crate::entity::filters::Model> for FilterResponse {
         }
     }
 }
-

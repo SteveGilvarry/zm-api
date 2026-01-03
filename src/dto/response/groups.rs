@@ -10,7 +10,10 @@ pub struct GroupResponse {
 
 impl From<&crate::entity::groups::Model> for GroupResponse {
     fn from(m: &crate::entity::groups::Model) -> Self {
-        Self { id: m.id, name: m.name.clone(), parent_id: m.parent_id }
+        Self {
+            id: m.id,
+            name: m.name.clone(),
+            parent_id: m.parent_id,
+        }
     }
 }
-

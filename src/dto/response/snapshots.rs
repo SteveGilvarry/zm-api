@@ -1,7 +1,7 @@
+use crate::entity::snapshots::Model as SnapshotModel;
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use chrono::NaiveDateTime;
-use crate::entity::snapshots::Model as SnapshotModel;
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct SnapshotResponse {

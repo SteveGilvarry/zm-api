@@ -1,5 +1,5 @@
-use crate::dto::response::ControlResponse;
 use crate::dto::request::controls::{CreateControlRequest, UpdateControlRequest};
+use crate::dto::response::ControlResponse;
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -11,10 +11,12 @@ pub async fn list_all(state: &AppState) -> AppResult<Vec<ControlResponse>> {
 
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<ControlResponse> {
     let item = repo::controls::find_by_id(state.db(), id).await?;
-    let item = item.ok_or_else(|| AppError::NotFoundError(Resource{
-        details: vec![("id".into(), id.to_string())],
-        resource_type: ResourceType::Message
-    }))?;
+    let item = item.ok_or_else(|| {
+        AppError::NotFoundError(Resource {
+            details: vec![("id".into(), id.to_string())],
+            resource_type: ResourceType::Message,
+        })
+    })?;
     Ok(ControlResponse::from(&item))
 }
 
@@ -23,21 +25,29 @@ pub async fn create(state: &AppState, req: CreateControlRequest) -> AppResult<Co
     Ok(ControlResponse::from(&model))
 }
 
-pub async fn update(state: &AppState, id: u32, req: UpdateControlRequest) -> AppResult<ControlResponse> {
+pub async fn update(
+    state: &AppState,
+    id: u32,
+    req: UpdateControlRequest,
+) -> AppResult<ControlResponse> {
     let updated = repo::controls::update(state.db(), id, &req).await?;
-    let updated = updated.ok_or_else(|| AppError::NotFoundError(Resource{
-        details: vec![("id".into(), id.to_string())],
-        resource_type: ResourceType::Message
-    }))?;
+    let updated = updated.ok_or_else(|| {
+        AppError::NotFoundError(Resource {
+            details: vec![("id".into(), id.to_string())],
+            resource_type: ResourceType::Message,
+        })
+    })?;
     Ok(ControlResponse::from(&updated))
 }
 
 pub async fn delete(state: &AppState, id: u32) -> AppResult<()> {
     let ok = repo::controls::delete_by_id(state.db(), id).await?;
-    if ok { Ok(()) } else {
-        Err(AppError::NotFoundError(Resource{
+    if ok {
+        Ok(())
+    } else {
+        Err(AppError::NotFoundError(Resource {
             details: vec![("id".into(), id.to_string())],
-            resource_type: ResourceType::Message
+            resource_type: ResourceType::Message,
         }))
     }
 }

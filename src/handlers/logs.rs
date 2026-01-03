@@ -1,7 +1,10 @@
-use axum::{extract::{Path, State}, Json};
 use crate::dto::response::LogResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 
 /// List recent log entries ordered by newest first.
 ///
@@ -30,7 +33,10 @@ pub async fn list_logs(State(state): State<AppState>) -> AppResult<Json<Vec<LogR
     tag = "Logs",
     security(("jwt" = []))
 )]
-pub async fn get_log(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<LogResponse>> {
+pub async fn get_log(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<LogResponse>> {
     let item = crate::service::logs::get_by_id(&state, id).await?;
     Ok(Json(item))
 }

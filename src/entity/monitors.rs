@@ -9,12 +9,12 @@ use super::sea_orm_active_enums::DefaultCodec;
 use super::sea_orm_active_enums::EventCloseMode;
 use super::sea_orm_active_enums::Function;
 use super::sea_orm_active_enums::Importance;
+use super::sea_orm_active_enums::MonitorType;
 use super::sea_orm_active_enums::Orientation;
 use super::sea_orm_active_enums::OutputContainer;
 use super::sea_orm_active_enums::Recording;
 use super::sea_orm_active_enums::RecordingSource;
 use super::sea_orm_active_enums::Rtsp2WebType;
-use super::sea_orm_active_enums::MonitorType;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
@@ -154,13 +154,25 @@ pub struct Model {
     pub recording_source: RecordingSource,
     #[sea_orm(column_name = "RTSPDescribe")]
     pub rtsp_describe: Option<u8>,
-    #[sea_orm(column_name = "Brightness", column_type = "custom(\"MEDIUMINT\")", nullable)]
+    #[sea_orm(
+        column_name = "Brightness",
+        column_type = "custom(\"MEDIUMINT\")",
+        nullable
+    )]
     pub brightness: Option<i32>,
-    #[sea_orm(column_name = "Contrast", column_type = "custom(\"MEDIUMINT\")", nullable)]
+    #[sea_orm(
+        column_name = "Contrast",
+        column_type = "custom(\"MEDIUMINT\")",
+        nullable
+    )]
     pub contrast: Option<i32>,
     #[sea_orm(column_name = "Hue", column_type = "custom(\"MEDIUMINT\")", nullable)]
     pub hue: Option<i32>,
-    #[sea_orm(column_name = "Colour", column_type = "custom(\"MEDIUMINT\")", nullable)]
+    #[sea_orm(
+        column_name = "Colour",
+        column_type = "custom(\"MEDIUMINT\")",
+        nullable
+    )]
     pub colour: Option<i32>,
     #[sea_orm(column_name = "EventPrefix")]
     pub event_prefix: String,

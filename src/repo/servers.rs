@@ -1,6 +1,6 @@
-use sea_orm::*;
 use crate::entity::servers::{Entity as Servers, Model as ServerModel};
 use crate::error::AppResult;
+use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<ServerModel>> {
     Ok(Servers::find().all(db).await?)
@@ -10,12 +10,19 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<Se
     Ok(Servers::find_by_id(id).one(db).await?)
 }
 
-pub async fn create(db: &DatabaseConnection, req: &crate::dto::request::CreateServerRequest) -> AppResult<ServerModel> {
-    use sea_orm::{ActiveModelTrait, Set};
+pub async fn create(
+    db: &DatabaseConnection,
+    req: &crate::dto::request::CreateServerRequest,
+) -> AppResult<ServerModel> {
     use crate::entity::servers::ActiveModel as AM;
+    use sea_orm::{ActiveModelTrait, Set};
     fn parse_status(s: &str) -> crate::entity::sea_orm_active_enums::Status {
         use crate::entity::sea_orm_active_enums::Status::*;
-        match s.to_lowercase().as_str() { "running"=>Running, "notrunning"=>NotRunning, _=>Unknown }
+        match s.to_lowercase().as_str() {
+            "running" => Running,
+            "notrunning" => NotRunning,
+            _ => Unknown,
+        }
     }
     let am = AM {
         id: Default::default(),
@@ -27,7 +34,11 @@ pub async fn create(db: &DatabaseConnection, req: &crate::dto::request::CreateSe
         path_to_api: Set(None),
         name: Set(req.name.clone()),
         state_id: Set(None),
-        status: Set(req.status.as_deref().map(parse_status).unwrap_or(crate::entity::sea_orm_active_enums::Status::Unknown)),
+        status: Set(req
+            .status
+            .as_deref()
+            .map(parse_status)
+            .unwrap_or(crate::entity::sea_orm_active_enums::Status::Unknown)),
         cpu_load: Set(None),
         cpu_user_percent: Set(None),
         cpu_nice_percent: Set(None),
@@ -57,13 +68,30 @@ pub async fn update(
     status: Option<String>,
 ) -> AppResult<Option<ServerModel>> {
     use sea_orm::{ActiveModelTrait, Set};
-    let Some(model) = find_by_id(db, id).await? else { return Ok(None) };
+    let Some(model) = find_by_id(db, id).await? else {
+        return Ok(None);
+    };
     let mut am: crate::entity::servers::ActiveModel = model.into();
-    fn parse_status(s: &str) -> crate::entity::sea_orm_active_enums::Status { use crate::entity::sea_orm_active_enums::Status::*; match s.to_lowercase().as_str(){"running"=>Running,"notrunning"=>NotRunning,_=>Unknown} }
-    if let Some(v) = name { am.name = Set(v); }
-    if let Some(v) = hostname { am.hostname = Set(Some(v)); }
-    if let Some(v) = port { am.port = Set(Some(v)); }
-    if let Some(v) = status { am.status = Set(parse_status(&v)); }
+    fn parse_status(s: &str) -> crate::entity::sea_orm_active_enums::Status {
+        use crate::entity::sea_orm_active_enums::Status::*;
+        match s.to_lowercase().as_str() {
+            "running" => Running,
+            "notrunning" => NotRunning,
+            _ => Unknown,
+        }
+    }
+    if let Some(v) = name {
+        am.name = Set(v);
+    }
+    if let Some(v) = hostname {
+        am.hostname = Set(Some(v));
+    }
+    if let Some(v) = port {
+        am.port = Set(Some(v));
+    }
+    if let Some(v) = status {
+        am.status = Set(parse_status(&v));
+    }
     let updated = am.update(db).await?;
     Ok(Some(updated))
 }
@@ -77,8 +105,8 @@ pub async fn delete_by_id(db: &DatabaseConnection, id: u32) -> AppResult<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
     use crate::entity::sea_orm_active_enums::Status;
+    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
 
     fn mk(id: u32, name: &str) -> ServerModel {
         ServerModel {
@@ -120,14 +148,24 @@ mod tests {
         after.status = Status::Running;
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<ServerModel, _, _>(vec![vec![initial]])
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .append_query_results::<ServerModel, _, _>(vec![vec![after.clone()]])
             .into_connection();
 
-        let updated = update(&db, 10, Some("new".into()), Some("host".into()), Some(8080), Some("running".into()))
-            .await
-            .unwrap()
-            .unwrap();
+        let updated = update(
+            &db,
+            10,
+            Some("new".into()),
+            Some("host".into()),
+            Some(8080),
+            Some("running".into()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert_eq!(updated.name, "new");
         assert_eq!(updated.hostname.as_deref(), Some("host"));
         assert_eq!(updated.status, Status::Running);
@@ -136,12 +174,18 @@ mod tests {
     #[tokio::test]
     async fn test_delete_by_id_affects_rows() {
         let db_true = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .into_connection();
         assert!(delete_by_id(&db_true, 1).await.unwrap());
 
         let db_false = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 0 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 0,
+            }])
             .into_connection();
         assert!(!delete_by_id(&db_false, 1).await.unwrap());
     }

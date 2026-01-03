@@ -1,6 +1,6 @@
-use sea_orm::*;
 use crate::entity::filters::{Entity as Filters, Model as FilterModel};
 use crate::error::AppResult;
+use sea_orm::*;
 
 // Repos accept a database connection (preferred)
 #[tracing::instrument(skip_all)]
@@ -23,8 +23,12 @@ pub async fn update(
     use sea_orm::{ActiveModelTrait, Set};
     if let Some(model) = find_by_id(db, id).await? {
         let mut active: crate::entity::filters::ActiveModel = model.into();
-        if let Some(n) = name { active.name = Set(n); }
-        if let Some(q) = query_json { active.query_json = Set(q); }
+        if let Some(n) = name {
+            active.name = Set(n);
+        }
+        if let Some(q) = query_json {
+            active.query_json = Set(q);
+        }
         let updated = active.update(db).await?;
         Ok(Some(updated))
     } else {
@@ -37,11 +41,14 @@ pub async fn create(
     db: &DatabaseConnection,
     req: &crate::dto::request::CreateFilterRequest,
 ) -> AppResult<FilterModel> {
-    use sea_orm::{ActiveModelTrait, Set};
     use crate::entity::filters::ActiveModel as AM;
+    use sea_orm::{ActiveModelTrait, Set};
     fn parse_email_format(s: &str) -> crate::entity::sea_orm_active_enums::EmailFormat {
         use crate::entity::sea_orm_active_enums::EmailFormat::*;
-        match s.to_lowercase().as_str() { "individual"=>Individual, _=>Summary }
+        match s.to_lowercase().as_str() {
+            "individual" => Individual,
+            _ => Summary,
+        }
     }
     let am = AM {
         id: Default::default(),
@@ -57,7 +64,11 @@ pub async fn create(
         email_to: Set(None),
         email_subject: Set(None),
         email_body: Set(None),
-        email_format: Set(req.email_format.as_deref().map(parse_email_format).unwrap_or(crate::entity::sea_orm_active_enums::EmailFormat::Summary)),
+        email_format: Set(req
+            .email_format
+            .as_deref()
+            .map(parse_email_format)
+            .unwrap_or(crate::entity::sea_orm_active_enums::EmailFormat::Summary)),
         auto_message: Set(0),
         auto_execute: Set(0),
         auto_execute_cmd: Set(None),
@@ -121,7 +132,10 @@ mod tests {
     #[tokio::test]
     async fn test_find_all_returns_rows() {
         let db = MockDatabase::new(DatabaseBackend::MySql)
-            .append_query_results::<FilterModel, _, _>(vec![vec![mk_filter(1, "f1"), mk_filter(2, "f2")]])
+            .append_query_results::<FilterModel, _, _>(vec![vec![
+                mk_filter(1, "f1"),
+                mk_filter(2, "f2"),
+            ]])
             .into_connection();
 
         let rows = find_all(&db).await.unwrap();
@@ -144,19 +158,31 @@ mod tests {
     #[tokio::test]
     async fn test_update_updates_fields() {
         let initial = mk_filter(7, "old");
-        let updated = FilterModel { name: "new".to_string(), query_json: "{\"k\":\"v\"}".to_string(), ..initial.clone() };
+        let updated = FilterModel {
+            name: "new".to_string(),
+            query_json: "{\"k\":\"v\"}".to_string(),
+            ..initial.clone()
+        };
         let db = MockDatabase::new(DatabaseBackend::MySql)
             // find_by_id
             .append_query_results::<FilterModel, _, _>(vec![vec![initial]])
             // exec UPDATE
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             // follow-up fetch of updated row
             .append_query_results::<FilterModel, _, _>(vec![vec![updated.clone()]])
             .into_connection();
 
-        let res = update(&db, 7, Some("new".to_string()), Some("{\"k\":\"v\"}".to_string()))
-            .await
-            .unwrap();
+        let res = update(
+            &db,
+            7,
+            Some("new".to_string()),
+            Some("{\"k\":\"v\"}".to_string()),
+        )
+        .await
+        .unwrap();
         assert!(res.is_some());
         let row = res.unwrap();
         assert_eq!(row.name, "new");
@@ -166,12 +192,18 @@ mod tests {
     #[tokio::test]
     async fn test_delete_by_id_affects_rows() {
         let db_true = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .into_connection();
         assert!(delete_by_id(&db_true, 1).await.unwrap());
 
         let db_false = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 0 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 0,
+            }])
             .into_connection();
         assert!(!delete_by_id(&db_false, 1).await.unwrap());
     }

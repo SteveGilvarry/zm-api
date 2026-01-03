@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 use crate::entity::devices::Model as DeviceModel;
 use crate::entity::sea_orm_active_enums::DeviceType;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct DeviceResponse {

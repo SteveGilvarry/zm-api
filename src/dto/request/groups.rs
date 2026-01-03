@@ -6,4 +6,3 @@ pub struct CreateGroupRequest {
     pub name: String,
     pub parent_id: Option<u32>,
 }
-

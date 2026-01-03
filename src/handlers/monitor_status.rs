@@ -1,8 +1,11 @@
-use axum::{extract::{Path, State}, Json};
-use crate::dto::response::MonitorStatusResponse;
 use crate::dto::request::monitor_status::UpdateMonitorStatusRequest;
+use crate::dto::response::MonitorStatusResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 
 /// List all monitor statuses.
 #[utoipa::path(
@@ -12,7 +15,9 @@ use crate::server::state::AppState;
     tag = "Monitor Status",
     security(("jwt" = []))
 )]
-pub async fn list_monitor_statuses(State(state): State<AppState>) -> AppResult<Json<Vec<MonitorStatusResponse>>> {
+pub async fn list_monitor_statuses(
+    State(state): State<AppState>,
+) -> AppResult<Json<Vec<MonitorStatusResponse>>> {
     let items = crate::service::monitor_status::list_all(&state).await?;
     Ok(Json(items))
 }
@@ -26,7 +31,10 @@ pub async fn list_monitor_statuses(State(state): State<AppState>) -> AppResult<J
     tag = "Monitor Status",
     security(("jwt" = []))
 )]
-pub async fn get_monitor_status(Path(monitor_id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<MonitorStatusResponse>> {
+pub async fn get_monitor_status(
+    Path(monitor_id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<MonitorStatusResponse>> {
     let item = crate::service::monitor_status::get_by_monitor_id(&state, monitor_id).await?;
     Ok(Json(item))
 }
@@ -41,7 +49,11 @@ pub async fn get_monitor_status(Path(monitor_id): Path<u32>, State(state): State
     tag = "Monitor Status",
     security(("jwt" = []))
 )]
-pub async fn update_monitor_status(Path(monitor_id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateMonitorStatusRequest>) -> AppResult<Json<MonitorStatusResponse>> {
+pub async fn update_monitor_status(
+    Path(monitor_id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateMonitorStatusRequest>,
+) -> AppResult<Json<MonitorStatusResponse>> {
     let item = crate::service::monitor_status::update(&state, monitor_id, req).await?;
     Ok(Json(item))
 }

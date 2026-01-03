@@ -1,7 +1,7 @@
-use sea_orm::*;
-use crate::entity::devices::{Entity as Devices, Model as DeviceModel, ActiveModel};
-use crate::error::AppResult;
 use crate::dto::request::devices::{CreateDeviceRequest, UpdateDeviceRequest};
+use crate::entity::devices::{ActiveModel, Entity as Devices, Model as DeviceModel};
+use crate::error::AppResult;
+use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<DeviceModel>> {
     Ok(Devices::find().all(db).await?)
@@ -21,14 +21,26 @@ pub async fn create(db: &DatabaseConnection, req: &CreateDeviceRequest) -> AppRe
     Ok(am.insert(db).await?)
 }
 
-pub async fn update(db: &DatabaseConnection, id: u32, req: &UpdateDeviceRequest) -> AppResult<Option<DeviceModel>> {
-    let Some(model) = find_by_id(db, id).await? else { return Ok(None) };
+pub async fn update(
+    db: &DatabaseConnection,
+    id: u32,
+    req: &UpdateDeviceRequest,
+) -> AppResult<Option<DeviceModel>> {
+    let Some(model) = find_by_id(db, id).await? else {
+        return Ok(None);
+    };
     let mut am: ActiveModel = model.into();
-    
-    if let Some(v) = &req.name { am.name = Set(v.clone()); }
-    if let Some(v) = &req.r#type { am.r#type = Set(v.clone()); }
-    if let Some(v) = &req.key_string { am.key_string = Set(v.clone()); }
-    
+
+    if let Some(v) = &req.name {
+        am.name = Set(v.clone());
+    }
+    if let Some(v) = &req.r#type {
+        am.r#type = Set(v.clone());
+    }
+    if let Some(v) = &req.key_string {
+        am.key_string = Set(v.clone());
+    }
+
     let updated = am.update(db).await?;
     Ok(Some(updated))
 }

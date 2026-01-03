@@ -1,7 +1,7 @@
-use sea_orm::*;
-use crate::entity::snapshots::{Entity as Snapshots, Model as SnapshotModel, ActiveModel};
-use crate::error::AppResult;
 use crate::dto::request::snapshots::{CreateSnapshotRequest, UpdateSnapshotRequest};
+use crate::entity::snapshots::{ActiveModel, Entity as Snapshots, Model as SnapshotModel};
+use crate::error::AppResult;
+use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<SnapshotModel>> {
     Ok(Snapshots::find().all(db).await?)
@@ -11,7 +11,10 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<Sn
     Ok(Snapshots::find_by_id(id).one(db).await?)
 }
 
-pub async fn create(db: &DatabaseConnection, req: &CreateSnapshotRequest) -> AppResult<SnapshotModel> {
+pub async fn create(
+    db: &DatabaseConnection,
+    req: &CreateSnapshotRequest,
+) -> AppResult<SnapshotModel> {
     let am = ActiveModel {
         id: Default::default(),
         name: Set(req.name.clone()),
@@ -22,15 +25,29 @@ pub async fn create(db: &DatabaseConnection, req: &CreateSnapshotRequest) -> App
     Ok(am.insert(db).await?)
 }
 
-pub async fn update(db: &DatabaseConnection, id: u32, req: &UpdateSnapshotRequest) -> AppResult<Option<SnapshotModel>> {
-    let Some(model) = find_by_id(db, id).await? else { return Ok(None) };
+pub async fn update(
+    db: &DatabaseConnection,
+    id: u32,
+    req: &UpdateSnapshotRequest,
+) -> AppResult<Option<SnapshotModel>> {
+    let Some(model) = find_by_id(db, id).await? else {
+        return Ok(None);
+    };
     let mut am: ActiveModel = model.into();
-    
-    if let Some(v) = &req.name { am.name = Set(Some(v.clone())); }
-    if let Some(v) = &req.description { am.description = Set(Some(v.clone())); }
-    if let Some(v) = req.created_by { am.created_by = Set(Some(v)); }
-    if let Some(v) = req.created_on { am.created_on = Set(Some(v)); }
-    
+
+    if let Some(v) = &req.name {
+        am.name = Set(Some(v.clone()));
+    }
+    if let Some(v) = &req.description {
+        am.description = Set(Some(v.clone()));
+    }
+    if let Some(v) = req.created_by {
+        am.created_by = Set(Some(v));
+    }
+    if let Some(v) = req.created_on {
+        am.created_on = Set(Some(v));
+    }
+
     let updated = am.update(db).await?;
     Ok(Some(updated))
 }

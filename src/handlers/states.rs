@@ -1,8 +1,11 @@
-use axum::{extract::{Path, State}, Json};
-use crate::dto::response::StateResponse;
 use crate::dto::request::states::{CreateStateRequest, UpdateStateRequest};
+use crate::dto::response::StateResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 
 /// List all states.
 ///
@@ -30,7 +33,10 @@ pub async fn list_states(State(state): State<AppState>) -> AppResult<Json<Vec<St
     tag = "States",
     security(("jwt" = []))
 )]
-pub async fn get_state(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<StateResponse>> {
+pub async fn get_state(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<StateResponse>> {
     let item = crate::service::states::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -47,7 +53,10 @@ pub async fn get_state(Path(id): Path<u32>, State(state): State<AppState>) -> Ap
     tag = "States",
     security(("jwt" = []))
 )]
-pub async fn create_state(State(state): State<AppState>, Json(req): Json<CreateStateRequest>) -> AppResult<(axum::http::StatusCode, Json<StateResponse>)> {
+pub async fn create_state(
+    State(state): State<AppState>,
+    Json(req): Json<CreateStateRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<StateResponse>)> {
     let item = crate::service::states::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -65,7 +74,11 @@ pub async fn create_state(State(state): State<AppState>, Json(req): Json<CreateS
     tag = "States",
     security(("jwt" = []))
 )]
-pub async fn update_state(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateStateRequest>) -> AppResult<Json<StateResponse>> {
+pub async fn update_state(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateStateRequest>,
+) -> AppResult<Json<StateResponse>> {
     let item = crate::service::states::update(&state, id, req).await?;
     Ok(Json(item))
 }
@@ -82,7 +95,10 @@ pub async fn update_state(Path(id): Path<u32>, State(state): State<AppState>, Js
     tag = "States",
     security(("jwt" = []))
 )]
-pub async fn delete_state(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_state(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::states::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

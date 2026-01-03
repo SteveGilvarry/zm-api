@@ -25,4 +25,3 @@ impl From<&crate::entity::zones::Model> for ZoneResponse {
         }
     }
 }
-

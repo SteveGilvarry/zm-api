@@ -10,4 +10,3 @@ pub struct CreateUserRequest {
     pub phone: Option<String>,
     pub enabled: Option<u8>,
 }
-

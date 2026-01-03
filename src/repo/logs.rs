@@ -1,9 +1,13 @@
-use sea_orm::*;
 use crate::entity::logs::{Entity as Logs, Model as LogModel};
 use crate::error::AppResult;
+use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection, limit: u64) -> AppResult<Vec<LogModel>> {
-    Ok(Logs::find().order_by_desc(crate::entity::logs::Column::Id).limit(limit).all(db).await?)
+    Ok(Logs::find()
+        .order_by_desc(crate::entity::logs::Column::Id)
+        .limit(limit)
+        .all(db)
+        .await?)
 }
 
 pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<LogModel>> {
@@ -13,8 +17,8 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<Lo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::{DatabaseBackend, MockDatabase};
     use rust_decimal::Decimal;
+    use sea_orm::{DatabaseBackend, MockDatabase};
 
     fn mk(id: u32, message: &str) -> LogModel {
         LogModel {

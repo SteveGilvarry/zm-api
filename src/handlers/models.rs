@@ -1,12 +1,17 @@
-use axum::{extract::{Path, State, Query}, Json};
-use crate::dto::response::ModelResponse;
 use crate::dto::request::CreateModelRequest;
-use serde::Deserialize;
+use crate::dto::response::ModelResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
-pub struct ModelListQuery { pub manufacturer_id: Option<u32> }
+pub struct ModelListQuery {
+    pub manufacturer_id: Option<u32>,
+}
 
 /// List camera models; optionally filter by manufacturer id.
 ///
@@ -19,7 +24,10 @@ pub struct ModelListQuery { pub manufacturer_id: Option<u32> }
     tag = "Models",
     security(("jwt" = []))
 )]
-pub async fn list_models(State(state): State<AppState>, Query(q): Query<ModelListQuery>) -> AppResult<Json<Vec<ModelResponse>>> {
+pub async fn list_models(
+    State(state): State<AppState>,
+    Query(q): Query<ModelListQuery>,
+) -> AppResult<Json<Vec<ModelResponse>>> {
     let items = crate::service::models::list_all(&state, q.manufacturer_id).await?;
     Ok(Json(items))
 }
@@ -35,7 +43,10 @@ pub async fn list_models(State(state): State<AppState>, Query(q): Query<ModelLis
     tag = "Models",
     security(("jwt" = []))
 )]
-pub async fn get_model(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<ModelResponse>> {
+pub async fn get_model(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<ModelResponse>> {
     let item = crate::service::models::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -52,13 +63,19 @@ pub async fn get_model(Path(id): Path<u32>, State(state): State<AppState>) -> Ap
     tag = "Models",
     security(("jwt" = []))
 )]
-pub async fn create_model(State(state): State<AppState>, Json(req): Json<CreateModelRequest>) -> AppResult<(axum::http::StatusCode, Json<ModelResponse>)> {
+pub async fn create_model(
+    State(state): State<AppState>,
+    Json(req): Json<CreateModelRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<ModelResponse>)> {
     let item = crate::service::models::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
-pub struct UpdateModelRequest { pub name: Option<String>, pub manufacturer_id: Option<i32> }
+pub struct UpdateModelRequest {
+    pub name: Option<String>,
+    pub manufacturer_id: Option<i32>,
+}
 
 /// Update a camera model entry.
 ///
@@ -73,7 +90,11 @@ pub struct UpdateModelRequest { pub name: Option<String>, pub manufacturer_id: O
     tag = "Models",
     security(("jwt" = []))
 )]
-pub async fn update_model(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateModelRequest>) -> AppResult<Json<ModelResponse>> {
+pub async fn update_model(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateModelRequest>,
+) -> AppResult<Json<ModelResponse>> {
     let item = crate::service::models::update(&state, id, req.name, req.manufacturer_id).await?;
     Ok(Json(item))
 }
@@ -90,7 +111,10 @@ pub async fn update_model(Path(id): Path<u32>, State(state): State<AppState>, Js
     tag = "Models",
     security(("jwt" = []))
 )]
-pub async fn delete_model(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_model(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::models::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

@@ -1,9 +1,10 @@
-use std::sync::Arc;
-use sea_orm::{
-    ConnectionTrait, EntityTrait, ActiveModelTrait, ModelTrait, DatabaseConnection, ColumnTrait, QueryFilter
-};
 use crate::entity;
 use crate::error::AppResult;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, ModelTrait,
+    QueryFilter,
+};
+use std::sync::Arc;
 
 /// Monitor repository for database operations
 pub struct MonitorRepository {
@@ -64,7 +65,10 @@ where
 
 /// Create a new monitor
 #[tracing::instrument(skip_all)]
-pub async fn create<C>(conn: &C, monitor: entity::monitors::ActiveModel) -> AppResult<entity::monitors::Model>
+pub async fn create<C>(
+    conn: &C,
+    monitor: entity::monitors::ActiveModel,
+) -> AppResult<entity::monitors::Model>
 where
     C: ConnectionTrait,
 {
@@ -74,7 +78,10 @@ where
 
 /// Update an existing monitor
 #[tracing::instrument(skip_all)]
-pub async fn update<C>(conn: &C, monitor: entity::monitors::ActiveModel) -> AppResult<entity::monitors::Model>
+pub async fn update<C>(
+    conn: &C,
+    monitor: entity::monitors::ActiveModel,
+) -> AppResult<entity::monitors::Model>
 where
     C: ConnectionTrait,
 {
@@ -94,12 +101,13 @@ where
 
 /// Get streaming details for a monitor
 #[tracing::instrument(skip_all)]
-pub async fn get_streaming_details<C>(conn: &C, id: u32) -> AppResult<Option<entity::monitors::Model>>
+pub async fn get_streaming_details<C>(
+    conn: &C,
+    id: u32,
+) -> AppResult<Option<entity::monitors::Model>>
 where
     C: ConnectionTrait,
 {
-    let monitor = entity::monitors::Entity::find_by_id(id)
-        .one(conn)
-        .await?;
+    let monitor = entity::monitors::Entity::find_by_id(id).one(conn).await?;
     Ok(monitor)
 }

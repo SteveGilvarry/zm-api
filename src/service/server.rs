@@ -1,41 +1,41 @@
-use tracing::{info, error};
-use crate::dto::response::VersionResponse;
-use crate::error::{AppResult, AppError};
-use crate::server::state::AppState;
-use crate::repo;
 use crate::constant::API_VERSION;
+use crate::dto::response::VersionResponse;
+use crate::error::{AppError, AppResult};
+use crate::repo;
+use crate::server::state::AppState;
 use tokio::process::Command;
+use tracing::{error, info};
 
 // API version (from Cargo.toml via constant)
 
 pub async fn get_version(state: &AppState) -> AppResult<VersionResponse> {
     info!("Getting ZoneMinder and API version information");
-    
+
     // Fetch version information from the database
     let zm_version = repo::config::get_zm_version(state.db()).await?;
     let db_version = repo::config::get_zm_db_version(state.db()).await?;
-    
+
     // Build version response
     let response = VersionResponse {
         version: zm_version,
         api_version: API_VERSION.to_string(),
         db_version,
     };
-    
+
     Ok(response)
 }
 
 /// Restart ZoneMinder daemon
 pub async fn restart_zoneminder(_state: &AppState) -> AppResult<()> {
     info!("Restarting ZoneMinder daemon");
-    
+
     // Try systemctl first (most common on modern Linux systems)
     let result = Command::new("systemctl")
         .arg("restart")
         .arg("zoneminder")
         .output()
         .await;
-    
+
     match result {
         Ok(output) if output.status.success() => {
             info!("Successfully restarted ZoneMinder via systemctl");
@@ -44,7 +44,7 @@ pub async fn restart_zoneminder(_state: &AppState) -> AppResult<()> {
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
             error!("Failed to restart ZoneMinder: {}", stderr);
-            
+
             // Try zmcontrol.pl as fallback
             restart_via_zmcontrol().await
         }
@@ -59,13 +59,13 @@ pub async fn restart_zoneminder(_state: &AppState) -> AppResult<()> {
 /// Stop ZoneMinder daemon
 pub async fn stop_zoneminder(_state: &AppState) -> AppResult<()> {
     info!("Stopping ZoneMinder daemon");
-    
+
     let result = Command::new("systemctl")
         .arg("stop")
         .arg("zoneminder")
         .output()
         .await;
-    
+
     match result {
         Ok(output) if output.status.success() => {
             info!("Successfully stopped ZoneMinder via systemctl");
@@ -86,13 +86,13 @@ pub async fn stop_zoneminder(_state: &AppState) -> AppResult<()> {
 /// Start ZoneMinder daemon
 pub async fn start_zoneminder(_state: &AppState) -> AppResult<()> {
     info!("Starting ZoneMinder daemon");
-    
+
     let result = Command::new("systemctl")
         .arg("start")
         .arg("zoneminder")
         .output()
         .await;
-    
+
     match result {
         Ok(output) if output.status.success() => {
             info!("Successfully started ZoneMinder via systemctl");
@@ -116,14 +116,19 @@ async fn restart_via_zmcontrol() -> AppResult<()> {
         .arg("restart")
         .output()
         .await
-        .map_err(|e| AppError::InternalServerError(format!("Failed to execute zmcontrol.pl: {}", e)))?;
-    
+        .map_err(|e| {
+            AppError::InternalServerError(format!("Failed to execute zmcontrol.pl: {}", e))
+        })?;
+
     if output.status.success() {
         info!("Successfully restarted ZoneMinder via zmcontrol.pl");
         Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(AppError::InternalServerError(format!("Failed to restart ZoneMinder: {}", stderr)))
+        Err(AppError::InternalServerError(format!(
+            "Failed to restart ZoneMinder: {}",
+            stderr
+        )))
     }
 }
 
@@ -133,14 +138,19 @@ async fn stop_via_zmcontrol() -> AppResult<()> {
         .arg("stop")
         .output()
         .await
-        .map_err(|e| AppError::InternalServerError(format!("Failed to execute zmcontrol.pl: {}", e)))?;
-    
+        .map_err(|e| {
+            AppError::InternalServerError(format!("Failed to execute zmcontrol.pl: {}", e))
+        })?;
+
     if output.status.success() {
         info!("Successfully stopped ZoneMinder via zmcontrol.pl");
         Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(AppError::InternalServerError(format!("Failed to stop ZoneMinder: {}", stderr)))
+        Err(AppError::InternalServerError(format!(
+            "Failed to stop ZoneMinder: {}",
+            stderr
+        )))
     }
 }
 
@@ -150,14 +160,19 @@ async fn start_via_zmcontrol() -> AppResult<()> {
         .arg("start")
         .output()
         .await
-        .map_err(|e| AppError::InternalServerError(format!("Failed to execute zmcontrol.pl: {}", e)))?;
-    
+        .map_err(|e| {
+            AppError::InternalServerError(format!("Failed to execute zmcontrol.pl: {}", e))
+        })?;
+
     if output.status.success() {
         info!("Successfully started ZoneMinder via zmcontrol.pl");
         Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(AppError::InternalServerError(format!("Failed to start ZoneMinder: {}", stderr)))
+        Err(AppError::InternalServerError(format!(
+            "Failed to start ZoneMinder: {}",
+            stderr
+        )))
     }
 }
 
@@ -166,9 +181,9 @@ async fn start_via_zmcontrol() -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::{DatabaseBackend, MockDatabase};
     use crate::entity::config::Model as ConfigModel;
-    use crate::repo::config::{ZM_VERSION_KEY, ZM_DB_VERSION_KEY};
+    use crate::repo::config::{ZM_DB_VERSION_KEY, ZM_VERSION_KEY};
+    use sea_orm::{DatabaseBackend, MockDatabase};
 
     fn mk(name: &str, val: &str) -> ConfigModel {
         ConfigModel {

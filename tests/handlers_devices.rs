@@ -1,10 +1,10 @@
-use axum::http::{Request, StatusCode, header};
 use axum::body::{self, Body};
+use axum::http::{header, Request, StatusCode};
 use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
 use tower::ServiceExt;
+use zm_api::dto::response::DeviceResponse;
 use zm_api::entity::devices::Model as DeviceModel;
 use zm_api::entity::sea_orm_active_enums::DeviceType;
-use zm_api::dto::response::DeviceResponse;
 
 fn sample_device() -> DeviceModel {
     DeviceModel {
@@ -36,13 +36,15 @@ async fn test_list_devices() {
             Request::get("/api/v3/devices")
                 .header(header::AUTHORIZATION, auth_header())
                 .body(Body::empty())
-                .unwrap()
+                .unwrap(),
         )
         .await
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let body: Vec<DeviceResponse> = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body.len(), 1);
     assert_eq!(body[0].name, "X10 Controller");
@@ -62,13 +64,15 @@ async fn test_get_device_by_id() {
             Request::get("/api/v3/devices/1")
                 .header(header::AUTHORIZATION, auth_header())
                 .body(Body::empty())
-                .unwrap()
+                .unwrap(),
         )
         .await
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let body: DeviceResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body.id, 1);
     assert_eq!(body.name, "X10 Controller");
@@ -88,7 +92,7 @@ async fn test_get_device_not_found() {
             Request::get("/api/v3/devices/999")
                 .header(header::AUTHORIZATION, auth_header())
                 .body(Body::empty())
-                .unwrap()
+                .unwrap(),
         )
         .await
         .unwrap();
@@ -99,7 +103,10 @@ async fn test_get_device_not_found() {
 #[tokio::test]
 async fn test_delete_device() {
     let db = MockDatabase::new(DatabaseBackend::MySql)
-        .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+        .append_exec_results(vec![MockExecResult {
+            last_insert_id: 0,
+            rows_affected: 1,
+        }])
         .into_connection();
     let state = zm_api::server::state::AppState::for_test_with_db(db);
     let app = zm_api::routes::create_router_app(state);
@@ -109,7 +116,7 @@ async fn test_delete_device() {
             Request::delete("/api/v3/devices/1")
                 .header(header::AUTHORIZATION, auth_header())
                 .body(Body::empty())
-                .unwrap()
+                .unwrap(),
         )
         .await
         .unwrap();
@@ -120,7 +127,10 @@ async fn test_delete_device() {
 #[tokio::test]
 async fn test_delete_device_not_found() {
     let db = MockDatabase::new(DatabaseBackend::MySql)
-        .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 0 }])
+        .append_exec_results(vec![MockExecResult {
+            last_insert_id: 0,
+            rows_affected: 0,
+        }])
         .into_connection();
     let state = zm_api::server::state::AppState::for_test_with_db(db);
     let app = zm_api::routes::create_router_app(state);
@@ -130,7 +140,7 @@ async fn test_delete_device_not_found() {
             Request::delete("/api/v3/devices/999")
                 .header(header::AUTHORIZATION, auth_header())
                 .body(Body::empty())
-                .unwrap()
+                .unwrap(),
         )
         .await
         .unwrap();

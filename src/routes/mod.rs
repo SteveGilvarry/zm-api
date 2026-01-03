@@ -1,52 +1,57 @@
-use axum::{Router, routing::any, http::{Method, HeaderName}};
-use utoipa_swagger_ui::SwaggerUi;
-use utoipa::OpenApi;
-use axum::extract::MatchedPath;
-use tower_http::cors::CorsLayer;
 use crate::handlers::openapi::ApiDoc;
 use crate::server::state::AppState;
+use axum::extract::MatchedPath;
+use axum::{
+    http::{HeaderName, Method},
+    routing::any,
+    Router,
+};
+use tower_http::cors::CorsLayer;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
-pub mod server;
 pub mod auth;
-pub mod monitors;
-pub mod streaming;
-pub mod events; // Add events module
-pub mod mse; // Add MSE module
-pub mod webrtc; // Add WebRTC module
 pub mod configs; // Config management
-pub mod zones; // Zones
+pub mod control_presets; // Control Presets
+pub mod controls; // Controls
+pub mod devices; // Devices
+pub mod event_data; // Event Data
+pub mod events; // Add events module
+pub mod events_tags; // Events Tags
 pub mod filters; // Filters
-pub mod users; // Users
+pub mod frames; // Frames
+pub mod go2rtc_proxy;
 pub mod groups; // Groups
-pub mod servers; // Server info list
+pub mod groups_monitors; // Groups Monitors
+pub mod groups_permissions; // Groups Permissions
 pub mod logs; // Logs
-pub mod storage; // Storage
 pub mod manufacturers; // Manufacturers
 pub mod models; // Models
-pub mod zone_presets; // Zone Presets
-pub mod controls; // Controls
-pub mod control_presets; // Control Presets
-pub mod devices; // Devices
 pub mod monitor_presets; // Monitor Presets
+pub mod monitor_status; // Monitor Status
+pub mod monitors;
+pub mod monitors_permissions; // Monitors Permissions
 pub mod montage_layouts; // Montage Layouts
+pub mod mse; // Add MSE module
+pub mod object_types; // Object Types
+pub mod reports; // Reports
+pub mod server;
+pub mod server_stats; // Server Stats
+pub mod servers; // Server info list
+pub mod sessions; // Sessions
 pub mod snapshots; // Snapshots
+pub mod snapshots_events; // Snapshots Events
+pub mod states; // States
+pub mod stats; // Stats
+pub mod storage; // Storage
+pub mod streaming;
 pub mod tags; // Tags
 pub mod triggers_x10; // X10 Triggers
 pub mod user_preferences; // User Preferences
-pub mod sessions; // Sessions
-pub mod states; // States
-pub mod stats; // Stats
-pub mod frames; // Frames
-pub mod monitor_status; // Monitor Status
-pub mod object_types; // Object Types
-pub mod server_stats; // Server Stats
-pub mod reports; // Reports
-pub mod groups_monitors; // Groups Monitors
-pub mod groups_permissions; // Groups Permissions
-pub mod monitors_permissions; // Monitors Permissions
-pub mod snapshots_events; // Snapshots Events
-pub mod event_data; // Event Data
-pub mod events_tags; // Events Tags
+pub mod users; // Users
+pub mod webrtc; // Add WebRTC module
+pub mod zone_presets; // Zone Presets
+pub mod zones; // Zones // go2rtc WebSocket proxy
 
 async fn fallback_handler(path: MatchedPath) -> &'static str {
     tracing::error!("Unknown route: {}", path.as_str());
@@ -55,23 +60,31 @@ async fn fallback_handler(path: MatchedPath) -> &'static str {
 
 pub fn create_router_app(state: AppState) -> Router {
     // Get frontend URL from environment variable or use default localhost addresses
-    let frontend_urls = std::env::var("ALLOWED_ORIGINS")
-        .unwrap_or_else(|_| "http://localhost:3000,http://localhost:5173,http://localhost:8000".to_string());
-    
+    let frontend_urls = std::env::var("ALLOWED_ORIGINS").unwrap_or_else(|_| {
+        "http://localhost:3000,http://localhost:5173,http://localhost:8000".to_string()
+    });
+
     // Parse the URLs into a Vec of HeaderValues for CORS configuration
     let origins = frontend_urls
         .split(',')
         .filter_map(|origin| origin.parse().ok())
         .collect::<Vec<_>>();
-    
+
     tracing::info!("Configuring CORS with allowed origins: {:?}", frontend_urls);
-    
+
     // Configure CORS to allow requests from the frontend(s)
     let cors = CorsLayer::new()
         // Allow frontend origins to access the API
         .allow_origin(origins)
         // Allow common HTTP methods needed for a RESTful API
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::PATCH, Method::OPTIONS])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::PATCH,
+            Method::OPTIONS,
+        ])
         // Allow common HTTP headers used in API requests
         .allow_headers([
             HeaderName::from_static("authorization"),
@@ -119,16 +132,15 @@ pub fn create_router_app(state: AppState) -> Router {
     let report_routes = reports::add_report_routes(Router::new());
     let group_monitor_routes = groups_monitors::add_group_monitor_routes(Router::new());
     let group_permission_routes = groups_permissions::add_group_permission_routes(Router::new());
-    let monitor_permission_routes = monitors_permissions::add_monitor_permission_routes(Router::new());
+    let monitor_permission_routes =
+        monitors_permissions::add_monitor_permission_routes(Router::new());
     let snapshot_event_routes = snapshots_events::add_snapshot_event_routes(Router::new());
     let event_data_routes = event_data::add_event_data_routes(Router::new());
     let event_tag_routes = events_tags::add_event_tag_routes(Router::new());
+    let go2rtc_proxy_routes = go2rtc_proxy::add_go2rtc_proxy_routes(Router::new());
 
     Router::new()
-        .merge(
-            SwaggerUi::new("/swagger-ui")
-                .url("/api-docs/openapi.json", ApiDoc::openapi())
-        )
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .merge(server_routes)
         .merge(auth_routes)
         .merge(monitors_routes)
@@ -170,7 +182,8 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(snapshot_event_routes)
         .merge(event_data_routes)
         .merge(event_tag_routes)
+        .merge(go2rtc_proxy_routes)
         .fallback(any(fallback_handler))
-        .layer(cors)  // Apply CORS middleware to all routes
+        .layer(cors) // Apply CORS middleware to all routes
         .with_state(state)
 }

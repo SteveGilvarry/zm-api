@@ -10,33 +10,64 @@ pub async fn list_all(state: &AppState) -> AppResult<Vec<ManufacturerResponse>> 
 
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<ManufacturerResponse> {
     let item = repo::manufacturers::find_by_id(state.db(), id).await?;
-    let item = item.ok_or_else(|| AppError::NotFoundError(Resource{details: vec![("id".into(), id.to_string())], resource_type: ResourceType::Message}))?;
+    let item = item.ok_or_else(|| {
+        AppError::NotFoundError(Resource {
+            details: vec![("id".into(), id.to_string())],
+            resource_type: ResourceType::Message,
+        })
+    })?;
     Ok(ManufacturerResponse::from(&item))
 }
 
-pub async fn create(state: &AppState, req: crate::dto::request::CreateManufacturerRequest) -> AppResult<ManufacturerResponse> {
+pub async fn create(
+    state: &AppState,
+    req: crate::dto::request::CreateManufacturerRequest,
+) -> AppResult<ManufacturerResponse> {
     let model = repo::manufacturers::create(state.db(), &req).await?;
     Ok(ManufacturerResponse::from(&model))
 }
 
-pub async fn update(state: &AppState, id: u32, name: Option<String>) -> AppResult<ManufacturerResponse> {
+pub async fn update(
+    state: &AppState,
+    id: u32,
+    name: Option<String>,
+) -> AppResult<ManufacturerResponse> {
     let updated = repo::manufacturers::update(state.db(), id, name).await?;
-    let updated = updated.ok_or_else(|| crate::error::AppError::NotFoundError(crate::error::Resource{details: vec![("id".into(), id.to_string())], resource_type: crate::error::ResourceType::Message}))?;
+    let updated = updated.ok_or_else(|| {
+        crate::error::AppError::NotFoundError(crate::error::Resource {
+            details: vec![("id".into(), id.to_string())],
+            resource_type: crate::error::ResourceType::Message,
+        })
+    })?;
     Ok(ManufacturerResponse::from(&updated))
 }
 
 pub async fn delete(state: &AppState, id: u32) -> AppResult<()> {
     let ok = repo::manufacturers::delete_by_id(state.db(), id).await?;
-    if ok { Ok(()) } else { Err(crate::error::AppError::NotFoundError(crate::error::Resource{details: vec![("id".into(), id.to_string())], resource_type: crate::error::ResourceType::Message})) }
+    if ok {
+        Ok(())
+    } else {
+        Err(crate::error::AppError::NotFoundError(
+            crate::error::Resource {
+                details: vec![("id".into(), id.to_string())],
+                resource_type: crate::error::ResourceType::Message,
+            },
+        ))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
     use crate::entity::manufacturers::Model as ManModel;
+    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
 
-    fn mk(id: u32, name: &str) -> ManModel { ManModel { id, name: name.into() } }
+    fn mk(id: u32, name: &str) -> ManModel {
+        ManModel {
+            id,
+            name: name.into(),
+        }
+    }
 
     #[tokio::test]
     async fn test_list_and_get_ok() {
@@ -61,19 +92,34 @@ mod tests {
             .append_query_results::<ManModel, _, _>(vec![empty.clone()])
             .into_connection();
         let state_none_get = AppState::for_test_with_db(db_none_get);
-        assert!(matches!(get_by_id(&state_none_get, 1).await.err().unwrap(), AppError::NotFoundError(_)));
+        assert!(matches!(
+            get_by_id(&state_none_get, 1).await.err().unwrap(),
+            AppError::NotFoundError(_)
+        ));
         // update on empty
         let db_none_upd = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<ManModel, _, _>(vec![empty])
             .into_connection();
         let state_none_upd = AppState::for_test_with_db(db_none_upd);
-        assert!(matches!(update(&state_none_upd, 1, Some("x".into())).await.err().unwrap(), AppError::NotFoundError(_)));
+        assert!(matches!(
+            update(&state_none_upd, 1, Some("x".into()))
+                .await
+                .err()
+                .unwrap(),
+            AppError::NotFoundError(_)
+        ));
 
         let db_del_none = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 0 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 0,
+            }])
             .into_connection();
         let state_del_none = AppState::for_test_with_db(db_del_none);
-        assert!(matches!(delete(&state_del_none, 1).await.err().unwrap(), AppError::NotFoundError(_)));
+        assert!(matches!(
+            delete(&state_del_none, 1).await.err().unwrap(),
+            AppError::NotFoundError(_)
+        ));
     }
 
     #[tokio::test]
@@ -83,23 +129,37 @@ mod tests {
         let after = mk(3, "new");
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<ManModel, _, _>(vec![vec![initial]])
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .append_query_results::<ManModel, _, _>(vec![vec![after.clone()]])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        assert_eq!(update(&state, 3, Some("new".into())).await.unwrap().name, "new");
+        assert_eq!(
+            update(&state, 3, Some("new".into())).await.unwrap().name,
+            "new"
+        );
 
         let db_create = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 10, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 10,
+                rows_affected: 1,
+            }])
             // some drivers perform a follow-up SELECT: provide created row
             .append_query_results::<ManModel, _, _>(vec![vec![mk(10, "brand")]])
             .into_connection();
         let state_create = AppState::for_test_with_db(db_create);
-        let req = CreateManufacturerRequest { name: "brand".into() };
+        let req = CreateManufacturerRequest {
+            name: "brand".into(),
+        };
         assert_eq!(create(&state_create, req).await.unwrap().name, "brand");
 
         let db_del_ok = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .into_connection();
         let state_del_ok = AppState::for_test_with_db(db_del_ok);
         assert!(delete(&state_del_ok, 1).await.is_ok());

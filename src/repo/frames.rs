@@ -54,15 +54,12 @@ pub async fn update(
     id: u64,
     req: &UpdateFrameRequest,
 ) -> AppResult<FrameModel> {
-    let frame = FrameEntity::find_by_id(id)
-        .one(db)
-        .await?
-        .ok_or_else(|| {
-            crate::error::AppError::NotFoundError(crate::error::Resource {
-                resource_type: crate::error::ResourceType::File,
-                details: vec![("id".to_string(), id.to_string())],
-            })
-        })?;
+    let frame = FrameEntity::find_by_id(id).one(db).await?.ok_or_else(|| {
+        crate::error::AppError::NotFoundError(crate::error::Resource {
+            resource_type: crate::error::ResourceType::File,
+            details: vec![("id".to_string(), id.to_string())],
+        })
+    })?;
 
     let mut frame: ActiveModel = frame.into();
 

@@ -1,12 +1,19 @@
-use axum::{extract::{Path, State, Query}, Json};
-use serde::Deserialize;
+use crate::dto::request::montage_layouts::{
+    CreateMontageLayoutRequest, UpdateMontageLayoutRequest,
+};
 use crate::dto::response::MontageLayoutResponse;
-use crate::dto::request::montage_layouts::{CreateMontageLayoutRequest, UpdateMontageLayoutRequest};
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
-pub struct MontageLayoutQuery { pub user_id: Option<u32> }
+pub struct MontageLayoutQuery {
+    pub user_id: Option<u32>,
+}
 
 /// List montage layouts; optionally filter by user id.
 ///
@@ -19,7 +26,10 @@ pub struct MontageLayoutQuery { pub user_id: Option<u32> }
     tag = "Montage Layouts",
     security(("jwt" = []))
 )]
-pub async fn list_montage_layouts(State(state): State<AppState>, Query(q): Query<MontageLayoutQuery>) -> AppResult<Json<Vec<MontageLayoutResponse>>> {
+pub async fn list_montage_layouts(
+    State(state): State<AppState>,
+    Query(q): Query<MontageLayoutQuery>,
+) -> AppResult<Json<Vec<MontageLayoutResponse>>> {
     let items = crate::service::montage_layouts::list_all(&state, q.user_id).await?;
     Ok(Json(items))
 }
@@ -35,7 +45,10 @@ pub async fn list_montage_layouts(State(state): State<AppState>, Query(q): Query
     tag = "Montage Layouts",
     security(("jwt" = []))
 )]
-pub async fn get_montage_layout(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<MontageLayoutResponse>> {
+pub async fn get_montage_layout(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<MontageLayoutResponse>> {
     let item = crate::service::montage_layouts::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -51,7 +64,10 @@ pub async fn get_montage_layout(Path(id): Path<u32>, State(state): State<AppStat
     tag = "Montage Layouts",
     security(("jwt" = []))
 )]
-pub async fn create_montage_layout(State(state): State<AppState>, Json(req): Json<CreateMontageLayoutRequest>) -> AppResult<(axum::http::StatusCode, Json<MontageLayoutResponse>)> {
+pub async fn create_montage_layout(
+    State(state): State<AppState>,
+    Json(req): Json<CreateMontageLayoutRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<MontageLayoutResponse>)> {
     let item = crate::service::montage_layouts::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -69,7 +85,11 @@ pub async fn create_montage_layout(State(state): State<AppState>, Json(req): Jso
     tag = "Montage Layouts",
     security(("jwt" = []))
 )]
-pub async fn update_montage_layout(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateMontageLayoutRequest>) -> AppResult<Json<MontageLayoutResponse>> {
+pub async fn update_montage_layout(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateMontageLayoutRequest>,
+) -> AppResult<Json<MontageLayoutResponse>> {
     let item = crate::service::montage_layouts::update(&state, id, req).await?;
     Ok(Json(item))
 }
@@ -86,7 +106,10 @@ pub async fn update_montage_layout(Path(id): Path<u32>, State(state): State<AppS
     tag = "Montage Layouts",
     security(("jwt" = []))
 )]
-pub async fn delete_montage_layout(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_montage_layout(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::montage_layouts::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

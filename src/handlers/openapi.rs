@@ -3,24 +3,15 @@ use utoipa::{
     Modify, OpenApi,
 };
 
-use crate::dto::wrappers::*;
 use crate::dto::request::{
-    LoginRequest,
-    RefreshTokenRequest,
-    TokenInfoRequest,
-    CreateMonitorRequest,
-    UpdateMonitorRequest,
-    UpdateStateRequest,
-    AlarmControlRequest,
+    AlarmControlRequest, CreateMonitorRequest, LoginRequest, RefreshTokenRequest, TokenInfoRequest,
+    UpdateMonitorRequest, UpdateStateRequest,
 };
 use crate::dto::response::{
-    LoginResponse,
-    MessageResponse,
-    TokenResponse,
+    LoginResponse, MessageResponse, MonitorResponse, ServiceStatusResponse, TokenResponse,
     VersionResponse,
-    ServiceStatusResponse,
-    MonitorResponse,
 };
+use crate::dto::wrappers::*;
 use crate::error::{AppError, AppResponseError};
 use crate::util::claim::UserClaims;
 

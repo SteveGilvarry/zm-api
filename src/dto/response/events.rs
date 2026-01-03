@@ -11,16 +11,16 @@ use crate::entity::sea_orm_active_enums::Orientation;
 pub struct EventResponse {
     #[schema(example = 1)]
     pub id: u64,
-    
+
     #[schema(example = 1)]
     pub monitor_id: u32,
-    
+
     #[schema(example = 1)]
     pub storage_id: u16,
-    
+
     #[schema(example = "null", nullable = true)]
     pub secondary_storage_id: Option<u16>,
-    
+
     #[schema(example = "Motion Detection")]
     pub name: String,
 
@@ -32,77 +32,77 @@ pub struct EventResponse {
 
     #[schema(example = "2025-04-29T10:02:00Z", nullable = true)]
     pub end_date_time: Option<DateTimeWrapper>,
-    
+
     #[schema(example = 1920)]
     pub width: u16,
-    
+
     #[schema(example = 1080)]
     pub height: u16,
-    
+
     #[schema(example = "2.00")]
     pub length: DecimalWrapper,
-    
+
     #[schema(example = 60)]
     pub frames: u32,
-    
+
     #[schema(example = 10)]
     pub alarm_frames: u32,
-    
+
     #[schema(example = "video.mp4")]
     pub default_video: String,
-    
+
     #[schema(example = 1, nullable = true)]
     pub save_jpe_gs: Option<i8>,
-    
+
     #[schema(example = 100)]
     pub tot_score: u32,
-    
+
     #[schema(example = 50, nullable = true)]
     pub avg_score: Option<u16>,
-    
+
     #[schema(example = 100, nullable = true)]
     pub max_score: Option<u16>,
-    
+
     #[schema(example = 0)]
     pub archived: u8,
-    
+
     #[schema(example = 1)]
     pub videoed: u8,
-    
+
     #[schema(example = 0)]
     pub uploaded: u8,
-    
+
     #[schema(example = 0)]
     pub emailed: u8,
-    
+
     #[schema(example = 0)]
     pub messaged: u8,
-    
+
     #[schema(example = 0)]
     pub executed: u8,
-    
+
     #[schema(example = "Important security event", nullable = true)]
     pub notes: Option<String>,
-    
+
     #[schema(example = 1)]
     pub state_id: u32,
-    
+
     #[schema(example = "ROTATE_0")]
     #[serde(rename = "orientation")]
     pub orientation: Orientation,
-    
+
     #[schema(example = 1048576, nullable = true)]
     pub disk_space: Option<u64>,
-    
+
     #[schema(example = "Deep")]
     pub scheme: SchemeWrapper,
-    
+
     #[schema(example = 0)]
     pub locked: i8,
-    
+
     #[schema(example = "45.12345678", nullable = true)]
     pub latitude: Option<DecimalWrapper>,
-    
+
     #[schema(example = "-75.12345678", nullable = true)]
     pub longitude: Option<DecimalWrapper>,
 
@@ -127,7 +127,9 @@ impl From<EventModel> for EventResponse {
             name: model.name,
             cause: model.cause,
             // Corrected: Use tuple struct constructor directly
-            start_date_time: model.start_date_time.map(|ndt| DateTimeWrapper(to_utc(ndt))),
+            start_date_time: model
+                .start_date_time
+                .map(|ndt| DateTimeWrapper(to_utc(ndt))),
             // Corrected: Use tuple struct constructor directly
             end_date_time: model.end_date_time.map(|ndt| DateTimeWrapper(to_utc(ndt))),
             width: model.width,

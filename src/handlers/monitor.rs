@@ -2,12 +2,14 @@ use axum::extract::{Path, State};
 use axum::Json;
 use tracing::{info, warn};
 
+use crate::dto::request::{
+    AlarmControlRequest, CreateMonitorRequest, UpdateMonitorRequest, UpdateStateRequest,
+};
+use crate::dto::response::MonitorResponse;
+use crate::error::AppResponseError;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use crate::service;
-use crate::dto::request::{CreateMonitorRequest, UpdateMonitorRequest, UpdateStateRequest, AlarmControlRequest};
-use crate::dto::response::MonitorResponse;
-use crate::error::AppResponseError;
 
 #[utoipa::path(
     get,
@@ -50,7 +52,10 @@ pub async fn list_monitors(State(state): State<AppState>) -> AppResult<Json<Vec<
     ),
     tag = "Monitors"
 )]
-pub async fn get_monitor(State(state): State<AppState>, Path(id): Path<u32>) -> AppResult<Json<MonitorResponse>> {
+pub async fn get_monitor(
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+) -> AppResult<Json<MonitorResponse>> {
     info!("Viewing monitor with ID: {id}.");
     match service::monitor::get_by_id(&state, id).await {
         Ok(monitor) => Ok(Json(monitor)),
@@ -76,7 +81,10 @@ pub async fn get_monitor(State(state): State<AppState>, Path(id): Path<u32>) -> 
     ),
     tag = "Monitors"
 )]
-pub async fn create_monitor(State(state): State<AppState>, Json(req): Json<CreateMonitorRequest>) -> AppResult<Json<MonitorResponse>> {
+pub async fn create_monitor(
+    State(state): State<AppState>,
+    Json(req): Json<CreateMonitorRequest>,
+) -> AppResult<Json<MonitorResponse>> {
     info!("Creating new monitor with request: {req:?}.");
     match service::monitor::create(&state, req).await {
         Ok(monitor) => Ok(Json(monitor)),
@@ -109,7 +117,7 @@ pub async fn create_monitor(State(state): State<AppState>, Json(req): Json<Creat
 pub async fn update_monitor(
     State(state): State<AppState>,
     Path(id): Path<u32>,
-    Json(req): Json<UpdateMonitorRequest>
+    Json(req): Json<UpdateMonitorRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
     info!("Editing monitor with ID: {id} and request: {req:?}.");
     match service::monitor::update(&state, id, req).await {
@@ -138,7 +146,10 @@ pub async fn update_monitor(
     ),
     tag = "Monitors"
 )]
-pub async fn delete_monitor(State(state): State<AppState>, Path(id): Path<u32>) -> AppResult<Json<()>> {
+pub async fn delete_monitor(
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+) -> AppResult<Json<()>> {
     info!("Deleting monitor with ID: {id}.");
     match service::monitor::delete(&state, id).await {
         Ok(_) => Ok(Json(())),
@@ -171,7 +182,7 @@ pub async fn delete_monitor(State(state): State<AppState>, Path(id): Path<u32>) 
 pub async fn update_state(
     State(state): State<AppState>,
     Path(id): Path<u32>,
-    Json(req): Json<UpdateStateRequest>
+    Json(req): Json<UpdateStateRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
     info!("Updating state of monitor with ID: {id} and request: {req:?}.");
     match service::monitor::update_state(&state, id, req).await {
@@ -205,7 +216,7 @@ pub async fn update_state(
 pub async fn alarm_control(
     State(state): State<AppState>,
     Path(id): Path<u32>,
-    Json(req): Json<AlarmControlRequest>
+    Json(req): Json<AlarmControlRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
     info!("Controlling alarm of monitor with ID: {id} and request: {req:?}.");
     match service::monitor::control_alarm(&state, id, req).await {

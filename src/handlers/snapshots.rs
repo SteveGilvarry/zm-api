@@ -1,8 +1,11 @@
-use axum::{extract::{Path, State}, Json};
-use crate::dto::response::SnapshotResponse;
 use crate::dto::request::snapshots::{CreateSnapshotRequest, UpdateSnapshotRequest};
+use crate::dto::response::SnapshotResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 
 /// List all snapshots.
 ///
@@ -14,7 +17,9 @@ use crate::server::state::AppState;
     tag = "Snapshots",
     security(("jwt" = []))
 )]
-pub async fn list_snapshots(State(state): State<AppState>) -> AppResult<Json<Vec<SnapshotResponse>>> {
+pub async fn list_snapshots(
+    State(state): State<AppState>,
+) -> AppResult<Json<Vec<SnapshotResponse>>> {
     let items = crate::service::snapshots::list_all(&state).await?;
     Ok(Json(items))
 }
@@ -30,7 +35,10 @@ pub async fn list_snapshots(State(state): State<AppState>) -> AppResult<Json<Vec
     tag = "Snapshots",
     security(("jwt" = []))
 )]
-pub async fn get_snapshot(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<SnapshotResponse>> {
+pub async fn get_snapshot(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<SnapshotResponse>> {
     let item = crate::service::snapshots::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -46,7 +54,10 @@ pub async fn get_snapshot(Path(id): Path<u32>, State(state): State<AppState>) ->
     tag = "Snapshots",
     security(("jwt" = []))
 )]
-pub async fn create_snapshot(State(state): State<AppState>, Json(req): Json<CreateSnapshotRequest>) -> AppResult<(axum::http::StatusCode, Json<SnapshotResponse>)> {
+pub async fn create_snapshot(
+    State(state): State<AppState>,
+    Json(req): Json<CreateSnapshotRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<SnapshotResponse>)> {
     let item = crate::service::snapshots::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -64,7 +75,11 @@ pub async fn create_snapshot(State(state): State<AppState>, Json(req): Json<Crea
     tag = "Snapshots",
     security(("jwt" = []))
 )]
-pub async fn update_snapshot(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateSnapshotRequest>) -> AppResult<Json<SnapshotResponse>> {
+pub async fn update_snapshot(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateSnapshotRequest>,
+) -> AppResult<Json<SnapshotResponse>> {
     let item = crate::service::snapshots::update(&state, id, req).await?;
     Ok(Json(item))
 }
@@ -81,7 +96,10 @@ pub async fn update_snapshot(Path(id): Path<u32>, State(state): State<AppState>,
     tag = "Snapshots",
     security(("jwt" = []))
 )]
-pub async fn delete_snapshot(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_snapshot(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::snapshots::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

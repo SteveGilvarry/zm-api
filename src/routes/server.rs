@@ -1,7 +1,11 @@
-use axum::{Router, routing::{get, post}, middleware::from_fn_with_state};
 use crate::handlers::server;
-use crate::util::middleware::auth_middleware;
 use crate::server::state::AppState;
+use crate::util::middleware::auth_middleware;
+use axum::{
+    middleware::from_fn_with_state,
+    routing::{get, post},
+    Router,
+};
 use tracing::info;
 
 pub fn add_server_routes(router: Router<AppState>) -> Router<AppState> {
@@ -11,16 +15,15 @@ pub fn add_server_routes(router: Router<AppState>) -> Router<AppState> {
     let server_routes = Router::new()
         .route(
             &format!("{}/server/health_check", api_prefix),
-            get(server::health_check)
+            get(server::health_check),
         )
         .route(
             &format!("{}/host/getVersion", api_prefix),
-            get(server::get_version)
+            get(server::get_version),
         )
         .route(
             &format!("{}/states/change/{{action}}", api_prefix),
-            post(server::change_state)
-                .layer(from_fn_with_state(state, auth_middleware))
+            post(server::change_state).layer(from_fn_with_state(state, auth_middleware)),
         );
     router.merge(server_routes)
 }

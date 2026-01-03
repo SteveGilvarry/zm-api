@@ -10,33 +10,60 @@ pub async fn list_all(state: &AppState) -> AppResult<Vec<UserResponse>> {
 
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<UserResponse> {
     let item = repo::users::find_by_id(state.db(), id).await?;
-    let item = item.ok_or_else(|| AppError::NotFoundError(Resource{details: vec![("id".into(), id.to_string())], resource_type: ResourceType::User}))?;
+    let item = item.ok_or_else(|| {
+        AppError::NotFoundError(Resource {
+            details: vec![("id".into(), id.to_string())],
+            resource_type: ResourceType::User,
+        })
+    })?;
     Ok(UserResponse::from(&item))
 }
 
-pub async fn update(state: &AppState, id: u32, email: Option<String>, enabled: Option<u8>) -> AppResult<UserResponse> {
+pub async fn update(
+    state: &AppState,
+    id: u32,
+    email: Option<String>,
+    enabled: Option<u8>,
+) -> AppResult<UserResponse> {
     let item = repo::users::update(state.db(), id, email, enabled).await?;
-    let item = item.ok_or_else(|| AppError::NotFoundError(Resource{details: vec![("id".into(), id.to_string())], resource_type: ResourceType::User}))?;
+    let item = item.ok_or_else(|| {
+        AppError::NotFoundError(Resource {
+            details: vec![("id".into(), id.to_string())],
+            resource_type: ResourceType::User,
+        })
+    })?;
     Ok(UserResponse::from(&item))
 }
 
-pub async fn create(state: &AppState, req: crate::dto::request::CreateUserRequest) -> AppResult<UserResponse> {
+pub async fn create(
+    state: &AppState,
+    req: crate::dto::request::CreateUserRequest,
+) -> AppResult<UserResponse> {
     let model = repo::users::create(state.db(), &req).await?;
     Ok(UserResponse::from(&model))
 }
 
 pub async fn delete(state: &AppState, id: u32) -> AppResult<()> {
     let ok = repo::users::delete_by_id(state.db(), id).await?;
-    if ok { Ok(()) } else { Err(crate::error::AppError::NotFoundError(crate::error::Resource{details: vec![("id".into(), id.to_string())], resource_type: crate::error::ResourceType::User})) }
+    if ok {
+        Ok(())
+    } else {
+        Err(crate::error::AppError::NotFoundError(
+            crate::error::Resource {
+                details: vec![("id".into(), id.to_string())],
+                resource_type: crate::error::ResourceType::User,
+            },
+        ))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
     use crate::entity::users::Model as UserModel;
-    use crate::server::state::AppState;
     use crate::error::AppError;
+    use crate::server::state::AppState;
+    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
 
     #[tokio::test]
     async fn test_get_by_id_not_found() {
@@ -56,14 +83,20 @@ mod tests {
             .append_query_results::<UserModel, _, _>(vec![empty])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let err = update(&state, 1, Some("x@y.com".into()), Some(1)).await.err().expect("should err");
+        let err = update(&state, 1, Some("x@y.com".into()), Some(1))
+            .await
+            .err()
+            .expect("should err");
         matches!(err, AppError::NotFoundError(_));
     }
 
     #[tokio::test]
     async fn test_delete_not_found() {
         let db = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 0 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 0,
+            }])
             .into_connection();
         let state = AppState::for_test_with_db(db);
         let err = delete(&state, 77).await.err().expect("should err");
@@ -100,7 +133,10 @@ mod tests {
     #[tokio::test]
     async fn test_list_all_ok() {
         let db = MockDatabase::new(DatabaseBackend::MySql)
-            .append_query_results::<UserModel, _, _>(vec![vec![mk_user(1, "alice"), mk_user(2, "bob")]])
+            .append_query_results::<UserModel, _, _>(vec![vec![
+                mk_user(1, "alice"),
+                mk_user(2, "bob"),
+            ]])
             .into_connection();
         let state = AppState::for_test_with_db(db);
         let out = list_all(&state).await.unwrap();
@@ -127,11 +163,16 @@ mod tests {
         after.enabled = 0;
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<UserModel, _, _>(vec![vec![initial]])
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .append_query_results::<UserModel, _, _>(vec![vec![after.clone()]])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let out = update(&state, 5, Some("new@example.com".into()), Some(0)).await.unwrap();
+        let out = update(&state, 5, Some("new@example.com".into()), Some(0))
+            .await
+            .unwrap();
         assert_eq!(out.email, "new@example.com");
         assert_eq!(out.enabled, 0);
     }
@@ -140,11 +181,21 @@ mod tests {
     async fn test_create_ok() {
         use crate::dto::request::users::CreateUserRequest;
         let db = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 100, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 100,
+                rows_affected: 1,
+            }])
             .append_query_results::<UserModel, _, _>(vec![vec![mk_user(100, "eve")]])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let req = CreateUserRequest { username: "eve".into(), password: "pass".into(), name: Some("Eve".into()), email: "eve@example.com".into(), phone: None, enabled: Some(1) };
+        let req = CreateUserRequest {
+            username: "eve".into(),
+            password: "pass".into(),
+            name: Some("Eve".into()),
+            email: "eve@example.com".into(),
+            phone: None,
+            enabled: Some(1),
+        };
         let out = create(&state, req).await.unwrap();
         assert_eq!(out.username, "eve");
     }
@@ -152,7 +203,10 @@ mod tests {
     #[tokio::test]
     async fn test_delete_ok() {
         let db = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .into_connection();
         let state = AppState::for_test_with_db(db);
         assert!(delete(&state, 1).await.is_ok());

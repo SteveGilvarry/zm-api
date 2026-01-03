@@ -1,6 +1,6 @@
+use crate::entity::object_types::Model as ObjectTypeModel;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::entity::object_types::Model as ObjectTypeModel;
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ObjectTypeResponse {

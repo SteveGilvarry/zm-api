@@ -12,11 +12,10 @@ use crate::{
         request::events::{EventCreateRequest, EventQueryParams, EventUpdateRequest},
         response::events::{EventCountsResponse, EventResponse, PaginatedEventsResponse},
     },
-    error::{AppError, AppResult, AppResponseError},
+    error::{AppError, AppResponseError, AppResult},
     server::state::AppState,
     service,
 };
-
 
 /// Get a paginated list of events
 #[utoipa::path(
@@ -47,7 +46,7 @@ pub async fn list_events(
     Query(params): Query<EventQueryParams>,
 ) -> AppResult<Json<PaginatedEventsResponse>> {
     info!("Listing events with params: {:?}", params);
-    
+
     if let Some(monitor_id) = params.monitor_id {
         let events = service::events::list_by_monitor(
             &state,
@@ -56,12 +55,13 @@ pub async fn list_events(
             params.page_size,
             params.start_time.map(|dt| dt.0),
             params.end_time.map(|dt| dt.0),
-        ).await?;
-        
+        )
+        .await?;
+
         Ok(Json(events))
     } else {
         let events = service::events::list_all(&state, params.page, params.page_size).await?;
-        
+
         Ok(Json(events))
     }
 }
@@ -91,7 +91,7 @@ pub async fn get_event(
     Path(id): Path<u32>,
 ) -> AppResult<Json<EventResponse>> {
     let event = service::events::get_by_id(&state, id).await?;
-    
+
     Ok(Json(event))
 }
 
@@ -118,9 +118,9 @@ pub async fn create_event(
     Json(event): Json<EventCreateRequest>,
 ) -> AppResult<(StatusCode, Json<EventResponse>)> {
     event.validate().map_err(AppError::InvalidInputError)?;
-    
+
     let new_event = service::events::create(&state, event).await?;
-    
+
     Ok((StatusCode::CREATED, Json(new_event)))
 }
 
@@ -151,10 +151,12 @@ pub async fn update_event(
     Path(id): Path<u32>,
     Json(event_update): Json<EventUpdateRequest>,
 ) -> AppResult<Json<EventResponse>> {
-    event_update.validate().map_err(AppError::InvalidInputError)?;
-    
+    event_update
+        .validate()
+        .map_err(AppError::InvalidInputError)?;
+
     let updated_event = service::events::update(&state, id, event_update).await?;
-    
+
     Ok(Json(updated_event))
 }
 
@@ -182,7 +184,7 @@ pub async fn delete_event(
     Path(id): Path<u32>,
 ) -> AppResult<StatusCode> {
     service::events::delete(&state, id).await?;
-    
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -211,6 +213,6 @@ pub async fn get_event_counts(
     Path(hours): Path<i64>,
 ) -> AppResult<Json<EventCountsResponse>> {
     let counts = service::events::get_event_counts(&state, hours).await?;
-    
+
     Ok(Json(counts))
 }

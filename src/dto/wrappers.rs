@@ -1,9 +1,9 @@
-use serde::{Serialize, Deserialize};
-use utoipa::ToSchema;
-use chrono::{DateTime, Utc, NaiveDateTime};
+use crate::entity::sea_orm_active_enums::Scheme;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use fake::Dummy;
 use rust_decimal::Decimal;
-use crate::entity::sea_orm_active_enums::Scheme;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Dummy, Clone)]
 #[schema(value_type = String, format = "date-time", example = "2025-04-24T12:34:56Z")]
@@ -34,7 +34,9 @@ impl<'a> From<&'a NaiveDateTimeWrapper> for &'a NaiveDateTime {
 }
 
 // Helper function to convert Option<NaiveDateTimeWrapper> to Option<NaiveDateTime>
-pub fn unwrap_naive_datetime_wrapper(opt_wrapper: &Option<NaiveDateTimeWrapper>) -> Option<NaiveDateTime> {
+pub fn unwrap_naive_datetime_wrapper(
+    opt_wrapper: &Option<NaiveDateTimeWrapper>,
+) -> Option<NaiveDateTime> {
     opt_wrapper.as_ref().map(|wrapper| wrapper.0)
 }
 
@@ -66,12 +68,15 @@ impl From<DateTime<Utc>> for DateTimeWrapper {
 
 /// Serde support for Option<NaiveDateTimeWrapper> using existing optional formatting
 pub mod naive_datetime_option {
-    use serde::{self, Serializer, Deserializer};
-    use crate::util::datetime_format::optional as base;
     use super::NaiveDateTimeWrapper;
-// use chrono::NaiveDateTime; // Unused import
+    use crate::util::datetime_format::optional as base;
+    use serde::{self, Deserializer, Serializer};
+    // use chrono::NaiveDateTime; // Unused import
 
-    pub fn serialize<S>(val: &Option<NaiveDateTimeWrapper>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(
+        val: &Option<NaiveDateTimeWrapper>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {

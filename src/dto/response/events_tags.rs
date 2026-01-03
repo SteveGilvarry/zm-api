@@ -1,7 +1,7 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
+use sea_orm::prelude::DateTimeUtc;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use sea_orm::prelude::DateTimeUtc;
 
 use crate::dto::wrappers::DateTimeWrapper;
 use crate::entity::events::Model as EventModel;
@@ -72,7 +72,9 @@ impl From<&EventModel> for EventSummary {
             id: model.id,
             name: model.name.clone(),
             monitor_id: model.monitor_id,
-            start_date_time: model.start_date_time.map(|ndt| DateTimeWrapper(to_utc(ndt))),
+            start_date_time: model
+                .start_date_time
+                .map(|ndt| DateTimeWrapper(to_utc(ndt))),
         }
     }
 }

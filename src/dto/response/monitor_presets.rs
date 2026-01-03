@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
-use rust_decimal::Decimal;
 use crate::entity::monitor_presets::Model as MonitorPresetModel;
 use crate::entity::sea_orm_active_enums::MonitorType;
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct MonitorPresetResponse {

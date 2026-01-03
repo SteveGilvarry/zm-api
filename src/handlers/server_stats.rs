@@ -1,8 +1,11 @@
-use axum::{extract::{Path, State}, Json};
-use crate::dto::response::ServerStatResponse;
 use crate::dto::request::server_stats::CreateServerStatRequest;
+use crate::dto::response::ServerStatResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 
 /// List all server stats.
 #[utoipa::path(
@@ -12,7 +15,9 @@ use crate::server::state::AppState;
     tag = "Server Stats",
     security(("jwt" = []))
 )]
-pub async fn list_server_stats(State(state): State<AppState>) -> AppResult<Json<Vec<ServerStatResponse>>> {
+pub async fn list_server_stats(
+    State(state): State<AppState>,
+) -> AppResult<Json<Vec<ServerStatResponse>>> {
     let items = crate::service::server_stats::list_all(&state).await?;
     Ok(Json(items))
 }
@@ -26,7 +31,10 @@ pub async fn list_server_stats(State(state): State<AppState>) -> AppResult<Json<
     tag = "Server Stats",
     security(("jwt" = []))
 )]
-pub async fn get_server_stat(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<ServerStatResponse>> {
+pub async fn get_server_stat(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<ServerStatResponse>> {
     let item = crate::service::server_stats::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -40,7 +48,10 @@ pub async fn get_server_stat(Path(id): Path<u32>, State(state): State<AppState>)
     tag = "Server Stats",
     security(("jwt" = []))
 )]
-pub async fn create_server_stat(State(state): State<AppState>, Json(req): Json<CreateServerStatRequest>) -> AppResult<(axum::http::StatusCode, Json<ServerStatResponse>)> {
+pub async fn create_server_stat(
+    State(state): State<AppState>,
+    Json(req): Json<CreateServerStatRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<ServerStatResponse>)> {
     let item = crate::service::server_stats::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -54,7 +65,10 @@ pub async fn create_server_stat(State(state): State<AppState>, Json(req): Json<C
     tag = "Server Stats",
     security(("jwt" = []))
 )]
-pub async fn delete_server_stat(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_server_stat(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::server_stats::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

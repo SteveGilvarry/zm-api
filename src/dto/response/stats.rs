@@ -1,6 +1,6 @@
+use crate::entity::stats::Model as StatModel;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::entity::stats::Model as StatModel;
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct StatResponse {

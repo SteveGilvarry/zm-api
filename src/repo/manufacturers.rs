@@ -1,6 +1,6 @@
-use sea_orm::*;
 use crate::entity::manufacturers::{Entity as Manufacturers, Model as ManufacturerModel};
 use crate::error::AppResult;
+use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<ManufacturerModel>> {
     Ok(Manufacturers::find().all(db).await?)
@@ -10,18 +10,32 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<Ma
     Ok(Manufacturers::find_by_id(id).one(db).await?)
 }
 
-pub async fn create(db: &DatabaseConnection, req: &crate::dto::request::CreateManufacturerRequest) -> AppResult<ManufacturerModel> {
-    use sea_orm::{ActiveModelTrait, Set};
+pub async fn create(
+    db: &DatabaseConnection,
+    req: &crate::dto::request::CreateManufacturerRequest,
+) -> AppResult<ManufacturerModel> {
     use crate::entity::manufacturers::ActiveModel as AM;
-    let am = AM { id: Default::default(), name: Set(req.name.clone()) };
+    use sea_orm::{ActiveModelTrait, Set};
+    let am = AM {
+        id: Default::default(),
+        name: Set(req.name.clone()),
+    };
     Ok(am.insert(db).await?)
 }
 
-pub async fn update(db: &DatabaseConnection, id: u32, name: Option<String>) -> AppResult<Option<ManufacturerModel>> {
+pub async fn update(
+    db: &DatabaseConnection,
+    id: u32,
+    name: Option<String>,
+) -> AppResult<Option<ManufacturerModel>> {
     use sea_orm::{ActiveModelTrait, Set};
-    let Some(model) = find_by_id(db, id).await? else { return Ok(None) };
+    let Some(model) = find_by_id(db, id).await? else {
+        return Ok(None);
+    };
     let mut am: crate::entity::manufacturers::ActiveModel = model.into();
-    if let Some(v) = name { am.name = Set(v); }
+    if let Some(v) = name {
+        am.name = Set(v);
+    }
     let updated = am.update(db).await?;
     Ok(Some(updated))
 }
@@ -38,14 +52,20 @@ mod tests {
     use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
 
     fn mk(id: u32, name: &str) -> ManufacturerModel {
-        ManufacturerModel { id, name: name.to_string() }
+        ManufacturerModel {
+            id,
+            name: name.to_string(),
+        }
     }
 
     #[tokio::test]
     async fn test_update_happy_path() {
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<ManufacturerModel, _, _>(vec![vec![mk(1, "old")]])
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .append_query_results::<ManufacturerModel, _, _>(vec![vec![mk(1, "new")]])
             .into_connection();
 
@@ -56,12 +76,18 @@ mod tests {
     #[tokio::test]
     async fn test_delete_by_id_affects_rows() {
         let db_true = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .into_connection();
         assert!(delete_by_id(&db_true, 1).await.unwrap());
 
         let db_false = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 0 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 0,
+            }])
             .into_connection();
         assert!(!delete_by_id(&db_false, 1).await.unwrap());
     }

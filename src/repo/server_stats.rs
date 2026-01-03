@@ -1,9 +1,9 @@
-use sea_orm::*;
-use chrono::Utc;
-use crate::entity::server_stats::{Entity as ServerStats, Model as ServerStatModel, ActiveModel};
-use crate::error::{AppResult, AppError};
 use crate::dto::request::server_stats::CreateServerStatRequest;
+use crate::entity::server_stats::{ActiveModel, Entity as ServerStats, Model as ServerStatModel};
+use crate::error::{AppError, AppResult};
+use chrono::Utc;
 use rust_decimal::Decimal;
+use sea_orm::*;
 use std::str::FromStr;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<ServerStatModel>> {
@@ -14,37 +14,52 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<Se
     Ok(ServerStats::find_by_id(id).one(db).await?)
 }
 
-pub async fn create(db: &DatabaseConnection, req: &CreateServerStatRequest) -> AppResult<ServerStatModel> {
-    let cpu_load = req.cpu_load.as_ref()
+pub async fn create(
+    db: &DatabaseConnection,
+    req: &CreateServerStatRequest,
+) -> AppResult<ServerStatModel> {
+    let cpu_load = req
+        .cpu_load
+        .as_ref()
         .map(|s| Decimal::from_str(s))
         .transpose()
         .map_err(|e| AppError::BadRequestError(format!("Invalid cpu_load: {}", e)))?;
-    
-    let cpu_user_percent = req.cpu_user_percent.as_ref()
+
+    let cpu_user_percent = req
+        .cpu_user_percent
+        .as_ref()
         .map(|s| Decimal::from_str(s))
         .transpose()
         .map_err(|e| AppError::BadRequestError(format!("Invalid cpu_user_percent: {}", e)))?;
-    
-    let cpu_nice_percent = req.cpu_nice_percent.as_ref()
+
+    let cpu_nice_percent = req
+        .cpu_nice_percent
+        .as_ref()
         .map(|s| Decimal::from_str(s))
         .transpose()
         .map_err(|e| AppError::BadRequestError(format!("Invalid cpu_nice_percent: {}", e)))?;
-    
-    let cpu_system_percent = req.cpu_system_percent.as_ref()
+
+    let cpu_system_percent = req
+        .cpu_system_percent
+        .as_ref()
         .map(|s| Decimal::from_str(s))
         .transpose()
         .map_err(|e| AppError::BadRequestError(format!("Invalid cpu_system_percent: {}", e)))?;
-    
-    let cpu_idle_percent = req.cpu_idle_percent.as_ref()
+
+    let cpu_idle_percent = req
+        .cpu_idle_percent
+        .as_ref()
         .map(|s| Decimal::from_str(s))
         .transpose()
         .map_err(|e| AppError::BadRequestError(format!("Invalid cpu_idle_percent: {}", e)))?;
-    
-    let cpu_usage_percent = req.cpu_usage_percent.as_ref()
+
+    let cpu_usage_percent = req
+        .cpu_usage_percent
+        .as_ref()
         .map(|s| Decimal::from_str(s))
         .transpose()
         .map_err(|e| AppError::BadRequestError(format!("Invalid cpu_usage_percent: {}", e)))?;
-    
+
     let am = ActiveModel {
         id: Default::default(),
         server_id: Set(req.server_id),

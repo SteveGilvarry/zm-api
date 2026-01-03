@@ -1,13 +1,15 @@
 #![allow(clippy::result_large_err)]
-use tracing::info;
-use crate::error::{AppResult, AppError, Resource, ResourceType};
-use crate::server::state::AppState;
-use crate::dto::request::{CreateMonitorRequest, UpdateMonitorRequest, UpdateStateRequest, AlarmControlRequest};
+use crate::dto::request::{
+    AlarmControlRequest, CreateMonitorRequest, UpdateMonitorRequest, UpdateStateRequest,
+};
 use crate::dto::response::{MonitorResponse, MonitorStreamingDetails};
 use crate::entity::monitors;
+use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
-use sea_orm::ActiveValue::Set;
+use crate::server::state::AppState;
 use rust_decimal::prelude::*;
+use sea_orm::ActiveValue::Set;
+use tracing::info;
 use url::Url;
 
 pub async fn list_all(state: &AppState) -> AppResult<Vec<MonitorResponse>> {
@@ -31,9 +33,9 @@ pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<MonitorResponse> 
 
 pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<MonitorResponse> {
     info!("Creating new monitor with request: {req:?}.");
-    
+
     // Convert string values to their corresponding enum types
-    let monitor_type =req.r#type.clone();
+    let monitor_type = req.r#type.clone();
     let function = req.function.clone();
     let capturing = req.capturing.clone();
     let decoding = req.decoding.clone();
@@ -47,7 +49,7 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
     let analysis_source = req.analysis_source.clone();
     let analysis_image = req.analysis_image.clone();
     let recording = req.recording.clone();
-    
+
     // Create a new ActiveModel for the monitor
     let monitor = monitors::ActiveModel {
         id: Set(0), // This will be auto-generated
@@ -139,10 +141,16 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         min_section_length: Set(req.min_section_length),
         frame_skip: Set(req.frame_skip),
         motion_frame_skip: Set(req.motion_frame_skip),
-        analysis_fps_limit: Set(req.analysis_fps_limit.map(|f| Decimal::from_f64(f).unwrap_or_default())),
+        analysis_fps_limit: Set(req
+            .analysis_fps_limit
+            .map(|f| Decimal::from_f64(f).unwrap_or_default())),
         analysis_update_delay: Set(req.analysis_update_delay),
-        max_fps: Set(req.max_fps.map(|f| Decimal::from_f64(f).unwrap_or_default())),
-        alarm_max_fps: Set(req.alarm_max_fps.map(|f| Decimal::from_f64(f).unwrap_or_default())),
+        max_fps: Set(req
+            .max_fps
+            .map(|f| Decimal::from_f64(f).unwrap_or_default())),
+        alarm_max_fps: Set(req
+            .alarm_max_fps
+            .map(|f| Decimal::from_f64(f).unwrap_or_default())),
         fps_report_interval: Set(req.fps_report_interval),
         ref_blend_perc: Set(req.ref_blend_perc),
         alarm_ref_blend_perc: Set(req.alarm_ref_blend_perc),
@@ -150,7 +158,9 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         control_id: Set(req.control_id),
         control_device: Set(req.control_device),
         control_address: Set(req.control_address),
-        auto_stop_timeout: Set(req.auto_stop_timeout.map(|f| Decimal::from_f64(f).unwrap_or_default())),
+        auto_stop_timeout: Set(req
+            .auto_stop_timeout
+            .map(|f| Decimal::from_f64(f).unwrap_or_default())),
         track_motion: Set(req.track_motion),
         track_delay: Set(req.track_delay),
         return_location: Set(req.return_location),
@@ -168,8 +178,12 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         zone_count: Set(req.zone_count),
         total_event_disk_space: Set(req.total_event_disk_space),
         refresh: Set(req.refresh),
-        latitude: Set(req.latitude.map(|f| Decimal::from_f64(f).unwrap_or_default())),
-        longitude: Set(req.longitude.map(|f| Decimal::from_f64(f).unwrap_or_default())),
+        latitude: Set(req
+            .latitude
+            .map(|f| Decimal::from_f64(f).unwrap_or_default())),
+        longitude: Set(req
+            .longitude
+            .map(|f| Decimal::from_f64(f).unwrap_or_default())),
         rtsp_server: Set(req.rtsp_server),
         rtsp_stream_name: Set(req.rtsp_stream_name),
         soap_wsa_compl: Set(req.soap_wsa_compl),
@@ -182,16 +196,20 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         analysis_image: Set(analysis_image),
         recording: Set(recording),
     };
-    
+
     // Use the repository to insert the new monitor
     let result = repo::monitors::create(state.db(), monitor).await?;
-    
+
     Ok(MonitorResponse::from(result))
 }
 
-pub async fn update(state: &AppState, id: u32, req: UpdateMonitorRequest) -> AppResult<MonitorResponse> {
+pub async fn update(
+    state: &AppState,
+    id: u32,
+    req: UpdateMonitorRequest,
+) -> AppResult<MonitorResponse> {
     info!("Updating monitor with ID: {id} and request: {req:?}.");
-    
+
     // Fetch the monitor through the repository
     let monitor_model = repo::monitors::find_by_id(state.db(), id)
         .await?
@@ -201,7 +219,7 @@ pub async fn update(state: &AppState, id: u32, req: UpdateMonitorRequest) -> App
                 resource_type: ResourceType::File,
             })
         })?;
-        
+
     let mut monitor: monitors::ActiveModel = monitor_model.into();
 
     // Update fields if they are provided in the request
@@ -470,7 +488,9 @@ pub async fn update(state: &AppState, id: u32, req: UpdateMonitorRequest) -> App
         monitor.motion_frame_skip = Set(motion_frame_skip);
     }
     if let Some(analysis_fps_limit) = req.analysis_fps_limit {
-        monitor.analysis_fps_limit = Set(Some(Decimal::from_f64(analysis_fps_limit).unwrap_or_default()));
+        monitor.analysis_fps_limit = Set(Some(
+            Decimal::from_f64(analysis_fps_limit).unwrap_or_default(),
+        ));
     }
     if let Some(analysis_update_delay) = req.analysis_update_delay {
         monitor.analysis_update_delay = Set(analysis_update_delay);
@@ -503,7 +523,9 @@ pub async fn update(state: &AppState, id: u32, req: UpdateMonitorRequest) -> App
         monitor.control_address = Set(req.control_address);
     }
     if let Some(auto_stop_timeout) = req.auto_stop_timeout {
-        monitor.auto_stop_timeout = Set(Some(Decimal::from_f64(auto_stop_timeout).unwrap_or_default()));
+        monitor.auto_stop_timeout = Set(Some(
+            Decimal::from_f64(auto_stop_timeout).unwrap_or_default(),
+        ));
     }
     if let Some(track_motion) = req.track_motion {
         monitor.track_motion = Set(track_motion);
@@ -614,9 +636,13 @@ pub async fn delete(state: &AppState, id: u32) -> AppResult<()> {
     repo::monitors::delete(state.db(), monitor).await
 }
 
-pub async fn update_state(state: &AppState, id: u32, req: UpdateStateRequest) -> AppResult<MonitorResponse> {
+pub async fn update_state(
+    state: &AppState,
+    id: u32,
+    req: UpdateStateRequest,
+) -> AppResult<MonitorResponse> {
     info!("Updating state of monitor with ID: {id} and request: {req:?}.");
-    
+
     // Use repository to fetch the monitor
     let monitor_model = repo::monitors::find_by_id(state.db(), id)
         .await?
@@ -626,39 +652,45 @@ pub async fn update_state(state: &AppState, id: u32, req: UpdateStateRequest) ->
                 resource_type: ResourceType::Monitor,
             })
         })?;
-    
+
     let mut monitor: monitors::ActiveModel = monitor_model.clone().into();
-    
+
     // Update the monitor state based on the request
     match req.state.as_str() {
         "start" => {
             // Enable the monitor
             monitor.enabled = Set(1);
             // TODO: Additional logic to actually start the monitor via ZoneMinder API
-        },
+        }
         "stop" => {
             // Disable the monitor
             monitor.enabled = Set(0);
             // TODO: Additional logic to actually stop the monitor via ZoneMinder API
-        },
+        }
         "restart" => {
             // No change to enabled state, it will be restarted by ZoneMinder
             // TODO: Additional logic to actually restart the monitor via ZoneMinder API
-        },
+        }
         _ => {
-            return Err(AppError::BadRequestError(format!("Invalid state: {}", req.state)));
+            return Err(AppError::BadRequestError(format!(
+                "Invalid state: {}",
+                req.state
+            )));
         }
     }
-    
+
     // Use repository to update the monitor
     let updated_monitor = repo::monitors::update(state.db(), monitor).await?;
-    
+
     // Return the updated monitor
     Ok(MonitorResponse::from(updated_monitor))
 }
 
 /// Get streaming connection details for a monitor
-pub async fn get_streaming_details(state: &AppState, monitor_id: u32) -> AppResult<MonitorStreamingDetails> {
+pub async fn get_streaming_details(
+    state: &AppState,
+    monitor_id: u32,
+) -> AppResult<MonitorStreamingDetails> {
     let monitor = repo::monitors::get_streaming_details(state.db(), monitor_id)
         .await?
         .ok_or_else(|| {
@@ -667,14 +699,14 @@ pub async fn get_streaming_details(state: &AppState, monitor_id: u32) -> AppResu
                 resource_type: ResourceType::Monitor,
             })
         })?;
-    
+
     // Extract user and password
     let user = monitor.user.clone().unwrap_or_default();
     let pass = monitor.pass.clone().unwrap_or_default();
-    
+
     // Extract host and port from the path field
     let (host, port) = parse_host_port(&monitor.path)?;
-    
+
     Ok(MonitorStreamingDetails {
         id: monitor.id,
         name: monitor.name.clone(),
@@ -688,7 +720,7 @@ pub async fn get_streaming_details(state: &AppState, monitor_id: u32) -> AppResu
 /// Parse the host and port from a URL string
 fn parse_host_port(url_str: &Option<String>) -> AppResult<(String, u16)> {
     let default_port = 80;
-    
+
     match url_str {
         Some(url_string) if !url_string.is_empty() => {
             // Try to parse as URL
@@ -700,12 +732,14 @@ fn parse_host_port(url_str: &Option<String>) -> AppResult<(String, u16)> {
                     } else {
                         // Handle inputs like "host:port" where Url::parse treated it as a scheme.
                         if url_string.contains("://") {
-                            return Err(AppError::BadRequestError("URL is missing host".to_string()));
+                            return Err(AppError::BadRequestError(
+                                "URL is missing host".to_string(),
+                            ));
                         }
                         if let Some((host, port_str)) = url_string.rsplit_once(':') {
-                            let port = port_str
-                                .parse::<u16>()
-                                .map_err(|_| AppError::BadRequestError("Invalid port number".to_string()))?;
+                            let port = port_str.parse::<u16>().map_err(|_| {
+                                AppError::BadRequestError("Invalid port number".to_string())
+                            })?;
                             Ok((host.to_string(), port))
                         } else {
                             Ok((url_string.to_string(), default_port))
@@ -715,9 +749,9 @@ fn parse_host_port(url_str: &Option<String>) -> AppResult<(String, u16)> {
                 Err(_) => {
                     // If URL parsing fails, try to extract host:port directly
                     if let Some((host, port_str)) = url_string.rsplit_once(':') {
-                        let port = port_str
-                            .parse::<u16>()
-                            .map_err(|_| AppError::BadRequestError("Invalid port number".to_string()))?;
+                        let port = port_str.parse::<u16>().map_err(|_| {
+                            AppError::BadRequestError("Invalid port number".to_string())
+                        })?;
                         Ok((host.to_string(), port))
                     } else {
                         // If no port, return host with default port
@@ -725,14 +759,20 @@ fn parse_host_port(url_str: &Option<String>) -> AppResult<(String, u16)> {
                     }
                 }
             }
-        },
-        _ => Err(AppError::BadRequestError("Missing or empty URL".to_string())),
+        }
+        _ => Err(AppError::BadRequestError(
+            "Missing or empty URL".to_string(),
+        )),
     }
 }
 
-pub async fn control_alarm(state: &AppState, id: u32, req: AlarmControlRequest) -> AppResult<MonitorResponse> {
+pub async fn control_alarm(
+    state: &AppState,
+    id: u32,
+    req: AlarmControlRequest,
+) -> AppResult<MonitorResponse> {
     info!("Controlling alarm of monitor with ID: {id} and request: {req:?}.");
-    
+
     // Use repository to fetch the monitor
     let monitor_model = repo::monitors::find_by_id(state.db(), id)
         .await?
@@ -742,7 +782,7 @@ pub async fn control_alarm(state: &AppState, id: u32, req: AlarmControlRequest) 
                 resource_type: ResourceType::Monitor,
             })
         })?;
-    
+
     // Handle the alarm action
     match req.action.as_str() {
         "on" => {
@@ -750,22 +790,25 @@ pub async fn control_alarm(state: &AppState, id: u32, req: AlarmControlRequest) 
             // This will require additional implementation to trigger an alarm in ZoneMinder
             // For example, creating an event in the Events table and/or
             // making an API call to ZoneMinder
-        },
+        }
         "off" => {
             // TODO: Cancel alarm state
             // This will require additional implementation to cancel an active alarm
             // in ZoneMinder
-        },
+        }
         "status" => {
             // TODO: Get current alarm status
             // This will require checking if there are any active events/alarms
             // for this monitor
-        },
+        }
         _ => {
-            return Err(AppError::BadRequestError(format!("Invalid alarm action: {}", req.action)));
+            return Err(AppError::BadRequestError(format!(
+                "Invalid alarm action: {}",
+                req.action
+            )));
         }
     }
-    
+
     // For now, simply return the current monitor state
     // In a complete implementation, this would reflect the alarm status
     Ok(MonitorResponse::from(monitor_model))
@@ -791,10 +834,16 @@ mod tests {
 
         // Missing input
         let none: Option<String> = None;
-        assert!(matches!(parse_host_port(&none).err().unwrap(), AppError::BadRequestError(_)));
+        assert!(matches!(
+            parse_host_port(&none).err().unwrap(),
+            AppError::BadRequestError(_)
+        ));
 
         // Invalid port
         let bad_port = Some("camera.lan:notaport".to_string());
-        assert!(matches!(parse_host_port(&bad_port).err().unwrap(), AppError::BadRequestError(_)));
+        assert!(matches!(
+            parse_host_port(&bad_port).err().unwrap(),
+            AppError::BadRequestError(_)
+        ));
     }
 }

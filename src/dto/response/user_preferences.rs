@@ -1,6 +1,6 @@
+use crate::entity::user_preferences::Model as UserPreferenceModel;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::entity::user_preferences::Model as UserPreferenceModel;
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct UserPreferenceResponse {
