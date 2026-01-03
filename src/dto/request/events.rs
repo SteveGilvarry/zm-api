@@ -1,6 +1,6 @@
+use garde::Validate;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use garde::Validate;
 
 use crate::dto::wrappers::{DateTimeWrapper, DecimalWrapper};
 use crate::entity::sea_orm_active_enums::Orientation;
@@ -25,7 +25,7 @@ pub struct EventQueryParams {
 
     #[schema(example = "2025-04-29T23:59:59Z")]
     #[garde(skip)]
-    pub end_time: Option<DateTimeWrapper>
+    pub end_time: Option<DateTimeWrapper>,
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
@@ -33,15 +33,15 @@ pub struct EventCreateRequest {
     #[schema(example = 1)]
     #[garde(skip)]
     pub monitor_id: u32,
-    
+
     #[schema(example = 1)]
     #[garde(skip)]
     pub storage_id: u16,
-    
+
     #[schema(example = "null", nullable = true)]
     #[garde(skip)]
     pub secondary_storage_id: Option<u16>,
-    
+
     #[schema(example = "Motion Detection")]
     #[garde(length(min = 1, max = 255))]
     pub name: String,
@@ -57,23 +57,23 @@ pub struct EventCreateRequest {
     #[schema(example = "2025-04-29T10:02:00Z", nullable = true)]
     #[garde(skip)]
     pub end_date_time: Option<DateTimeWrapper>,
-    
+
     #[schema(example = 1920)]
     #[garde(range(min = 320, max = 7680))]
     pub width: u16,
-    
+
     #[schema(example = 1080)]
     #[garde(range(min = 240, max = 4320))]
     pub height: u16,
-    
+
     #[schema(example = "2.00")]
     #[garde(skip)]
     pub length: DecimalWrapper,
-    
+
     #[schema(example = "Important security event", nullable = true)]
     #[garde(length(min = 0, max = 1000))]
     pub notes: Option<String>,
-    
+
     #[schema(example = "ROTATE_0")]
     #[garde(skip)]
     pub orientation: Orientation,
@@ -88,11 +88,11 @@ pub struct EventUpdateRequest {
     #[schema(example = "Motion in zone 1", nullable = true)]
     #[garde(skip)]
     pub cause: Option<String>,
-    
+
     #[schema(example = "Important security event", nullable = true)]
     #[garde(length(min = 0, max = 1000))]
     pub notes: Option<String>,
-    
+
     #[schema(example = "ROTATE_0")]
     #[garde(skip)]
     pub orientation: Option<Orientation>,

@@ -154,11 +154,14 @@ pub async fn update(
     id: u32,
     event_update: EventUpdateRequest,
 ) -> AppResult<EventResponse> {
-    let event = events_repo::find_by_id(state, id as u64).await?
-        .ok_or_else(|| AppError::NotFoundError(crate::error::Resource {
-            details: vec![("id".to_string(), id.to_string())],
-            resource_type: crate::error::ResourceType::Message,
-        }))?;
+    let event = events_repo::find_by_id(state, id as u64)
+        .await?
+        .ok_or_else(|| {
+            AppError::NotFoundError(crate::error::Resource {
+                details: vec![("id".to_string(), id.to_string())],
+                resource_type: crate::error::ResourceType::Message,
+            })
+        })?;
     let mut active_event = events::ActiveModel::from(event);
 
     // Only update fields that are present in the request
@@ -193,7 +196,7 @@ pub async fn delete(state: &AppState, id: u32) -> AppResult<()> {
 #[instrument(skip(state))]
 pub async fn get_event_counts(state: &AppState, hours: i64) -> AppResult<EventCountsResponse> {
     let counts = events_repo::get_counts_by_hour(state, hours).await?;
-    
+
     let event_counts = counts
         .into_iter()
         .map(|(date, count)| EventCountResponse {
@@ -211,10 +214,10 @@ pub async fn get_event_counts(state: &AppState, hours: i64) -> AppResult<EventCo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
     use crate::entity::events::Model as EventModel;
-    use rust_decimal::Decimal;
     use chrono::DateTime;
+    use rust_decimal::Decimal;
+    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
 
     fn mk_event(id: u64, name: &str) -> EventModel {
         use crate::entity::sea_orm_active_enums::{Orientation, Scheme};
@@ -285,7 +288,10 @@ mod tests {
         use crate::entity::sea_orm_active_enums::Orientation;
         // Create: insert exec result is enough for MockDatabase
         let db_create = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 100, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 100,
+                rows_affected: 1,
+            }])
             .append_query_results::<EventModel, _, _>(vec![vec![mk_event(100, "name")]])
             .into_connection();
         let state_create = AppState::for_test_with_db(db_create);
@@ -299,7 +305,7 @@ mod tests {
             end_date_time: None,
             width: 1280,
             height: 720,
-            length: DecimalWrapper(Decimal::new(0,0)),
+            length: DecimalWrapper(Decimal::new(0, 0)),
             notes: None,
             orientation: Orientation::Rotate0,
         };
@@ -312,16 +318,33 @@ mod tests {
         after.name = "new".into();
         let db_update = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<EventModel, _, _>(vec![vec![initial]])
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .append_query_results::<EventModel, _, _>(vec![vec![after.clone()]])
             .into_connection();
         let state_update = AppState::for_test_with_db(db_update);
-        let out_upd = update(&state_update, 7, EventUpdateRequest { name: Some("new".into()), cause: None, notes: None, orientation: None }).await.unwrap();
+        let out_upd = update(
+            &state_update,
+            7,
+            EventUpdateRequest {
+                name: Some("new".into()),
+                cause: None,
+                notes: None,
+                orientation: None,
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(out_upd.name, "new");
 
         // Delete
         let db_del = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .into_connection();
         let state_del = AppState::for_test_with_db(db_del);
         assert!(delete(&state_del, 7).await.is_ok());

@@ -1,8 +1,8 @@
-use sea_orm::*;
-use chrono::NaiveDateTime;
-use crate::entity::reports::{Entity as Reports, Model as ReportModel, ActiveModel};
-use crate::error::{AppResult, AppError};
 use crate::dto::request::reports::{CreateReportRequest, UpdateReportRequest};
+use crate::entity::reports::{ActiveModel, Entity as Reports, Model as ReportModel};
+use crate::error::{AppError, AppResult};
+use chrono::NaiveDateTime;
+use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<ReportModel>> {
     Ok(Reports::find().all(db).await?)
@@ -13,18 +13,26 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<Re
 }
 
 pub async fn create(db: &DatabaseConnection, req: &CreateReportRequest) -> AppResult<ReportModel> {
-    let start_date_time = req.start_date_time.as_ref()
-        .map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")
-            .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")))
+    let start_date_time = req
+        .start_date_time
+        .as_ref()
+        .map(|s| {
+            NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")
+                .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S"))
+        })
         .transpose()
         .map_err(|e| AppError::BadRequestError(format!("Invalid start_date_time format: {}", e)))?;
-    
-    let end_date_time = req.end_date_time.as_ref()
-        .map(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")
-            .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")))
+
+    let end_date_time = req
+        .end_date_time
+        .as_ref()
+        .map(|s| {
+            NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")
+                .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S"))
+        })
         .transpose()
         .map_err(|e| AppError::BadRequestError(format!("Invalid end_date_time format: {}", e)))?;
-    
+
     let am = ActiveModel {
         id: Default::default(),
         name: Set(req.name.clone()),
@@ -36,28 +44,44 @@ pub async fn create(db: &DatabaseConnection, req: &CreateReportRequest) -> AppRe
     Ok(am.insert(db).await?)
 }
 
-pub async fn update(db: &DatabaseConnection, id: u32, req: &UpdateReportRequest) -> AppResult<Option<ReportModel>> {
-    let Some(model) = find_by_id(db, id).await? else { return Ok(None) };
+pub async fn update(
+    db: &DatabaseConnection,
+    id: u32,
+    req: &UpdateReportRequest,
+) -> AppResult<Option<ReportModel>> {
+    let Some(model) = find_by_id(db, id).await? else {
+        return Ok(None);
+    };
     let mut am: ActiveModel = model.into();
-    
-    if let Some(v) = &req.name { am.name = Set(Some(v.clone())); }
-    if let Some(v) = req.filter_id { am.filter_id = Set(Some(v)); }
-    if let Some(v) = req.interval { am.interval = Set(Some(v)); }
-    
+
+    if let Some(v) = &req.name {
+        am.name = Set(Some(v.clone()));
+    }
+    if let Some(v) = req.filter_id {
+        am.filter_id = Set(Some(v));
+    }
+    if let Some(v) = req.interval {
+        am.interval = Set(Some(v));
+    }
+
     if let Some(s) = &req.start_date_time {
         let dt = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")
             .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S"))
-            .map_err(|e| AppError::BadRequestError(format!("Invalid start_date_time format: {}", e)))?;
+            .map_err(|e| {
+                AppError::BadRequestError(format!("Invalid start_date_time format: {}", e))
+            })?;
         am.start_date_time = Set(Some(dt));
     }
-    
+
     if let Some(s) = &req.end_date_time {
         let dt = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")
             .or_else(|_| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S"))
-            .map_err(|e| AppError::BadRequestError(format!("Invalid end_date_time format: {}", e)))?;
+            .map_err(|e| {
+                AppError::BadRequestError(format!("Invalid end_date_time format: {}", e))
+            })?;
         am.end_date_time = Set(Some(dt));
     }
-    
+
     let updated = am.update(db).await?;
     Ok(Some(updated))
 }

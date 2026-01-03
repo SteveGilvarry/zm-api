@@ -1,7 +1,7 @@
-use sea_orm::*;
-use crate::entity::controls::{Entity as Controls, Model as ControlModel, ActiveModel};
-use crate::error::AppResult;
 use crate::dto::request::controls::{CreateControlRequest, UpdateControlRequest};
+use crate::entity::controls::{ActiveModel, Entity as Controls, Model as ControlModel};
+use crate::error::AppResult;
+use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<ControlModel>> {
     Ok(Controls::find().all(db).await?)
@@ -11,7 +11,10 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<Co
     Ok(Controls::find_by_id(id).one(db).await?)
 }
 
-pub async fn create(db: &DatabaseConnection, req: &CreateControlRequest) -> AppResult<ControlModel> {
+pub async fn create(
+    db: &DatabaseConnection,
+    req: &CreateControlRequest,
+) -> AppResult<ControlModel> {
     let am = ActiveModel {
         id: Default::default(),
         name: Set(req.name.clone()),
@@ -117,110 +120,314 @@ pub async fn create(db: &DatabaseConnection, req: &CreateControlRequest) -> AppR
     Ok(am.insert(db).await?)
 }
 
-pub async fn update(db: &DatabaseConnection, id: u32, req: &UpdateControlRequest) -> AppResult<Option<ControlModel>> {
-    let Some(model) = find_by_id(db, id).await? else { return Ok(None) };
+pub async fn update(
+    db: &DatabaseConnection,
+    id: u32,
+    req: &UpdateControlRequest,
+) -> AppResult<Option<ControlModel>> {
+    let Some(model) = find_by_id(db, id).await? else {
+        return Ok(None);
+    };
     let mut am: ActiveModel = model.into();
-    
-    if let Some(v) = &req.name { am.name = Set(v.clone()); }
-    if let Some(v) = &req.r#type { am.r#type = Set(v.clone()); }
-    if let Some(v) = &req.protocol { am.protocol = Set(Some(v.clone())); }
-    if let Some(v) = req.can_wake { am.can_wake = Set(v); }
-    if let Some(v) = req.can_sleep { am.can_sleep = Set(v); }
-    if let Some(v) = req.can_reset { am.can_reset = Set(v); }
-    if let Some(v) = req.can_reboot { am.can_reboot = Set(v); }
-    if let Some(v) = req.can_zoom { am.can_zoom = Set(v); }
-    if let Some(v) = req.can_auto_zoom { am.can_auto_zoom = Set(v); }
-    if let Some(v) = req.can_zoom_abs { am.can_zoom_abs = Set(v); }
-    if let Some(v) = req.can_zoom_rel { am.can_zoom_rel = Set(v); }
-    if let Some(v) = req.can_zoom_con { am.can_zoom_con = Set(v); }
-    if let Some(v) = req.min_zoom_range { am.min_zoom_range = Set(Some(v)); }
-    if let Some(v) = req.max_zoom_range { am.max_zoom_range = Set(Some(v)); }
-    if let Some(v) = req.min_zoom_step { am.min_zoom_step = Set(Some(v)); }
-    if let Some(v) = req.max_zoom_step { am.max_zoom_step = Set(Some(v)); }
-    if let Some(v) = req.has_zoom_speed { am.has_zoom_speed = Set(v); }
-    if let Some(v) = req.min_zoom_speed { am.min_zoom_speed = Set(Some(v)); }
-    if let Some(v) = req.max_zoom_speed { am.max_zoom_speed = Set(Some(v)); }
-    if let Some(v) = req.can_focus { am.can_focus = Set(v); }
-    if let Some(v) = req.can_auto_focus { am.can_auto_focus = Set(v); }
-    if let Some(v) = req.can_focus_abs { am.can_focus_abs = Set(v); }
-    if let Some(v) = req.can_focus_rel { am.can_focus_rel = Set(v); }
-    if let Some(v) = req.can_focus_con { am.can_focus_con = Set(v); }
-    if let Some(v) = req.min_focus_range { am.min_focus_range = Set(Some(v)); }
-    if let Some(v) = req.max_focus_range { am.max_focus_range = Set(Some(v)); }
-    if let Some(v) = req.min_focus_step { am.min_focus_step = Set(Some(v)); }
-    if let Some(v) = req.max_focus_step { am.max_focus_step = Set(Some(v)); }
-    if let Some(v) = req.has_focus_speed { am.has_focus_speed = Set(v); }
-    if let Some(v) = req.min_focus_speed { am.min_focus_speed = Set(Some(v)); }
-    if let Some(v) = req.max_focus_speed { am.max_focus_speed = Set(Some(v)); }
-    if let Some(v) = req.can_iris { am.can_iris = Set(v); }
-    if let Some(v) = req.can_auto_iris { am.can_auto_iris = Set(v); }
-    if let Some(v) = req.can_iris_abs { am.can_iris_abs = Set(v); }
-    if let Some(v) = req.can_iris_rel { am.can_iris_rel = Set(v); }
-    if let Some(v) = req.can_iris_con { am.can_iris_con = Set(v); }
-    if let Some(v) = req.min_iris_range { am.min_iris_range = Set(Some(v)); }
-    if let Some(v) = req.max_iris_range { am.max_iris_range = Set(Some(v)); }
-    if let Some(v) = req.min_iris_step { am.min_iris_step = Set(Some(v)); }
-    if let Some(v) = req.max_iris_step { am.max_iris_step = Set(Some(v)); }
-    if let Some(v) = req.has_iris_speed { am.has_iris_speed = Set(v); }
-    if let Some(v) = req.min_iris_speed { am.min_iris_speed = Set(Some(v)); }
-    if let Some(v) = req.max_iris_speed { am.max_iris_speed = Set(Some(v)); }
-    if let Some(v) = req.can_gain { am.can_gain = Set(v); }
-    if let Some(v) = req.can_auto_gain { am.can_auto_gain = Set(v); }
-    if let Some(v) = req.can_gain_abs { am.can_gain_abs = Set(v); }
-    if let Some(v) = req.can_gain_rel { am.can_gain_rel = Set(v); }
-    if let Some(v) = req.can_gain_con { am.can_gain_con = Set(v); }
-    if let Some(v) = req.min_gain_range { am.min_gain_range = Set(Some(v)); }
-    if let Some(v) = req.max_gain_range { am.max_gain_range = Set(Some(v)); }
-    if let Some(v) = req.min_gain_step { am.min_gain_step = Set(Some(v)); }
-    if let Some(v) = req.max_gain_step { am.max_gain_step = Set(Some(v)); }
-    if let Some(v) = req.has_gain_speed { am.has_gain_speed = Set(v); }
-    if let Some(v) = req.min_gain_speed { am.min_gain_speed = Set(Some(v)); }
-    if let Some(v) = req.max_gain_speed { am.max_gain_speed = Set(Some(v)); }
-    if let Some(v) = req.can_white { am.can_white = Set(v); }
-    if let Some(v) = req.can_auto_white { am.can_auto_white = Set(v); }
-    if let Some(v) = req.can_white_abs { am.can_white_abs = Set(v); }
-    if let Some(v) = req.can_white_rel { am.can_white_rel = Set(v); }
-    if let Some(v) = req.can_white_con { am.can_white_con = Set(v); }
-    if let Some(v) = req.min_white_range { am.min_white_range = Set(Some(v)); }
-    if let Some(v) = req.max_white_range { am.max_white_range = Set(Some(v)); }
-    if let Some(v) = req.min_white_step { am.min_white_step = Set(Some(v)); }
-    if let Some(v) = req.max_white_step { am.max_white_step = Set(Some(v)); }
-    if let Some(v) = req.has_white_speed { am.has_white_speed = Set(v); }
-    if let Some(v) = req.min_white_speed { am.min_white_speed = Set(Some(v)); }
-    if let Some(v) = req.max_white_speed { am.max_white_speed = Set(Some(v)); }
-    if let Some(v) = req.has_presets { am.has_presets = Set(v); }
-    if let Some(v) = req.num_presets { am.num_presets = Set(v); }
-    if let Some(v) = req.has_home_preset { am.has_home_preset = Set(v); }
-    if let Some(v) = req.can_set_presets { am.can_set_presets = Set(v); }
-    if let Some(v) = req.can_move { am.can_move = Set(v); }
-    if let Some(v) = req.can_move_diag { am.can_move_diag = Set(v); }
-    if let Some(v) = req.can_move_map { am.can_move_map = Set(v); }
-    if let Some(v) = req.can_move_abs { am.can_move_abs = Set(v); }
-    if let Some(v) = req.can_move_rel { am.can_move_rel = Set(v); }
-    if let Some(v) = req.can_move_con { am.can_move_con = Set(v); }
-    if let Some(v) = req.can_pan { am.can_pan = Set(v); }
-    if let Some(v) = req.min_pan_range { am.min_pan_range = Set(Some(v)); }
-    if let Some(v) = req.max_pan_range { am.max_pan_range = Set(Some(v)); }
-    if let Some(v) = req.min_pan_step { am.min_pan_step = Set(Some(v)); }
-    if let Some(v) = req.max_pan_step { am.max_pan_step = Set(Some(v)); }
-    if let Some(v) = req.has_pan_speed { am.has_pan_speed = Set(v); }
-    if let Some(v) = req.min_pan_speed { am.min_pan_speed = Set(Some(v)); }
-    if let Some(v) = req.max_pan_speed { am.max_pan_speed = Set(Some(v)); }
-    if let Some(v) = req.has_turbo_pan { am.has_turbo_pan = Set(v); }
-    if let Some(v) = req.turbo_pan_speed { am.turbo_pan_speed = Set(Some(v)); }
-    if let Some(v) = req.can_tilt { am.can_tilt = Set(v); }
-    if let Some(v) = req.min_tilt_range { am.min_tilt_range = Set(Some(v)); }
-    if let Some(v) = req.max_tilt_range { am.max_tilt_range = Set(Some(v)); }
-    if let Some(v) = req.min_tilt_step { am.min_tilt_step = Set(Some(v)); }
-    if let Some(v) = req.max_tilt_step { am.max_tilt_step = Set(Some(v)); }
-    if let Some(v) = req.has_tilt_speed { am.has_tilt_speed = Set(v); }
-    if let Some(v) = req.min_tilt_speed { am.min_tilt_speed = Set(Some(v)); }
-    if let Some(v) = req.max_tilt_speed { am.max_tilt_speed = Set(Some(v)); }
-    if let Some(v) = req.has_turbo_tilt { am.has_turbo_tilt = Set(v); }
-    if let Some(v) = req.turbo_tilt_speed { am.turbo_tilt_speed = Set(Some(v)); }
-    if let Some(v) = req.can_auto_scan { am.can_auto_scan = Set(v); }
-    if let Some(v) = req.num_scan_paths { am.num_scan_paths = Set(v); }
-    
+
+    if let Some(v) = &req.name {
+        am.name = Set(v.clone());
+    }
+    if let Some(v) = &req.r#type {
+        am.r#type = Set(v.clone());
+    }
+    if let Some(v) = &req.protocol {
+        am.protocol = Set(Some(v.clone()));
+    }
+    if let Some(v) = req.can_wake {
+        am.can_wake = Set(v);
+    }
+    if let Some(v) = req.can_sleep {
+        am.can_sleep = Set(v);
+    }
+    if let Some(v) = req.can_reset {
+        am.can_reset = Set(v);
+    }
+    if let Some(v) = req.can_reboot {
+        am.can_reboot = Set(v);
+    }
+    if let Some(v) = req.can_zoom {
+        am.can_zoom = Set(v);
+    }
+    if let Some(v) = req.can_auto_zoom {
+        am.can_auto_zoom = Set(v);
+    }
+    if let Some(v) = req.can_zoom_abs {
+        am.can_zoom_abs = Set(v);
+    }
+    if let Some(v) = req.can_zoom_rel {
+        am.can_zoom_rel = Set(v);
+    }
+    if let Some(v) = req.can_zoom_con {
+        am.can_zoom_con = Set(v);
+    }
+    if let Some(v) = req.min_zoom_range {
+        am.min_zoom_range = Set(Some(v));
+    }
+    if let Some(v) = req.max_zoom_range {
+        am.max_zoom_range = Set(Some(v));
+    }
+    if let Some(v) = req.min_zoom_step {
+        am.min_zoom_step = Set(Some(v));
+    }
+    if let Some(v) = req.max_zoom_step {
+        am.max_zoom_step = Set(Some(v));
+    }
+    if let Some(v) = req.has_zoom_speed {
+        am.has_zoom_speed = Set(v);
+    }
+    if let Some(v) = req.min_zoom_speed {
+        am.min_zoom_speed = Set(Some(v));
+    }
+    if let Some(v) = req.max_zoom_speed {
+        am.max_zoom_speed = Set(Some(v));
+    }
+    if let Some(v) = req.can_focus {
+        am.can_focus = Set(v);
+    }
+    if let Some(v) = req.can_auto_focus {
+        am.can_auto_focus = Set(v);
+    }
+    if let Some(v) = req.can_focus_abs {
+        am.can_focus_abs = Set(v);
+    }
+    if let Some(v) = req.can_focus_rel {
+        am.can_focus_rel = Set(v);
+    }
+    if let Some(v) = req.can_focus_con {
+        am.can_focus_con = Set(v);
+    }
+    if let Some(v) = req.min_focus_range {
+        am.min_focus_range = Set(Some(v));
+    }
+    if let Some(v) = req.max_focus_range {
+        am.max_focus_range = Set(Some(v));
+    }
+    if let Some(v) = req.min_focus_step {
+        am.min_focus_step = Set(Some(v));
+    }
+    if let Some(v) = req.max_focus_step {
+        am.max_focus_step = Set(Some(v));
+    }
+    if let Some(v) = req.has_focus_speed {
+        am.has_focus_speed = Set(v);
+    }
+    if let Some(v) = req.min_focus_speed {
+        am.min_focus_speed = Set(Some(v));
+    }
+    if let Some(v) = req.max_focus_speed {
+        am.max_focus_speed = Set(Some(v));
+    }
+    if let Some(v) = req.can_iris {
+        am.can_iris = Set(v);
+    }
+    if let Some(v) = req.can_auto_iris {
+        am.can_auto_iris = Set(v);
+    }
+    if let Some(v) = req.can_iris_abs {
+        am.can_iris_abs = Set(v);
+    }
+    if let Some(v) = req.can_iris_rel {
+        am.can_iris_rel = Set(v);
+    }
+    if let Some(v) = req.can_iris_con {
+        am.can_iris_con = Set(v);
+    }
+    if let Some(v) = req.min_iris_range {
+        am.min_iris_range = Set(Some(v));
+    }
+    if let Some(v) = req.max_iris_range {
+        am.max_iris_range = Set(Some(v));
+    }
+    if let Some(v) = req.min_iris_step {
+        am.min_iris_step = Set(Some(v));
+    }
+    if let Some(v) = req.max_iris_step {
+        am.max_iris_step = Set(Some(v));
+    }
+    if let Some(v) = req.has_iris_speed {
+        am.has_iris_speed = Set(v);
+    }
+    if let Some(v) = req.min_iris_speed {
+        am.min_iris_speed = Set(Some(v));
+    }
+    if let Some(v) = req.max_iris_speed {
+        am.max_iris_speed = Set(Some(v));
+    }
+    if let Some(v) = req.can_gain {
+        am.can_gain = Set(v);
+    }
+    if let Some(v) = req.can_auto_gain {
+        am.can_auto_gain = Set(v);
+    }
+    if let Some(v) = req.can_gain_abs {
+        am.can_gain_abs = Set(v);
+    }
+    if let Some(v) = req.can_gain_rel {
+        am.can_gain_rel = Set(v);
+    }
+    if let Some(v) = req.can_gain_con {
+        am.can_gain_con = Set(v);
+    }
+    if let Some(v) = req.min_gain_range {
+        am.min_gain_range = Set(Some(v));
+    }
+    if let Some(v) = req.max_gain_range {
+        am.max_gain_range = Set(Some(v));
+    }
+    if let Some(v) = req.min_gain_step {
+        am.min_gain_step = Set(Some(v));
+    }
+    if let Some(v) = req.max_gain_step {
+        am.max_gain_step = Set(Some(v));
+    }
+    if let Some(v) = req.has_gain_speed {
+        am.has_gain_speed = Set(v);
+    }
+    if let Some(v) = req.min_gain_speed {
+        am.min_gain_speed = Set(Some(v));
+    }
+    if let Some(v) = req.max_gain_speed {
+        am.max_gain_speed = Set(Some(v));
+    }
+    if let Some(v) = req.can_white {
+        am.can_white = Set(v);
+    }
+    if let Some(v) = req.can_auto_white {
+        am.can_auto_white = Set(v);
+    }
+    if let Some(v) = req.can_white_abs {
+        am.can_white_abs = Set(v);
+    }
+    if let Some(v) = req.can_white_rel {
+        am.can_white_rel = Set(v);
+    }
+    if let Some(v) = req.can_white_con {
+        am.can_white_con = Set(v);
+    }
+    if let Some(v) = req.min_white_range {
+        am.min_white_range = Set(Some(v));
+    }
+    if let Some(v) = req.max_white_range {
+        am.max_white_range = Set(Some(v));
+    }
+    if let Some(v) = req.min_white_step {
+        am.min_white_step = Set(Some(v));
+    }
+    if let Some(v) = req.max_white_step {
+        am.max_white_step = Set(Some(v));
+    }
+    if let Some(v) = req.has_white_speed {
+        am.has_white_speed = Set(v);
+    }
+    if let Some(v) = req.min_white_speed {
+        am.min_white_speed = Set(Some(v));
+    }
+    if let Some(v) = req.max_white_speed {
+        am.max_white_speed = Set(Some(v));
+    }
+    if let Some(v) = req.has_presets {
+        am.has_presets = Set(v);
+    }
+    if let Some(v) = req.num_presets {
+        am.num_presets = Set(v);
+    }
+    if let Some(v) = req.has_home_preset {
+        am.has_home_preset = Set(v);
+    }
+    if let Some(v) = req.can_set_presets {
+        am.can_set_presets = Set(v);
+    }
+    if let Some(v) = req.can_move {
+        am.can_move = Set(v);
+    }
+    if let Some(v) = req.can_move_diag {
+        am.can_move_diag = Set(v);
+    }
+    if let Some(v) = req.can_move_map {
+        am.can_move_map = Set(v);
+    }
+    if let Some(v) = req.can_move_abs {
+        am.can_move_abs = Set(v);
+    }
+    if let Some(v) = req.can_move_rel {
+        am.can_move_rel = Set(v);
+    }
+    if let Some(v) = req.can_move_con {
+        am.can_move_con = Set(v);
+    }
+    if let Some(v) = req.can_pan {
+        am.can_pan = Set(v);
+    }
+    if let Some(v) = req.min_pan_range {
+        am.min_pan_range = Set(Some(v));
+    }
+    if let Some(v) = req.max_pan_range {
+        am.max_pan_range = Set(Some(v));
+    }
+    if let Some(v) = req.min_pan_step {
+        am.min_pan_step = Set(Some(v));
+    }
+    if let Some(v) = req.max_pan_step {
+        am.max_pan_step = Set(Some(v));
+    }
+    if let Some(v) = req.has_pan_speed {
+        am.has_pan_speed = Set(v);
+    }
+    if let Some(v) = req.min_pan_speed {
+        am.min_pan_speed = Set(Some(v));
+    }
+    if let Some(v) = req.max_pan_speed {
+        am.max_pan_speed = Set(Some(v));
+    }
+    if let Some(v) = req.has_turbo_pan {
+        am.has_turbo_pan = Set(v);
+    }
+    if let Some(v) = req.turbo_pan_speed {
+        am.turbo_pan_speed = Set(Some(v));
+    }
+    if let Some(v) = req.can_tilt {
+        am.can_tilt = Set(v);
+    }
+    if let Some(v) = req.min_tilt_range {
+        am.min_tilt_range = Set(Some(v));
+    }
+    if let Some(v) = req.max_tilt_range {
+        am.max_tilt_range = Set(Some(v));
+    }
+    if let Some(v) = req.min_tilt_step {
+        am.min_tilt_step = Set(Some(v));
+    }
+    if let Some(v) = req.max_tilt_step {
+        am.max_tilt_step = Set(Some(v));
+    }
+    if let Some(v) = req.has_tilt_speed {
+        am.has_tilt_speed = Set(v);
+    }
+    if let Some(v) = req.min_tilt_speed {
+        am.min_tilt_speed = Set(Some(v));
+    }
+    if let Some(v) = req.max_tilt_speed {
+        am.max_tilt_speed = Set(Some(v));
+    }
+    if let Some(v) = req.has_turbo_tilt {
+        am.has_turbo_tilt = Set(v);
+    }
+    if let Some(v) = req.turbo_tilt_speed {
+        am.turbo_tilt_speed = Set(Some(v));
+    }
+    if let Some(v) = req.can_auto_scan {
+        am.can_auto_scan = Set(v);
+    }
+    if let Some(v) = req.num_scan_paths {
+        am.num_scan_paths = Set(v);
+    }
+
     let updated = am.update(db).await?;
     Ok(Some(updated))
 }

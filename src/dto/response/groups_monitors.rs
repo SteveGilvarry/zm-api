@@ -1,6 +1,6 @@
+use crate::entity::groups_monitors::Model as GroupMonitorModel;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::entity::groups_monitors::Model as GroupMonitorModel;
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct GroupMonitorResponse {

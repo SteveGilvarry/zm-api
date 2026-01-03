@@ -1,6 +1,6 @@
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use chrono::NaiveDateTime;
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct CreateSnapshotRequest {

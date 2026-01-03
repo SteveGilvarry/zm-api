@@ -13,64 +13,64 @@ use super::ClientBuilder;
 pub type EmailClient = AsyncSmtpTransport<Tokio1Executor>;
 
 pub trait EmailClientExt: Clone + Send + Sync + ClientBuilder {
-  fn send_email(&self, email: &Email) -> impl std::future::Future<Output = AppResult>;
+    fn send_email(&self, email: &Email) -> impl std::future::Future<Output = AppResult>;
 }
 
 impl ClientBuilder for EmailClient {
-  fn build_from_config(config: &AppConfig) -> AppResult<Self> {
-    Ok(
-      AsyncSmtpTransport::<Tokio1Executor>::relay(&config.email.host)?
-        .credentials(Credentials::new(
-          config.email.username.clone(),
-          config.email.password.clone(),
-        ))
-        .port(config.email.port)
-        .tls(Tls::None)
-        .build(),
-    )
-  }
+    fn build_from_config(config: &AppConfig) -> AppResult<Self> {
+        Ok(
+            AsyncSmtpTransport::<Tokio1Executor>::relay(&config.email.host)?
+                .credentials(Credentials::new(
+                    config.email.username.clone(),
+                    config.email.password.clone(),
+                ))
+                .port(config.email.port)
+                .tls(Tls::None)
+                .build(),
+        )
+    }
 }
 
 impl EmailClientExt for EmailClient {
-  async fn send_email(&self, email: &Email) -> AppResult {
-    let resp = self.send(Message::try_from(email)?).await?;
-    info!("Sent email successfully code: {:?}.", resp.code());
-    Ok(())
-  }
+    async fn send_email(&self, email: &Email) -> AppResult {
+        let resp = self.send(Message::try_from(email)?).await?;
+        info!("Sent email successfully code: {:?}.", resp.code());
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
-  use crate::constant::CONFIG;
-  use fake::{Fake, Faker};
+    use crate::constant::CONFIG;
+    use fake::{Fake, Faker};
 
-  use super::*;
+    use super::*;
 
-  fn smtp_tests_enabled() -> bool {
-    matches!(
-      std::env::var("RUN_SMTP_TESTS").as_deref(),
-      Ok("1") | Ok("true") | Ok("TRUE")
-    )
-  }
-
-  #[tokio::test]
-  #[ignore = "requires real SMTP server/config"]
-  async fn test_smtp_email_connection() {
-    if !smtp_tests_enabled() {
-      return;
+    fn smtp_tests_enabled() -> bool {
+        matches!(
+            std::env::var("RUN_SMTP_TESTS").as_deref(),
+            Ok("1") | Ok("true") | Ok("TRUE")
+        )
     }
-    let client = EmailClient::build_from_config(&CONFIG).unwrap();
-    assert!(client.test_connection().await.unwrap());
-  }
 
-  #[tokio::test]
-  #[ignore = "requires real SMTP server/config"]
-  async fn test_smtp_send_email() {
-    if !smtp_tests_enabled() {
-      return;
+    #[tokio::test]
+    #[ignore = "requires real SMTP server/config"]
+    async fn test_smtp_email_connection() {
+        if !smtp_tests_enabled() {
+            return;
+        }
+        let client = EmailClient::build_from_config(&CONFIG).unwrap();
+        assert!(client.test_connection().await.unwrap());
     }
-    let email: Email = Faker.fake();
-    let email_client = EmailClient::build_from_config(&CONFIG).unwrap();
-    email_client.send_email(&email).await.unwrap();
-  }
+
+    #[tokio::test]
+    #[ignore = "requires real SMTP server/config"]
+    async fn test_smtp_send_email() {
+        if !smtp_tests_enabled() {
+            return;
+        }
+        let email: Email = Faker.fake();
+        let email_client = EmailClient::build_from_config(&CONFIG).unwrap();
+        email_client.send_email(&email).await.unwrap();
+    }
 }

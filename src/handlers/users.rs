@@ -1,9 +1,12 @@
-use axum::{extract::{Path, State}, Json};
-use serde::Deserialize;
-use crate::dto::response::UserResponse;
 use crate::dto::request::CreateUserRequest;
+use crate::dto::response::UserResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
+use serde::Deserialize;
 
 /// List ZoneMinder users.
 ///
@@ -31,13 +34,19 @@ pub async fn list_users(State(state): State<AppState>) -> AppResult<Json<Vec<Use
     tag = "Users",
     security(("jwt" = []))
 )]
-pub async fn get_user(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<UserResponse>> {
+pub async fn get_user(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<UserResponse>> {
     let item = crate::service::users::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
-pub struct UpdateUserRequest { pub email: Option<String>, pub enabled: Option<u8> }
+pub struct UpdateUserRequest {
+    pub email: Option<String>,
+    pub enabled: Option<u8>,
+}
 
 /// Update user fields (email/enabled).
 ///
@@ -52,7 +61,11 @@ pub struct UpdateUserRequest { pub email: Option<String>, pub enabled: Option<u8
     tag = "Users",
     security(("jwt" = []))
 )]
-pub async fn update_user(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateUserRequest>) -> AppResult<Json<UserResponse>> {
+pub async fn update_user(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateUserRequest>,
+) -> AppResult<Json<UserResponse>> {
     let item = crate::service::users::update(&state, id, req.email, req.enabled).await?;
     Ok(Json(item))
 }
@@ -69,7 +82,10 @@ pub async fn update_user(Path(id): Path<u32>, State(state): State<AppState>, Jso
     tag = "Users",
     security(("jwt" = []))
 )]
-pub async fn create_user(State(state): State<AppState>, Json(req): Json<CreateUserRequest>) -> AppResult<(axum::http::StatusCode, Json<UserResponse>)> {
+pub async fn create_user(
+    State(state): State<AppState>,
+    Json(req): Json<CreateUserRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<UserResponse>)> {
     let item = crate::service::users::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -86,7 +102,10 @@ pub async fn create_user(State(state): State<AppState>, Json(req): Json<CreateUs
     tag = "Users",
     security(("jwt" = []))
 )]
-pub async fn delete_user(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_user(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::users::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

@@ -1,8 +1,11 @@
-use axum::{extract::{Path, State}, Json};
-use crate::dto::response::TriggerX10Response;
 use crate::dto::request::triggers_x10::{CreateTriggerX10Request, UpdateTriggerX10Request};
+use crate::dto::response::TriggerX10Response;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 
 /// List all X10 triggers.
 ///
@@ -14,7 +17,9 @@ use crate::server::state::AppState;
     tag = "TriggersX10",
     security(("jwt" = []))
 )]
-pub async fn list_triggers_x10(State(state): State<AppState>) -> AppResult<Json<Vec<TriggerX10Response>>> {
+pub async fn list_triggers_x10(
+    State(state): State<AppState>,
+) -> AppResult<Json<Vec<TriggerX10Response>>> {
     let items = crate::service::triggers_x10::list_all(&state).await?;
     Ok(Json(items))
 }
@@ -30,7 +35,10 @@ pub async fn list_triggers_x10(State(state): State<AppState>) -> AppResult<Json<
     tag = "TriggersX10",
     security(("jwt" = []))
 )]
-pub async fn get_trigger_x10(Path(monitor_id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<TriggerX10Response>> {
+pub async fn get_trigger_x10(
+    Path(monitor_id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<TriggerX10Response>> {
     let item = crate::service::triggers_x10::get_by_id(&state, monitor_id).await?;
     Ok(Json(item))
 }
@@ -47,7 +55,10 @@ pub async fn get_trigger_x10(Path(monitor_id): Path<u32>, State(state): State<Ap
     tag = "TriggersX10",
     security(("jwt" = []))
 )]
-pub async fn create_trigger_x10(State(state): State<AppState>, Json(req): Json<CreateTriggerX10Request>) -> AppResult<(axum::http::StatusCode, Json<TriggerX10Response>)> {
+pub async fn create_trigger_x10(
+    State(state): State<AppState>,
+    Json(req): Json<CreateTriggerX10Request>,
+) -> AppResult<(axum::http::StatusCode, Json<TriggerX10Response>)> {
     let item = crate::service::triggers_x10::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -65,7 +76,11 @@ pub async fn create_trigger_x10(State(state): State<AppState>, Json(req): Json<C
     tag = "TriggersX10",
     security(("jwt" = []))
 )]
-pub async fn update_trigger_x10(Path(monitor_id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateTriggerX10Request>) -> AppResult<Json<TriggerX10Response>> {
+pub async fn update_trigger_x10(
+    Path(monitor_id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateTriggerX10Request>,
+) -> AppResult<Json<TriggerX10Response>> {
     let item = crate::service::triggers_x10::update(&state, monitor_id, req).await?;
     Ok(Json(item))
 }
@@ -82,7 +97,10 @@ pub async fn update_trigger_x10(Path(monitor_id): Path<u32>, State(state): State
     tag = "TriggersX10",
     security(("jwt" = []))
 )]
-pub async fn delete_trigger_x10(Path(monitor_id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_trigger_x10(
+    Path(monitor_id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::triggers_x10::delete(&state, monitor_id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

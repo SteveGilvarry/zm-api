@@ -21,4 +21,3 @@ impl From<&crate::entity::logs::Model> for LogResponse {
         }
     }
 }
-

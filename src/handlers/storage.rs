@@ -1,9 +1,12 @@
-use axum::{extract::{Path, State}, Json};
-use crate::dto::response::StorageResponse;
 use crate::dto::request::CreateStorageRequest;
-use serde::Deserialize;
+use crate::dto::response::StorageResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
+use serde::Deserialize;
 
 /// List storage definitions used by ZoneMinder for event/video storage.
 ///
@@ -31,7 +34,10 @@ pub async fn list_storage(State(state): State<AppState>) -> AppResult<Json<Vec<S
     tag = "Storage",
     security(("jwt" = []))
 )]
-pub async fn get_storage(Path(id): Path<u16>, State(state): State<AppState>) -> AppResult<Json<StorageResponse>> {
+pub async fn get_storage(
+    Path(id): Path<u16>,
+    State(state): State<AppState>,
+) -> AppResult<Json<StorageResponse>> {
     let item = crate::service::storage::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -48,7 +54,10 @@ pub async fn get_storage(Path(id): Path<u16>, State(state): State<AppState>) -> 
     tag = "Storage",
     security(("jwt" = []))
 )]
-pub async fn create_storage(State(state): State<AppState>, Json(req): Json<CreateStorageRequest>) -> AppResult<(axum::http::StatusCode, Json<StorageResponse>)> {
+pub async fn create_storage(
+    State(state): State<AppState>,
+    Json(req): Json<CreateStorageRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<StorageResponse>)> {
     let item = crate::service::storage::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -77,8 +86,23 @@ pub struct UpdateStorageRequest {
     tag = "Storage",
     security(("jwt" = []))
 )]
-pub async fn update_storage(Path(id): Path<u16>, State(state): State<AppState>, Json(req): Json<UpdateStorageRequest>) -> AppResult<Json<StorageResponse>> {
-    let item = crate::service::storage::update(&state, id, req.name, req.path, req.r#type, req.enabled, req.scheme, req.server_id, req.url).await?;
+pub async fn update_storage(
+    Path(id): Path<u16>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateStorageRequest>,
+) -> AppResult<Json<StorageResponse>> {
+    let item = crate::service::storage::update(
+        &state,
+        id,
+        req.name,
+        req.path,
+        req.r#type,
+        req.enabled,
+        req.scheme,
+        req.server_id,
+        req.url,
+    )
+    .await?;
     Ok(Json(item))
 }
 
@@ -94,7 +118,10 @@ pub async fn update_storage(Path(id): Path<u16>, State(state): State<AppState>, 
     tag = "Storage",
     security(("jwt" = []))
 )]
-pub async fn delete_storage(Path(id): Path<u16>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_storage(
+    Path(id): Path<u16>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::storage::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

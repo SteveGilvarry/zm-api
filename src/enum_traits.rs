@@ -1,6 +1,6 @@
-use std::fmt;
-use sea_orm::ActiveEnum;
 use crate::entity::sea_orm_active_enums::*;
+use sea_orm::ActiveEnum;
+use std::fmt;
 
 macro_rules! impl_display_for_enum {
     ($enum_type:ty) => {

@@ -1,8 +1,11 @@
-use axum::{extract::{Path, State}, Json};
-use crate::dto::response::ControlResponse;
 use crate::dto::request::controls::{CreateControlRequest, UpdateControlRequest};
+use crate::dto::response::ControlResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 
 /// List all camera controls.
 ///
@@ -30,7 +33,10 @@ pub async fn list_controls(State(state): State<AppState>) -> AppResult<Json<Vec<
     tag = "Controls",
     security(("jwt" = []))
 )]
-pub async fn get_control(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<ControlResponse>> {
+pub async fn get_control(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<ControlResponse>> {
     let item = crate::service::controls::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -46,7 +52,10 @@ pub async fn get_control(Path(id): Path<u32>, State(state): State<AppState>) -> 
     tag = "Controls",
     security(("jwt" = []))
 )]
-pub async fn create_control(State(state): State<AppState>, Json(req): Json<CreateControlRequest>) -> AppResult<(axum::http::StatusCode, Json<ControlResponse>)> {
+pub async fn create_control(
+    State(state): State<AppState>,
+    Json(req): Json<CreateControlRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<ControlResponse>)> {
     let item = crate::service::controls::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -64,7 +73,11 @@ pub async fn create_control(State(state): State<AppState>, Json(req): Json<Creat
     tag = "Controls",
     security(("jwt" = []))
 )]
-pub async fn update_control(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateControlRequest>) -> AppResult<Json<ControlResponse>> {
+pub async fn update_control(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateControlRequest>,
+) -> AppResult<Json<ControlResponse>> {
     let item = crate::service::controls::update(&state, id, req).await?;
     Ok(Json(item))
 }
@@ -81,7 +94,10 @@ pub async fn update_control(Path(id): Path<u32>, State(state): State<AppState>, 
     tag = "Controls",
     security(("jwt" = []))
 )]
-pub async fn delete_control(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_control(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::controls::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

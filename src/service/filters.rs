@@ -10,33 +10,60 @@ pub async fn list_all(state: &AppState) -> AppResult<Vec<FilterResponse>> {
 
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<FilterResponse> {
     let item = repo::filters::find_by_id(state.db(), id).await?;
-    let item = item.ok_or_else(|| AppError::NotFoundError(crate::error::Resource{details: vec![("id".into(), id.to_string())], resource_type: crate::error::ResourceType::Message}))?;
+    let item = item.ok_or_else(|| {
+        AppError::NotFoundError(crate::error::Resource {
+            details: vec![("id".into(), id.to_string())],
+            resource_type: crate::error::ResourceType::Message,
+        })
+    })?;
     Ok(FilterResponse::from(&item))
 }
 
-pub async fn update(state: &AppState, id: u32, name: Option<String>, query_json: Option<String>) -> AppResult<FilterResponse> {
+pub async fn update(
+    state: &AppState,
+    id: u32,
+    name: Option<String>,
+    query_json: Option<String>,
+) -> AppResult<FilterResponse> {
     let item = repo::filters::update(state.db(), id, name, query_json).await?;
-    let item = item.ok_or_else(|| AppError::NotFoundError(crate::error::Resource{details: vec![("id".into(), id.to_string())], resource_type: crate::error::ResourceType::Message}))?;
+    let item = item.ok_or_else(|| {
+        AppError::NotFoundError(crate::error::Resource {
+            details: vec![("id".into(), id.to_string())],
+            resource_type: crate::error::ResourceType::Message,
+        })
+    })?;
     Ok(FilterResponse::from(&item))
 }
 
-pub async fn create(state: &AppState, req: crate::dto::request::CreateFilterRequest) -> AppResult<FilterResponse> {
+pub async fn create(
+    state: &AppState,
+    req: crate::dto::request::CreateFilterRequest,
+) -> AppResult<FilterResponse> {
     let model = repo::filters::create(state.db(), &req).await?;
     Ok(FilterResponse::from(&model))
 }
 
 pub async fn delete(state: &AppState, id: u32) -> AppResult<()> {
     let ok = repo::filters::delete_by_id(state.db(), id).await?;
-    if ok { Ok(()) } else { Err(crate::error::AppError::NotFoundError(crate::error::Resource{details: vec![("id".into(), id.to_string())], resource_type: crate::error::ResourceType::Message})) }
+    if ok {
+        Ok(())
+    } else {
+        Err(crate::error::AppError::NotFoundError(
+            crate::error::Resource {
+                details: vec![("id".into(), id.to_string())],
+                resource_type: crate::error::ResourceType::Message,
+            },
+        ))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
     use crate::entity::filters::Model as FilterModel;
     use crate::error::AppError;
     use crate::server::state::AppState;
+    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
 
     fn mk_filter(id: u32, name: &str) -> FilterModel {
         use crate::entity::sea_orm_active_enums::EmailFormat;
@@ -84,14 +111,23 @@ mod tests {
     #[tokio::test]
     async fn test_update_ok() {
         let initial = mk_filter(2, "old");
-        let updated = FilterModel { name: "new".into(), query_json: "{\"k\":\"v\"}".into(), ..initial.clone() };
+        let updated = FilterModel {
+            name: "new".into(),
+            query_json: "{\"k\":\"v\"}".into(),
+            ..initial.clone()
+        };
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<FilterModel, _, _>(vec![vec![initial]])
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .append_query_results::<FilterModel, _, _>(vec![vec![updated.clone()]])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let resp = update(&state, 2, Some("new".into()), Some("{\"k\":\"v\"}".into())).await.unwrap();
+        let resp = update(&state, 2, Some("new".into()), Some("{\"k\":\"v\"}".into()))
+            .await
+            .unwrap();
         assert_eq!(resp.name, "new");
         assert_eq!(resp.query_json, "{\"k\":\"v\"}");
     }
@@ -99,7 +135,10 @@ mod tests {
     #[tokio::test]
     async fn test_delete_ok() {
         let db = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .into_connection();
         let state = AppState::for_test_with_db(db);
         assert!(delete(&state, 1).await.is_ok());
@@ -123,14 +162,20 @@ mod tests {
             .append_query_results::<FilterModel, _, _>(vec![empty])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let err = update(&state, 1, Some("x".into()), None).await.err().expect("should error");
+        let err = update(&state, 1, Some("x".into()), None)
+            .await
+            .err()
+            .expect("should error");
         matches!(err, AppError::NotFoundError(_));
     }
 
     #[tokio::test]
     async fn test_delete_not_found() {
         let db = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 0 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 0,
+            }])
             .into_connection();
         let state = AppState::for_test_with_db(db);
         let err = delete(&state, 1).await.err().expect("should error");

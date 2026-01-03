@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -12,17 +8,14 @@ use tokio::{
     sync::{Mutex, RwLock},
     time::timeout,
 };
-use tracing::{debug, info, error};
+use tracing::{debug, error, info};
 
 /// Message types for communication with the C++ WebRTC plugin
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum PluginMessage {
     /// Create a WebRTC offer for a new viewer session
-    CreateOffer {
-        camera_id: i32,
-        viewer_id: String,
-    },
+    CreateOffer { camera_id: i32, viewer_id: String },
     /// Process the client's SDP answer to complete WebRTC connection
     SetAnswer {
         camera_id: i32,
@@ -38,15 +31,9 @@ pub enum PluginMessage {
         sdp_mline_index: i32,
     },
     /// Forcefully disconnect a specific viewer
-    DropViewer {
-        camera_id: i32,
-        viewer_id: String,
-    },
+    DropViewer { camera_id: i32, viewer_id: String },
     /// Get stats for testing/health check
-    GetStats {
-        camera_id: i32,
-        viewer_id: String,
-    },
+    GetStats { camera_id: i32, viewer_id: String },
 }
 
 /// Response types from the C++ WebRTC plugin  
@@ -109,7 +96,7 @@ impl SessionManager {
     pub async fn create_session(&self, camera_id: i32, viewer_id: String) -> String {
         let session_key = format!("{}:{}", camera_id, viewer_id);
         let now = chrono::Utc::now();
-        
+
         let session = WebRtcSession {
             camera_id,
             viewer_id: viewer_id.clone(),
@@ -117,7 +104,10 @@ impl SessionManager {
             last_activity: now,
         };
 
-        self.sessions.write().await.insert(session_key.clone(), session);
+        self.sessions
+            .write()
+            .await
+            .insert(session_key.clone(), session);
         debug!("Created WebRTC session: {}", session_key);
         session_key
     }
@@ -160,7 +150,7 @@ impl SessionManager {
     pub async fn cleanup_stale_sessions(&self) {
         let cutoff = chrono::Utc::now() - chrono::Duration::hours(1);
         let mut sessions = self.sessions.write().await;
-        
+
         let stale_keys: Vec<String> = sessions
             .iter()
             .filter(|(_, session)| session.last_activity < cutoff)
@@ -205,8 +195,9 @@ impl WebRtcSignalingClient {
         // In production, you might want to implement connection pooling
         let stream = timeout(
             Duration::from_secs(5),
-            TcpStream::connect(&self.plugin_address)
-        ).await
+            TcpStream::connect(&self.plugin_address),
+        )
+        .await
         .map_err(|_| anyhow!("Connection timeout to plugin at {}", self.plugin_address))?
         .map_err(|e| anyhow!("Failed to connect to plugin: {}", e))?;
 
@@ -217,16 +208,18 @@ impl WebRtcSignalingClient {
     /// Send a message to the plugin and wait for response
     async fn send_message(&self, message: PluginMessage) -> Result<PluginResponse> {
         let mut stream = self.get_connection().await?;
-        
+
         // Serialize message to JSON
         let json_message = serde_json::to_string(&message)?;
         let message_with_newline = format!("{}\n", json_message);
-        
+
         info!("Sending to plugin: {}", json_message);
         info!("Message length: {} bytes", message_with_newline.len());
-        
+
         // Send message
-        stream.write_all(message_with_newline.as_bytes()).await
+        stream
+            .write_all(message_with_newline.as_bytes())
+            .await
             .map_err(|e| anyhow!("Failed to send message: {}", e))?;
 
         info!("Message sent successfully, waiting for response...");
@@ -234,11 +227,12 @@ impl WebRtcSignalingClient {
         // Read response with timeout
         let mut reader = BufReader::new(stream);
         let mut response_line = String::new();
-        
+
         let bytes_read = timeout(
             Duration::from_secs(10),
-            reader.read_line(&mut response_line)
-        ).await
+            reader.read_line(&mut response_line),
+        )
+        .await
         .map_err(|_| anyhow!("Response timeout from plugin"))?
         .map_err(|e| anyhow!("Failed to read response: {}", e))?;
 
@@ -256,33 +250,45 @@ impl WebRtcSignalingClient {
         info!("Response bytes: {:?}", response_bytes);
 
         // Parse response
-        let response: PluginResponse = serde_json::from_str(&response_line)
-            .map_err(|e| {
-                error!("Failed to parse plugin response. Raw response: '{}'", response_line);
-                error!("Parse error: {}", e);
-                anyhow!("Failed to parse plugin response: {}", e)
-            })?;
+        let response: PluginResponse = serde_json::from_str(&response_line).map_err(|e| {
+            error!(
+                "Failed to parse plugin response. Raw response: '{}'",
+                response_line
+            );
+            error!("Parse error: {}", e);
+            anyhow!("Failed to parse plugin response: {}", e)
+        })?;
 
         Ok(response)
     }
 
     /// Request an SDP offer for a camera stream
     pub async fn get_offer(&self, camera_id: i32, viewer_id: String) -> Result<String> {
-        info!("Creating WebRTC offer for camera_id: {}, viewer_id: {}", camera_id, viewer_id);
-        
-        let session_key = self.session_manager.create_session(camera_id, viewer_id.clone()).await;
+        info!(
+            "Creating WebRTC offer for camera_id: {}, viewer_id: {}",
+            camera_id, viewer_id
+        );
+
+        let session_key = self
+            .session_manager
+            .create_session(camera_id, viewer_id.clone())
+            .await;
         info!("Created session with key: {}", session_key);
-        
+
         let message = PluginMessage::CreateOffer {
             camera_id,
             viewer_id: viewer_id.clone(),
         };
 
         info!("Sending create_offer message: {:?}", message);
-        
+
         match self.send_message(message).await? {
             PluginResponse::CreateOffer { offer, success, .. } => {
-                info!("Received CreateOffer response: success={}, offer length={}", success, offer.len());
+                info!(
+                    "Received CreateOffer response: success={}, offer length={}",
+                    success,
+                    offer.len()
+                );
                 if success {
                     self.session_manager.update_activity(&session_key).await;
                     Ok(offer)
@@ -303,7 +309,12 @@ impl WebRtcSignalingClient {
     }
 
     /// Send SDP answer from viewer
-    pub async fn send_answer(&self, camera_id: i32, viewer_id: String, answer: String) -> Result<bool> {
+    pub async fn send_answer(
+        &self,
+        camera_id: i32,
+        viewer_id: String,
+        answer: String,
+    ) -> Result<bool> {
         let message = PluginMessage::SetAnswer {
             camera_id,
             viewer_id: viewer_id.clone(),
@@ -311,24 +322,35 @@ impl WebRtcSignalingClient {
         };
 
         match self.send_message(message).await? {
-            PluginResponse::Success { success, command, .. } if command == "set_answer" => {
+            PluginResponse::Success {
+                success, command, ..
+            } if command == "set_answer" => {
                 if success {
                     // Find session by viewer_id and update activity
-                    if let Some(session_key) = self.session_manager.find_session_by_viewer(&viewer_id).await {
+                    if let Some(session_key) = self
+                        .session_manager
+                        .find_session_by_viewer(&viewer_id)
+                        .await
+                    {
                         self.session_manager.update_activity(&session_key).await;
                     }
                 }
                 Ok(success)
             }
-            PluginResponse::Error { error, .. } => {
-                Err(anyhow!("Plugin error: {}", error))
-            }
+            PluginResponse::Error { error, .. } => Err(anyhow!("Plugin error: {}", error)),
             _ => Err(anyhow!("Unexpected response type for answer request")),
         }
     }
 
     /// Forward ICE candidate
-    pub async fn send_candidate(&self, camera_id: i32, viewer_id: String, candidate: String, sdp_mid: String, sdp_mline_index: i32) -> Result<bool> {
+    pub async fn send_candidate(
+        &self,
+        camera_id: i32,
+        viewer_id: String,
+        candidate: String,
+        sdp_mid: String,
+        sdp_mline_index: i32,
+    ) -> Result<bool> {
         let message = PluginMessage::AddIceCandidate {
             camera_id,
             viewer_id: viewer_id.clone(),
@@ -338,18 +360,22 @@ impl WebRtcSignalingClient {
         };
 
         match self.send_message(message).await? {
-            PluginResponse::Success { success, command, .. } if command == "add_ice_candidate" => {
+            PluginResponse::Success {
+                success, command, ..
+            } if command == "add_ice_candidate" => {
                 if success {
                     // Find session by viewer_id and update activity
-                    if let Some(session_key) = self.session_manager.find_session_by_viewer(&viewer_id).await {
+                    if let Some(session_key) = self
+                        .session_manager
+                        .find_session_by_viewer(&viewer_id)
+                        .await
+                    {
                         self.session_manager.update_activity(&session_key).await;
                     }
                 }
                 Ok(success)
             }
-            PluginResponse::Error { error, .. } => {
-                Err(anyhow!("Plugin error: {}", error))
-            }
+            PluginResponse::Error { error, .. } => Err(anyhow!("Plugin error: {}", error)),
             _ => Err(anyhow!("Unexpected response type for candidate")),
         }
     }
@@ -362,15 +388,19 @@ impl WebRtcSignalingClient {
         };
 
         let result = match self.send_message(message).await? {
-            PluginResponse::Success { success, command, .. } if command == "drop_viewer" => Ok(success),
-            PluginResponse::Error { error, .. } => {
-                Err(anyhow!("Plugin error: {}", error))
-            }
+            PluginResponse::Success {
+                success, command, ..
+            } if command == "drop_viewer" => Ok(success),
+            PluginResponse::Error { error, .. } => Err(anyhow!("Plugin error: {}", error)),
             _ => Err(anyhow!("Unexpected response type for drop viewer")),
         };
 
         // Always remove from session manager
-        if let Some(session_key) = self.session_manager.find_session_by_viewer(&viewer_id).await {
+        if let Some(session_key) = self
+            .session_manager
+            .find_session_by_viewer(&viewer_id)
+            .await
+        {
             self.session_manager.remove_session(&session_key).await;
         }
         result
@@ -387,9 +417,11 @@ impl WebRtcSignalingClient {
             camera_id: 1,
             viewer_id: "test".to_string(),
         };
-        
+
         match self.send_message(message).await? {
-            PluginResponse::Success { success, command, .. } if command == "get_stats" => {
+            PluginResponse::Success {
+                success, command, ..
+            } if command == "get_stats" => {
                 if success {
                     info!("WebRTC plugin connection test successful");
                     Ok(())
@@ -397,9 +429,7 @@ impl WebRtcSignalingClient {
                     Err(anyhow!("Plugin stats request failed"))
                 }
             }
-            PluginResponse::Error { error, .. } => {
-                Err(anyhow!("Plugin error: {}", error))
-            }
+            PluginResponse::Error { error, .. } => Err(anyhow!("Plugin error: {}", error)),
             _ => Err(anyhow!("Unexpected response to stats request")),
         }
     }

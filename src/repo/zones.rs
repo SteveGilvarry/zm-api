@@ -1,8 +1,11 @@
-use sea_orm::*;
 use crate::entity::zones::{Entity as Zones, Model as ZoneModel};
 use crate::error::AppResult;
+use sea_orm::*;
 
-pub async fn find_by_monitor(db: &DatabaseConnection, monitor_id: u32) -> AppResult<Vec<ZoneModel>> {
+pub async fn find_by_monitor(
+    db: &DatabaseConnection,
+    monitor_id: u32,
+) -> AppResult<Vec<ZoneModel>> {
     let zones = Zones::find()
         .filter(crate::entity::zones::Column::MonitorId.eq(monitor_id))
         .all(db)
@@ -15,13 +18,22 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<Zo
     Ok(zone)
 }
 
-pub async fn update_coords(db: &DatabaseConnection, id: u32, name: Option<String>, coords: Option<String>) -> AppResult<Option<ZoneModel>> {
+pub async fn update_coords(
+    db: &DatabaseConnection,
+    id: u32,
+    name: Option<String>,
+    coords: Option<String>,
+) -> AppResult<Option<ZoneModel>> {
     use sea_orm::ActiveModelTrait;
     use sea_orm::Set;
     if let Some(model) = Zones::find_by_id(id).one(db).await? {
         let mut active: crate::entity::zones::ActiveModel = model.into();
-        if let Some(n) = name { active.name = Set(n); }
-        if let Some(c) = coords { active.coords = Set(c); }
+        if let Some(n) = name {
+            active.name = Set(n);
+        }
+        if let Some(c) = coords {
+            active.coords = Set(c);
+        }
         let updated = active.update(db).await?;
         Ok(Some(updated))
     } else {
@@ -40,8 +52,8 @@ pub async fn create_for_monitor(
     monitor_id: u32,
     req: &crate::dto::request::CreateZoneRequest,
 ) -> AppResult<ZoneModel> {
-    use sea_orm::{ActiveModelTrait, Set};
     use crate::entity::zones::ActiveModel as AM;
+    use sea_orm::{ActiveModelTrait, Set};
     fn parse_zone_type(s: &str) -> crate::entity::sea_orm_active_enums::ZoneType {
         use crate::entity::sea_orm_active_enums::ZoneType::*;
         match s.to_lowercase().as_str() {
@@ -80,7 +92,11 @@ pub async fn create_for_monitor(
         coords: Set(req.coords.clone()),
         area: Set(0),
         alarm_rgb: Set(None),
-        check_method: Set(req.check_method.as_deref().map(parse_check_method).unwrap_or(crate::entity::sea_orm_active_enums::CheckMethod::AlarmedPixels)),
+        check_method: Set(req
+            .check_method
+            .as_deref()
+            .map(parse_check_method)
+            .unwrap_or(crate::entity::sea_orm_active_enums::CheckMethod::AlarmedPixels)),
         min_pixel_threshold: Set(None),
         max_pixel_threshold: Set(None),
         min_alarm_pixels: Set(None),
@@ -102,8 +118,8 @@ pub async fn create_for_monitor(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::entity::sea_orm_active_enums::{CheckMethod, Units, ZoneType};
     use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
-    use crate::entity::sea_orm_active_enums::{ZoneType, Units, CheckMethod};
 
     fn mk(id: u32, name: &str, coords: &str) -> ZoneModel {
         ZoneModel {
@@ -140,7 +156,10 @@ mod tests {
         let after = mk(11, "new", "2,2 3,3");
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<ZoneModel, _, _>(vec![vec![initial]])
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .append_query_results::<ZoneModel, _, _>(vec![vec![after.clone()]])
             .into_connection();
 
@@ -155,12 +174,18 @@ mod tests {
     #[tokio::test]
     async fn test_delete_by_id_affects_rows() {
         let db_true = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .into_connection();
         assert!(delete_by_id(&db_true, 1).await.unwrap());
 
         let db_false = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 0 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 0,
+            }])
             .into_connection();
         assert!(!delete_by_id(&db_false, 1).await.unwrap());
     }

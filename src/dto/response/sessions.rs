@@ -1,6 +1,6 @@
+use crate::entity::sessions::Model as SessionModel;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::entity::sessions::Model as SessionModel;
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct SessionResponse {

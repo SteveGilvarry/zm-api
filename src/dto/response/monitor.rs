@@ -1,8 +1,8 @@
+use crate::entity::monitors;
 use fake::Dummy;
+use rust_decimal::prelude::*;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::entity::monitors;
-use rust_decimal::prelude::*;
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Dummy)]
 pub struct MonitorResponse {

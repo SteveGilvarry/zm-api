@@ -3,7 +3,17 @@
 use sea_orm::entity::prelude::*;
 use utoipa::ToSchema;
 
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Analysing")]
 pub enum Analysing {
     #[sea_orm(string_value = "None")]
@@ -11,7 +21,17 @@ pub enum Analysing {
     #[sea_orm(string_value = "Always")]
     Always,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "AnalysisImage")]
 pub enum AnalysisImage {
     #[sea_orm(string_value = "FullColour")]
@@ -19,7 +39,17 @@ pub enum AnalysisImage {
     #[sea_orm(string_value = "YChannel")]
     YChannel,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "AnalysisSource")]
 pub enum AnalysisSource {
     #[sea_orm(string_value = "Primary")]
@@ -27,7 +57,17 @@ pub enum AnalysisSource {
     #[sea_orm(string_value = "Secondary")]
     Secondary,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Capturing")]
 pub enum Capturing {
     #[sea_orm(string_value = "None")]
@@ -37,7 +77,9 @@ pub enum Capturing {
     #[sea_orm(string_value = "Always")]
     Always,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "CheckMethod")]
 pub enum CheckMethod {
     #[sea_orm(string_value = "AlarmedPixels")]
@@ -47,7 +89,9 @@ pub enum CheckMethod {
     #[sea_orm(string_value = "Blobs")]
     Blobs,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Control")]
 pub enum Control {
     #[sea_orm(string_value = "None")]
@@ -57,7 +101,17 @@ pub enum Control {
     #[sea_orm(string_value = "Edit")]
     Edit,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Decoding")]
 pub enum Decoding {
     #[sea_orm(string_value = "None")]
@@ -71,7 +125,17 @@ pub enum Decoding {
     #[sea_orm(string_value = "Always")]
     Always,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "DefaultCodec")]
 pub enum DefaultCodec {
     #[sea_orm(string_value = "auto")]
@@ -81,7 +145,9 @@ pub enum DefaultCodec {
     #[sea_orm(string_value = "MJPEG")]
     Mjpeg,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Devices")]
 pub enum Devices {
     #[sea_orm(string_value = "None")]
@@ -91,7 +157,9 @@ pub enum Devices {
     #[sea_orm(string_value = "Edit")]
     Edit,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "EmailFormat")]
 pub enum EmailFormat {
     #[sea_orm(string_value = "Individual")]
@@ -99,7 +167,17 @@ pub enum EmailFormat {
     #[sea_orm(string_value = "Summary")]
     Summary,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "EventCloseMode")]
 pub enum EventCloseMode {
     #[sea_orm(string_value = "system")]
@@ -113,7 +191,9 @@ pub enum EventCloseMode {
     #[sea_orm(string_value = "alarm")]
     Alarm,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Events")]
 pub enum Events {
     #[sea_orm(string_value = "None")]
@@ -123,7 +203,17 @@ pub enum Events {
     #[sea_orm(string_value = "Edit")]
     Edit,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Function")]
 pub enum Function {
     #[sea_orm(string_value = "None")]
@@ -139,7 +229,9 @@ pub enum Function {
     #[sea_orm(string_value = "Nodect")]
     Nodect,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Groups")]
 pub enum Groups {
     #[sea_orm(string_value = "None")]
@@ -149,7 +241,17 @@ pub enum Groups {
     #[sea_orm(string_value = "Edit")]
     Edit,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Importance")]
 pub enum Importance {
     #[sea_orm(string_value = "Normal")]
@@ -159,7 +261,9 @@ pub enum Importance {
     #[sea_orm(string_value = "Not")]
     Not,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Monitors")]
 pub enum Monitors {
     #[sea_orm(string_value = "None")]
@@ -171,7 +275,17 @@ pub enum Monitors {
     #[sea_orm(string_value = "Create")]
     Create,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Orientation")]
 pub enum Orientation {
     #[sea_orm(string_value = "ROTATE_0")]
@@ -187,7 +301,17 @@ pub enum Orientation {
     #[sea_orm(string_value = "FLIP_VERT")]
     FlipVert,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "OutputContainer")]
 pub enum OutputContainer {
     #[sea_orm(string_value = "auto")]
@@ -199,7 +323,9 @@ pub enum OutputContainer {
     #[sea_orm(string_value = "webm")]
     Webm,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Permission")]
 pub enum Permission {
     #[sea_orm(string_value = "Inherit")]
@@ -211,7 +337,17 @@ pub enum Permission {
     #[sea_orm(string_value = "Edit")]
     Edit,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "RTSP2WebType")]
 pub enum Rtsp2WebType {
     #[sea_orm(string_value = "HLS")]
@@ -221,7 +357,17 @@ pub enum Rtsp2WebType {
     #[sea_orm(string_value = "WebRTC")]
     WebRtc,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Recording")]
 pub enum Recording {
     #[sea_orm(string_value = "None")]
@@ -231,7 +377,17 @@ pub enum Recording {
     #[sea_orm(string_value = "Always")]
     Always,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "RecordingSource")]
 pub enum RecordingSource {
     #[sea_orm(string_value = "Primary")]
@@ -241,7 +397,9 @@ pub enum RecordingSource {
     #[sea_orm(string_value = "Both")]
     Both,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Scheme")]
 pub enum Scheme {
     #[sea_orm(string_value = "Deep")]
@@ -251,7 +409,9 @@ pub enum Scheme {
     #[sea_orm(string_value = "Shallow")]
     Shallow,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Snapshots")]
 pub enum Snapshots {
     #[sea_orm(string_value = "None")]
@@ -261,7 +421,9 @@ pub enum Snapshots {
     #[sea_orm(string_value = "Edit")]
     Edit,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Status")]
 pub enum Status {
     #[sea_orm(string_value = "Unknown")]
@@ -273,7 +435,9 @@ pub enum Status {
     #[sea_orm(string_value = "Connected")]
     Connected,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Stream")]
 pub enum Stream {
     #[sea_orm(string_value = "None")]
@@ -281,7 +445,9 @@ pub enum Stream {
     #[sea_orm(string_value = "View")]
     View,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "System")]
 pub enum System {
     #[sea_orm(string_value = "None")]
@@ -291,7 +457,9 @@ pub enum System {
     #[sea_orm(string_value = "Edit")]
     Edit,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "ZoneType")]
 pub enum ZoneType {
     #[sea_orm(string_value = "Active")]
@@ -307,7 +475,17 @@ pub enum ZoneType {
     #[sea_orm(string_value = "Privacy")]
     Privacy,
 }
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "MonitorType")]
 pub enum MonitorType {
     #[sea_orm(string_value = "Local")]
@@ -328,14 +506,26 @@ pub enum MonitorType {
     Vnc,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize, ToSchema)]
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "DeviceType")]
 pub enum DeviceType {
     #[sea_orm(string_value = "X10")]
     X10,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Units")]
 pub enum Units {
     #[sea_orm(string_value = "Pixels")]
@@ -344,7 +534,9 @@ pub enum Units {
     Percent,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "FrameType")]
 pub enum FrameType {
     #[sea_orm(string_value = "Normal")]
@@ -355,7 +547,9 @@ pub enum FrameType {
     Alarm,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, serde::Serialize, serde::Deserialize,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "StorageType")]
 pub enum StorageType {
     #[sea_orm(string_value = "local")]

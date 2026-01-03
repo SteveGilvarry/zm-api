@@ -1,9 +1,12 @@
-use axum::{extract::{Path, State}, Json};
-use crate::dto::response::ServerResponse;
 use crate::dto::request::CreateServerRequest;
-use serde::Deserialize;
+use crate::dto::response::ServerResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
+use serde::Deserialize;
 
 /// List registered ZoneMinder servers.
 ///
@@ -31,7 +34,10 @@ pub async fn list_servers(State(state): State<AppState>) -> AppResult<Json<Vec<S
     tag = "Servers",
     security(("jwt" = []))
 )]
-pub async fn get_server(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<ServerResponse>> {
+pub async fn get_server(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<ServerResponse>> {
     let item = crate::service::servers::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -48,13 +54,21 @@ pub async fn get_server(Path(id): Path<u32>, State(state): State<AppState>) -> A
     tag = "Servers",
     security(("jwt" = []))
 )]
-pub async fn create_server(State(state): State<AppState>, Json(req): Json<CreateServerRequest>) -> AppResult<(axum::http::StatusCode, Json<ServerResponse>)> {
+pub async fn create_server(
+    State(state): State<AppState>,
+    Json(req): Json<CreateServerRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<ServerResponse>)> {
     let item = crate::service::servers::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
-pub struct UpdateServerRequest { pub name: Option<String>, pub hostname: Option<String>, pub port: Option<u32>, pub status: Option<String> }
+pub struct UpdateServerRequest {
+    pub name: Option<String>,
+    pub hostname: Option<String>,
+    pub port: Option<u32>,
+    pub status: Option<String>,
+}
 
 /// Update server fields (partial update).
 ///
@@ -69,8 +83,14 @@ pub struct UpdateServerRequest { pub name: Option<String>, pub hostname: Option<
     tag = "Servers",
     security(("jwt" = []))
 )]
-pub async fn update_server(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateServerRequest>) -> AppResult<Json<ServerResponse>> {
-    let item = crate::service::servers::update(&state, id, req.name, req.hostname, req.port, req.status).await?;
+pub async fn update_server(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateServerRequest>,
+) -> AppResult<Json<ServerResponse>> {
+    let item =
+        crate::service::servers::update(&state, id, req.name, req.hostname, req.port, req.status)
+            .await?;
     Ok(Json(item))
 }
 
@@ -86,7 +106,10 @@ pub async fn update_server(Path(id): Path<u32>, State(state): State<AppState>, J
     tag = "Servers",
     security(("jwt" = []))
 )]
-pub async fn delete_server(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_server(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::servers::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

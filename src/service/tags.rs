@@ -80,19 +80,23 @@ pub async fn create(state: &AppState, req: CreateTagRequest) -> AppResult<TagRes
 
 pub async fn update(state: &AppState, id: u64, req: UpdateTagRequest) -> AppResult<TagResponse> {
     let updated = repo::tags::update(state.db(), id, &req).await?;
-    let updated = updated.ok_or_else(|| AppError::NotFoundError(Resource{
-        details: vec![("id".into(), id.to_string())],
-        resource_type: ResourceType::Message
-    }))?;
+    let updated = updated.ok_or_else(|| {
+        AppError::NotFoundError(Resource {
+            details: vec![("id".into(), id.to_string())],
+            resource_type: ResourceType::Message,
+        })
+    })?;
     Ok(TagResponse::from(&updated))
 }
 
 pub async fn delete(state: &AppState, id: u64) -> AppResult<()> {
     let ok = repo::tags::delete_by_id(state.db(), id).await?;
-    if ok { Ok(()) } else {
-        Err(AppError::NotFoundError(Resource{
+    if ok {
+        Ok(())
+    } else {
+        Err(AppError::NotFoundError(Resource {
             details: vec![("id".into(), id.to_string())],
-            resource_type: ResourceType::Message
+            resource_type: ResourceType::Message,
         }))
     }
 }

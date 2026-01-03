@@ -1,7 +1,7 @@
+use crate::constant::BEARER;
 use fake::Dummy;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::constant::BEARER;
 
 #[derive(Debug, Deserialize, Serialize, ToSchema, Dummy)]
 #[serde(tag = "type")]

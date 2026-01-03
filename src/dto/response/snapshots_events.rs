@@ -1,6 +1,6 @@
+use crate::entity::snapshots_events::Model as SnapshotEventModel;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::entity::snapshots_events::Model as SnapshotEventModel;
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct SnapshotEventResponse {

@@ -1,5 +1,5 @@
-use crate::dto::response::config::ConfigResponse;
 use crate::dto::request::config::UpdateConfigRequest;
+use crate::dto::response::config::ConfigResponse;
 use crate::error::{AppError, AppResult};
 use crate::repo;
 use crate::server::state::AppState;
@@ -30,34 +30,45 @@ pub async fn list_all(state: &AppState) -> AppResult<Vec<ConfigResponse>> {
 
 pub async fn get_by_name(state: &AppState, name: &str) -> AppResult<ConfigResponse> {
     let item = repo::config::find_by_name(state.db(), name).await?;
-    let item = item.ok_or_else(|| AppError::NotFoundError(crate::error::Resource { 
-        details: vec![("name".into(), name.to_string())],
-        resource_type: crate::error::ResourceType::Config,
-    }))?;
+    let item = item.ok_or_else(|| {
+        AppError::NotFoundError(crate::error::Resource {
+            details: vec![("name".into(), name.to_string())],
+            resource_type: crate::error::ResourceType::Config,
+        })
+    })?;
     Ok(to_response(&item))
 }
 
-pub async fn update_value(state: &AppState, name: &str, req: UpdateConfigRequest) -> AppResult<ConfigResponse> {
+pub async fn update_value(
+    state: &AppState,
+    name: &str,
+    req: UpdateConfigRequest,
+) -> AppResult<ConfigResponse> {
     // Load and enforce readonly
     let existing = repo::config::find_by_name(state.db(), name).await?;
-    let existing = existing.ok_or_else(|| AppError::NotFoundError(crate::error::Resource { 
-        details: vec![("name".into(), name.to_string())],
-        resource_type: crate::error::ResourceType::Config,
-    }))?;
+    let existing = existing.ok_or_else(|| {
+        AppError::NotFoundError(crate::error::Resource {
+            details: vec![("name".into(), name.to_string())],
+            resource_type: crate::error::ResourceType::Config,
+        })
+    })?;
     if existing.readonly != 0 {
-        return Err(AppError::PermissionDeniedError("Config is read-only".into()));
+        return Err(AppError::PermissionDeniedError(
+            "Config is read-only".into(),
+        ));
     }
 
     let updated = repo::config::update_value(state.db(), name, &req.value).await?;
-    let updated = updated.ok_or_else(|| AppError::InternalServerError("Failed to update config".into()))?;
+    let updated =
+        updated.ok_or_else(|| AppError::InternalServerError("Failed to update config".into()))?;
     Ok(to_response(&updated))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
     use crate::entity::config::Model as ConfigModel;
+    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
 
     fn mk_config(name: &str, value: &str, readonly: u8) -> ConfigModel {
         ConfigModel {
@@ -82,7 +93,10 @@ mod tests {
     #[tokio::test]
     async fn test_list_all_and_get_by_name() {
         let db_list = MockDatabase::new(DatabaseBackend::MySql)
-            .append_query_results::<ConfigModel, _, _>(vec![vec![mk_config("A", "1", 0), mk_config("B", "2", 0)]])
+            .append_query_results::<ConfigModel, _, _>(vec![vec![
+                mk_config("A", "1", 0),
+                mk_config("B", "2", 0),
+            ]])
             .into_connection();
         let state_list = AppState::for_test_with_db(db_list);
         assert_eq!(list_all(&state_list).await.unwrap().len(), 2);
@@ -98,7 +112,10 @@ mod tests {
             .append_query_results::<ConfigModel, _, _>(vec![empty])
             .into_connection();
         let state_none = AppState::for_test_with_db(db_none);
-        assert!(matches!(get_by_name(&state_none, "M").await.err().unwrap(), AppError::NotFoundError(_)));
+        assert!(matches!(
+            get_by_name(&state_none, "M").await.err().unwrap(),
+            AppError::NotFoundError(_)
+        ));
     }
 
     #[tokio::test]
@@ -111,12 +128,23 @@ mod tests {
             // existing again (repo::config::find_by_name inside update_value)
             .append_query_results::<ConfigModel, _, _>(vec![vec![mk_config("Key", "old", 0)]])
             // update exec
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             // updated row returned by update
             .append_query_results::<ConfigModel, _, _>(vec![vec![mk_config("Key", "new", 0)]])
             .into_connection();
         let state_ok = AppState::for_test_with_db(db_ok);
-        let out = update_value(&state_ok, "Key", UpdateConfigRequest { value: "new".into() }).await.unwrap();
+        let out = update_value(
+            &state_ok,
+            "Key",
+            UpdateConfigRequest {
+                value: "new".into(),
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(out.value, "new");
 
         // Read-only guard
@@ -124,7 +152,10 @@ mod tests {
             .append_query_results::<ConfigModel, _, _>(vec![vec![mk_config("Key", "old", 1)]])
             .into_connection();
         let state_ro = AppState::for_test_with_db(db_ro);
-        let err = update_value(&state_ro, "Key", UpdateConfigRequest { value: "x".into() }).await.err().unwrap();
+        let err = update_value(&state_ro, "Key", UpdateConfigRequest { value: "x".into() })
+            .await
+            .err()
+            .unwrap();
         assert!(matches!(err, AppError::PermissionDeniedError(_)));
     }
 }

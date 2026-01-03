@@ -1,48 +1,51 @@
-use sea_orm::{ColumnTrait, EntityTrait, Condition, QueryFilter, DbErr, DatabaseConnection, ActiveModelTrait, IntoActiveModel, PrimaryKeyTrait, Value};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait,
+    IntoActiveModel, PrimaryKeyTrait, QueryFilter, Value,
+};
 
-pub mod monitors;
 pub mod config;
+pub mod control_presets;
+pub mod controls;
+pub mod devices;
+pub mod event_data;
 pub mod events;
-pub mod zones;
+pub mod events_tags;
 pub mod filters;
-pub mod users;
+pub mod frames;
 pub mod groups;
-pub mod servers;
+pub mod groups_monitors;
+pub mod groups_permissions;
 pub mod logs;
-pub mod storage;
 pub mod manufacturers;
 pub mod models;
-pub mod zone_presets;
-pub mod controls;
-pub mod control_presets;
-pub mod devices;
 pub mod monitor_presets;
+pub mod monitor_status;
+pub mod monitors;
+pub mod monitors_permissions;
 pub mod montage_layouts;
+pub mod object_types;
+pub mod reports;
+pub mod server_stats;
+pub mod servers;
+pub mod sessions;
 pub mod snapshots;
+pub mod snapshots_events;
+pub mod states;
+pub mod stats;
+pub mod storage;
 pub mod tags;
 pub mod triggers_x10;
 pub mod user_preferences;
-pub mod sessions;
-pub mod states;
-pub mod stats;
-pub mod frames;
-pub mod monitor_status;
-pub mod object_types;
-pub mod server_stats;
-pub mod reports;
-pub mod groups_monitors;
-pub mod groups_permissions;
-pub mod monitors_permissions;
-pub mod snapshots_events;
-pub mod event_data;
-pub mod events_tags;
+pub mod users;
+pub mod zone_presets;
+pub mod zones;
 
 // Create a new entity record
 pub async fn create<T>(entity: T::ActiveModel, db: &DatabaseConnection) -> Result<T::Model, DbErr>
 where
     T: EntityTrait,
     T::Model: IntoActiveModel<T::ActiveModel>, // Ensure the model can convert to ActiveModel
-    T::ActiveModel: Send, // Ensure the ActiveModel can be sent between threads
+    T::ActiveModel: Send,                      // Ensure the ActiveModel can be sent between threads
 {
     entity.insert(db).await
 }
@@ -62,7 +65,7 @@ pub async fn update<T>(entity: T::ActiveModel, db: &DatabaseConnection) -> Resul
 where
     T: EntityTrait,
     T::Model: IntoActiveModel<T::ActiveModel>, // Ensure the model can convert to ActiveModel
-    T::ActiveModel: Send, // Ensure the ActiveModel can be sent between threads
+    T::ActiveModel: Send,                      // Ensure the ActiveModel can be sent between threads
 {
     entity.update(db).await
 }

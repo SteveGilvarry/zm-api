@@ -1,6 +1,6 @@
-use sea_orm::*;
 use crate::entity::storage::{Entity as Storage, Model as StorageModel};
 use crate::error::AppResult;
+use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<StorageModel>> {
     Ok(Storage::find().all(db).await?)
@@ -10,16 +10,26 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u16) -> AppResult<Option<St
     Ok(Storage::find_by_id(id).one(db).await?)
 }
 
-pub async fn create(db: &DatabaseConnection, req: &crate::dto::request::CreateStorageRequest) -> AppResult<StorageModel> {
-    use sea_orm::{ActiveModelTrait, Set};
+pub async fn create(
+    db: &DatabaseConnection,
+    req: &crate::dto::request::CreateStorageRequest,
+) -> AppResult<StorageModel> {
     use crate::entity::storage::ActiveModel as AM;
+    use sea_orm::{ActiveModelTrait, Set};
     fn parse_type(s: &str) -> crate::entity::sea_orm_active_enums::StorageType {
         use crate::entity::sea_orm_active_enums::StorageType::*;
-        match s.to_lowercase().as_str() { "s3fs"=>S3fs, _=>Local }
+        match s.to_lowercase().as_str() {
+            "s3fs" => S3fs,
+            _ => Local,
+        }
     }
     fn parse_scheme(s: &str) -> crate::entity::sea_orm_active_enums::Scheme {
         use crate::entity::sea_orm_active_enums::Scheme::*;
-        match s.to_lowercase().as_str() { "medium"=>Medium, "shallow"=>Shallow, _=>Deep }
+        match s.to_lowercase().as_str() {
+            "medium" => Medium,
+            "shallow" => Shallow,
+            _ => Deep,
+        }
     }
     let am = AM {
         id: Default::default(),
@@ -28,7 +38,11 @@ pub async fn create(db: &DatabaseConnection, req: &crate::dto::request::CreateSt
         r#type: Set(parse_type(&req.r#type)),
         url: Set(req.url.clone()),
         disk_space: Set(None),
-        scheme: Set(req.scheme.as_deref().map(parse_scheme).unwrap_or(crate::entity::sea_orm_active_enums::Scheme::Deep)),
+        scheme: Set(req
+            .scheme
+            .as_deref()
+            .map(parse_scheme)
+            .unwrap_or(crate::entity::sea_orm_active_enums::Scheme::Deep)),
         server_id: Set(req.server_id),
         do_delete: Set(0),
         enabled: Set(req.enabled),
@@ -49,17 +63,46 @@ pub async fn update(
     url: Option<String>,
 ) -> AppResult<Option<StorageModel>> {
     use sea_orm::{ActiveModelTrait, Set};
-    let Some(model) = find_by_id(db, id).await? else { return Ok(None) };
+    let Some(model) = find_by_id(db, id).await? else {
+        return Ok(None);
+    };
     let mut am: crate::entity::storage::ActiveModel = model.into();
-    fn parse_type(s: &str) -> crate::entity::sea_orm_active_enums::StorageType { use crate::entity::sea_orm_active_enums::StorageType::*; match s.to_lowercase().as_str(){"s3fs"=>S3fs,_=>Local} }
-    fn parse_scheme(s: &str) -> crate::entity::sea_orm_active_enums::Scheme { use crate::entity::sea_orm_active_enums::Scheme::*; match s.to_lowercase().as_str(){"medium"=>Medium,"shallow"=>Shallow,_=>Deep} }
-    if let Some(v) = name { am.name = Set(v); }
-    if let Some(v) = path { am.path = Set(v); }
-    if let Some(v) = r#type { am.r#type = Set(parse_type(&v)); }
-    if let Some(v) = enabled { am.enabled = Set(v); }
-    if let Some(v) = scheme { am.scheme = Set(parse_scheme(&v)); }
-    if let Some(v) = server_id { am.server_id = Set(Some(v)); }
-    if let Some(v) = url { am.url = Set(Some(v)); }
+    fn parse_type(s: &str) -> crate::entity::sea_orm_active_enums::StorageType {
+        use crate::entity::sea_orm_active_enums::StorageType::*;
+        match s.to_lowercase().as_str() {
+            "s3fs" => S3fs,
+            _ => Local,
+        }
+    }
+    fn parse_scheme(s: &str) -> crate::entity::sea_orm_active_enums::Scheme {
+        use crate::entity::sea_orm_active_enums::Scheme::*;
+        match s.to_lowercase().as_str() {
+            "medium" => Medium,
+            "shallow" => Shallow,
+            _ => Deep,
+        }
+    }
+    if let Some(v) = name {
+        am.name = Set(v);
+    }
+    if let Some(v) = path {
+        am.path = Set(v);
+    }
+    if let Some(v) = r#type {
+        am.r#type = Set(parse_type(&v));
+    }
+    if let Some(v) = enabled {
+        am.enabled = Set(v);
+    }
+    if let Some(v) = scheme {
+        am.scheme = Set(parse_scheme(&v));
+    }
+    if let Some(v) = server_id {
+        am.server_id = Set(Some(v));
+    }
+    if let Some(v) = url {
+        am.url = Set(Some(v));
+    }
     let updated = am.update(db).await?;
     Ok(Some(updated))
 }
@@ -73,8 +116,8 @@ pub async fn delete_by_id(db: &DatabaseConnection, id: u16) -> AppResult<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::entity::sea_orm_active_enums::{Scheme, StorageType};
     use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
-    use crate::entity::sea_orm_active_enums::{StorageType, Scheme};
 
     fn mk(id: u16, name: &str) -> StorageModel {
         StorageModel {
@@ -94,17 +137,34 @@ mod tests {
     #[tokio::test]
     async fn test_update_happy_path() {
         let initial = mk(3, "old");
-        let after = StorageModel { name: "new".to_string(), path: "/data".to_string(), ..initial.clone() };
+        let after = StorageModel {
+            name: "new".to_string(),
+            path: "/data".to_string(),
+            ..initial.clone()
+        };
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<StorageModel, _, _>(vec![vec![initial]])
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .append_query_results::<StorageModel, _, _>(vec![vec![after.clone()]])
             .into_connection();
 
-        let updated = update(&db, 3, Some("new".into()), Some("/data".into()), None, None, None, None, None)
-            .await
-            .unwrap()
-            .unwrap();
+        let updated = update(
+            &db,
+            3,
+            Some("new".into()),
+            Some("/data".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
         assert_eq!(updated.name, "new");
         assert_eq!(updated.path, "/data");
     }
@@ -112,12 +172,18 @@ mod tests {
     #[tokio::test]
     async fn test_delete_by_id_affects_rows() {
         let db_true = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .into_connection();
         assert!(delete_by_id(&db_true, 1).await.unwrap());
 
         let db_false = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 0 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 0,
+            }])
             .into_connection();
         assert!(!delete_by_id(&db_false, 1).await.unwrap());
     }

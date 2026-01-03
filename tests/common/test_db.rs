@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Get a connection to the test database
-/// 
+///
 /// This creates a new database connection for integration tests.
 /// Make sure to start the test database first:
 /// ```bash

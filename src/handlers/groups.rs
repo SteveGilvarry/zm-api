@@ -1,9 +1,12 @@
-use axum::{extract::{Path, State}, Json};
-use serde::Deserialize;
-use crate::dto::response::GroupResponse;
 use crate::dto::request::CreateGroupRequest;
+use crate::dto::response::GroupResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
+use serde::Deserialize;
 
 /// List user groups.
 ///
@@ -31,7 +34,10 @@ pub async fn list_groups(State(state): State<AppState>) -> AppResult<Json<Vec<Gr
     tag = "Groups",
     security(("jwt" = []))
 )]
-pub async fn get_group(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<GroupResponse>> {
+pub async fn get_group(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<GroupResponse>> {
     let item = crate::service::groups::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -53,7 +59,11 @@ pub struct UpdateGroupRequest {
     tag = "Groups",
     security(("jwt" = []))
 )]
-pub async fn update_group(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateGroupRequest>) -> AppResult<Json<GroupResponse>> {
+pub async fn update_group(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateGroupRequest>,
+) -> AppResult<Json<GroupResponse>> {
     let item = crate::service::groups::update(&state, id, req.name).await?;
     Ok(Json(item))
 }
@@ -69,7 +79,10 @@ pub async fn update_group(Path(id): Path<u32>, State(state): State<AppState>, Js
     tag = "Groups",
     security(("jwt" = []))
 )]
-pub async fn create_group(State(state): State<AppState>, Json(req): Json<CreateGroupRequest>) -> AppResult<(axum::http::StatusCode, Json<GroupResponse>)> {
+pub async fn create_group(
+    State(state): State<AppState>,
+    Json(req): Json<CreateGroupRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<GroupResponse>)> {
     let item = crate::service::groups::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -85,7 +98,10 @@ pub async fn create_group(State(state): State<AppState>, Json(req): Json<CreateG
     tag = "Groups",
     security(("jwt" = []))
 )]
-pub async fn delete_group(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_group(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::groups::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

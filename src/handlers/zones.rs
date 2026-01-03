@@ -1,8 +1,11 @@
-use axum::{extract::{Path, State}, Json};
-use crate::dto::response::ZoneResponse;
 use crate::dto::request::CreateZoneRequest;
+use crate::dto::response::ZoneResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 
 /// List detection zones configured for a given monitor.
 ///
@@ -20,7 +23,10 @@ use crate::server::state::AppState;
     tag = "Zones",
     security(("jwt" = []))
 )]
-pub async fn list_by_monitor(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<Vec<ZoneResponse>>> {
+pub async fn list_by_monitor(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<Vec<ZoneResponse>>> {
     let zones = crate::service::zones::list_by_monitor(&state, id).await?;
     Ok(Json(zones))
 }
@@ -41,7 +47,10 @@ pub async fn list_by_monitor(Path(id): Path<u32>, State(state): State<AppState>)
     tag = "Zones",
     security(("jwt" = []))
 )]
-pub async fn get(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<ZoneResponse>> {
+pub async fn get(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<ZoneResponse>> {
     let zone = crate::service::zones::get_by_id(&state, id).await?;
     Ok(Json(zone))
 }
@@ -68,7 +77,11 @@ pub struct UpdateZoneRequest {
     tag = "Zones",
     security(("jwt" = []))
 )]
-pub async fn update(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateZoneRequest>) -> AppResult<Json<ZoneResponse>> {
+pub async fn update(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateZoneRequest>,
+) -> AppResult<Json<ZoneResponse>> {
     let updated = crate::service::zones::update(&state, id, req.name, req.polygon).await?;
     Ok(Json(updated))
 }
@@ -87,7 +100,11 @@ pub async fn update(Path(id): Path<u32>, State(state): State<AppState>, Json(req
     tag = "Zones",
     security(("jwt" = []))
 )]
-pub async fn create(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<CreateZoneRequest>) -> AppResult<(axum::http::StatusCode, Json<ZoneResponse>)> {
+pub async fn create(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<CreateZoneRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<ZoneResponse>)> {
     let zone = crate::service::zones::create(&state, id, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(zone)))
 }
@@ -104,7 +121,10 @@ pub async fn create(Path(id): Path<u32>, State(state): State<AppState>, Json(req
     tag = "Zones",
     security(("jwt" = []))
 )]
-pub async fn delete(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::zones::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

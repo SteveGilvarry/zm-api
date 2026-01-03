@@ -3,7 +3,7 @@ use utoipa::ToSchema;
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct MessageResponse {
-    message: String
+    message: String,
 }
 
 impl MessageResponse {
@@ -20,7 +20,7 @@ impl MessageResponse {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ServiceStatusResponse {
-    status: String
+    status: String,
 }
 
 impl ServiceStatusResponse {

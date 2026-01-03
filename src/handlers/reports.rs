@@ -1,8 +1,11 @@
-use axum::{extract::{Path, State}, Json};
-use crate::dto::response::ReportResponse;
 use crate::dto::request::reports::{CreateReportRequest, UpdateReportRequest};
+use crate::dto::response::ReportResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 
 /// List all reports.
 #[utoipa::path(
@@ -26,7 +29,10 @@ pub async fn list_reports(State(state): State<AppState>) -> AppResult<Json<Vec<R
     tag = "Reports",
     security(("jwt" = []))
 )]
-pub async fn get_report(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<ReportResponse>> {
+pub async fn get_report(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<ReportResponse>> {
     let item = crate::service::reports::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -40,7 +46,10 @@ pub async fn get_report(Path(id): Path<u32>, State(state): State<AppState>) -> A
     tag = "Reports",
     security(("jwt" = []))
 )]
-pub async fn create_report(State(state): State<AppState>, Json(req): Json<CreateReportRequest>) -> AppResult<(axum::http::StatusCode, Json<ReportResponse>)> {
+pub async fn create_report(
+    State(state): State<AppState>,
+    Json(req): Json<CreateReportRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<ReportResponse>)> {
     let item = crate::service::reports::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -55,7 +64,11 @@ pub async fn create_report(State(state): State<AppState>, Json(req): Json<Create
     tag = "Reports",
     security(("jwt" = []))
 )]
-pub async fn update_report(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateReportRequest>) -> AppResult<Json<ReportResponse>> {
+pub async fn update_report(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateReportRequest>,
+) -> AppResult<Json<ReportResponse>> {
     let item = crate::service::reports::update(&state, id, req).await?;
     Ok(Json(item))
 }
@@ -69,7 +82,10 @@ pub async fn update_report(Path(id): Path<u32>, State(state): State<AppState>, J
     tag = "Reports",
     security(("jwt" = []))
 )]
-pub async fn delete_report(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_report(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::reports::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

@@ -5,4 +5,3 @@ use utoipa::ToSchema;
 pub struct CreateManufacturerRequest {
     pub name: String,
 }
-

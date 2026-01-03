@@ -1,21 +1,17 @@
 #![allow(clippy::result_large_err)]
-use tracing::info;
 use crate::constant::*;
-use crate::error::ToAppResult;
-use crate::error::AppResult;
 use crate::dto::request::{LoginRequest, RefreshTokenRequest};
-use crate::repo::users as user;
-use crate::service::token;
-use crate::util::password;
-use crate::server::state::AppState;
-use crate::util::claim::UserClaims;
 use crate::dto::response::TokenResponse;
+use crate::error::AppResult;
+use crate::error::ToAppResult;
+use crate::repo::users as user;
+use crate::server::state::AppState;
+use crate::service::token;
+use crate::util::claim::UserClaims;
+use crate::util::password;
+use tracing::info;
 
-
-
-pub fn generate_tokens(
-    username: String
-) -> AppResult<TokenResponse> {
+pub fn generate_tokens(username: String) -> AppResult<TokenResponse> {
     let access_token = UserClaims::new(EXPIRE_BEARER_TOKEN_SECS, username.to_string())
         .encode(&ACCESS_TOKEN_ENCODE_KEY)?;
     let refresh_token = UserClaims::new(EXPIRE_REFRESH_TOKEN_SECS, username.to_string())
@@ -52,9 +48,9 @@ pub async fn refresh_token(state: &AppState, req: RefreshTokenRequest) -> AppRes
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::{DatabaseBackend, MockDatabase};
     use crate::error::AppError;
     use crate::server::state::AppState;
+    use sea_orm::{DatabaseBackend, MockDatabase};
 
     fn mk_user(username: &str, hashed: &str) -> crate::entity::users::Model {
         use crate::entity::sea_orm_active_enums as E;
@@ -93,7 +89,10 @@ mod tests {
             .into_connection();
         let state = AppState::for_test_with_db(db);
 
-        let req = LoginRequest { username: "alice".into(), password: plain };
+        let req = LoginRequest {
+            username: "alice".into(),
+            password: plain,
+        };
         let resp = login(&state, req).await.unwrap();
         assert!(!resp.access_token.is_empty());
         assert!(!resp.refresh_token.is_empty());
@@ -102,14 +101,19 @@ mod tests {
     #[tokio::test]
     async fn test_login_invalid_password() {
         std::env::set_var("NO_PROXY", "*");
-        let hashed_other = crate::util::password::hash("different".to_string()).await.unwrap();
+        let hashed_other = crate::util::password::hash("different".to_string())
+            .await
+            .unwrap();
         let user_row = mk_user("bob", &hashed_other);
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<crate::entity::users::Model, _, _>(vec![vec![user_row]])
             .into_connection();
         let state = AppState::for_test_with_db(db);
 
-        let req = LoginRequest { username: "bob".into(), password: "wrong".into() };
+        let req = LoginRequest {
+            username: "bob".into(),
+            password: "wrong".into(),
+        };
         let err = login(&state, req).await.err().expect("should fail");
         matches!(err, AppError::InvalidInputError(_));
     }
@@ -122,7 +126,10 @@ mod tests {
             .into_connection();
         let state = AppState::for_test_with_db(db);
 
-        let req = LoginRequest { username: "nobody".into(), password: "x".into() };
+        let req = LoginRequest {
+            username: "nobody".into(),
+            password: "x".into(),
+        };
         let err = login(&state, req).await.err().expect("should fail");
         matches!(err, AppError::NotFoundError(_));
     }

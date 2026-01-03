@@ -1,12 +1,12 @@
 use axum::{
-    extract::{ws::WebSocketUpgrade, Query, State, Path},
+    extract::{ws::WebSocketUpgrade, Path, Query, State},
     response::Response,
     Json,
 };
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 use serde_json::Value;
 use tracing::info;
+use utoipa::ToSchema;
 
 use crate::server::state::AppState;
 use crate::webrtc_ffi::CameraStream;
@@ -78,9 +78,7 @@ pub async fn websocket_handler(
     tag = "Streaming"
 )]
 /// Get WebRTC service statistics including camera streams
-pub async fn get_stats(
-    State(state): State<AppState>,
-) -> Json<Value> {
+pub async fn get_stats(State(state): State<AppState>) -> Json<Value> {
     let connected_clients = state.webrtc_client.sessions().session_count().await as i32;
     let healthy = state.webrtc_client.test_connection().await.is_ok();
     Json(serde_json::json!({
@@ -105,11 +103,11 @@ pub async fn get_stats(
     tag = "Streaming"
 )]
 /// Discover and return available camera streams
-pub async fn get_camera_streams(
-    State(state): State<AppState>,
-) -> Json<StreamsResponse> {
+pub async fn get_camera_streams(State(state): State<AppState>) -> Json<StreamsResponse> {
     let _ = state; // discovery not implemented in current client
-    Json(StreamsResponse { streams: Vec::new() })
+    Json(StreamsResponse {
+        streams: Vec::new(),
+    })
 }
 
 #[utoipa::path(
@@ -123,12 +121,14 @@ pub async fn get_camera_streams(
     tag = "Streaming"
 )]
 /// Get detailed service status
-pub async fn get_service_status(
-    State(state): State<AppState>,
-) -> Json<ServiceStatusResponse> {
+pub async fn get_service_status(State(state): State<AppState>) -> Json<ServiceStatusResponse> {
     let healthy = state.webrtc_client.test_connection().await.is_ok();
     Json(ServiceStatusResponse {
-        status: if healthy { "connected".to_string() } else { "unavailable".to_string() },
+        status: if healthy {
+            "connected".to_string()
+        } else {
+            "unavailable".to_string()
+        },
         discovered_streams: 0,
         active_streams: 0,
         connected_clients: state.webrtc_client.sessions().session_count().await as i32,
@@ -190,9 +190,7 @@ pub async fn health_check() -> Json<Value> {
     tag = "Streaming"
 )]
 /// Get available streams (combines monitor info with camera streams)
-pub async fn get_available_streams(
-    State(state): State<AppState>,
-) -> Json<Value> {
+pub async fn get_available_streams(State(state): State<AppState>) -> Json<Value> {
     let _ = state;
     Json(serde_json::json!({
         "streams": [],

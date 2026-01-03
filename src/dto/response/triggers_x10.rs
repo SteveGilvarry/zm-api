@@ -1,6 +1,6 @@
+use crate::entity::triggers_x10::Model as TriggerX10Model;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::entity::triggers_x10::Model as TriggerX10Model;
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct TriggerX10Response {

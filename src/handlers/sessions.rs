@@ -1,8 +1,11 @@
-use axum::{extract::{Path, State}, Json};
-use crate::dto::response::SessionResponse;
 use crate::dto::request::sessions::{CreateSessionRequest, UpdateSessionRequest};
+use crate::dto::response::SessionResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 
 /// List all sessions.
 ///
@@ -30,7 +33,10 @@ pub async fn list_sessions(State(state): State<AppState>) -> AppResult<Json<Vec<
     tag = "Sessions",
     security(("jwt" = []))
 )]
-pub async fn get_session(Path(id): Path<String>, State(state): State<AppState>) -> AppResult<Json<SessionResponse>> {
+pub async fn get_session(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+) -> AppResult<Json<SessionResponse>> {
     let item = crate::service::sessions::get_by_id(&state, &id).await?;
     Ok(Json(item))
 }
@@ -46,7 +52,10 @@ pub async fn get_session(Path(id): Path<String>, State(state): State<AppState>) 
     tag = "Sessions",
     security(("jwt" = []))
 )]
-pub async fn create_session(State(state): State<AppState>, Json(req): Json<CreateSessionRequest>) -> AppResult<(axum::http::StatusCode, Json<SessionResponse>)> {
+pub async fn create_session(
+    State(state): State<AppState>,
+    Json(req): Json<CreateSessionRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<SessionResponse>)> {
     let item = crate::service::sessions::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -64,7 +73,11 @@ pub async fn create_session(State(state): State<AppState>, Json(req): Json<Creat
     tag = "Sessions",
     security(("jwt" = []))
 )]
-pub async fn update_session(Path(id): Path<String>, State(state): State<AppState>, Json(req): Json<UpdateSessionRequest>) -> AppResult<Json<SessionResponse>> {
+pub async fn update_session(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateSessionRequest>,
+) -> AppResult<Json<SessionResponse>> {
     let item = crate::service::sessions::update(&state, &id, req).await?;
     Ok(Json(item))
 }
@@ -81,7 +94,10 @@ pub async fn update_session(Path(id): Path<String>, State(state): State<AppState
     tag = "Sessions",
     security(("jwt" = []))
 )]
-pub async fn delete_session(Path(id): Path<String>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_session(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::sessions::delete(&state, &id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

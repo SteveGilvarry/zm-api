@@ -1,7 +1,10 @@
-use axum::{extract::{Path, State}, Json};
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 use tracing::info;
 
-use crate::dto::{response::config::ConfigResponse, request::config::UpdateConfigRequest};
+use crate::dto::{request::config::UpdateConfigRequest, response::config::ConfigResponse};
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use crate::service;
@@ -44,7 +47,10 @@ pub async fn list_configs(State(state): State<AppState>) -> AppResult<Json<Vec<C
     security(("jwt" = [])),
     tag = "Config"
 )]
-pub async fn get_config(State(state): State<AppState>, Path(name): Path<String>) -> AppResult<Json<ConfigResponse>> {
+pub async fn get_config(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> AppResult<Json<ConfigResponse>> {
     info!("Get config by name: {}", name);
     let item = service::config::get_by_name(&state, &name).await?;
     Ok(Json(item))
