@@ -47,8 +47,6 @@ pub struct Model {
     pub system: System,
     #[sea_orm(column_name = "MaxBandwidth")]
     pub max_bandwidth: Option<String>,
-    #[sea_orm(column_name = "MonitorIds", column_type = "Text", nullable)]
-    pub monitor_ids: Option<String>,
     #[sea_orm(column_name = "TokenMinExpiry")]
     pub token_min_expiry: u64,
     #[sea_orm(column_name = "APIEnabled")]

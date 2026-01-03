@@ -12,7 +12,7 @@ pub struct MonitorPresetResponse {
     #[serde(rename = "type")]
     pub r#type: MonitorType,
     pub device: Option<String>,
-    pub channel: Option<String>,
+    pub channel: Option<u8>,
     pub format: Option<u32>,
     pub protocol: Option<String>,
     pub method: Option<String>,

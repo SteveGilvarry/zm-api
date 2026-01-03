@@ -9,7 +9,8 @@ use crate::client::{
     webrtc_signaling::WebRtcSignalingClient,
     ClientBuilder,
 };
-use crate::configure::AppConfig;
+use crate::configure::{self, env::get_env_source, AppConfig};
+use crate::constant::ENV_PREFIX;
 use crate::error::AppResult;
 use crate::mse_client::MseStreamManager;
 
@@ -60,14 +61,11 @@ impl AppState {
     }
 
     pub fn for_test_with_db(db: DatabaseConnection) -> Self {
-        use crate::client::email::EmailClient;
-        use crate::configure::{self, env::get_env_source};
-        use crate::constant::ENV_PREFIX;
-
         let config =
             configure::AppConfig::read(get_env_source(ENV_PREFIX)).expect("read config for test");
         let email = std::sync::Arc::new(EmailClient::builder_dangerous("127.0.0.1").build());
         let http = crate::client::http::HttpClient::builder()
+            .no_proxy()
             .build()
             .expect("http client");
         let webrtc_client =

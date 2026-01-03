@@ -15,6 +15,8 @@ argon2 = "0.5"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws"] }
 axum-extra = { version = "0.10", features = ["typed-header"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+rustls-acme = { version = "0.14.1", features = ["axum", "tokio", "tower"] }
 base64 = "0.22"
 bcrypt = "0.17"
 chrono = "0.4"
@@ -90,3 +92,39 @@ assert-json-diff = "2"
 # Mocking traits in unit tests
 mockall = "0.13"
 tower = "0.5"
+
+[package.metadata.deb]
+maintainer = "zm_api <admin@localhost>"
+depends = "$auto"
+section = "net"
+priority = "optional"
+assets = [
+  ["target/release/zm_api", "usr/bin/zm_api", "755"],
+  ["settings/base.toml", "etc/zm_api/base.toml", "644"],
+  ["settings/prod.toml", "etc/zm_api/prod.toml", "644"],
+  ["packaging/systemd/zm_api.env", "etc/zm_api/zm_api.env", "644"],
+  ["packaging/systemd/zm_api.service", "lib/systemd/system/zm_api.service", "644"],
+  ["static", "usr/share/zm_api/static", "755"],
+]
+conf-files = [
+  "/etc/zm_api/base.toml",
+  "/etc/zm_api/prod.toml",
+  "/etc/zm_api/zm_api.env",
+]
+
+[package.metadata.rpm]
+package = "zm_api"
+license = "UNLICENSED"
+
+[package.metadata.rpm.cargo]
+buildflags = ["--release"]
+
+[package.metadata.rpm.targets]
+zm_api = { path = "/usr/bin/zm_api" }
+
+[package.metadata.rpm.files]
+"settings/base.toml" = { path = "/etc/zm_api/base.toml", mode = "644", config = true }
+"settings/prod.toml" = { path = "/etc/zm_api/prod.toml", mode = "644", config = true }
+"packaging/systemd/zm_api.env" = { path = "/etc/zm_api/zm_api.env", mode = "644", config = true }
+"packaging/systemd/zm_api.service" = { path = "/usr/lib/systemd/system/zm_api.service", mode = "644" }
+"static" = { path = "/usr/share/zm_api/static", mode = "755" }

@@ -54,15 +54,29 @@ impl AppConfig {
 }
 
 pub fn get_settings_dir() -> Result<std::path::PathBuf, ConfigError> {
-    Ok(get_project_root()
-        .map_err(|e| ConfigError::Message(e.to_string()))?
-        .join("settings"))
+    if let Ok(dir) = std::env::var("APP_CONFIG_DIR") {
+        if !dir.trim().is_empty() {
+            return Ok(std::path::PathBuf::from(dir));
+        }
+    }
+    Ok(
+        get_project_root()
+            .map_err(|e| ConfigError::Message(e.to_string()))?
+            .join("settings"),
+    )
 }
 
 pub fn get_static_dir() -> Result<std::path::PathBuf, ConfigError> {
-    Ok(get_project_root()
-        .map_err(|e| ConfigError::Message(e.to_string()))?
-        .join("static"))
+    if let Ok(dir) = std::env::var("APP_STATIC_DIR") {
+        if !dir.trim().is_empty() {
+            return Ok(std::path::PathBuf::from(dir));
+        }
+    }
+    Ok(
+        get_project_root()
+            .map_err(|e| ConfigError::Message(e.to_string()))?
+            .join("static"),
+    )
 }
 
 #[derive(

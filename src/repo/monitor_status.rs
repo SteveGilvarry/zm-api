@@ -56,9 +56,6 @@ pub async fn update(
     if let Some(v) = req.capture_bandwidth {
         am.capture_bandwidth = Set(v);
     }
-    if let Some(v) = req.day_event_disk_space {
-        am.day_event_disk_space = Set(Some(v));
-    }
 
     let updated = am.update(db).await?;
     Ok(Some(updated))

@@ -79,8 +79,8 @@ pub async fn update(
     if let Some(v) = &req.device {
         am.device = Set(Some(v.clone()));
     }
-    if let Some(v) = &req.channel {
-        am.channel = Set(Some(v.clone()));
+    if let Some(v) = req.channel {
+        am.channel = Set(Some(v));
     }
     if let Some(v) = req.format {
         am.format = Set(Some(v));

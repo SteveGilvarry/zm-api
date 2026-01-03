@@ -11,6 +11,4 @@ pub struct UpdateMonitorStatusRequest {
     pub analysis_fps: Option<String>,
     #[schema(example = 1024000)]
     pub capture_bandwidth: Option<i32>,
-    #[schema(example = 1073741824)]
-    pub day_event_disk_space: Option<i64>,
 }
