@@ -1,4 +1,5 @@
 use axum::{
+    body::Bytes,
     extract::{ws::WebSocket, Path, State, WebSocketUpgrade},
     response::Response,
 };
@@ -121,7 +122,7 @@ async fn handle_ws_proxy(client_socket: WebSocket, monitor_id: u32, state: AppSt
                 .send(axum::extract::ws::Message::Close(Some(
                     axum::extract::ws::CloseFrame {
                         code: 1011, // Internal error
-                        reason: std::borrow::Cow::from("Backend unavailable"),
+                        reason: "Backend unavailable".into(),
                     },
                 )))
                 .await;
@@ -169,7 +170,7 @@ async fn handle_typed_ws_proxy(
                 .send(axum::extract::ws::Message::Close(Some(
                     axum::extract::ws::CloseFrame {
                         code: 1011, // Internal error
-                        reason: std::borrow::Cow::from("Backend unavailable"),
+                        reason: "Backend unavailable".into(),
                     },
                 )))
                 .await;
@@ -190,7 +191,7 @@ async fn handle_typed_ws_proxy(
 ///
 /// SECURITY: This function ALWAYS uses localhost:1984 to prevent URL injection attacks.
 /// The monitor_id is validated as u32, and stream_type is validated against a whitelist.
-fn build_go2rtc_url(monitor_id: u32, stream_type: Option<&str>, state: &AppState) -> String {
+fn build_go2rtc_url(monitor_id: u32, stream_type: Option<&str>, _state: &AppState) -> String {
     // SECURITY: Always use localhost - never accept user-provided URLs
     // go2rtc should be configured to bind ONLY to localhost:1984
     let base_url = "ws://127.0.0.1:1984";
@@ -236,7 +237,8 @@ async fn proxy_websocket_bidirectional(
                                 monitor_id,
                                 text.len()
                             );
-                            TungsteniteMessage::Text(text)
+                            // Convert axum Utf8Bytes to String then to tungstenite
+                            TungsteniteMessage::Text(text.to_string().into())
                         }
                         axum::extract::ws::Message::Binary(data) => {
                             debug!(
@@ -244,22 +246,22 @@ async fn proxy_websocket_bidirectional(
                                 monitor_id,
                                 data.len()
                             );
-                            TungsteniteMessage::Binary(data)
+                            TungsteniteMessage::Binary(Bytes::from(data.to_vec()))
                         }
                         axum::extract::ws::Message::Ping(data) => {
                             debug!("Client->Backend ping for monitor {}", monitor_id);
-                            TungsteniteMessage::Ping(data)
+                            TungsteniteMessage::Ping(Bytes::from(data.to_vec()))
                         }
                         axum::extract::ws::Message::Pong(data) => {
                             debug!("Client->Backend pong for monitor {}", monitor_id);
-                            TungsteniteMessage::Pong(data)
+                            TungsteniteMessage::Pong(Bytes::from(data.to_vec()))
                         }
                         axum::extract::ws::Message::Close(frame) => {
                             info!("Client closed connection for monitor {}", monitor_id);
                             if let Some(cf) = frame {
                                 TungsteniteMessage::Close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
                                     code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::from(cf.code),
-                                    reason: cf.reason,
+                                    reason: cf.reason.to_string().into(),
                                 }))
                             } else {
                                 TungsteniteMessage::Close(None)
@@ -304,7 +306,8 @@ async fn proxy_websocket_bidirectional(
                                 monitor_id,
                                 text.len()
                             );
-                            axum::extract::ws::Message::Text(text)
+                            // Convert tungstenite Utf8Bytes to String then to axum
+                            axum::extract::ws::Message::Text(text.to_string().into())
                         }
                         TungsteniteMessage::Binary(data) => {
                             debug!(
@@ -312,15 +315,15 @@ async fn proxy_websocket_bidirectional(
                                 monitor_id,
                                 data.len()
                             );
-                            axum::extract::ws::Message::Binary(data)
+                            axum::extract::ws::Message::Binary(Bytes::from(data.to_vec()))
                         }
                         TungsteniteMessage::Ping(data) => {
                             debug!("Backend->Client ping for monitor {}", monitor_id);
-                            axum::extract::ws::Message::Ping(data)
+                            axum::extract::ws::Message::Ping(Bytes::from(data.to_vec()))
                         }
                         TungsteniteMessage::Pong(data) => {
                             debug!("Backend->Client pong for monitor {}", monitor_id);
-                            axum::extract::ws::Message::Pong(data)
+                            axum::extract::ws::Message::Pong(Bytes::from(data.to_vec()))
                         }
                         TungsteniteMessage::Close(frame) => {
                             info!("Backend closed connection for monitor {}", monitor_id);
@@ -328,7 +331,7 @@ async fn proxy_websocket_bidirectional(
                                 axum::extract::ws::Message::Close(Some(
                                     axum::extract::ws::CloseFrame {
                                         code: cf.code.into(),
-                                        reason: cf.reason,
+                                        reason: cf.reason.to_string().into(),
                                     },
                                 ))
                             } else {
