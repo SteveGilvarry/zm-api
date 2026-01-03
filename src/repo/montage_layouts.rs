@@ -1,7 +1,11 @@
-use sea_orm::*;
-use crate::entity::montage_layouts::{Entity as MontageLayouts, Model as MontageLayoutModel, ActiveModel, Column};
+use crate::dto::request::montage_layouts::{
+    CreateMontageLayoutRequest, UpdateMontageLayoutRequest,
+};
+use crate::entity::montage_layouts::{
+    ActiveModel, Column, Entity as MontageLayouts, Model as MontageLayoutModel,
+};
 use crate::error::AppResult;
-use crate::dto::request::montage_layouts::{CreateMontageLayoutRequest, UpdateMontageLayoutRequest};
+use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<MontageLayoutModel>> {
     Ok(MontageLayouts::find().all(db).await?)
@@ -11,14 +15,20 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<Mo
     Ok(MontageLayouts::find_by_id(id).one(db).await?)
 }
 
-pub async fn find_by_user(db: &DatabaseConnection, user_id: u32) -> AppResult<Vec<MontageLayoutModel>> {
+pub async fn find_by_user(
+    db: &DatabaseConnection,
+    user_id: u32,
+) -> AppResult<Vec<MontageLayoutModel>> {
     Ok(MontageLayouts::find()
         .filter(Column::UserId.eq(user_id))
         .all(db)
         .await?)
 }
 
-pub async fn create(db: &DatabaseConnection, req: &CreateMontageLayoutRequest) -> AppResult<MontageLayoutModel> {
+pub async fn create(
+    db: &DatabaseConnection,
+    req: &CreateMontageLayoutRequest,
+) -> AppResult<MontageLayoutModel> {
     let am = ActiveModel {
         id: Default::default(),
         name: Set(req.name.clone()),
@@ -28,14 +38,26 @@ pub async fn create(db: &DatabaseConnection, req: &CreateMontageLayoutRequest) -
     Ok(am.insert(db).await?)
 }
 
-pub async fn update(db: &DatabaseConnection, id: u32, req: &UpdateMontageLayoutRequest) -> AppResult<Option<MontageLayoutModel>> {
-    let Some(model) = find_by_id(db, id).await? else { return Ok(None) };
+pub async fn update(
+    db: &DatabaseConnection,
+    id: u32,
+    req: &UpdateMontageLayoutRequest,
+) -> AppResult<Option<MontageLayoutModel>> {
+    let Some(model) = find_by_id(db, id).await? else {
+        return Ok(None);
+    };
     let mut am: ActiveModel = model.into();
-    
-    if let Some(v) = &req.name { am.name = Set(v.clone()); }
-    if let Some(v) = req.user_id { am.user_id = Set(v); }
-    if let Some(v) = &req.positions { am.positions = Set(Some(v.clone())); }
-    
+
+    if let Some(v) = &req.name {
+        am.name = Set(v.clone());
+    }
+    if let Some(v) = req.user_id {
+        am.user_id = Set(v);
+    }
+    if let Some(v) = &req.positions {
+        am.positions = Set(Some(v.clone()));
+    }
+
     let updated = am.update(db).await?;
     Ok(Some(updated))
 }

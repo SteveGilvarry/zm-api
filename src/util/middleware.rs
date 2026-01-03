@@ -1,15 +1,7 @@
-use axum::{
-    extract::Request,
-    http::StatusCode,
-    middleware::Next,
-    response::Response,
-};
+use axum::{extract::Request, http::StatusCode, middleware::Next, response::Response};
 use tracing::{info, warn};
 
-use crate::{
-    constant::ACCESS_TOKEN_DECODE_KEY,
-    util::claim::UserClaims,
-};
+use crate::{constant::ACCESS_TOKEN_DECODE_KEY, util::claim::UserClaims};
 
 /// Middleware to verify JWT token for protected routes
 pub async fn auth_middleware(
@@ -17,7 +9,7 @@ pub async fn auth_middleware(
     next: Next,
 ) -> Result<Response, (StatusCode, String)> {
     info!("Authenticating request: {}", request.uri());
-    
+
     // Extract the authorization header
     let auth_header = request
         .headers()
@@ -25,9 +17,12 @@ pub async fn auth_middleware(
         .and_then(|header| header.to_str().ok())
         .ok_or_else(|| {
             warn!("Missing Authorization header");
-            (StatusCode::UNAUTHORIZED, "Missing Authorization header".to_string())
+            (
+                StatusCode::UNAUTHORIZED,
+                "Missing Authorization header".to_string(),
+            )
         })?;
-    
+
     // Check if it's a Bearer token
     if !auth_header.starts_with("Bearer ") {
         warn!("Invalid Authorization header format");
@@ -36,10 +31,10 @@ pub async fn auth_middleware(
             "Invalid Authorization header format".to_string(),
         ));
     }
-    
+
     // Extract the token
     let token = auth_header[7..].trim();
-    
+
     // Verify the token
     match UserClaims::decode(token, &ACCESS_TOKEN_DECODE_KEY) {
         Ok(token_data) => {
@@ -47,7 +42,7 @@ pub async fn auth_middleware(
             let user_claims = token_data.claims;
             let mut request = request;
             request.extensions_mut().insert(user_claims);
-            
+
             // Continue to the handler
             Ok(next.run(request).await)
         }

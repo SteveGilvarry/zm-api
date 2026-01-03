@@ -1,8 +1,11 @@
-use axum::{extract::{Path, State}, Json};
-use crate::dto::response::DeviceResponse;
 use crate::dto::request::devices::{CreateDeviceRequest, UpdateDeviceRequest};
+use crate::dto::response::DeviceResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 
 /// List all devices.
 ///
@@ -30,7 +33,10 @@ pub async fn list_devices(State(state): State<AppState>) -> AppResult<Json<Vec<D
     tag = "Devices",
     security(("jwt" = []))
 )]
-pub async fn get_device(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<DeviceResponse>> {
+pub async fn get_device(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<DeviceResponse>> {
     let item = crate::service::devices::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -46,7 +52,10 @@ pub async fn get_device(Path(id): Path<u32>, State(state): State<AppState>) -> A
     tag = "Devices",
     security(("jwt" = []))
 )]
-pub async fn create_device(State(state): State<AppState>, Json(req): Json<CreateDeviceRequest>) -> AppResult<(axum::http::StatusCode, Json<DeviceResponse>)> {
+pub async fn create_device(
+    State(state): State<AppState>,
+    Json(req): Json<CreateDeviceRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<DeviceResponse>)> {
     let item = crate::service::devices::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -64,7 +73,11 @@ pub async fn create_device(State(state): State<AppState>, Json(req): Json<Create
     tag = "Devices",
     security(("jwt" = []))
 )]
-pub async fn update_device(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateDeviceRequest>) -> AppResult<Json<DeviceResponse>> {
+pub async fn update_device(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateDeviceRequest>,
+) -> AppResult<Json<DeviceResponse>> {
     let item = crate::service::devices::update(&state, id, req).await?;
     Ok(Json(item))
 }
@@ -81,7 +94,10 @@ pub async fn update_device(Path(id): Path<u32>, State(state): State<AppState>, J
     tag = "Devices",
     security(("jwt" = []))
 )]
-pub async fn delete_device(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_device(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::devices::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

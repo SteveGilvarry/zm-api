@@ -57,7 +57,9 @@ pub mod datetime_format {
             D: Deserializer<'de>,
         {
             Option::<String>::deserialize(deserializer)?
-                .map(|s| NaiveDateTime::parse_from_str(&s, FORMAT).map_err(serde::de::Error::custom))
+                .map(|s| {
+                    NaiveDateTime::parse_from_str(&s, FORMAT).map_err(serde::de::Error::custom)
+                })
                 .transpose()
         }
     }

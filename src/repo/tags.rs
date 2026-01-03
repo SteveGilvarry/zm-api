@@ -17,10 +17,7 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u64) -> AppResult<Option<Ta
 }
 
 pub async fn find_by_name(db: &DatabaseConnection, name: &str) -> AppResult<Option<TagModel>> {
-    Ok(Tags::find()
-        .filter(Column::Name.eq(name))
-        .one(db)
-        .await?)
+    Ok(Tags::find().filter(Column::Name.eq(name)).one(db).await?)
 }
 
 pub async fn create(db: &DatabaseConnection, req: &CreateTagRequest) -> AppResult<TagModel> {
@@ -33,13 +30,23 @@ pub async fn create(db: &DatabaseConnection, req: &CreateTagRequest) -> AppResul
     Ok(am.insert(db).await?)
 }
 
-pub async fn update(db: &DatabaseConnection, id: u64, req: &UpdateTagRequest) -> AppResult<Option<TagModel>> {
-    let Some(model) = find_by_id(db, id).await? else { return Ok(None) };
+pub async fn update(
+    db: &DatabaseConnection,
+    id: u64,
+    req: &UpdateTagRequest,
+) -> AppResult<Option<TagModel>> {
+    let Some(model) = find_by_id(db, id).await? else {
+        return Ok(None);
+    };
     let mut am: ActiveModel = model.into();
-    
-    if let Some(v) = &req.name { am.name = Set(v.clone()); }
-    if let Some(v) = req.create_date { am.create_date = Set(Some(v)); }
-    
+
+    if let Some(v) = &req.name {
+        am.name = Set(v.clone());
+    }
+    if let Some(v) = req.create_date {
+        am.create_date = Set(Some(v));
+    }
+
     let updated = am.update(db).await?;
     Ok(Some(updated))
 }

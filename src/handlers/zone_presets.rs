@@ -1,8 +1,11 @@
-use axum::{extract::{Path, State}, Json};
-use crate::dto::response::ZonePresetResponse;
 use crate::dto::request::CreateZonePresetRequest;
+use crate::dto::response::ZonePresetResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 
 /// List available zone presets which define reusable zone parameters.
 ///
@@ -15,7 +18,9 @@ use crate::server::state::AppState;
     tag = "Zones",
     security(("jwt" = []))
 )]
-pub async fn list_zone_presets(State(state): State<AppState>) -> AppResult<Json<Vec<ZonePresetResponse>>> {
+pub async fn list_zone_presets(
+    State(state): State<AppState>,
+) -> AppResult<Json<Vec<ZonePresetResponse>>> {
     let items = crate::service::zone_presets::list_all(&state).await?;
     Ok(Json(items))
 }
@@ -31,7 +36,10 @@ pub async fn list_zone_presets(State(state): State<AppState>) -> AppResult<Json<
     tag = "Zones",
     security(("jwt" = []))
 )]
-pub async fn get_zone_preset(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<ZonePresetResponse>> {
+pub async fn get_zone_preset(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<ZonePresetResponse>> {
     let item = crate::service::zone_presets::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -48,13 +56,21 @@ pub async fn get_zone_preset(Path(id): Path<u32>, State(state): State<AppState>)
     tag = "Zones",
     security(("jwt" = []))
 )]
-pub async fn create_zone_preset(State(state): State<AppState>, Json(req): Json<CreateZonePresetRequest>) -> AppResult<(axum::http::StatusCode, Json<ZonePresetResponse>)> {
+pub async fn create_zone_preset(
+    State(state): State<AppState>,
+    Json(req): Json<CreateZonePresetRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<ZonePresetResponse>)> {
     let item = crate::service::zone_presets::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
 #[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
-pub struct UpdateZonePresetRequest { pub name: Option<String>, pub r#type: Option<String>, pub units: Option<String>, pub check_method: Option<String> }
+pub struct UpdateZonePresetRequest {
+    pub name: Option<String>,
+    pub r#type: Option<String>,
+    pub units: Option<String>,
+    pub check_method: Option<String>,
+}
 
 /// Update fields of an existing zone preset (partial update).
 ///
@@ -69,8 +85,20 @@ pub struct UpdateZonePresetRequest { pub name: Option<String>, pub r#type: Optio
     tag = "Zones",
     security(("jwt" = []))
 )]
-pub async fn update_zone_preset(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateZonePresetRequest>) -> AppResult<Json<ZonePresetResponse>> {
-    let item = crate::service::zone_presets::update(&state, id, req.name, req.r#type, req.units, req.check_method).await?;
+pub async fn update_zone_preset(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateZonePresetRequest>,
+) -> AppResult<Json<ZonePresetResponse>> {
+    let item = crate::service::zone_presets::update(
+        &state,
+        id,
+        req.name,
+        req.r#type,
+        req.units,
+        req.check_method,
+    )
+    .await?;
     Ok(Json(item))
 }
 
@@ -86,7 +114,10 @@ pub async fn update_zone_preset(Path(id): Path<u32>, State(state): State<AppStat
     tag = "Zones",
     security(("jwt" = []))
 )]
-pub async fn delete_zone_preset(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_zone_preset(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::zone_presets::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

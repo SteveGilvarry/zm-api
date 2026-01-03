@@ -1,6 +1,6 @@
+use crate::entity::monitor_status::Model as MonitorStatusModel;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::entity::monitor_status::Model as MonitorStatusModel;
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct MonitorStatusResponse {

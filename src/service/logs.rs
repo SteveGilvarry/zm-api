@@ -10,19 +10,35 @@ pub async fn list_recent(state: &AppState, limit: u64) -> AppResult<Vec<LogRespo
 
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<LogResponse> {
     let item = repo::logs::find_by_id(state.db(), id).await?;
-    let item = item.ok_or_else(|| AppError::NotFoundError(Resource{details: vec![("id".into(), id.to_string())], resource_type: ResourceType::Message}))?;
+    let item = item.ok_or_else(|| {
+        AppError::NotFoundError(Resource {
+            details: vec![("id".into(), id.to_string())],
+            resource_type: ResourceType::Message,
+        })
+    })?;
     Ok(LogResponse::from(&item))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::{DatabaseBackend, MockDatabase};
     use crate::entity::logs::Model as LogModel;
     use rust_decimal::Decimal;
+    use sea_orm::{DatabaseBackend, MockDatabase};
 
     fn mk(id: u32, msg: &str) -> LogModel {
-        LogModel { id, time_key: Decimal::new(0, 0), component: "zmdc".into(), server_id: None, pid: None, level: 1, code: "A01".into(), message: msg.into(), file: None, line: None }
+        LogModel {
+            id,
+            time_key: Decimal::new(0, 0),
+            component: "zmdc".into(),
+            server_id: None,
+            pid: None,
+            level: 1,
+            code: "A01".into(),
+            message: msg.into(),
+            file: None,
+            line: None,
+        }
     }
 
     #[tokio::test]
@@ -49,6 +65,9 @@ mod tests {
             .append_query_results::<LogModel, _, _>(vec![empty])
             .into_connection();
         let state_none = AppState::for_test_with_db(db_none);
-        assert!(matches!(get_by_id(&state_none, 1).await.err().unwrap(), AppError::NotFoundError(_)));
+        assert!(matches!(
+            get_by_id(&state_none, 1).await.err().unwrap(),
+            AppError::NotFoundError(_)
+        ));
     }
 }

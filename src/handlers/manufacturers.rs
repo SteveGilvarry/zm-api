@@ -1,9 +1,12 @@
-use axum::{extract::{Path, State}, Json};
-use crate::dto::response::ManufacturerResponse;
 use crate::dto::request::CreateManufacturerRequest;
-use serde::Deserialize;
+use crate::dto::response::ManufacturerResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
+use serde::Deserialize;
 
 /// List manufacturers for camera models supported in ZoneMinder presets.
 ///
@@ -15,7 +18,9 @@ use crate::server::state::AppState;
     tag = "Manufacturers",
     security(("jwt" = []))
 )]
-pub async fn list_manufacturers(State(state): State<AppState>) -> AppResult<Json<Vec<ManufacturerResponse>>> {
+pub async fn list_manufacturers(
+    State(state): State<AppState>,
+) -> AppResult<Json<Vec<ManufacturerResponse>>> {
     let items = crate::service::manufacturers::list_all(&state).await?;
     Ok(Json(items))
 }
@@ -31,7 +36,10 @@ pub async fn list_manufacturers(State(state): State<AppState>) -> AppResult<Json
     tag = "Manufacturers",
     security(("jwt" = []))
 )]
-pub async fn get_manufacturer(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<ManufacturerResponse>> {
+pub async fn get_manufacturer(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<ManufacturerResponse>> {
     let item = crate::service::manufacturers::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -48,13 +56,18 @@ pub async fn get_manufacturer(Path(id): Path<u32>, State(state): State<AppState>
     tag = "Manufacturers",
     security(("jwt" = []))
 )]
-pub async fn create_manufacturer(State(state): State<AppState>, Json(req): Json<CreateManufacturerRequest>) -> AppResult<(axum::http::StatusCode, Json<ManufacturerResponse>)> {
+pub async fn create_manufacturer(
+    State(state): State<AppState>,
+    Json(req): Json<CreateManufacturerRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<ManufacturerResponse>)> {
     let item = crate::service::manufacturers::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
-pub struct UpdateManufacturerRequest { pub name: Option<String> }
+pub struct UpdateManufacturerRequest {
+    pub name: Option<String>,
+}
 
 /// Update a manufacturer name.
 ///
@@ -69,7 +82,11 @@ pub struct UpdateManufacturerRequest { pub name: Option<String> }
     tag = "Manufacturers",
     security(("jwt" = []))
 )]
-pub async fn update_manufacturer(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateManufacturerRequest>) -> AppResult<Json<ManufacturerResponse>> {
+pub async fn update_manufacturer(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateManufacturerRequest>,
+) -> AppResult<Json<ManufacturerResponse>> {
     let item = crate::service::manufacturers::update(&state, id, req.name).await?;
     Ok(Json(item))
 }
@@ -86,7 +103,10 @@ pub async fn update_manufacturer(Path(id): Path<u32>, State(state): State<AppSta
     tag = "Manufacturers",
     security(("jwt" = []))
 )]
-pub async fn delete_manufacturer(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_manufacturer(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::manufacturers::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

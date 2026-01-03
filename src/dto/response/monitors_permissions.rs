@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 use crate::entity::monitors_permissions::Model as MonitorPermissionModel;
 use crate::entity::sea_orm_active_enums::Permission;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct MonitorPermissionResponse {
@@ -18,8 +18,9 @@ impl From<&MonitorPermissionModel> for MonitorPermissionResponse {
             Permission::None => "None",
             Permission::View => "View",
             Permission::Edit => "Edit",
-        }.to_string();
-        
+        }
+        .to_string();
+
         Self {
             id: model.id,
             monitor_id: model.monitor_id,

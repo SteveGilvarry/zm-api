@@ -1,8 +1,11 @@
-use axum::{extract::{Path, State}, Json};
-use crate::dto::response::ObjectTypeResponse;
 use crate::dto::request::object_types::{CreateObjectTypeRequest, UpdateObjectTypeRequest};
+use crate::dto::response::ObjectTypeResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 
 /// List all object types.
 #[utoipa::path(
@@ -12,7 +15,9 @@ use crate::server::state::AppState;
     tag = "Object Types",
     security(("jwt" = []))
 )]
-pub async fn list_object_types(State(state): State<AppState>) -> AppResult<Json<Vec<ObjectTypeResponse>>> {
+pub async fn list_object_types(
+    State(state): State<AppState>,
+) -> AppResult<Json<Vec<ObjectTypeResponse>>> {
     let items = crate::service::object_types::list_all(&state).await?;
     Ok(Json(items))
 }
@@ -26,7 +31,10 @@ pub async fn list_object_types(State(state): State<AppState>) -> AppResult<Json<
     tag = "Object Types",
     security(("jwt" = []))
 )]
-pub async fn get_object_type(Path(id): Path<i32>, State(state): State<AppState>) -> AppResult<Json<ObjectTypeResponse>> {
+pub async fn get_object_type(
+    Path(id): Path<i32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<ObjectTypeResponse>> {
     let item = crate::service::object_types::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -40,7 +48,10 @@ pub async fn get_object_type(Path(id): Path<i32>, State(state): State<AppState>)
     tag = "Object Types",
     security(("jwt" = []))
 )]
-pub async fn create_object_type(State(state): State<AppState>, Json(req): Json<CreateObjectTypeRequest>) -> AppResult<(axum::http::StatusCode, Json<ObjectTypeResponse>)> {
+pub async fn create_object_type(
+    State(state): State<AppState>,
+    Json(req): Json<CreateObjectTypeRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<ObjectTypeResponse>)> {
     let item = crate::service::object_types::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -55,7 +66,11 @@ pub async fn create_object_type(State(state): State<AppState>, Json(req): Json<C
     tag = "Object Types",
     security(("jwt" = []))
 )]
-pub async fn update_object_type(Path(id): Path<i32>, State(state): State<AppState>, Json(req): Json<UpdateObjectTypeRequest>) -> AppResult<Json<ObjectTypeResponse>> {
+pub async fn update_object_type(
+    Path(id): Path<i32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateObjectTypeRequest>,
+) -> AppResult<Json<ObjectTypeResponse>> {
     let item = crate::service::object_types::update(&state, id, req).await?;
     Ok(Json(item))
 }
@@ -69,7 +84,10 @@ pub async fn update_object_type(Path(id): Path<i32>, State(state): State<AppStat
     tag = "Object Types",
     security(("jwt" = []))
 )]
-pub async fn delete_object_type(Path(id): Path<i32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_object_type(
+    Path(id): Path<i32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::object_types::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

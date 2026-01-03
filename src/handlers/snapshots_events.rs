@@ -1,9 +1,12 @@
-use axum::{extract::{Path, State, Query}, Json};
-use serde::Deserialize;
-use crate::dto::response::SnapshotEventResponse;
 use crate::dto::request::snapshots_events::CreateSnapshotEventRequest;
+use crate::dto::response::SnapshotEventResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct SnapshotEventQuery {
@@ -23,8 +26,13 @@ pub struct SnapshotEventQuery {
     tag = "Snapshots Events",
     security(("jwt" = []))
 )]
-pub async fn list_snapshot_events(Query(params): Query<SnapshotEventQuery>, State(state): State<AppState>) -> AppResult<Json<Vec<SnapshotEventResponse>>> {
-    let items = crate::service::snapshots_events::list_all(&state, params.snapshot_id, params.event_id).await?;
+pub async fn list_snapshot_events(
+    Query(params): Query<SnapshotEventQuery>,
+    State(state): State<AppState>,
+) -> AppResult<Json<Vec<SnapshotEventResponse>>> {
+    let items =
+        crate::service::snapshots_events::list_all(&state, params.snapshot_id, params.event_id)
+            .await?;
     Ok(Json(items))
 }
 
@@ -37,7 +45,10 @@ pub async fn list_snapshot_events(Query(params): Query<SnapshotEventQuery>, Stat
     tag = "Snapshots Events",
     security(("jwt" = []))
 )]
-pub async fn get_snapshot_event(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<SnapshotEventResponse>> {
+pub async fn get_snapshot_event(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<SnapshotEventResponse>> {
     let item = crate::service::snapshots_events::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -51,7 +62,10 @@ pub async fn get_snapshot_event(Path(id): Path<u32>, State(state): State<AppStat
     tag = "Snapshots Events",
     security(("jwt" = []))
 )]
-pub async fn create_snapshot_event(State(state): State<AppState>, Json(req): Json<CreateSnapshotEventRequest>) -> AppResult<(axum::http::StatusCode, Json<SnapshotEventResponse>)> {
+pub async fn create_snapshot_event(
+    State(state): State<AppState>,
+    Json(req): Json<CreateSnapshotEventRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<SnapshotEventResponse>)> {
     let item = crate::service::snapshots_events::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -65,7 +79,10 @@ pub async fn create_snapshot_event(State(state): State<AppState>, Json(req): Jso
     tag = "Snapshots Events",
     security(("jwt" = []))
 )]
-pub async fn delete_snapshot_event(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_snapshot_event(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::snapshots_events::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

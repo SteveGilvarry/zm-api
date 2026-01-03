@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 use crate::entity::groups_permissions::Model as GroupPermissionModel;
 use crate::entity::sea_orm_active_enums::Permission;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct GroupPermissionResponse {
@@ -18,8 +18,9 @@ impl From<&GroupPermissionModel> for GroupPermissionResponse {
             Permission::None => "None",
             Permission::View => "View",
             Permission::Edit => "Edit",
-        }.to_string();
-        
+        }
+        .to_string();
+
         Self {
             id: model.id,
             group_id: model.group_id,

@@ -1,20 +1,11 @@
-use axum::{
-    routing::get,
-    Router,
-    middleware,
-};
-use tower_http::services::ServeDir;
 use crate::handlers::webrtc::{
-    get_available_streams,
-    get_camera_streams,
-    get_monitor_info,
-    get_service_status,
-    get_stats,
-    health_check,
-    websocket_handler,
+    get_available_streams, get_camera_streams, get_monitor_info, get_service_status, get_stats,
+    health_check, websocket_handler,
 };
 use crate::server::state::AppState;
 use crate::util::middleware::auth_middleware;
+use axum::{middleware, routing::get, Router};
+use tower_http::services::ServeDir;
 
 /// Add WebRTC routes under /api/v3/webrtc
 ///

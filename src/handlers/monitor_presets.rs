@@ -1,12 +1,19 @@
-use axum::{extract::{Path, State, Query}, Json};
-use serde::Deserialize;
+use crate::dto::request::monitor_presets::{
+    CreateMonitorPresetRequest, UpdateMonitorPresetRequest,
+};
 use crate::dto::response::MonitorPresetResponse;
-use crate::dto::request::monitor_presets::{CreateMonitorPresetRequest, UpdateMonitorPresetRequest};
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
-pub struct MonitorPresetQuery { pub model_id: Option<u32> }
+pub struct MonitorPresetQuery {
+    pub model_id: Option<u32>,
+}
 
 /// List monitor presets; optionally filter by model id.
 ///
@@ -19,7 +26,10 @@ pub struct MonitorPresetQuery { pub model_id: Option<u32> }
     tag = "Monitor Presets",
     security(("jwt" = []))
 )]
-pub async fn list_monitor_presets(State(state): State<AppState>, Query(q): Query<MonitorPresetQuery>) -> AppResult<Json<Vec<MonitorPresetResponse>>> {
+pub async fn list_monitor_presets(
+    State(state): State<AppState>,
+    Query(q): Query<MonitorPresetQuery>,
+) -> AppResult<Json<Vec<MonitorPresetResponse>>> {
     let items = crate::service::monitor_presets::list_all(&state, q.model_id).await?;
     Ok(Json(items))
 }
@@ -35,7 +45,10 @@ pub async fn list_monitor_presets(State(state): State<AppState>, Query(q): Query
     tag = "Monitor Presets",
     security(("jwt" = []))
 )]
-pub async fn get_monitor_preset(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<MonitorPresetResponse>> {
+pub async fn get_monitor_preset(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<MonitorPresetResponse>> {
     let item = crate::service::monitor_presets::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -51,9 +64,13 @@ pub async fn get_monitor_preset(Path(id): Path<u32>, State(state): State<AppStat
     tag = "Monitor Presets",
     security(("jwt" = []))
 )]
-pub async fn create_monitor_preset(State(state): State<AppState>, Json(req): Json<CreateMonitorPresetRequest>) -> AppResult<(axum::http::StatusCode, Json<MonitorPresetResponse>)> {
+pub async fn create_monitor_preset(
+    State(state): State<AppState>,
+    Json(req): Json<CreateMonitorPresetRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<MonitorPresetResponse>)> {
     let item = crate::service::monitor_presets::create(&state, req).await?;
-    Ok((axum::http::StatusCode::CREATED, Json(item)))}
+    Ok((axum::http::StatusCode::CREATED, Json(item)))
+}
 
 /// Update a monitor preset entry.
 ///
@@ -68,7 +85,11 @@ pub async fn create_monitor_preset(State(state): State<AppState>, Json(req): Jso
     tag = "Monitor Presets",
     security(("jwt" = []))
 )]
-pub async fn update_monitor_preset(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateMonitorPresetRequest>) -> AppResult<Json<MonitorPresetResponse>> {
+pub async fn update_monitor_preset(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateMonitorPresetRequest>,
+) -> AppResult<Json<MonitorPresetResponse>> {
     let item = crate::service::monitor_presets::update(&state, id, req).await?;
     Ok(Json(item))
 }
@@ -85,7 +106,10 @@ pub async fn update_monitor_preset(Path(id): Path<u32>, State(state): State<AppS
     tag = "Monitor Presets",
     security(("jwt" = []))
 )]
-pub async fn delete_monitor_preset(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_monitor_preset(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::monitor_presets::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

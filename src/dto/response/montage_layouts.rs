@@ -1,6 +1,6 @@
+use crate::entity::montage_layouts::Model as MontageLayoutModel;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::entity::montage_layouts::Model as MontageLayoutModel;
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct MontageLayoutResponse {

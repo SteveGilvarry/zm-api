@@ -1,9 +1,12 @@
-use axum::{extract::{Path, State}, Json};
-use serde::Deserialize;
-use crate::dto::response::FilterResponse;
 use crate::dto::request::CreateFilterRequest;
+use crate::dto::response::FilterResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, State},
+    Json,
+};
+use serde::Deserialize;
 
 /// List saved event filters.
 ///
@@ -32,7 +35,10 @@ pub async fn list_filters(State(state): State<AppState>) -> AppResult<Json<Vec<F
     tag = "Filters",
     security(("jwt" = []))
 )]
-pub async fn get_filter(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<FilterResponse>> {
+pub async fn get_filter(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<FilterResponse>> {
     let item = crate::service::filters::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -55,7 +61,11 @@ pub struct UpdateFilterRequest {
     tag = "Filters",
     security(("jwt" = []))
 )]
-pub async fn update_filter(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateFilterRequest>) -> AppResult<Json<FilterResponse>> {
+pub async fn update_filter(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateFilterRequest>,
+) -> AppResult<Json<FilterResponse>> {
     let item = crate::service::filters::update(&state, id, req.name, req.query).await?;
     Ok(Json(item))
 }
@@ -72,7 +82,10 @@ pub async fn update_filter(Path(id): Path<u32>, State(state): State<AppState>, J
     tag = "Filters",
     security(("jwt" = []))
 )]
-pub async fn create_filter(State(state): State<AppState>, Json(req): Json<CreateFilterRequest>) -> AppResult<(axum::http::StatusCode, Json<FilterResponse>)> {
+pub async fn create_filter(
+    State(state): State<AppState>,
+    Json(req): Json<CreateFilterRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<FilterResponse>)> {
     let item = crate::service::filters::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -89,7 +102,10 @@ pub async fn create_filter(State(state): State<AppState>, Json(req): Json<Create
     tag = "Filters",
     security(("jwt" = []))
 )]
-pub async fn delete_filter(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_filter(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::filters::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

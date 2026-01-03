@@ -1,7 +1,7 @@
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
-use crate::entity::config::{Entity as Config, Column};
-use crate::error::AppResult;
 use crate::entity::config;
+use crate::entity::config::{Column, Entity as Config};
+use crate::error::AppResult;
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
 // Constants for config keys
 pub const ZM_VERSION_KEY: &str = "ZM_DYN_CURR_VERSION";
@@ -9,15 +9,9 @@ pub const ZM_DB_VERSION_KEY: &str = "ZM_DYN_DB_VERSION";
 
 /// Fetch a specific config value by name
 #[tracing::instrument(skip_all)]
-pub async fn get_config_value(
-    db: &DatabaseConnection,
-    name: &str,
-) -> AppResult<Option<String>> {
-    let config = Config::find()
-        .filter(Column::Name.eq(name))
-        .one(db)
-        .await?;
-    
+pub async fn get_config_value(db: &DatabaseConnection, name: &str) -> AppResult<Option<String>> {
+    let config = Config::find().filter(Column::Name.eq(name)).one(db).await?;
+
     Ok(config.map(|c| c.value))
 }
 
@@ -55,7 +49,11 @@ pub async fn find_by_name(db: &DatabaseConnection, name: &str) -> AppResult<Opti
 
 /// Update a config value by name
 #[tracing::instrument(skip_all)]
-pub async fn update_value(db: &DatabaseConnection, name: &str, value: &str) -> AppResult<Option<config::Model>> {
+pub async fn update_value(
+    db: &DatabaseConnection,
+    name: &str,
+    value: &str,
+) -> AppResult<Option<config::Model>> {
     use sea_orm::{ActiveModelTrait, Set};
     if let Some(model) = find_by_name(db, name).await? {
         let mut active: config::ActiveModel = model.into();
@@ -134,7 +132,10 @@ mod tests {
             // initial SELECT find_by_name
             .append_query_results::<config::Model, _, _>(vec![vec![mk_config(key, "old")]])
             // UPDATE exec
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             // some drivers perform a follow-up SELECT; provide updated row
             .append_query_results::<config::Model, _, _>(vec![vec![mk_config(key, "new")]])
             .into_connection();

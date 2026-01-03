@@ -1,6 +1,6 @@
-use sea_orm::*;
 use crate::entity::users::{Entity as Users, Model as UserModel};
 use crate::error::AppResult;
+use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<UserModel>> {
     Ok(Users::find().all(db).await?)
@@ -17,33 +17,45 @@ pub async fn find_by_username_and_status(
     username: &str,
     is_enabled: bool,
 ) -> AppResult<Option<UserModel>> {
-    Ok(
-        Users::find()
-            .filter(
-                crate::entity::users::Column::Username
-                    .eq(username)
-                    .and(crate::entity::users::Column::Enabled.eq(is_enabled)),
-            )
-            .one(db)
-            .await?,
-    )
+    Ok(Users::find()
+        .filter(
+            crate::entity::users::Column::Username
+                .eq(username)
+                .and(crate::entity::users::Column::Enabled.eq(is_enabled)),
+        )
+        .one(db)
+        .await?)
 }
 
-pub async fn update(db: &DatabaseConnection, id: u32, email: Option<String>, enabled: Option<u8>) -> AppResult<Option<UserModel>> {
+pub async fn update(
+    db: &DatabaseConnection,
+    id: u32,
+    email: Option<String>,
+    enabled: Option<u8>,
+) -> AppResult<Option<UserModel>> {
     use sea_orm::{ActiveModelTrait, Set};
     if let Some(model) = find_by_id(db, id).await? {
         let mut active: crate::entity::users::ActiveModel = model.into();
-        if let Some(e) = email { active.email = Set(e); }
-        if let Some(en) = enabled { active.enabled = Set(en); }
+        if let Some(e) = email {
+            active.email = Set(e);
+        }
+        if let Some(en) = enabled {
+            active.enabled = Set(en);
+        }
         let updated = active.update(db).await?;
         Ok(Some(updated))
-    } else { Ok(None) }
+    } else {
+        Ok(None)
+    }
 }
 
-pub async fn create(db: &DatabaseConnection, req: &crate::dto::request::CreateUserRequest) -> AppResult<UserModel> {
-    use sea_orm::{ActiveModelTrait, Set};
-    use crate::entity::users::ActiveModel as AM;
+pub async fn create(
+    db: &DatabaseConnection,
+    req: &crate::dto::request::CreateUserRequest,
+) -> AppResult<UserModel> {
     use crate::entity::sea_orm_active_enums as E;
+    use crate::entity::users::ActiveModel as AM;
+    use sea_orm::{ActiveModelTrait, Set};
     let am = AM {
         id: Default::default(),
         username: Set(req.username.clone()),
@@ -78,8 +90,8 @@ pub async fn delete_by_id(db: &DatabaseConnection, id: u32) -> AppResult<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
     use crate::entity::sea_orm_active_enums as E;
+    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
 
     fn mk_user(id: u32, username: &str, enabled: u8) -> UserModel {
         UserModel {
@@ -112,7 +124,9 @@ mod tests {
             .append_query_results(vec![vec![mk_user(1, "admin", 1)]])
             .into_connection();
 
-        let res = find_by_username_and_status(&db, "admin", true).await.unwrap();
+        let res = find_by_username_and_status(&db, "admin", true)
+            .await
+            .unwrap();
         assert!(res.is_some());
         let user = res.unwrap();
         assert_eq!(user.username, "admin");
@@ -126,7 +140,9 @@ mod tests {
             .append_query_results::<UserModel, _, _>(vec![empty])
             .into_connection();
 
-        let res = find_by_username_and_status(&db, "missing", true).await.unwrap();
+        let res = find_by_username_and_status(&db, "missing", true)
+            .await
+            .unwrap();
         assert!(res.is_none());
     }
 
@@ -138,11 +154,17 @@ mod tests {
         after.enabled = 0;
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<UserModel, _, _>(vec![vec![initial]])
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .append_query_results::<UserModel, _, _>(vec![vec![after.clone()]])
             .into_connection();
 
-        let updated = update(&db, 42, Some("new@example.com".into()), Some(0)).await.unwrap().unwrap();
+        let updated = update(&db, 42, Some("new@example.com".into()), Some(0))
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(updated.email, "new@example.com");
         assert_eq!(updated.enabled, 0);
     }
@@ -150,12 +172,18 @@ mod tests {
     #[tokio::test]
     async fn test_delete_by_id_affects_rows() {
         let db_true = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 1 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
             .into_connection();
         assert!(delete_by_id(&db_true, 1).await.unwrap());
 
         let db_false = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult { last_insert_id: 0, rows_affected: 0 }])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 0,
+            }])
             .into_connection();
         assert!(!delete_by_id(&db_false, 1).await.unwrap());
     }

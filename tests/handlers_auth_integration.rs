@@ -42,7 +42,9 @@ async fn test_api_auth_login_refresh_logout() {
     let username = format!("{}auth_user", test_prefix());
     let password = "TestPass123!";
 
-    let setup_db = get_test_db().await.expect("Failed to connect to test database");
+    let setup_db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
     create_user_db(&setup_db, &username, password)
         .await
         .expect("Failed to create test user");
@@ -68,7 +70,9 @@ async fn test_api_auth_login_refresh_logout() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let token: TokenResponse = serde_json::from_slice(&bytes).unwrap();
     assert!(!token.access_token.is_empty());
     assert!(!token.refresh_token.is_empty());
@@ -90,14 +94,19 @@ async fn test_api_auth_login_refresh_logout() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let refreshed: TokenResponse = serde_json::from_slice(&bytes).unwrap();
     assert!(!refreshed.access_token.is_empty());
 
     let response = app
         .oneshot(
             Request::get("/api/v3/auth/logout")
-                .header(header::AUTHORIZATION, format!("Bearer {}", token.access_token))
+                .header(
+                    header::AUTHORIZATION,
+                    format!("Bearer {}", token.access_token),
+                )
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -105,11 +114,15 @@ async fn test_api_auth_login_refresh_logout() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let body: MessageResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body.message(), "Logout successful");
 
-    let cleanup_db = get_test_db().await.expect("Failed to get cleanup connection");
+    let cleanup_db = get_test_db()
+        .await
+        .expect("Failed to get cleanup connection");
     cleanup_users_db(&cleanup_db)
         .await
         .expect("Failed to cleanup users");

@@ -1,6 +1,6 @@
+use crate::entity::reports::Model as ReportModel;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::entity::reports::Model as ReportModel;
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ReportResponse {

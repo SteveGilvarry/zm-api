@@ -7,5 +7,5 @@ pub mod http;
 pub mod webrtc_signaling;
 
 pub trait ClientBuilder: Sized {
-  fn build_from_config(config: &AppConfig) -> AppResult<Self>;
+    fn build_from_config(config: &AppConfig) -> AppResult<Self>;
 }

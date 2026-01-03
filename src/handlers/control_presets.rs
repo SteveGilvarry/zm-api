@@ -1,12 +1,19 @@
-use axum::{extract::{Path, State, Query}, Json};
-use serde::Deserialize;
+use crate::dto::request::control_presets::{
+    CreateControlPresetRequest, UpdateControlPresetRequest,
+};
 use crate::dto::response::ControlPresetResponse;
-use crate::dto::request::control_presets::{CreateControlPresetRequest, UpdateControlPresetRequest};
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
-pub struct ControlPresetQuery { pub monitor_id: Option<u32> }
+pub struct ControlPresetQuery {
+    pub monitor_id: Option<u32>,
+}
 
 /// List control presets; optionally filter by monitor id.
 ///
@@ -19,7 +26,10 @@ pub struct ControlPresetQuery { pub monitor_id: Option<u32> }
     tag = "Control Presets",
     security(("jwt" = []))
 )]
-pub async fn list_control_presets(State(state): State<AppState>, Query(q): Query<ControlPresetQuery>) -> AppResult<Json<Vec<ControlPresetResponse>>> {
+pub async fn list_control_presets(
+    State(state): State<AppState>,
+    Query(q): Query<ControlPresetQuery>,
+) -> AppResult<Json<Vec<ControlPresetResponse>>> {
     let items = if let Some(mid) = q.monitor_id {
         crate::service::control_presets::list_by_monitor(&state, mid).await?
     } else {
@@ -42,7 +52,10 @@ pub async fn list_control_presets(State(state): State<AppState>, Query(q): Query
     tag = "Control Presets",
     security(("jwt" = []))
 )]
-pub async fn get_control_preset(Path((monitor_id, preset)): Path<(u32, u32)>, State(state): State<AppState>) -> AppResult<Json<ControlPresetResponse>> {
+pub async fn get_control_preset(
+    Path((monitor_id, preset)): Path<(u32, u32)>,
+    State(state): State<AppState>,
+) -> AppResult<Json<ControlPresetResponse>> {
     let item = crate::service::control_presets::get_by_id(&state, monitor_id, preset).await?;
     Ok(Json(item))
 }
@@ -58,7 +71,10 @@ pub async fn get_control_preset(Path((monitor_id, preset)): Path<(u32, u32)>, St
     tag = "Control Presets",
     security(("jwt" = []))
 )]
-pub async fn create_control_preset(State(state): State<AppState>, Json(req): Json<CreateControlPresetRequest>) -> AppResult<(axum::http::StatusCode, Json<ControlPresetResponse>)> {
+pub async fn create_control_preset(
+    State(state): State<AppState>,
+    Json(req): Json<CreateControlPresetRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<ControlPresetResponse>)> {
     let item = crate::service::control_presets::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -79,7 +95,11 @@ pub async fn create_control_preset(State(state): State<AppState>, Json(req): Jso
     tag = "Control Presets",
     security(("jwt" = []))
 )]
-pub async fn update_control_preset(Path((monitor_id, preset)): Path<(u32, u32)>, State(state): State<AppState>, Json(req): Json<UpdateControlPresetRequest>) -> AppResult<Json<ControlPresetResponse>> {
+pub async fn update_control_preset(
+    Path((monitor_id, preset)): Path<(u32, u32)>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateControlPresetRequest>,
+) -> AppResult<Json<ControlPresetResponse>> {
     let item = crate::service::control_presets::update(&state, monitor_id, preset, req).await?;
     Ok(Json(item))
 }
@@ -99,7 +119,10 @@ pub async fn update_control_preset(Path((monitor_id, preset)): Path<(u32, u32)>,
     tag = "Control Presets",
     security(("jwt" = []))
 )]
-pub async fn delete_control_preset(Path((monitor_id, preset)): Path<(u32, u32)>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_control_preset(
+    Path((monitor_id, preset)): Path<(u32, u32)>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::control_presets::delete(&state, monitor_id, preset).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

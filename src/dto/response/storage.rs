@@ -21,4 +21,3 @@ impl From<&crate::entity::storage::Model> for StorageResponse {
         }
     }
 }
-

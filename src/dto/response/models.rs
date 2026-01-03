@@ -10,7 +10,10 @@ pub struct ModelResponse {
 
 impl From<&crate::entity::models::Model> for ModelResponse {
     fn from(m: &crate::entity::models::Model) -> Self {
-        Self { id: m.id, name: m.name.clone(), manufacturer_id: m.manufacturer_id }
+        Self {
+            id: m.id,
+            name: m.name.clone(),
+            manufacturer_id: m.manufacturer_id,
+        }
     }
 }
-

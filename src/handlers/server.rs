@@ -2,9 +2,9 @@ use axum::extract::{Path, State};
 use axum::Json;
 use tracing::{info, warn};
 
+use crate::dto::response::{MessageResponse, VersionResponse};
 use crate::error::AppResult;
 use crate::server::state::AppState;
-use crate::dto::response::{MessageResponse, VersionResponse};
 use crate::service;
 
 // Health check.
@@ -17,7 +17,7 @@ use crate::service;
     tag = "Server"
 )]
 pub async fn health_check() -> AppResult<Json<MessageResponse>> {
-  Ok(Json(MessageResponse::new("Ok")))
+    Ok(Json(MessageResponse::new("Ok")))
 }
 
 #[utoipa::path(
@@ -35,7 +35,7 @@ pub async fn get_version(State(state): State<AppState>) -> AppResult<Json<Versio
         Ok(version_info) => {
             info!("Successfully retrieved version information");
             Ok(Json(version_info))
-        },
+        }
         Err(e) => {
             warn!("Failed to get version information: {:?}", e);
             Err(e)
@@ -65,7 +65,7 @@ pub async fn change_state(
     Path(action): Path<String>,
 ) -> AppResult<Json<MessageResponse>> {
     info!("Handling request to change ZoneMinder state: {}", action);
-    
+
     let message = match action.to_lowercase().as_str() {
         "restart" => {
             service::server::restart_zoneminder(&state).await?;
@@ -80,21 +80,22 @@ pub async fn change_state(
             "ZoneMinder started successfully"
         }
         _ => {
-            return Err(crate::error::AppError::BadRequestError(
-                format!("Invalid action '{}'. Valid actions are: restart, stop, start", action)
-            ));
+            return Err(crate::error::AppError::BadRequestError(format!(
+                "Invalid action '{}'. Valid actions are: restart, stop, start",
+                action
+            )));
         }
     };
-    
+
     Ok(Json(MessageResponse::new(message)))
 }
 
 #[cfg(test)]
 pub mod tests {
-  use super::*;
+    use super::*;
 
-  #[tokio::test]
-  async fn test_health_check_handler() {
-    assert_eq!(health_check().await.unwrap().0.message(), "Ok");
-  }
+    #[tokio::test]
+    async fn test_health_check_handler() {
+        assert_eq!(health_check().await.unwrap().0.message(), "Ok");
+    }
 }

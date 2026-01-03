@@ -12,7 +12,9 @@ use tower::ServiceExt;
 use zm_api::dto::request::reports::CreateReportRequest;
 use zm_api::dto::request::tags::CreateTagRequest;
 use zm_api::dto::request::CreateStorageRequest;
-use zm_api::dto::response::{ConfigResponse, LogResponse, ReportResponse, StorageResponse, TagResponse};
+use zm_api::dto::response::{
+    ConfigResponse, LogResponse, ReportResponse, StorageResponse, TagResponse,
+};
 use zm_api::entity::logs;
 
 fn auth_header() -> String {
@@ -47,7 +49,9 @@ async fn cleanup_log_db(db: &DatabaseConnection, id: u32) -> Result<(), DbErr> {
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_configs_list_get_not_found() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
     let app = build_app(db);
 
     let response = app
@@ -62,7 +66,9 @@ async fn test_api_configs_list_get_not_found() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
     let _body: Vec<ConfigResponse> = serde_json::from_slice(&bytes).unwrap();
 
     let response = app
@@ -81,7 +87,9 @@ async fn test_api_configs_list_get_not_found() {
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_storage_create_get_delete() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
     let app = build_app(db);
 
     let name = format!("{}storage", test_prefix());
@@ -109,7 +117,9 @@ async fn test_api_storage_create_get_delete() {
         .unwrap();
 
     let status = response.status();
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     if status != StatusCode::CREATED {
         panic!(
             "Unexpected status {}: {}",
@@ -147,7 +157,9 @@ async fn test_api_storage_create_get_delete() {
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_logs_list_get() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
     let log = create_log_db(&db).await.expect("Failed to create log");
     let app = build_app(db);
 
@@ -162,7 +174,9 @@ async fn test_api_logs_list_get() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let body: Vec<LogResponse> = serde_json::from_slice(&bytes).unwrap();
     assert!(body.iter().any(|l| l.id == log.id));
 
@@ -177,7 +191,9 @@ async fn test_api_logs_list_get() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let cleanup_db = get_test_db().await.expect("Failed to get cleanup connection");
+    let cleanup_db = get_test_db()
+        .await
+        .expect("Failed to get cleanup connection");
     cleanup_log_db(&cleanup_db, log.id)
         .await
         .expect("Failed to cleanup log");
@@ -186,7 +202,9 @@ async fn test_api_logs_list_get() {
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_reports_create_get_delete() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
     let app = build_app(db);
 
     let prefix = test_prefix();
@@ -217,7 +235,9 @@ async fn test_api_reports_create_get_delete() {
         .await
         .unwrap();
     let status = response.status();
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     if status != StatusCode::CREATED {
         panic!(
             "Unexpected status {}: {}",
@@ -255,7 +275,9 @@ async fn test_api_reports_create_get_delete() {
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_tags_create_get_delete() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
     let app = build_app(db);
 
     let name = format!("{}tag", test_prefix());
@@ -277,7 +299,9 @@ async fn test_api_tags_create_get_delete() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let created: TagResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(created.name, name);
 

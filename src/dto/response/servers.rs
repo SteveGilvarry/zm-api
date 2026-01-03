@@ -21,4 +21,3 @@ impl From<&crate::entity::servers::Model> for ServerResponse {
         }
     }
 }
-

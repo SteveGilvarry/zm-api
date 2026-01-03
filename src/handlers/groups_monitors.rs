@@ -1,9 +1,12 @@
-use axum::{extract::{Path, State, Query}, Json};
-use serde::Deserialize;
-use crate::dto::response::GroupMonitorResponse;
 use crate::dto::request::groups_monitors::CreateGroupMonitorRequest;
+use crate::dto::response::GroupMonitorResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct GroupMonitorQuery {
@@ -23,8 +26,13 @@ pub struct GroupMonitorQuery {
     tag = "Groups Monitors",
     security(("jwt" = []))
 )]
-pub async fn list_groups_monitors(Query(params): Query<GroupMonitorQuery>, State(state): State<AppState>) -> AppResult<Json<Vec<GroupMonitorResponse>>> {
-    let items = crate::service::groups_monitors::list_all(&state, params.group_id, params.monitor_id).await?;
+pub async fn list_groups_monitors(
+    Query(params): Query<GroupMonitorQuery>,
+    State(state): State<AppState>,
+) -> AppResult<Json<Vec<GroupMonitorResponse>>> {
+    let items =
+        crate::service::groups_monitors::list_all(&state, params.group_id, params.monitor_id)
+            .await?;
     Ok(Json(items))
 }
 
@@ -37,7 +45,10 @@ pub async fn list_groups_monitors(Query(params): Query<GroupMonitorQuery>, State
     tag = "Groups Monitors",
     security(("jwt" = []))
 )]
-pub async fn get_group_monitor(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<GroupMonitorResponse>> {
+pub async fn get_group_monitor(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<GroupMonitorResponse>> {
     let item = crate::service::groups_monitors::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -51,7 +62,10 @@ pub async fn get_group_monitor(Path(id): Path<u32>, State(state): State<AppState
     tag = "Groups Monitors",
     security(("jwt" = []))
 )]
-pub async fn create_group_monitor(State(state): State<AppState>, Json(req): Json<CreateGroupMonitorRequest>) -> AppResult<(axum::http::StatusCode, Json<GroupMonitorResponse>)> {
+pub async fn create_group_monitor(
+    State(state): State<AppState>,
+    Json(req): Json<CreateGroupMonitorRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<GroupMonitorResponse>)> {
     let item = crate::service::groups_monitors::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -65,7 +79,10 @@ pub async fn create_group_monitor(State(state): State<AppState>, Json(req): Json
     tag = "Groups Monitors",
     security(("jwt" = []))
 )]
-pub async fn delete_group_monitor(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_group_monitor(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::groups_monitors::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

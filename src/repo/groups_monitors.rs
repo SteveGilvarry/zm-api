@@ -1,7 +1,9 @@
-use sea_orm::*;
-use crate::entity::groups_monitors::{Entity as GroupsMonitors, Model as GroupMonitorModel, ActiveModel, Column};
-use crate::error::AppResult;
 use crate::dto::request::groups_monitors::CreateGroupMonitorRequest;
+use crate::entity::groups_monitors::{
+    ActiveModel, Column, Entity as GroupsMonitors, Model as GroupMonitorModel,
+};
+use crate::error::AppResult;
+use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<GroupMonitorModel>> {
     Ok(GroupsMonitors::find().all(db).await?)
@@ -11,21 +13,30 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<Gr
     Ok(GroupsMonitors::find_by_id(id).one(db).await?)
 }
 
-pub async fn find_by_group_id(db: &DatabaseConnection, group_id: u32) -> AppResult<Vec<GroupMonitorModel>> {
+pub async fn find_by_group_id(
+    db: &DatabaseConnection,
+    group_id: u32,
+) -> AppResult<Vec<GroupMonitorModel>> {
     Ok(GroupsMonitors::find()
         .filter(Column::GroupId.eq(group_id))
         .all(db)
         .await?)
 }
 
-pub async fn find_by_monitor_id(db: &DatabaseConnection, monitor_id: u32) -> AppResult<Vec<GroupMonitorModel>> {
+pub async fn find_by_monitor_id(
+    db: &DatabaseConnection,
+    monitor_id: u32,
+) -> AppResult<Vec<GroupMonitorModel>> {
     Ok(GroupsMonitors::find()
         .filter(Column::MonitorId.eq(monitor_id))
         .all(db)
         .await?)
 }
 
-pub async fn create(db: &DatabaseConnection, req: &CreateGroupMonitorRequest) -> AppResult<GroupMonitorModel> {
+pub async fn create(
+    db: &DatabaseConnection,
+    req: &CreateGroupMonitorRequest,
+) -> AppResult<GroupMonitorModel> {
     let am = ActiveModel {
         id: Default::default(),
         group_id: Set(req.group_id),

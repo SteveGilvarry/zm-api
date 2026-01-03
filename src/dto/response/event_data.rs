@@ -1,6 +1,6 @@
+use crate::entity::event_data::Model as EventDataModel;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::entity::event_data::Model as EventDataModel;
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct EventDataResponse {

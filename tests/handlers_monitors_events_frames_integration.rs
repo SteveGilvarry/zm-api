@@ -9,7 +9,9 @@ use common::test_db::{get_test_db, test_prefix};
 use sea_orm::{ActiveModelTrait, DatabaseConnection, DbErr, EntityTrait, Set};
 use tower::ServiceExt;
 use zm_api::dto::request::{AlarmControlRequest, CreateMonitorRequest, UpdateStateRequest};
-use zm_api::dto::response::{EventResponse, FrameResponse, MonitorResponse, PaginatedEventsResponse};
+use zm_api::dto::response::{
+    EventResponse, FrameResponse, MonitorResponse, PaginatedEventsResponse,
+};
 use zm_api::entity::sea_orm_active_enums::{
     Analysing, AnalysisImage, AnalysisSource, Capturing, Decoding, DefaultCodec, EventCloseMode,
     Function, Importance, MonitorType, Orientation, OutputContainer, Recording, RecordingSource,
@@ -178,7 +180,9 @@ async fn create_monitor(app: &axum::Router, name: String) -> MonitorResponse {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 256 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 256 * 1024)
+        .await
+        .unwrap();
     serde_json::from_slice(&bytes).expect("parse monitor response")
 }
 
@@ -195,7 +199,9 @@ async fn get_monitor(app: &axum::Router, id: u32) -> MonitorResponse {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 256 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 256 * 1024)
+        .await
+        .unwrap();
     serde_json::from_slice(&bytes).expect("parse monitor response")
 }
 
@@ -246,7 +252,9 @@ async fn cleanup_frame_db(db: &DatabaseConnection, id: u64) -> Result<(), DbErr>
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_monitors_create_update_delete() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
     let app = build_app(db);
 
     let name = format!("{}create_monitor", test_prefix());
@@ -272,7 +280,9 @@ async fn test_api_monitors_create_update_delete() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 256 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 256 * 1024)
+        .await
+        .unwrap();
     let updated: MonitorResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(updated.id, created.id);
     assert_eq!(updated.name, updated_name);
@@ -296,15 +306,18 @@ async fn test_api_monitors_create_update_delete() {
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_monitors_state_alarm() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
     let app = build_app(db);
 
     let name = format!("{}state_monitor", test_prefix());
     let created = create_monitor(&app, name).await;
 
-    let state_body =
-        serde_json::to_vec(&UpdateStateRequest { state: "start".to_string() })
-            .expect("serialize state request");
+    let state_body = serde_json::to_vec(&UpdateStateRequest {
+        state: "start".to_string(),
+    })
+    .expect("serialize state request");
     let response = app
         .clone()
         .oneshot(
@@ -318,9 +331,10 @@ async fn test_api_monitors_state_alarm() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let alarm_body =
-        serde_json::to_vec(&AlarmControlRequest { action: "status".to_string() })
-            .expect("serialize alarm request");
+    let alarm_body = serde_json::to_vec(&AlarmControlRequest {
+        action: "status".to_string(),
+    })
+    .expect("serialize alarm request");
     let response = app
         .clone()
         .oneshot(
@@ -349,8 +363,12 @@ async fn test_api_monitors_state_alarm() {
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_monitors_list_get() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
-    let monitor = create_monitor_db(&db).await.expect("Failed to create monitor");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
+    let monitor = create_monitor_db(&db)
+        .await
+        .expect("Failed to create monitor");
     let app = build_app(db);
 
     let response = app
@@ -365,7 +383,9 @@ async fn test_api_monitors_list_get() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 256 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 256 * 1024)
+        .await
+        .unwrap();
     let body: Vec<MonitorResponse> = serde_json::from_slice(&bytes).unwrap();
     assert!(body.iter().any(|m| m.id == monitor.id));
 
@@ -380,11 +400,15 @@ async fn test_api_monitors_list_get() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 256 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 256 * 1024)
+        .await
+        .unwrap();
     let body: MonitorResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body.id, monitor.id);
 
-    let cleanup_db = get_test_db().await.expect("Failed to get cleanup connection");
+    let cleanup_db = get_test_db()
+        .await
+        .expect("Failed to get cleanup connection");
     cleanup_monitor_db(&cleanup_db, monitor.id)
         .await
         .expect("Failed to cleanup monitor");
@@ -393,9 +417,15 @@ async fn test_api_monitors_list_get() {
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_events_list_get() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
-    let monitor = create_monitor_db(&db).await.expect("Failed to create monitor");
-    let event = create_event_db(&db, monitor.id).await.expect("Failed to create event");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
+    let monitor = create_monitor_db(&db)
+        .await
+        .expect("Failed to create monitor");
+    let event = create_event_db(&db, monitor.id)
+        .await
+        .expect("Failed to create event");
     let app = build_app(db);
 
     let response = app
@@ -410,7 +440,9 @@ async fn test_api_events_list_get() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 256 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 256 * 1024)
+        .await
+        .unwrap();
     let body: PaginatedEventsResponse = serde_json::from_slice(&bytes).unwrap();
     assert!(body.events.iter().any(|e| e.id == event.id));
 
@@ -425,11 +457,15 @@ async fn test_api_events_list_get() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 256 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 256 * 1024)
+        .await
+        .unwrap();
     let body: EventResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body.id, event.id);
 
-    let cleanup_db = get_test_db().await.expect("Failed to get cleanup connection");
+    let cleanup_db = get_test_db()
+        .await
+        .expect("Failed to get cleanup connection");
     cleanup_event_db(&cleanup_db, event.id)
         .await
         .expect("Failed to cleanup event");
@@ -441,10 +477,18 @@ async fn test_api_events_list_get() {
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_frames_list_get() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
-    let monitor = create_monitor_db(&db).await.expect("Failed to create monitor");
-    let event = create_event_db(&db, monitor.id).await.expect("Failed to create event");
-    let frame = create_frame_db(&db, event.id).await.expect("Failed to create frame");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
+    let monitor = create_monitor_db(&db)
+        .await
+        .expect("Failed to create monitor");
+    let event = create_event_db(&db, monitor.id)
+        .await
+        .expect("Failed to create event");
+    let frame = create_frame_db(&db, event.id)
+        .await
+        .expect("Failed to create frame");
     let app = build_app(db);
 
     let response = app
@@ -459,7 +503,9 @@ async fn test_api_frames_list_get() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let body: Vec<FrameResponse> = serde_json::from_slice(&bytes).unwrap();
     assert!(body.iter().any(|f| f.id == frame.id));
 
@@ -474,11 +520,15 @@ async fn test_api_frames_list_get() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let body: FrameResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body.id, frame.id);
 
-    let cleanup_db = get_test_db().await.expect("Failed to get cleanup connection");
+    let cleanup_db = get_test_db()
+        .await
+        .expect("Failed to get cleanup connection");
     cleanup_frame_db(&cleanup_db, frame.id)
         .await
         .expect("Failed to cleanup frame");

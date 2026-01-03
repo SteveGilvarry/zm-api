@@ -1,12 +1,19 @@
-use axum::{extract::{Path, State, Query}, Json};
-use serde::Deserialize;
+use crate::dto::request::user_preferences::{
+    CreateUserPreferenceRequest, UpdateUserPreferenceRequest,
+};
 use crate::dto::response::UserPreferenceResponse;
-use crate::dto::request::user_preferences::{CreateUserPreferenceRequest, UpdateUserPreferenceRequest};
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
-pub struct UserPreferenceQuery { pub user_id: Option<u32> }
+pub struct UserPreferenceQuery {
+    pub user_id: Option<u32>,
+}
 
 /// List user preferences; optionally filter by user_id.
 ///
@@ -19,7 +26,10 @@ pub struct UserPreferenceQuery { pub user_id: Option<u32> }
     tag = "User Preferences",
     security(("jwt" = []))
 )]
-pub async fn list_user_preferences(State(state): State<AppState>, Query(q): Query<UserPreferenceQuery>) -> AppResult<Json<Vec<UserPreferenceResponse>>> {
+pub async fn list_user_preferences(
+    State(state): State<AppState>,
+    Query(q): Query<UserPreferenceQuery>,
+) -> AppResult<Json<Vec<UserPreferenceResponse>>> {
     let items = crate::service::user_preferences::list_all(&state, q.user_id).await?;
     Ok(Json(items))
 }
@@ -35,7 +45,10 @@ pub async fn list_user_preferences(State(state): State<AppState>, Query(q): Quer
     tag = "User Preferences",
     security(("jwt" = []))
 )]
-pub async fn get_user_preference(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<UserPreferenceResponse>> {
+pub async fn get_user_preference(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<UserPreferenceResponse>> {
     let item = crate::service::user_preferences::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -51,7 +64,10 @@ pub async fn get_user_preference(Path(id): Path<u32>, State(state): State<AppSta
     tag = "User Preferences",
     security(("jwt" = []))
 )]
-pub async fn create_user_preference(State(state): State<AppState>, Json(req): Json<CreateUserPreferenceRequest>) -> AppResult<(axum::http::StatusCode, Json<UserPreferenceResponse>)> {
+pub async fn create_user_preference(
+    State(state): State<AppState>,
+    Json(req): Json<CreateUserPreferenceRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<UserPreferenceResponse>)> {
     let item = crate::service::user_preferences::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -69,7 +85,11 @@ pub async fn create_user_preference(State(state): State<AppState>, Json(req): Js
     tag = "User Preferences",
     security(("jwt" = []))
 )]
-pub async fn update_user_preference(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateUserPreferenceRequest>) -> AppResult<Json<UserPreferenceResponse>> {
+pub async fn update_user_preference(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateUserPreferenceRequest>,
+) -> AppResult<Json<UserPreferenceResponse>> {
     let item = crate::service::user_preferences::update(&state, id, req).await?;
     Ok(Json(item))
 }
@@ -86,7 +106,10 @@ pub async fn update_user_preference(Path(id): Path<u32>, State(state): State<App
     tag = "User Preferences",
     security(("jwt" = []))
 )]
-pub async fn delete_user_preference(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_user_preference(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::user_preferences::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

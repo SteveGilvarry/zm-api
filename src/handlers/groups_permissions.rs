@@ -1,9 +1,14 @@
-use axum::{extract::{Path, State, Query}, Json};
-use serde::Deserialize;
+use crate::dto::request::groups_permissions::{
+    CreateGroupPermissionRequest, UpdateGroupPermissionRequest,
+};
 use crate::dto::response::GroupPermissionResponse;
-use crate::dto::request::groups_permissions::{CreateGroupPermissionRequest, UpdateGroupPermissionRequest};
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use axum::{
+    extract::{Path, Query, State},
+    Json,
+};
+use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct GroupPermissionQuery {
@@ -23,8 +28,13 @@ pub struct GroupPermissionQuery {
     tag = "Groups Permissions",
     security(("jwt" = []))
 )]
-pub async fn list_groups_permissions(Query(params): Query<GroupPermissionQuery>, State(state): State<AppState>) -> AppResult<Json<Vec<GroupPermissionResponse>>> {
-    let items = crate::service::groups_permissions::list_all(&state, params.group_id, params.user_id).await?;
+pub async fn list_groups_permissions(
+    Query(params): Query<GroupPermissionQuery>,
+    State(state): State<AppState>,
+) -> AppResult<Json<Vec<GroupPermissionResponse>>> {
+    let items =
+        crate::service::groups_permissions::list_all(&state, params.group_id, params.user_id)
+            .await?;
     Ok(Json(items))
 }
 
@@ -37,7 +47,10 @@ pub async fn list_groups_permissions(Query(params): Query<GroupPermissionQuery>,
     tag = "Groups Permissions",
     security(("jwt" = []))
 )]
-pub async fn get_group_permission(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<Json<GroupPermissionResponse>> {
+pub async fn get_group_permission(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<GroupPermissionResponse>> {
     let item = crate::service::groups_permissions::get_by_id(&state, id).await?;
     Ok(Json(item))
 }
@@ -51,7 +64,10 @@ pub async fn get_group_permission(Path(id): Path<u32>, State(state): State<AppSt
     tag = "Groups Permissions",
     security(("jwt" = []))
 )]
-pub async fn create_group_permission(State(state): State<AppState>, Json(req): Json<CreateGroupPermissionRequest>) -> AppResult<(axum::http::StatusCode, Json<GroupPermissionResponse>)> {
+pub async fn create_group_permission(
+    State(state): State<AppState>,
+    Json(req): Json<CreateGroupPermissionRequest>,
+) -> AppResult<(axum::http::StatusCode, Json<GroupPermissionResponse>)> {
     let item = crate::service::groups_permissions::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -66,7 +82,11 @@ pub async fn create_group_permission(State(state): State<AppState>, Json(req): J
     tag = "Groups Permissions",
     security(("jwt" = []))
 )]
-pub async fn update_group_permission(Path(id): Path<u32>, State(state): State<AppState>, Json(req): Json<UpdateGroupPermissionRequest>) -> AppResult<Json<GroupPermissionResponse>> {
+pub async fn update_group_permission(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+    Json(req): Json<UpdateGroupPermissionRequest>,
+) -> AppResult<Json<GroupPermissionResponse>> {
     let item = crate::service::groups_permissions::update(&state, id, req).await?;
     Ok(Json(item))
 }
@@ -80,7 +100,10 @@ pub async fn update_group_permission(Path(id): Path<u32>, State(state): State<Ap
     tag = "Groups Permissions",
     security(("jwt" = []))
 )]
-pub async fn delete_group_permission(Path(id): Path<u32>, State(state): State<AppState>) -> AppResult<axum::http::StatusCode> {
+pub async fn delete_group_permission(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<axum::http::StatusCode> {
     crate::service::groups_permissions::delete(&state, id).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

@@ -2,7 +2,9 @@ use chrono::Utc;
 use sea_orm::*;
 
 use crate::dto::request::events_tags::CreateEventTagRequest;
-use crate::entity::events_tags::{ActiveModel, Column, Entity as EventsTags, Model as EventTagModel};
+use crate::entity::events_tags::{
+    ActiveModel, Column, Entity as EventsTags, Model as EventTagModel,
+};
 use crate::error::AppResult;
 
 pub async fn find_all(

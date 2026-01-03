@@ -64,11 +64,16 @@ pub async fn get_webrtc_offer(
     State(state): State<AppState>,
     Path((camera_id, viewer_id)): Path<(i32, String)>,
 ) -> AppResult<Json<OfferResponse>> {
-    info!("Requesting WebRTC offer for camera {} and viewer {}", camera_id, viewer_id);
+    info!(
+        "Requesting WebRTC offer for camera {} and viewer {}",
+        camera_id, viewer_id
+    );
 
     // Validate viewer_id
     if viewer_id.is_empty() {
-        return Err(AppError::BadRequestError("Viewer ID must not be empty".to_string()));
+        return Err(AppError::BadRequestError(
+            "Viewer ID must not be empty".to_string(),
+        ));
     }
 
     // Get WebRTC client from app state
@@ -77,12 +82,21 @@ pub async fn get_webrtc_offer(
     // Request SDP offer from plugin
     match webrtc_client.get_offer(camera_id, viewer_id.clone()).await {
         Ok(offer) => {
-            info!("Successfully generated WebRTC offer for camera {} and viewer {}", camera_id, viewer_id);
+            info!(
+                "Successfully generated WebRTC offer for camera {} and viewer {}",
+                camera_id, viewer_id
+            );
             Ok(Json(OfferResponse { offer, viewer_id }))
         }
         Err(e) => {
-            error!("Failed to get WebRTC offer for camera {} and viewer {}: {}", camera_id, viewer_id, e);
-            Err(AppError::InternalServerError(format!("WebRTC plugin error: {}", e)))
+            error!(
+                "Failed to get WebRTC offer for camera {} and viewer {}: {}",
+                camera_id, viewer_id, e
+            );
+            Err(AppError::InternalServerError(format!(
+                "WebRTC plugin error: {}",
+                e
+            )))
         }
     }
 }
@@ -114,37 +128,58 @@ pub async fn send_webrtc_answer(
     Path((camera_id, viewer_id)): Path<(i32, String)>,
     Json(answer_req): Json<AnswerRequest>,
 ) -> AppResult<Json<SuccessResponse>> {
-    info!("Sending WebRTC answer for viewer {} on camera {}", viewer_id, camera_id);
+    info!(
+        "Sending WebRTC answer for viewer {} on camera {}",
+        viewer_id, camera_id
+    );
 
     // Validate inputs
     if viewer_id.is_empty() {
-        return Err(AppError::BadRequestError("Viewer ID must not be empty".to_string()));
+        return Err(AppError::BadRequestError(
+            "Viewer ID must not be empty".to_string(),
+        ));
     }
 
     if answer_req.answer.is_empty() {
-        return Err(AppError::BadRequestError("SDP answer must not be empty".to_string()));
+        return Err(AppError::BadRequestError(
+            "SDP answer must not be empty".to_string(),
+        ));
     }
 
     // Get WebRTC client from app state
     let webrtc_client = &state.webrtc_client;
 
     // Send SDP answer to plugin
-    match webrtc_client.send_answer(camera_id, viewer_id.clone(), answer_req.answer).await {
+    match webrtc_client
+        .send_answer(camera_id, viewer_id.clone(), answer_req.answer)
+        .await
+    {
         Ok(success) => {
             if success {
-                info!("Successfully processed WebRTC answer for viewer {}", viewer_id);
+                info!(
+                    "Successfully processed WebRTC answer for viewer {}",
+                    viewer_id
+                );
                 Ok(Json(SuccessResponse {
                     success: true,
                     message: "SDP answer processed successfully".to_string(),
                 }))
             } else {
                 warn!("WebRTC plugin rejected answer for viewer {}", viewer_id);
-                Err(AppError::BadRequestError("WebRTC plugin rejected the SDP answer".to_string()))
+                Err(AppError::BadRequestError(
+                    "WebRTC plugin rejected the SDP answer".to_string(),
+                ))
             }
         }
         Err(e) => {
-            error!("Failed to send WebRTC answer for viewer {}: {}", viewer_id, e);
-            Err(AppError::InternalServerError(format!("WebRTC plugin error: {}", e)))
+            error!(
+                "Failed to send WebRTC answer for viewer {}: {}",
+                viewer_id, e
+            );
+            Err(AppError::InternalServerError(format!(
+                "WebRTC plugin error: {}",
+                e
+            )))
         }
     }
 }
@@ -176,43 +211,67 @@ pub async fn send_webrtc_candidate(
     Path((camera_id, viewer_id)): Path<(i32, String)>,
     Json(candidate_req): Json<CandidateRequest>,
 ) -> AppResult<Json<SuccessResponse>> {
-    info!("Sending WebRTC ICE candidate for viewer {} on camera {}", viewer_id, camera_id);
+    info!(
+        "Sending WebRTC ICE candidate for viewer {} on camera {}",
+        viewer_id, camera_id
+    );
 
     // Validate inputs
     if viewer_id.is_empty() {
-        return Err(AppError::BadRequestError("Viewer ID must not be empty".to_string()));
+        return Err(AppError::BadRequestError(
+            "Viewer ID must not be empty".to_string(),
+        ));
     }
 
     if candidate_req.candidate.is_empty() {
-        return Err(AppError::BadRequestError("ICE candidate must not be empty".to_string()));
+        return Err(AppError::BadRequestError(
+            "ICE candidate must not be empty".to_string(),
+        ));
     }
 
     // Get WebRTC client from app state
     let webrtc_client = &state.webrtc_client;
 
     // Send ICE candidate to plugin
-    match webrtc_client.send_candidate(
-        camera_id, 
-        viewer_id.clone(), 
-        candidate_req.candidate,
-        candidate_req.sdp_mid,
-        candidate_req.sdp_mline_index
-    ).await {
+    match webrtc_client
+        .send_candidate(
+            camera_id,
+            viewer_id.clone(),
+            candidate_req.candidate,
+            candidate_req.sdp_mid,
+            candidate_req.sdp_mline_index,
+        )
+        .await
+    {
         Ok(success) => {
             if success {
-                info!("Successfully processed WebRTC ICE candidate for viewer {}", viewer_id);
+                info!(
+                    "Successfully processed WebRTC ICE candidate for viewer {}",
+                    viewer_id
+                );
                 Ok(Json(SuccessResponse {
                     success: true,
                     message: "ICE candidate processed successfully".to_string(),
                 }))
             } else {
-                warn!("WebRTC plugin rejected ICE candidate for viewer {}", viewer_id);
-                Err(AppError::BadRequestError("WebRTC plugin rejected the ICE candidate".to_string()))
+                warn!(
+                    "WebRTC plugin rejected ICE candidate for viewer {}",
+                    viewer_id
+                );
+                Err(AppError::BadRequestError(
+                    "WebRTC plugin rejected the ICE candidate".to_string(),
+                ))
             }
         }
         Err(e) => {
-            error!("Failed to send WebRTC ICE candidate for viewer {}: {}", viewer_id, e);
-            Err(AppError::InternalServerError(format!("WebRTC plugin error: {}", e)))
+            error!(
+                "Failed to send WebRTC ICE candidate for viewer {}: {}",
+                viewer_id, e
+            );
+            Err(AppError::InternalServerError(format!(
+                "WebRTC plugin error: {}",
+                e
+            )))
         }
     }
 }
@@ -245,20 +304,29 @@ pub async fn drop_webrtc_viewer(
 
     // Validate inputs
     if viewer_id.is_empty() {
-        return Err(AppError::BadRequestError("Viewer ID must not be empty".to_string()));
+        return Err(AppError::BadRequestError(
+            "Viewer ID must not be empty".to_string(),
+        ));
     }
 
     // Get WebRTC client from app state
     let webrtc_client = &state.webrtc_client;
 
     // Find the camera_id for this viewer from our session manager
-    let camera_id = if let Some(session_key) = webrtc_client.sessions().find_session_by_viewer(&viewer_id).await {
+    let camera_id = if let Some(session_key) = webrtc_client
+        .sessions()
+        .find_session_by_viewer(&viewer_id)
+        .await
+    {
         let sessions = webrtc_client.sessions().list_sessions().await;
         if let Some(session) = sessions.get(&session_key) {
             session.camera_id
         } else {
             // Session not found, just clean up locally
-            warn!("Session not found for viewer {}, cleaning up locally", viewer_id);
+            warn!(
+                "Session not found for viewer {}, cleaning up locally",
+                viewer_id
+            );
             return Ok(Json(SuccessResponse {
                 success: true,
                 message: "Viewer session cleaned up locally".to_string(),
@@ -273,16 +341,25 @@ pub async fn drop_webrtc_viewer(
     };
 
     // Drop viewer connection
-    match webrtc_client.drop_viewer(camera_id, viewer_id.clone()).await {
+    match webrtc_client
+        .drop_viewer(camera_id, viewer_id.clone())
+        .await
+    {
         Ok(success) => {
             if success {
-                info!("Successfully dropped WebRTC viewer connection for viewer {}", viewer_id);
+                info!(
+                    "Successfully dropped WebRTC viewer connection for viewer {}",
+                    viewer_id
+                );
                 Ok(Json(SuccessResponse {
                     success: true,
                     message: "Viewer connection dropped successfully".to_string(),
                 }))
             } else {
-                warn!("WebRTC plugin reported failure dropping viewer {}", viewer_id);
+                warn!(
+                    "WebRTC plugin reported failure dropping viewer {}",
+                    viewer_id
+                );
                 // Still return success since the session is cleaned up locally
                 Ok(Json(SuccessResponse {
                     success: true,
@@ -345,15 +422,16 @@ pub async fn test_webrtc_connection(
     let webrtc_client = &state.webrtc_client;
 
     match webrtc_client.test_connection().await {
-        Ok(_) => {
-            Ok(Json(SuccessResponse {
-                success: true,
-                message: "WebRTC plugin is healthy".to_string(),
-            }))
-        }
+        Ok(_) => Ok(Json(SuccessResponse {
+            success: true,
+            message: "WebRTC plugin is healthy".to_string(),
+        })),
         Err(e) => {
             error!("WebRTC plugin health check failed: {}", e);
-            Err(AppError::ServiceUnavailableError(format!("WebRTC plugin unavailable: {}", e)))
+            Err(AppError::ServiceUnavailableError(format!(
+                "WebRTC plugin unavailable: {}",
+                e
+            )))
         }
     }
 }

@@ -1,6 +1,6 @@
+use crate::entity::states::Model as StateModel;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::entity::states::Model as StateModel;
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct StateResponse {

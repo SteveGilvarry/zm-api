@@ -1,7 +1,7 @@
-use sea_orm::*;
-use crate::entity::states::{Entity as States, Model as StateModel, ActiveModel};
-use crate::error::AppResult;
 use crate::dto::request::states::{CreateStateRequest, UpdateStateRequest};
+use crate::entity::states::{ActiveModel, Entity as States, Model as StateModel};
+use crate::error::AppResult;
+use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<StateModel>> {
     Ok(States::find().all(db).await?)
@@ -21,14 +21,26 @@ pub async fn create(db: &DatabaseConnection, req: &CreateStateRequest) -> AppRes
     Ok(am.insert(db).await?)
 }
 
-pub async fn update(db: &DatabaseConnection, id: u32, req: &UpdateStateRequest) -> AppResult<Option<StateModel>> {
-    let Some(model) = find_by_id(db, id).await? else { return Ok(None) };
+pub async fn update(
+    db: &DatabaseConnection,
+    id: u32,
+    req: &UpdateStateRequest,
+) -> AppResult<Option<StateModel>> {
+    let Some(model) = find_by_id(db, id).await? else {
+        return Ok(None);
+    };
     let mut am: ActiveModel = model.into();
-    
-    if let Some(v) = &req.name { am.name = Set(v.clone()); }
-    if let Some(v) = &req.definition { am.definition = Set(v.clone()); }
-    if let Some(v) = req.is_active { am.is_active = Set(v); }
-    
+
+    if let Some(v) = &req.name {
+        am.name = Set(v.clone());
+    }
+    if let Some(v) = &req.definition {
+        am.definition = Set(v.clone());
+    }
+    if let Some(v) = req.is_active {
+        am.is_active = Set(v);
+    }
+
     let updated = am.update(db).await?;
     Ok(Some(updated))
 }

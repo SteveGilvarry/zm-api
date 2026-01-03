@@ -3,12 +3,12 @@ use axum::Json;
 use garde::Validate;
 use tracing::{info, warn};
 
+use crate::dto::request::{LoginRequest, RefreshTokenRequest};
+use crate::dto::response::{LoginResponse, MessageResponse, TokenResponse};
+use crate::error::AppResponseError;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use crate::service;
-use crate::dto::request::{LoginRequest, RefreshTokenRequest};
-use crate::dto::response::{LoginResponse, TokenResponse, MessageResponse};
-use crate::error::AppResponseError;
 use crate::util::claim::UserClaimsRequest;
 
 // Login user.
@@ -82,13 +82,16 @@ pub async fn refresh_token(
     ),
     tag = "Auth"
 )]
-pub async fn logout(State(_state): State<AppState>, request: axum::extract::Request) -> AppResult<Json<MessageResponse>> {
+pub async fn logout(
+    State(_state): State<AppState>,
+    request: axum::extract::Request,
+) -> AppResult<Json<MessageResponse>> {
     // Get username from the JWT token
     let username = request.get_user_name()?;
     info!("Handling logout request for user: {}", username);
-    
+
     // In a real implementation, you might invalidate the token in Redis or a token blacklist
     // For now, we'll just acknowledge the logout
-    
+
     Ok(Json(MessageResponse::new("Logout successful")))
 }

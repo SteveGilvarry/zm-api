@@ -2,10 +2,10 @@ use crate::error::{AppError, AppResult};
 use futures::{SinkExt, StreamExt};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
-use tokio_tungstenite::connect_async;
 use tokio::net::TcpStream;
+use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::{Error as WsError, Message};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 /// WebSocket client wrapping sender and receiver halves
 pub struct WsClient {
@@ -28,8 +28,7 @@ impl WsClient {
     where
         T: Serialize,
     {
-        let txt = serde_json::to_string(msg)
-            .map_err(AppError::ParseJsonError)?;
+        let txt = serde_json::to_string(msg).map_err(AppError::ParseJsonError)?;
         self.sender
             .send(txt.into())
             .await
@@ -46,18 +45,18 @@ impl WsClient {
             let msg = frame.map_err(AppError::WebSocketError)?;
             match msg {
                 Message::Text(txt) => {
-                    return serde_json::from_str(&txt)
-                        .map_err(AppError::ParseJsonError);
+                    return serde_json::from_str(&txt).map_err(AppError::ParseJsonError);
                 }
                 Message::Binary(bin) => {
-                    return serde_json::from_slice(&bin)
-                        .map_err(AppError::ParseJsonError);
+                    return serde_json::from_slice(&bin).map_err(AppError::ParseJsonError);
                 }
                 Message::Ping(p) => {
                     let _ = self.sender.send(Message::Pong(p)).await;
                 }
                 Message::Pong(_) => continue,
-                Message::Close(_) => return Err(AppError::WebSocketError(WsError::ConnectionClosed)),
+                Message::Close(_) => {
+                    return Err(AppError::WebSocketError(WsError::ConnectionClosed))
+                }
                 _ => continue,
             }
         }

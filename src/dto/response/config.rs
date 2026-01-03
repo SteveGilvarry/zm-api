@@ -18,4 +18,3 @@ pub struct ConfigResponse {
     pub private: i8,
     pub system: i8,
 }
-

@@ -6,4 +6,3 @@ pub struct CreateModelRequest {
     pub name: String,
     pub manufacturer_id: Option<i32>,
 }
-

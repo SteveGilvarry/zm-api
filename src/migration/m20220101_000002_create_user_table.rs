@@ -5,11 +5,11 @@ pub struct Migration;
 
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
-  async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-    let db = manager.get_connection();
-    let tx = db.begin().await?;
-    tx.execute_unprepared(
-      r#"CREATE TABLE users (
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        let db = manager.get_connection();
+        let tx = db.begin().await?;
+        tx.execute_unprepared(
+            r#"CREATE TABLE users (
             id UUID NOT NULL PRIMARY KEY,
             username VARCHAR(255) NOT NULL UNIQUE,
             password VARCHAR(255) NOT NULL,
@@ -20,9 +20,9 @@ impl MigrationTrait for Migration {
             create_at TIMESTAMPTZ DEFAULT current_timestamp,
             update_at TIMESTAMPTZ DEFAULT current_timestamp
         )"#,
-    )
-    .await?;
-    tx.execute_unprepared(
+        )
+        .await?;
+        tx.execute_unprepared(
       r#"INSERT INTO users (id, username, password, email, role, is_active, is_2fa, create_at, update_at) VALUES
    (
       gen_random_uuid(),
@@ -37,15 +37,15 @@ impl MigrationTrait for Migration {
    )
    "#
     ).await?;
-    tx.commit().await?;
-    Ok(())
-  }
+        tx.commit().await?;
+        Ok(())
+    }
 
-  async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-    manager
-      .get_connection()
-      .execute_unprepared("DROP TABLE IF EXISTS users")
-      .await?;
-    Ok(())
-  }
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .get_connection()
+            .execute_unprepared("DROP TABLE IF EXISTS users")
+            .await?;
+        Ok(())
+    }
 }

@@ -1,6 +1,6 @@
+use crate::entity::control_presets::Model as ControlPresetModel;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use crate::entity::control_presets::Model as ControlPresetModel;
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct ControlPresetResponse {

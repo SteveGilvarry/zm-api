@@ -31,10 +31,7 @@ pub async fn get_by_id(
     Ok(EventTagResponse::from(&item))
 }
 
-pub async fn create(
-    state: &AppState,
-    req: CreateEventTagRequest,
-) -> AppResult<EventTagResponse> {
+pub async fn create(state: &AppState, req: CreateEventTagRequest) -> AppResult<EventTagResponse> {
     // Check if association already exists
     let existing =
         repo::events_tags::find_by_composite_id(state.db(), req.tag_id, req.event_id).await?;
