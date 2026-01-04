@@ -70,9 +70,20 @@ impl HlsSession {
             self.segmenter.set_codec(packet.codec);
         }
 
+        let timestamp_us = match u64::try_from(packet.timestamp_us) {
+            Ok(value) => value,
+            Err(_) => {
+                warn!(
+                    "Negative timestamp for monitor {}: {}, skipping packet",
+                    packet.monitor_id, packet.timestamp_us
+                );
+                return None;
+            }
+        };
+
         // Process NAL unit
         self.segmenter
-            .process_nal(&packet.data, packet.timestamp_us, packet.is_keyframe)
+            .process_nal(&packet.data, timestamp_us, packet.is_keyframe)
     }
 
     /// Handle a completed segment
