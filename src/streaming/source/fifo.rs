@@ -98,18 +98,18 @@ impl ZmFifoReader {
         let video_path;
         let audio_path;
         let mut detected_codec = VideoCodec::Unknown;
-        
+
         // Check if using new ZoneMinder format (base path is /run/zm)
         // New format: /run/zm/video_fifo_{id}.{codec}
         // Old format: /dev/shm/{id}-v.fifo
-        let is_new_format = config.fifo_base_path == "/run/zm" 
+        let is_new_format = config.fifo_base_path == "/run/zm"
             || config.video_fifo_suffix.starts_with("/video_fifo_");
-        
+
         if is_new_format {
             // New ZoneMinder format - try to detect codec by checking file existence
             let possible_video_extensions = ["h264", "hevc", "h265"];
             let mut found_video = None;
-            
+
             for ext in &possible_video_extensions {
                 let path = PathBuf::from(&config.fifo_base_path)
                     .join(format!("video_fifo_{}.{}", monitor_id, ext));
@@ -123,7 +123,7 @@ impl ZmFifoReader {
                     break;
                 }
             }
-            
+
             // If no file found, default to h264
             video_path = found_video.unwrap_or_else(|| {
                 PathBuf::from(&config.fifo_base_path)
@@ -247,30 +247,30 @@ impl ZmFifoReader {
     /// Internal packet reading logic
     async fn read_packet_internal(&mut self) -> Result<FifoPacket, FifoError> {
         let reader = self.video_reader.as_mut().ok_or(FifoError::NotCapturing)?;
-        
+
         // Read the ASCII header line: "ZM <size> <pts>\n"
         // ZoneMinder headers are typically < 100 bytes, but allow up to 1024 for safety
         let mut header = String::new();
         let bytes_read = reader.read_line(&mut header).await?;
-        
+
         if bytes_read == 0 {
             return Err(FifoError::Closed);
         }
-        
+
         // Sanity check: header should be reasonable size
         if header.len() > 1024 {
             return Err(FifoError::InvalidFormat);
         }
-        
+
         // Parse "ZM <size> <pts>"
         let parts: Vec<&str> = header.trim().split(' ').collect();
         if parts.len() != 3 || parts[0] != "ZM" {
             return Err(FifoError::InvalidFormat);
         }
-        
+
         let length: u32 = parts[1].parse().map_err(|_| FifoError::InvalidFormat)?;
         let timestamp_us: i64 = parts[2].parse().map_err(|_| FifoError::InvalidFormat)?;
-        
+
         // Read the raw packet data
         let mut data = vec![0u8; length as usize];
         reader.read_exact(&mut data).await?;
@@ -634,7 +634,10 @@ mod tests {
         assert_eq!(reader.codec(), VideoCodec::Unknown);
         // Default path when file doesn't exist
         assert_eq!(reader.video_path(), Path::new("/run/zm/video_fifo_1.h264"));
-        assert_eq!(reader.audio_path(), Some(Path::new("/run/zm/audio_fifo_1.aac")));
+        assert_eq!(
+            reader.audio_path(),
+            Some(Path::new("/run/zm/audio_fifo_1.aac"))
+        );
     }
 
     #[test]
@@ -674,13 +677,13 @@ mod tests {
         // Test valid header format: "ZM <size> <pts>"
         let header = "ZM 4521 1704067200000000";
         let parts: Vec<&str> = header.trim().split(' ').collect();
-        
+
         assert_eq!(parts.len(), 3);
         assert_eq!(parts[0], "ZM");
-        
+
         let length: u32 = parts[1].parse().unwrap();
         let timestamp_us: i64 = parts[2].parse().unwrap();
-        
+
         assert_eq!(length, 4521);
         assert_eq!(timestamp_us, 1704067200000000);
     }
@@ -690,13 +693,13 @@ mod tests {
         // Test with negative timestamp (edge case)
         let header = "ZM 100 -1000";
         let parts: Vec<&str> = header.trim().split(' ').collect();
-        
+
         assert_eq!(parts.len(), 3);
         assert_eq!(parts[0], "ZM");
-        
+
         let length: u32 = parts[1].parse().unwrap();
         let timestamp_us: i64 = parts[2].parse().unwrap();
-        
+
         assert_eq!(length, 100);
         assert_eq!(timestamp_us, -1000);
     }
@@ -706,7 +709,7 @@ mod tests {
         // Test invalid header (missing magic)
         let header = "XX 100 1000";
         let parts: Vec<&str> = header.trim().split(' ').collect();
-        
+
         assert_eq!(parts.len(), 3);
         assert_ne!(parts[0], "ZM");
     }
