@@ -24,6 +24,7 @@ pub mod go2rtc_proxy;
 pub mod groups; // Groups
 pub mod groups_monitors; // Groups Monitors
 pub mod groups_permissions; // Groups Permissions
+pub mod hls; // HLS streaming (Phase 3)
 pub mod logs; // Logs
 pub mod manufacturers; // Manufacturers
 pub mod models; // Models
@@ -140,6 +141,7 @@ pub fn create_router_app(state: AppState) -> Router {
     let event_tag_routes = events_tags::add_event_tag_routes(Router::new());
     let go2rtc_proxy_routes = go2rtc_proxy::add_go2rtc_proxy_routes(Router::new());
     let native_webrtc_routes = webrtc_native::add_native_webrtc_routes(Router::new());
+    let hls_routes = Router::new().nest("/api/v3/hls", hls::routes());
 
     Router::new()
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
@@ -186,6 +188,7 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(event_tag_routes)
         .merge(go2rtc_proxy_routes)
         .merge(native_webrtc_routes) // Native WebRTC (Phase 2)
+        .merge(hls_routes) // HLS streaming (Phase 3)
         .fallback(any(fallback_handler))
         .layer(cors) // Apply CORS middleware to all routes
         .with_state(state)

@@ -13,6 +13,7 @@ use crate::configure::{self, env::get_env_source, AppConfig};
 use crate::constant::ENV_PREFIX;
 use crate::error::AppResult;
 use crate::mse_client::MseStreamManager;
+use crate::streaming::hls::HlsSessionManager;
 use crate::streaming::webrtc::{session::SessionManager, WebRtcEngine};
 
 #[derive(Clone)]
@@ -26,6 +27,8 @@ pub struct AppState {
     // Native WebRTC (Phase 2)
     pub native_webrtc_engine: Option<Arc<WebRtcEngine>>,
     pub native_session_manager: Option<Arc<SessionManager>>,
+    // HLS Streaming (Phase 3)
+    pub hls_session_manager: Option<Arc<HlsSessionManager>>,
 }
 
 impl AppState {
@@ -58,6 +61,18 @@ impl AppState {
         // Initialize native session manager with default max sessions
         let native_session_manager = Some(Arc::new(SessionManager::new(100)));
 
+        // Initialize HLS session manager (Phase 3)
+        let hls_session_manager = if config.streaming.hls.enabled {
+            tracing::info!("HLS streaming enabled, initializing session manager");
+            Some(Arc::new(HlsSessionManager::new(
+                config.streaming.hls.clone(),
+                "/api/v3/hls",
+            )))
+        } else {
+            tracing::info!("HLS streaming disabled in configuration");
+            None
+        };
+
         Ok(Self {
             config: Arc::new(config),
             db,
@@ -67,6 +82,7 @@ impl AppState {
             mse_manager,
             native_webrtc_engine,
             native_session_manager,
+            hls_session_manager,
         })
     }
 
@@ -101,6 +117,7 @@ impl AppState {
             mse_manager,
             native_webrtc_engine: None,
             native_session_manager: None,
+            hls_session_manager: None,
         }
     }
 }

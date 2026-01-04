@@ -106,6 +106,8 @@ assert-json-diff = "2"
 # Mocking traits in unit tests
 mockall = "0.13"
 tower = "0.5"
+# Temporary directories for tests
+tempfile = "3"
 
 [package.metadata.deb]
 maintainer = "zm_api <admin@localhost>"
