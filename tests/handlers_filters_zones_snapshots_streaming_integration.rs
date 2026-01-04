@@ -43,7 +43,9 @@ async fn cleanup_monitor_db(db: &DatabaseConnection, id: u32) -> Result<(), DbEr
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_filters_create_get_delete() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
     let app = build_app(db);
 
     let name = format!("{}filter", test_prefix());
@@ -69,7 +71,9 @@ async fn test_api_filters_create_get_delete() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::CREATED);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let created: FilterResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(created.name, name);
 
@@ -102,8 +106,12 @@ async fn test_api_filters_create_get_delete() {
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_zones_create_get_delete() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
-    let monitor = create_monitor_db(&db).await.expect("Failed to create monitor");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
+    let monitor = create_monitor_db(&db)
+        .await
+        .expect("Failed to create monitor");
     let app = build_app(db);
 
     let name = format!("{}zone", test_prefix());
@@ -130,7 +138,9 @@ async fn test_api_zones_create_get_delete() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::CREATED);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let created: ZoneResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(created.name, name);
 
@@ -159,7 +169,9 @@ async fn test_api_zones_create_get_delete() {
 
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
-    let cleanup_db = get_test_db().await.expect("Failed to get cleanup connection");
+    let cleanup_db = get_test_db()
+        .await
+        .expect("Failed to get cleanup connection");
     cleanup_monitor_db(&cleanup_db, monitor.id)
         .await
         .expect("Failed to cleanup monitor");
@@ -168,7 +180,9 @@ async fn test_api_zones_create_get_delete() {
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_snapshots_create_get_delete() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
     let app = build_app(db);
 
     let name = format!("{}snapshot", test_prefix());
@@ -193,7 +207,9 @@ async fn test_api_snapshots_create_get_delete() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::CREATED);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let created: SnapshotResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(created.name.as_deref(), Some(name.as_str()));
 
@@ -226,7 +242,9 @@ async fn test_api_snapshots_create_get_delete() {
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_streaming_routes_require_auth() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
     let app = build_app(db);
 
     let response = app

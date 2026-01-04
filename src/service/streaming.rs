@@ -53,13 +53,7 @@ fn get_go2rtc_client(state: &AppState) -> AppResult<Go2RtcClient> {
 ///
 /// # Returns
 /// * `String` - Complete RTSP URL with credentials
-fn build_rtsp_url(
-    monitor_id: u32,
-    user: &str,
-    pass: &str,
-    host: &str,
-    port: u16,
-) -> String {
+fn build_rtsp_url(monitor_id: u32, user: &str, pass: &str, host: &str, port: u16) -> String {
     // URL encode credentials to handle special characters
     let encoded_user = urlencoding::encode(user);
     let encoded_pass = urlencoding::encode(pass);
@@ -158,10 +152,7 @@ pub async fn register_monitor_stream(
 /// # Returns
 /// * `Ok(StreamEndpoints)` - Stream endpoints if registered
 /// * `Err(AppError::NotFoundError)` - If stream is not registered
-pub async fn get_stream_endpoints(
-    state: &AppState,
-    monitor_id: u32,
-) -> AppResult<StreamEndpoints> {
+pub async fn get_stream_endpoints(state: &AppState, monitor_id: u32) -> AppResult<StreamEndpoints> {
     debug!("Getting stream endpoints for monitor {}", monitor_id);
 
     let client = get_go2rtc_client(state)?;
@@ -256,13 +247,14 @@ pub async fn list_active_streams(state: &AppState) -> AppResult<Vec<ActiveStream
         .filter_map(|(stream_name, stream_info)| {
             if stream_name.starts_with("zm") {
                 // Extract monitor ID from stream name "zm{id}"
-                stream_name[2..].parse::<u32>().ok().map(|monitor_id| {
-                    ActiveStreamInfo {
+                stream_name[2..]
+                    .parse::<u32>()
+                    .ok()
+                    .map(|monitor_id| ActiveStreamInfo {
                         monitor_id,
                         stream_name,
                         stream_info,
-                    }
-                })
+                    })
             } else {
                 None
             }
@@ -292,10 +284,7 @@ pub async fn list_active_streams(state: &AppState) -> AppResult<Vec<ActiveStream
 /// // This will register the stream if needed, or return existing endpoints
 /// let endpoints = ensure_stream_ready(&state, 1).await?;
 /// ```
-pub async fn ensure_stream_ready(
-    state: &AppState,
-    monitor_id: u32,
-) -> AppResult<StreamEndpoints> {
+pub async fn ensure_stream_ready(state: &AppState, monitor_id: u32) -> AppResult<StreamEndpoints> {
     debug!("Ensuring stream is ready for monitor {}", monitor_id);
 
     let client = get_go2rtc_client(state)?;
@@ -362,9 +351,10 @@ fn map_go2rtc_error(error: Go2RtcError, monitor_id: u32) -> AppError {
                 AppError::BadRequestError(format!("go2rtc error ({}): {}", status, message))
             }
         }
-        Go2RtcError::ConnectionFailed { attempts } => AppError::ServiceUnavailableError(
-            format!("Failed to connect to go2rtc after {} attempts", attempts),
-        ),
+        Go2RtcError::ConnectionFailed { attempts } => AppError::ServiceUnavailableError(format!(
+            "Failed to connect to go2rtc after {} attempts",
+            attempts
+        )),
         Go2RtcError::HttpError(e) => {
             AppError::ServiceUnavailableError(format!("go2rtc HTTP error: {}", e))
         }

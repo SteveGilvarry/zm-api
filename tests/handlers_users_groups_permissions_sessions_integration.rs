@@ -13,7 +13,8 @@ use zm_api::dto::request::monitors_permissions::CreateMonitorPermissionRequest;
 use zm_api::dto::request::sessions::{CreateSessionRequest, UpdateSessionRequest};
 use zm_api::dto::request::{CreateGroupRequest, CreateUserRequest};
 use zm_api::dto::response::{
-    GroupPermissionResponse, GroupResponse, MonitorPermissionResponse, SessionResponse, UserResponse,
+    GroupPermissionResponse, GroupResponse, MonitorPermissionResponse, SessionResponse,
+    UserResponse,
 };
 use zm_api::entity::monitors;
 
@@ -46,7 +47,9 @@ async fn cleanup_monitor_db(db: &DatabaseConnection, id: u32) -> Result<(), DbEr
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_users_create_get_delete() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
     let app = build_app(db);
 
     let username = format!("{}user", test_prefix());
@@ -73,7 +76,9 @@ async fn test_api_users_create_get_delete() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::CREATED);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let created: UserResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(created.username, username);
 
@@ -106,7 +111,9 @@ async fn test_api_users_create_get_delete() {
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_groups_create_get_delete() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
     let app = build_app(db);
 
     let name = format!("{}group", test_prefix());
@@ -129,7 +136,9 @@ async fn test_api_groups_create_get_delete() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::CREATED);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let created: GroupResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(created.name, name);
 
@@ -162,7 +171,9 @@ async fn test_api_groups_create_get_delete() {
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_groups_permissions_create_delete() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
     let app = build_app(db);
 
     let username = format!("{}gp_user", test_prefix());
@@ -188,7 +199,9 @@ async fn test_api_groups_permissions_create_delete() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let user: UserResponse = serde_json::from_slice(&bytes).unwrap();
 
     let group_name = format!("{}gp_group", test_prefix());
@@ -210,7 +223,9 @@ async fn test_api_groups_permissions_create_delete() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let group: GroupResponse = serde_json::from_slice(&bytes).unwrap();
 
     let perm_body = serde_json::to_vec(&CreateGroupPermissionRequest {
@@ -232,7 +247,9 @@ async fn test_api_groups_permissions_create_delete() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let perm: GroupPermissionResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(perm.user_id, user.id);
 
@@ -275,8 +292,12 @@ async fn test_api_groups_permissions_create_delete() {
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_monitors_permissions_create_delete() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
-    let monitor = create_monitor_db(&db).await.expect("Failed to create monitor");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
+    let monitor = create_monitor_db(&db)
+        .await
+        .expect("Failed to create monitor");
     let app = build_app(db);
 
     let username = format!("{}mp_user", test_prefix());
@@ -302,7 +323,9 @@ async fn test_api_monitors_permissions_create_delete() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let user: UserResponse = serde_json::from_slice(&bytes).unwrap();
 
     let perm_body = serde_json::to_vec(&CreateMonitorPermissionRequest {
@@ -324,7 +347,9 @@ async fn test_api_monitors_permissions_create_delete() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let perm: MonitorPermissionResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(perm.monitor_id, monitor.id);
 
@@ -352,7 +377,9 @@ async fn test_api_monitors_permissions_create_delete() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
-    let cleanup_db = get_test_db().await.expect("Failed to get cleanup connection");
+    let cleanup_db = get_test_db()
+        .await
+        .expect("Failed to get cleanup connection");
     cleanup_monitor_db(&cleanup_db, monitor.id)
         .await
         .expect("Failed to cleanup monitor");
@@ -361,7 +388,9 @@ async fn test_api_monitors_permissions_create_delete() {
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_sessions_create_update_delete() {
-    let db = get_test_db().await.expect("Failed to connect to test database");
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
     let app = build_app(db);
 
     let prefix = test_prefix();
@@ -391,7 +420,9 @@ async fn test_api_sessions_create_update_delete() {
         .unwrap();
 
     let status = response.status();
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     if status != StatusCode::CREATED {
         panic!(
             "Unexpected status {}: {}",
@@ -421,7 +452,9 @@ async fn test_api_sessions_create_update_delete() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let updated: SessionResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(updated.access, Some(2));
 

@@ -41,7 +41,9 @@ async fn test_api_server_health_check() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let body: MessageResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body.message(), "Ok");
 }
@@ -64,7 +66,9 @@ async fn test_api_server_get_version() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let body: VersionResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body.api_version, API_VERSION.to_string());
     assert!(!body.version.is_empty());
@@ -107,7 +111,9 @@ async fn test_api_server_stats_create_get_delete() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::CREATED);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let created: ServerStatResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(created.server_id, Some(1));
     assert_eq!(created.cpu_load.as_deref(), Some("1.5"));
@@ -179,7 +185,9 @@ async fn test_api_stats_create_get_update_delete() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::CREATED);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let created: StatResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(created.monitor_id, 1);
 
@@ -229,7 +237,9 @@ async fn test_api_stats_create_get_update_delete() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
     let updated: StatResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(updated.pixel_diff, 2);
     assert_eq!(updated.score, 6);
