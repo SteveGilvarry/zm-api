@@ -13,10 +13,12 @@
 - Use `APP_STATIC_DIR` to point the app at `/usr/share/zm_api/static` in packaged installs.
 - Secrets should live outside the repo. Store keys under `/var/lib/zm_api/keys` and update
   the `secret.*_key` paths in the profile config.
+- Generate per-install JWT keys with `scripts/generate-jwt-keys.sh /var/lib/zm_api/keys`
+  (or `JWT_KEY_DIR=/var/lib/zm_api/keys`).
 
 ## Recommended deployment flow
 1. Create config in `/etc/zm_api` (start from `settings/base.toml` + `settings/prod.toml`).
-2. Place key material in `/var/lib/zm_api/keys` and update `secret.*_key` paths.
+2. Generate keys in `/var/lib/zm_api/keys` and update `secret.*_key` paths.
 3. Install the package (Deb or RPM) and enable the systemd unit.
 4. Configure TLS/ACME if needed (see `docs/tls.md`).
 5. Validate health with `/swagger-ui` and run a smoke test against `/api-docs/openapi.json`.
