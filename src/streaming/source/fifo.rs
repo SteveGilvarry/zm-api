@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::fs::File;
-use tokio::io::{AsyncReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
@@ -55,7 +55,7 @@ impl AudioCodec {
 #[derive(Debug, Clone)]
 pub struct FifoPacket {
     pub monitor_id: u32,
-    pub timestamp_us: u64,
+    pub timestamp_us: i64,
     pub data: Vec<u8>,
     pub is_keyframe: bool,
     pub codec: VideoCodec,
@@ -95,18 +95,75 @@ impl ZmFifoReader {
         config: ZoneMinderConfig,
         broadcast_capacity: usize,
     ) -> Self {
-        // Construct paths: /dev/shm/{monitor_id}-v.fifo
-        let video_path = PathBuf::from(&config.fifo_base_path)
-            .join(format!("{}{}", monitor_id, config.video_fifo_suffix));
-
-        let audio_path = if !config.audio_fifo_suffix.is_empty() {
-            Some(
+        let video_path;
+        let audio_path;
+        let mut detected_codec = VideoCodec::Unknown;
+        
+        // Check if using new ZoneMinder format (base path is /run/zm)
+        // New format: /run/zm/video_fifo_{id}.{codec}
+        // Old format: /dev/shm/{id}-v.fifo
+        let is_new_format = config.fifo_base_path == "/run/zm" 
+            || config.video_fifo_suffix.starts_with("/video_fifo_");
+        
+        if is_new_format {
+            // New ZoneMinder format - try to detect codec by checking file existence
+            let possible_video_extensions = ["h264", "hevc", "h265"];
+            let mut found_video = None;
+            
+            for ext in &possible_video_extensions {
+                let path = PathBuf::from(&config.fifo_base_path)
+                    .join(format!("video_fifo_{}.{}", monitor_id, ext));
+                if path.exists() {
+                    found_video = Some(path);
+                    detected_codec = match *ext {
+                        "h264" => VideoCodec::H264,
+                        "hevc" | "h265" => VideoCodec::H265,
+                        _ => VideoCodec::Unknown,
+                    };
+                    break;
+                }
+            }
+            
+            // If no file found, default to h264
+            video_path = found_video.unwrap_or_else(|| {
                 PathBuf::from(&config.fifo_base_path)
-                    .join(format!("{}{}", monitor_id, config.audio_fifo_suffix)),
-            )
+                    .join(format!("video_fifo_{}.h264", monitor_id))
+            });
+
+            // Audio FIFO path: {base_path}/audio_fifo_{monitor_id}.{codec}
+            audio_path = if !config.audio_fifo_suffix.is_empty() {
+                let possible_audio_extensions = ["aac", "pcm_alaw"];
+                let mut found_audio = None;
+                for ext in &possible_audio_extensions {
+                    let path = PathBuf::from(&config.fifo_base_path)
+                        .join(format!("audio_fifo_{}.{}", monitor_id, ext));
+                    if path.exists() {
+                        found_audio = Some(path);
+                        break;
+                    }
+                }
+                // Default to aac if not found
+                Some(found_audio.unwrap_or_else(|| {
+                    PathBuf::from(&config.fifo_base_path)
+                        .join(format!("audio_fifo_{}.aac", monitor_id))
+                }))
+            } else {
+                None
+            };
         } else {
-            None
-        };
+            // Old custom format: {base_path}/{monitor_id}{suffix}
+            video_path = PathBuf::from(&config.fifo_base_path)
+                .join(format!("{}{}", monitor_id, config.video_fifo_suffix));
+
+            audio_path = if !config.audio_fifo_suffix.is_empty() {
+                Some(
+                    PathBuf::from(&config.fifo_base_path)
+                        .join(format!("{}{}", monitor_id, config.audio_fifo_suffix)),
+                )
+            } else {
+                None
+            };
+        }
 
         let (tx, _rx) = broadcast::channel(broadcast_capacity);
 
@@ -115,7 +172,7 @@ impl ZmFifoReader {
             video_path,
             audio_path,
             video_reader: None,
-            codec: VideoCodec::Unknown,
+            codec: detected_codec,
             config,
             broadcast_capacity,
             tx,
@@ -190,18 +247,31 @@ impl ZmFifoReader {
     /// Internal packet reading logic
     async fn read_packet_internal(&mut self) -> Result<FifoPacket, FifoError> {
         let reader = self.video_reader.as_mut().ok_or(FifoError::NotCapturing)?;
-        // Read 4 bytes: NAL unit length (big-endian u32)
-        let length = reader.read_u32().await?;
-
-        if length == 0 {
+        
+        // Read the ASCII header line: "ZM <size> <pts>\n"
+        // ZoneMinder headers are typically < 100 bytes, but allow up to 1024 for safety
+        let mut header = String::new();
+        let bytes_read = reader.read_line(&mut header).await?;
+        
+        if bytes_read == 0 {
             return Err(FifoError::Closed);
         }
-
-        // Read 4 bytes: timestamp in microseconds (big-endian u32)
-        // Note: ZoneMinder may use u32 or u64 depending on configuration
-        let timestamp_us = reader.read_u32().await? as u64;
-
-        // Read `length` bytes: NAL unit data
+        
+        // Sanity check: header should be reasonable size
+        if header.len() > 1024 {
+            return Err(FifoError::InvalidFormat);
+        }
+        
+        // Parse "ZM <size> <pts>"
+        let parts: Vec<&str> = header.trim().split(' ').collect();
+        if parts.len() != 3 || parts[0] != "ZM" {
+            return Err(FifoError::InvalidFormat);
+        }
+        
+        let length: u32 = parts[1].parse().map_err(|_| FifoError::InvalidFormat)?;
+        let timestamp_us: i64 = parts[2].parse().map_err(|_| FifoError::InvalidFormat)?;
+        
+        // Read the raw packet data
         let mut data = vec![0u8; length as usize];
         reader.read_exact(&mut data).await?;
 
@@ -548,9 +618,9 @@ mod tests {
     #[test]
     fn test_config_default() {
         let config = ZoneMinderConfig::default();
-        assert_eq!(config.fifo_base_path, "/dev/shm");
-        assert_eq!(config.video_fifo_suffix, "-v.fifo");
-        assert_eq!(config.audio_fifo_suffix, "-a.fifo");
+        assert_eq!(config.fifo_base_path, "/run/zm");
+        assert_eq!(config.video_fifo_suffix, "/video_fifo_");
+        assert_eq!(config.audio_fifo_suffix, "/audio_fifo_");
         assert_eq!(config.fifo_read_timeout_ms, 5000);
         assert_eq!(config.reconnect_delay_ms, 1000);
     }
@@ -562,8 +632,9 @@ mod tests {
 
         assert_eq!(reader.monitor_id(), 1);
         assert_eq!(reader.codec(), VideoCodec::Unknown);
-        assert_eq!(reader.video_path(), Path::new("/dev/shm/1-v.fifo"));
-        assert_eq!(reader.audio_path(), Some(Path::new("/dev/shm/1-a.fifo")));
+        // Default path when file doesn't exist
+        assert_eq!(reader.video_path(), Path::new("/run/zm/video_fifo_1.h264"));
+        assert_eq!(reader.audio_path(), Some(Path::new("/run/zm/audio_fifo_1.aac")));
     }
 
     #[test]
@@ -596,5 +667,47 @@ mod tests {
         assert_eq!(AudioCodec::G711Ulaw.as_str(), "G.711 u-law");
         assert_eq!(AudioCodec::Opus.as_str(), "Opus");
         assert_eq!(AudioCodec::Unknown.as_str(), "Unknown");
+    }
+
+    #[test]
+    fn test_ascii_header_parsing() {
+        // Test valid header format: "ZM <size> <pts>"
+        let header = "ZM 4521 1704067200000000";
+        let parts: Vec<&str> = header.trim().split(' ').collect();
+        
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0], "ZM");
+        
+        let length: u32 = parts[1].parse().unwrap();
+        let timestamp_us: i64 = parts[2].parse().unwrap();
+        
+        assert_eq!(length, 4521);
+        assert_eq!(timestamp_us, 1704067200000000);
+    }
+
+    #[test]
+    fn test_ascii_header_parsing_negative_timestamp() {
+        // Test with negative timestamp (edge case)
+        let header = "ZM 100 -1000";
+        let parts: Vec<&str> = header.trim().split(' ').collect();
+        
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0], "ZM");
+        
+        let length: u32 = parts[1].parse().unwrap();
+        let timestamp_us: i64 = parts[2].parse().unwrap();
+        
+        assert_eq!(length, 100);
+        assert_eq!(timestamp_us, -1000);
+    }
+
+    #[test]
+    fn test_ascii_header_invalid_format() {
+        // Test invalid header (missing magic)
+        let header = "XX 100 1000";
+        let parts: Vec<&str> = header.trim().split(' ').collect();
+        
+        assert_eq!(parts.len(), 3);
+        assert_ne!(parts[0], "ZM");
     }
 }

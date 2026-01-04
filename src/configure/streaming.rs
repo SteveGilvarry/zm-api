@@ -75,9 +75,9 @@ impl Default for ZoneMinderConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            fifo_base_path: "/dev/shm".to_string(),
-            video_fifo_suffix: "-v.fifo".to_string(),
-            audio_fifo_suffix: "-a.fifo".to_string(),
+            fifo_base_path: "/run/zm".to_string(),
+            video_fifo_suffix: "/video_fifo_".to_string(),
+            audio_fifo_suffix: "/audio_fifo_".to_string(),
             fifo_read_timeout_ms: 5000,
             reconnect_delay_ms: 1000,
         }
