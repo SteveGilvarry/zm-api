@@ -1,15 +1,15 @@
-# Agent Context (CLAUDE)
+# Agent Context (AGENTS)
 
-This file is high-signal context for coding agents (Claude Code) working in this repository.
+This file is high-signal context for coding agents (GitHub Copilot, OpenAI Codex, Claude Code) working in this repository.
 Keep it practical: commands that work, where code lives, and project-specific conventions.
 
 ## Project Summary
 
 `zm_api` is a Rust REST API server for managing a ZoneMinder installation.
 
-- Web framework: Axum v0.8.8
-- ORM: SeaORM v1.1 (current app config builds a `mysql://...` URL)
-- API docs: Utoipa v5.4.0 + Swagger UI (`/api-docs/openapi.json`, `/swagger-ui`)
+- Web framework: Axum
+- ORM: SeaORM (current app config builds a `mysql://...` URL)
+- API docs: Utoipa + Swagger UI (`/api-docs/openapi.json`, `/swagger-ui`)
 - Streaming-related code exists (WebRTC/MSE), but treat it as product code: don’t refactor broadly unless the task requires it.
 
 ## Guardrails (Important)
