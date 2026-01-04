@@ -27,9 +27,12 @@ mod tests {
     use super::get_cargo_project_root;
 
     #[test]
-    fn test_get_cargo_project_root() {
-        let root = get_cargo_project_root().unwrap().unwrap();
-        let pkg = env!("CARGO_PKG_NAME");
-        assert_eq!(root.file_name().unwrap().to_str().unwrap(), pkg);
-    }
+fn test_get_cargo_project_root() {
+    let root = get_cargo_project_root().unwrap().unwrap();
+    let pkg = env!("CARGO_PKG_NAME");
+    let dir_name = root.file_name().unwrap().to_str().unwrap();
+    // Normalize directory name:  replace hyphens with underscores to match package name
+    let normalized_dir_name = dir_name.replace('-', "_");
+    assert_eq!(normalized_dir_name, pkg);
+}
 }
