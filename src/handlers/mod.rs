@@ -37,6 +37,7 @@ pub mod zones;
 pub mod auth;
 pub mod events;
 pub mod go2rtc_proxy;
+pub mod hls;
 pub mod monitor;
 pub mod mse;
 pub mod server;
