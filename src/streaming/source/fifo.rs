@@ -99,10 +99,13 @@ impl ZmFifoReader {
         let audio_path;
         let mut detected_codec = VideoCodec::Unknown;
         
-        // Check if using new ZoneMinder format (suffix starts with "/")
+        // Check if using new ZoneMinder format (base path is /run/zm)
         // New format: /run/zm/video_fifo_{id}.{codec}
         // Old format: /dev/shm/{id}-v.fifo
-        if config.video_fifo_suffix.starts_with('/') {
+        let is_new_format = config.fifo_base_path == "/run/zm" 
+            || config.video_fifo_suffix.starts_with("/video_fifo_");
+        
+        if is_new_format {
             // New ZoneMinder format - try to detect codec by checking file existence
             let possible_video_extensions = ["h264", "hevc", "h265"];
             let mut found_video = None;
@@ -246,11 +249,17 @@ impl ZmFifoReader {
         let reader = self.video_reader.as_mut().ok_or(FifoError::NotCapturing)?;
         
         // Read the ASCII header line: "ZM <size> <pts>\n"
+        // ZoneMinder headers are typically < 100 bytes, but allow up to 1024 for safety
         let mut header = String::new();
-        reader.read_line(&mut header).await?;
+        let bytes_read = reader.read_line(&mut header).await?;
         
-        if header.is_empty() {
+        if bytes_read == 0 {
             return Err(FifoError::Closed);
+        }
+        
+        // Sanity check: header should be reasonable size
+        if header.len() > 1024 {
+            return Err(FifoError::InvalidFormat);
         }
         
         // Parse "ZM <size> <pts>"
