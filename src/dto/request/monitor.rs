@@ -29,13 +29,7 @@ pub fn is_valid_alarm_action(value: &str, _ctx: &()) -> garde::Result {
     }
 }
 
-#[derive(
-    Debug,
-    Serialize,
-    Deserialize,
-    ToSchema,
-    Validate,
-)]
+#[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct CreateMonitorRequest {
     #[garde(length(min = 1, max = 64))]
     pub name: String,
