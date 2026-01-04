@@ -13,6 +13,7 @@ use crate::configure::{self, env::get_env_source, AppConfig};
 use crate::constant::ENV_PREFIX;
 use crate::error::AppResult;
 use crate::mse_client::MseStreamManager;
+use crate::streaming::webrtc::{session::SessionManager, WebRtcEngine};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -22,6 +23,9 @@ pub struct AppState {
     pub http: HttpClient,
     pub webrtc_client: WebRtcSignalingClient,
     pub mse_manager: Arc<MseStreamManager>,
+    // Native WebRTC (Phase 2)
+    pub native_webrtc_engine: Option<Arc<WebRtcEngine>>,
+    pub native_session_manager: Option<Arc<SessionManager>>,
 }
 
 impl AppState {
@@ -39,6 +43,21 @@ impl AppState {
         // Initialize MSE stream manager
         let mse_manager = Arc::new(MseStreamManager::new());
 
+        // Initialize native WebRTC engine (Phase 2)
+        let native_webrtc_engine = match WebRtcEngine::new(Default::default()) {
+            Ok(engine) => {
+                tracing::info!("Native WebRTC engine initialized successfully");
+                Some(Arc::new(engine))
+            }
+            Err(e) => {
+                tracing::warn!("Failed to initialize native WebRTC engine: {}", e);
+                None
+            }
+        };
+
+        // Initialize native session manager with default max sessions
+        let native_session_manager = Some(Arc::new(SessionManager::new(100)));
+
         Ok(Self {
             config: Arc::new(config),
             db,
@@ -46,6 +65,8 @@ impl AppState {
             http,
             webrtc_client,
             mse_manager,
+            native_webrtc_engine,
+            native_session_manager,
         })
     }
 
@@ -78,6 +99,8 @@ impl AppState {
             http,
             webrtc_client,
             mse_manager,
+            native_webrtc_engine: None,
+            native_session_manager: None,
         }
     }
 }

@@ -189,10 +189,7 @@ impl ZmFifoReader {
 
     /// Internal packet reading logic
     async fn read_packet_internal(&mut self) -> Result<FifoPacket, FifoError> {
-        let reader = self
-            .video_reader
-            .as_mut()
-            .ok_or(FifoError::NotCapturing)?;
+        let reader = self.video_reader.as_mut().ok_or(FifoError::NotCapturing)?;
         // Read 4 bytes: NAL unit length (big-endian u32)
         let length = reader.read_u32().await?;
 
@@ -248,17 +245,11 @@ impl ZmFifoReader {
     /// Returns a JoinHandle for the background task
     pub fn start_reader_task(mut self) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
-            info!(
-                "Starting FIFO reader task for monitor {}",
-                self.monitor_id
-            );
+            info!("Starting FIFO reader task for monitor {}", self.monitor_id);
 
             // Open the FIFO
             if let Err(e) = self.open().await {
-                error!(
-                    "Failed to open FIFO for monitor {}: {}",
-                    self.monitor_id, e
-                );
+                error!("Failed to open FIFO for monitor {}: {}", self.monitor_id, e);
                 return;
             }
 
@@ -283,20 +274,18 @@ impl ZmFifoReader {
                         break;
                     }
                     Err(e) => {
-                        error!("Error reading from FIFO for monitor {}: {}", self.monitor_id, e);
+                        error!(
+                            "Error reading from FIFO for monitor {}: {}",
+                            self.monitor_id, e
+                        );
                         // Small delay before retrying
-                        tokio::time::sleep(Duration::from_millis(
-                            self.config.reconnect_delay_ms,
-                        ))
-                        .await;
+                        tokio::time::sleep(Duration::from_millis(self.config.reconnect_delay_ms))
+                            .await;
                     }
                 }
             }
 
-            info!(
-                "FIFO reader task stopped for monitor {}",
-                self.monitor_id
-            );
+            info!("FIFO reader task stopped for monitor {}", self.monitor_id);
         })
     }
 
@@ -457,8 +446,11 @@ impl FifoManager {
     /// Get or create a FIFO reader for a monitor
     pub async fn get_reader(&mut self, monitor_id: u32) -> Result<&mut ZmFifoReader, FifoError> {
         if !self.readers.contains_key(&monitor_id) {
-            let mut reader =
-                ZmFifoReader::with_capacity(monitor_id, self.config.clone(), self.broadcast_capacity);
+            let mut reader = ZmFifoReader::with_capacity(
+                monitor_id,
+                self.config.clone(),
+                self.broadcast_capacity,
+            );
             reader.open().await?;
             self.readers.insert(monitor_id, reader);
         }
@@ -539,10 +531,7 @@ mod tests {
 
         // H.264 non-IDR frame (type 1) - not keyframe
         let h264_non_idr = vec![0x00, 0x00, 0x00, 0x01, 0x41, 0x9A, 0x21, 0x58];
-        assert!(!ZmFifoReader::is_keyframe(
-            &h264_non_idr,
-            VideoCodec::H264
-        ));
+        assert!(!ZmFifoReader::is_keyframe(&h264_non_idr, VideoCodec::H264));
     }
 
     #[test]
@@ -553,10 +542,7 @@ mod tests {
 
         // H.265 non-IRAP frame (type 1) - not keyframe
         let h265_non_irap = vec![0x00, 0x00, 0x00, 0x01, 0x02, 0x01, 0xD0, 0x00];
-        assert!(!ZmFifoReader::is_keyframe(
-            &h265_non_irap,
-            VideoCodec::H265
-        ));
+        assert!(!ZmFifoReader::is_keyframe(&h265_non_irap, VideoCodec::H265));
     }
 
     #[test]

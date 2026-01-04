@@ -61,6 +61,20 @@ tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
 libloading = "0.8"
 mockall = "0.13"
 
+# WebRTC native implementation
+webrtc = "0.12"
+webrtc-util = "0.9"
+interceptor = "0.13"
+
+# RTSP client for stream sources
+retina = "0.4"
+
+# Media parsing
+bytes = "1"
+
+# Dashboard/stats
+dashmap = "6"
+
 [dependencies.sea-orm]
 version = "1"
 features = ["sqlx-mysql", "sqlx-postgres", "runtime-tokio-rustls", "mock"]

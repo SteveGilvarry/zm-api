@@ -42,4 +42,5 @@ pub mod mse;
 pub mod server;
 pub mod streaming;
 pub mod webrtc;
+pub mod webrtc_native;
 pub mod webrtc_signaling;

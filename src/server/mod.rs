@@ -72,7 +72,11 @@ impl AppServer {
 
             let mut state = AcmeConfig::new(domains)
                 .contact(contacts)
-                .cache_option(acme.cache_dir.as_ref().map(|dir| DirCache::new(dir.clone())))
+                .cache_option(
+                    acme.cache_dir
+                        .as_ref()
+                        .map(|dir| DirCache::new(dir.clone())),
+                )
                 .directory_lets_encrypt(acme.production)
                 .challenge_type(match acme.challenge {
                     AcmeChallenge::TlsAlpn01 => UseChallenge::TlsAlpn01,
@@ -104,7 +108,8 @@ impl AppServer {
                     "/.well-known/acme-challenge/{challenge_token}",
                     challenge_service,
                 );
-                let http_server = axum_server::bind(http_addr).serve(http_router.into_make_service());
+                let http_server =
+                    axum_server::bind(http_addr).serve(http_router.into_make_service());
                 let https_server = axum_server::bind(addr)
                     .acceptor(acceptor)
                     .serve(router.into_make_service());

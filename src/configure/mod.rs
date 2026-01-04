@@ -59,11 +59,9 @@ pub fn get_settings_dir() -> Result<std::path::PathBuf, ConfigError> {
             return Ok(std::path::PathBuf::from(dir));
         }
     }
-    Ok(
-        get_project_root()
-            .map_err(|e| ConfigError::Message(e.to_string()))?
-            .join("settings"),
-    )
+    Ok(get_project_root()
+        .map_err(|e| ConfigError::Message(e.to_string()))?
+        .join("settings"))
 }
 
 pub fn get_static_dir() -> Result<std::path::PathBuf, ConfigError> {
@@ -72,11 +70,9 @@ pub fn get_static_dir() -> Result<std::path::PathBuf, ConfigError> {
             return Ok(std::path::PathBuf::from(dir));
         }
     }
-    Ok(
-        get_project_root()
-            .map_err(|e| ConfigError::Message(e.to_string()))?
-            .join("static"),
-    )
+    Ok(get_project_root()
+        .map_err(|e| ConfigError::Message(e.to_string()))?
+        .join("static"))
 }
 
 #[derive(
