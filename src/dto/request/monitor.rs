@@ -2,12 +2,7 @@
 use garde::Validate;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-// // use sea_orm::ActiveEnum; // Unused import // Unused import
-use crate::entity::sea_orm_active_enums::{
-    Analysing, AnalysisImage, AnalysisSource, Capturing, Decoding, DefaultCodec, EventCloseMode,
-    Function, Importance, MonitorType, Orientation, OutputContainer, Recording, RecordingSource,
-    Rtsp2WebType,
-};
+// use sea_orm::ActiveEnum; // Unused import
 use crate::entity::sea_orm_active_enums::{
     Analysing, AnalysisImage, AnalysisSource, Capturing, Decoding, DefaultCodec, EventCloseMode,
     Function, Importance, MonitorType, Orientation, OutputContainer, Recording, RecordingSource,
@@ -21,9 +16,6 @@ pub fn is_valid_state(value: &str, _ctx: &()) -> garde::Result {
         _ => Err(garde::Error::new(
             "invalid state; must be 'start', 'stop', or 'restart'",
         )),
-        _ => Err(garde::Error::new(
-            "invalid state; must be 'start', 'stop', or 'restart'",
-        )),
     }
 }
 
@@ -31,9 +23,6 @@ pub fn is_valid_state(value: &str, _ctx: &()) -> garde::Result {
 pub fn is_valid_alarm_action(value: &str, _ctx: &()) -> garde::Result {
     match value {
         "on" | "off" | "status" => Ok(()),
-        _ => Err(garde::Error::new(
-            "invalid alarm action; must be 'on', 'off', or 'status'",
-        )),
         _ => Err(garde::Error::new(
             "invalid alarm action; must be 'on', 'off', or 'status'",
         )),
@@ -46,30 +35,20 @@ pub fn is_valid_alarm_action(value: &str, _ctx: &()) -> garde::Result {
     Deserialize,
     ToSchema,
     Validate,
-    Debug,
-    Serialize,
-    Deserialize,
-    ToSchema,
-    Validate,
 )]
 pub struct CreateMonitorRequest {
     #[garde(length(min = 1, max = 64))]
     pub name: String,
     #[garde(skip)] // Boolean type doesn't need validation
-    #[garde(skip)] // Boolean type doesn't need validation
     pub deleted: bool,
     #[garde(skip)] // Option<String> can be None, or we could validate if Some
-    #[garde(skip)] // Option<String> can be None, or we could validate if Some
     pub notes: Option<String>,
-    #[garde(skip)] // Option<u32> can be None, or we could validate if Some
     #[garde(skip)] // Option<u32> can be None, or we could validate if Some
     pub server_id: Option<u32>,
     #[garde(range(min = 1))]
     pub storage_id: u16,
     #[garde(skip)] // Option<u32> can be None
-    #[garde(skip)] // Option<u32> can be None
     pub manufacturer_id: Option<u32>,
-    #[garde(skip)] // Option<u32> can be None
     #[garde(skip)] // Option<u32> can be None
     pub model_id: Option<u32>,
 
@@ -110,53 +89,41 @@ pub struct CreateMonitorRequest {
     pub janus_audio_enabled: i8,
 
     #[garde(skip)] // Option<String> can be None
-    #[garde(skip)] // Option<String> can be None
     pub janus_profile_override: Option<String>,
 
     #[garde(range(min = -1, max = 1))]
     pub janus_use_rtsp_restream: i8,
 
     #[garde(skip)] // Option<i32> can be None
-    #[garde(skip)] // Option<i32> can be None
     pub janus_rtsp_user: Option<i32>,
 
-    #[garde(skip)] // Option<i32> can be None
     #[garde(skip)] // Option<i32> can be None
     pub janus_rtsp_session_timeout: Option<i32>,
 
     #[garde(skip)] // Option<String> can be None
-    #[garde(skip)] // Option<String> can be None
     pub linked_monitors: Option<String>,
 
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     pub triggers: String,
 
     #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     pub event_start_command: String,
 
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     pub event_end_command: String,
 
     #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     pub onvif_url: String,
 
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     pub onvif_events_path: String,
 
     #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     pub onvif_username: String,
 
     #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     pub onvif_password: String,
 
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     pub onvif_options: String,
 
@@ -164,13 +131,11 @@ pub struct CreateMonitorRequest {
     pub onvif_event_listener: i8,
 
     #[garde(skip)] // Option<String> can be None
-    #[garde(skip)] // Option<String> can be None
     pub onvif_alarm_text: Option<String>,
 
     #[garde(range(min = -1, max = 1))]
     pub use_amcrest_api: i8,
 
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     pub device: String,
 
@@ -178,54 +143,41 @@ pub struct CreateMonitorRequest {
     pub channel: u8,
 
     #[garde(skip)] // u32 doesn't need range validation in this case
-    #[garde(skip)] // u32 doesn't need range validation in this case
     pub format: u32,
 
-    #[garde(skip)] // Option<u8> can be None
     #[garde(skip)] // Option<u8> can be None
     pub v4l_multi_buffer: Option<u8>,
 
     #[garde(skip)] // Option<u8> can be None
-    #[garde(skip)] // Option<u8> can be None
     pub v4l_captures_per_frame: Option<u8>,
 
-    #[garde(skip)] // Option<String> can be None
     #[garde(skip)] // Option<String> can be None
     pub protocol: Option<String>,
 
     #[garde(skip)] // Option<String> can be None
-    #[garde(skip)] // Option<String> can be None
     pub method: Option<String>,
 
-    #[garde(skip)] // Option<String> can be None
     #[garde(skip)] // Option<String> can be None
     pub host: Option<String>,
 
     #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     pub port: String,
 
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     pub sub_path: String,
 
     #[garde(skip)] // Option<String> can be None
-    #[garde(skip)] // Option<String> can be None
     pub path: Option<String>,
 
-    #[garde(skip)] // Option<String> can be None
     #[garde(skip)] // Option<String> can be None
     pub second_path: Option<String>,
 
     #[garde(skip)] // Option<String> can be None
-    #[garde(skip)] // Option<String> can be None
     pub options: Option<String>,
 
     #[garde(skip)] // Option<String> can be None
-    #[garde(skip)] // Option<String> can be None
     pub user: Option<String>,
 
-    #[garde(skip)] // Option<String> can be None
     #[garde(skip)] // Option<String> can be None
     pub pass: Option<String>,
 
@@ -239,7 +191,6 @@ pub struct CreateMonitorRequest {
     pub colours: u8,
 
     #[garde(skip)] // u32 doesn't need validation in this case
-    #[garde(skip)] // u32 doesn't need validation in this case
     pub palette: u32,
 
     #[serde(rename = "orientation")]
@@ -247,18 +198,14 @@ pub struct CreateMonitorRequest {
     pub orientation: Orientation,
 
     #[garde(skip)] // u32 doesn't need validation in this case
-    #[garde(skip)] // u32 doesn't need validation in this case
     pub deinterlacing: u32,
 
-    #[garde(skip)] // Option<String> can be None
     #[garde(skip)] // Option<String> can be None
     pub decoder: Option<String>,
 
     #[garde(skip)] // Option<String> can be None
-    #[garde(skip)] // Option<String> can be None
     pub decoder_hw_accel_name: Option<String>,
 
-    #[garde(skip)] // Option<String> can be None
     #[garde(skip)] // Option<String> can be None
     pub decoder_hw_accel_device: Option<String>,
 
@@ -269,10 +216,8 @@ pub struct CreateMonitorRequest {
     pub video_writer: i8,
 
     #[garde(skip)] // Option<u32> can be None
-    #[garde(skip)] // Option<u32> can be None
     pub output_codec: Option<u32>,
 
-    #[garde(skip)] // Option<String> can be None
     #[garde(skip)] // Option<String> can be None
     pub encoder: Option<String>,
 
@@ -280,7 +225,6 @@ pub struct CreateMonitorRequest {
     #[garde(skip)]
     pub output_container: OutputContainer,
 
-    #[garde(skip)] // Option<String> can be None
     #[garde(skip)] // Option<String> can be None
     pub encoder_parameters: Option<String>,
 
@@ -292,13 +236,11 @@ pub struct CreateMonitorRequest {
     pub recording_source: RecordingSource,
 
     #[garde(skip)] // Option<u8> can be None
-    #[garde(skip)] // Option<u8> can be None
     pub rtsp_describe: Option<u8>,
 
     #[garde(range(min = 0, max = i32::MAX))]
     pub brightness: i32,
 
-    #[garde(range(min = 0, max = i32::MAX))] // Validate range
     #[garde(range(min = 0, max = i32::MAX))] // Validate range
     pub contrast: i32,
 
@@ -309,18 +251,14 @@ pub struct CreateMonitorRequest {
     pub colour: i32,
 
     #[garde(length(min = 0))] // Empty string is valid
-    #[garde(length(min = 0))] // Empty string is valid
     pub event_prefix: String,
 
-    #[garde(skip)] // Option<String> can be None
     #[garde(skip)] // Option<String> can be None
     pub label_format: Option<String>,
 
     #[garde(skip)] // u16 doesn't need validation in this case
-    #[garde(skip)] // u16 doesn't need validation in this case
     pub label_x: u16,
 
-    #[garde(skip)] // u16 doesn't need validation in this case
     #[garde(skip)] // u16 doesn't need validation in this case
     pub label_y: u16,
 
@@ -334,14 +272,11 @@ pub struct CreateMonitorRequest {
     pub max_image_buffer_count: u16,
 
     #[garde(skip)] // u16 doesn't need validation in this case
-    #[garde(skip)] // u16 doesn't need validation in this case
     pub warmup_count: u16,
 
     #[garde(skip)] // u16 doesn't need validation in this case
-    #[garde(skip)] // u16 doesn't need validation in this case
     pub pre_event_count: u16,
 
-    #[garde(skip)] // u16 doesn't need validation in this case
     #[garde(skip)] // u16 doesn't need validation in this case
     pub post_event_count: u16,
 
@@ -365,30 +300,23 @@ pub struct CreateMonitorRequest {
     pub min_section_length: u32,
 
     #[garde(skip)] // u16 doesn't need validation in this case
-    #[garde(skip)] // u16 doesn't need validation in this case
     pub frame_skip: u16,
 
-    #[garde(skip)] // u16 doesn't need validation in this case
     #[garde(skip)] // u16 doesn't need validation in this case
     pub motion_frame_skip: u16,
 
     #[garde(skip)] // Option<f64> can be None
-    #[garde(skip)] // Option<f64> can be None
     pub analysis_fps_limit: Option<f64>,
 
-    #[garde(skip)] // u16 doesn't need validation in this case
     #[garde(skip)] // u16 doesn't need validation in this case
     pub analysis_update_delay: u16,
 
     #[garde(skip)] // Option<f64> can be None
-    #[garde(skip)] // Option<f64> can be None
     pub max_fps: Option<f64>,
 
     #[garde(skip)] // Option<f64> can be None
-    #[garde(skip)] // Option<f64> can be None
     pub alarm_max_fps: Option<f64>,
 
-    #[garde(skip)] // u16 doesn't need validation in this case
     #[garde(skip)] // u16 doesn't need validation in this case
     pub fps_report_interval: u16,
 
@@ -402,18 +330,14 @@ pub struct CreateMonitorRequest {
     pub controllable: u8,
 
     #[garde(skip)] // Option<u32> can be None
-    #[garde(skip)] // Option<u32> can be None
     pub control_id: Option<u32>,
 
-    #[garde(skip)] // Option<String> can be None
     #[garde(skip)] // Option<String> can be None
     pub control_device: Option<String>,
 
     #[garde(skip)] // Option<String> can be None
-    #[garde(skip)] // Option<String> can be None
     pub control_address: Option<String>,
 
-    #[garde(skip)] // Option<f64> can be None
     #[garde(skip)] // Option<f64> can be None
     pub auto_stop_timeout: Option<f64>,
 
@@ -421,13 +345,11 @@ pub struct CreateMonitorRequest {
     pub track_motion: u8,
 
     #[garde(skip)] // Option<u16> can be None
-    #[garde(skip)] // Option<u16> can be None
     pub track_delay: Option<u16>,
 
     #[garde(range(min = -1, max = 1))]
     pub return_location: i8,
 
-    #[garde(skip)] // Option<u16> can be None
     #[garde(skip)] // Option<u16> can be None
     pub return_delay: Option<u16>,
 
@@ -435,10 +357,8 @@ pub struct CreateMonitorRequest {
     pub modect_during_ptz: u8,
 
     #[garde(skip)] // u16 doesn't need validation in this case
-    #[garde(skip)] // u16 doesn't need validation in this case
     pub default_rate: u16,
 
-    #[garde(skip)] // u16 doesn't need validation in this case
     #[garde(skip)] // u16 doesn't need validation in this case
     pub default_scale: u16,
 
@@ -447,21 +367,17 @@ pub struct CreateMonitorRequest {
     pub default_codec: DefaultCodec,
 
     #[garde(skip)] // u32 doesn't need validation in this case
-    #[garde(skip)] // u32 doesn't need validation in this case
     pub signal_check_points: u32,
 
     #[garde(length(min = 0))] // Empty string is valid
-    #[garde(length(min = 0))] // Empty string is valid
     pub signal_check_colour: String,
 
-    #[garde(length(min = 0))] // Empty string is valid
     #[garde(length(min = 0))] // Empty string is valid
     pub web_colour: String,
 
     #[garde(range(min = 0, max = 1))]
     pub exif: u8,
 
-    #[garde(skip)] // Option<u16> can be None
     #[garde(skip)] // Option<u16> can be None
     pub sequence: Option<u16>,
 
@@ -472,17 +388,14 @@ pub struct CreateMonitorRequest {
     pub refresh: Option<u32>,
 
     #[garde(skip)] // Option<f64> can be None
-    #[garde(skip)] // Option<f64> can be None
     pub latitude: Option<f64>,
 
-    #[garde(skip)] // Option<f64> can be None
     #[garde(skip)] // Option<f64> can be None
     pub longitude: Option<f64>,
 
     #[garde(range(min = -1, max = 1))]
     pub rtsp_server: i8,
 
-    #[garde(length(min = 0))] // Empty string is valid
     #[garde(length(min = 0))] // Empty string is valid
     pub rtsp_stream_name: String,
 
@@ -498,10 +411,8 @@ pub struct CreateMonitorRequest {
     pub mqtt_enabled: i8,
 
     #[garde(length(min = 0))] // Empty string is valid
-    #[garde(length(min = 0))] // Empty string is valid
     pub mqtt_subscriptions: String,
 
-    #[garde(skip)] // i32 doesn't need validation in this case
     #[garde(skip)] // i32 doesn't need validation in this case
     pub startup_delay: i32,
 
