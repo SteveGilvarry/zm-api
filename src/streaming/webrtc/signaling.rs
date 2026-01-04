@@ -361,7 +361,7 @@ pub enum ServerMessage {
 /// # Usage
 ///
 /// ```rust
-/// use crate::streaming::webrtc::signaling::{ServerMessage, error_codes};
+/// use zm_api::streaming::webrtc::signaling::{ServerMessage, error_codes};
 ///
 /// let error = ServerMessage::error(
 ///     Some("session-123".to_string()),
@@ -428,7 +428,7 @@ impl ServerMessage {
     /// # Example
     ///
     /// ```rust
-    /// use crate::streaming::webrtc::signaling::{ServerMessage, error_codes};
+    /// use zm_api::streaming::webrtc::signaling::{ServerMessage, error_codes};
     ///
     /// let error = ServerMessage::error(
     ///     Some("abc-123".to_string()),
@@ -456,7 +456,7 @@ impl ServerMessage {
     /// # Example
     ///
     /// ```rust
-    /// use crate::streaming::webrtc::signaling::ServerMessage;
+    /// use zm_api::streaming::webrtc::signaling::ServerMessage;
     ///
     /// let msg = ServerMessage::Connected {
     ///     session_id: "abc-123".to_string(),
@@ -491,7 +491,7 @@ impl ClientMessage {
     /// # Example
     ///
     /// ```rust
-    /// use crate::streaming::webrtc::signaling::ClientMessage;
+    /// use zm_api::streaming::webrtc::signaling::ClientMessage;
     ///
     /// let json = r#"{"type":"offer","session_id":null,"sdp":"v=0..."}"#;
     /// match ClientMessage::parse(json) {

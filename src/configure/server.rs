@@ -38,9 +38,10 @@ pub struct ServerAcmeConfig {
 }
 
 #[derive(Debug, Deserialize, Clone, Copy)]
-#[serde(rename_all = "kebab-case")]
 pub enum AcmeChallenge {
+    #[serde(rename = "tls-alpn-01", alias = "tls-alpn01")]
     TlsAlpn01,
+    #[serde(rename = "http-01", alias = "http01")]
     Http01,
 }
 

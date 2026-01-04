@@ -91,6 +91,9 @@ pub enum Profile {
     #[serde(rename = "test")]
     #[strum(serialize = "test")]
     Test,
+    #[serde(rename = "test-db")]
+    #[strum(serialize = "test-db")]
+    TestDb,
     #[serde(rename = "dev")]
     #[strum(serialize = "dev")]
     Dev,

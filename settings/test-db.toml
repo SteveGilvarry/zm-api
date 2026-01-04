@@ -1,4 +1,4 @@
-profile = "test"
+profile = "test-db"
 
 [server]
 addr = "127.0.0.1"
