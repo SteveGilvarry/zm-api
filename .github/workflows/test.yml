@@ -77,19 +77,21 @@ jobs:
 
       - name: Setup test databases
         run: |
-          chmod +x ./scripts/db-manager.sh
+          chmod +x ./scripts/setup-ci-db.sh
           
-          # Wait for services to be ready
-          sleep 10
-          
-          # Load ZoneMinder schema into MySQL
-          ./scripts/db-manager.sh mysql
+          # Setup both MySQL and PostgreSQL with schema
+          ./scripts/setup-ci-db.sh both
         env:
           MYSQL_HOST: 127.0.0.1
           MYSQL_PORT: 3307
           MYSQL_USER: zmuser
           MYSQL_PASSWORD: zmpass
           MYSQL_DATABASE: zm_test
+          POSTGRES_HOST: 127.0.0.1
+          POSTGRES_PORT: 5433
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: test_root_pass
+          POSTGRES_DB: zm_test_pg
 
       - name: Run tests
         run: cargo test --all-features --verbose
