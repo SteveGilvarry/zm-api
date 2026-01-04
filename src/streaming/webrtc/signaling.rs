@@ -522,7 +522,8 @@ mod tests {
 
     #[test]
     fn test_client_offer_deserialization() {
-        let json = r#"{"type":"offer","session_id":null,"sdp":"v=0\r\no=- 123 2 IN IP4 127.0.0.1"}"#;
+        let json =
+            r#"{"type":"offer","session_id":null,"sdp":"v=0\r\no=- 123 2 IN IP4 127.0.0.1"}"#;
         let msg = ClientMessage::parse(json).unwrap();
 
         match msg {
@@ -547,7 +548,12 @@ mod tests {
         let msg = ClientMessage::parse(json).unwrap();
 
         match msg {
-            ClientMessage::IceCandidate { session_id, candidate, sdp_mid, sdp_mline_index } => {
+            ClientMessage::IceCandidate {
+                session_id,
+                candidate,
+                sdp_mid,
+                sdp_mline_index,
+            } => {
                 assert_eq!(session_id, "abc-123");
                 assert!(candidate.contains("192.168.1.100"));
                 assert_eq!(sdp_mid, Some("0".to_string()));
@@ -574,11 +580,15 @@ mod tests {
         let error = ServerMessage::error(
             Some("session-123".to_string()),
             error_codes::SESSION_NOT_FOUND,
-            "Session does not exist"
+            "Session does not exist",
         );
 
         match error {
-            ServerMessage::Error { session_id, code, message } => {
+            ServerMessage::Error {
+                session_id,
+                code,
+                message,
+            } => {
                 assert_eq!(session_id, Some("session-123".to_string()));
                 assert_eq!(code, "SESSION_NOT_FOUND");
                 assert_eq!(message, "Session does not exist");

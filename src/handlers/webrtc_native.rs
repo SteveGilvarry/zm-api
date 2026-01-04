@@ -102,7 +102,9 @@ pub async fn signaling_websocket(
     Query(params): Query<SignalingQuery>,
     State(state): State<AppState>,
 ) -> Response {
-    let client_id = params.client_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let client_id = params
+        .client_id
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     info!(
         "Native WebRTC signaling WebSocket upgrade for monitor {} from client {}",
         monitor_id, client_id
@@ -200,39 +202,37 @@ async fn handle_signaling(socket: WebSocket, monitor_id: u32, client_id: String,
     // Handle incoming messages
     while let Some(msg) = receiver.next().await {
         match msg {
-            Ok(Message::Text(text)) => {
-                match ClientMessage::parse(&text) {
-                    Ok(client_msg) => {
-                        let response = process_client_message(
-                            client_msg,
-                            &session_id,
-                            &engine,
-                            &session_manager,
-                            &peer_connection,
-                        )
-                        .await;
+            Ok(Message::Text(text)) => match ClientMessage::parse(&text) {
+                Ok(client_msg) => {
+                    let response = process_client_message(
+                        client_msg,
+                        &session_id,
+                        &engine,
+                        &session_manager,
+                        &peer_connection,
+                    )
+                    .await;
 
-                        if let Some(server_msg) = response {
-                            if let Err(e) = sender
-                                .send(Message::Text(server_msg.to_json().into()))
-                                .await
-                            {
-                                error!("Failed to send response: {}", e);
-                                break;
-                            }
+                    if let Some(server_msg) = response {
+                        if let Err(e) = sender
+                            .send(Message::Text(server_msg.to_json().into()))
+                            .await
+                        {
+                            error!("Failed to send response: {}", e);
+                            break;
                         }
                     }
-                    Err(e) => {
-                        warn!("Failed to parse client message: {}", e);
-                        let error_msg = ServerMessage::error(
-                            Some(session_id.clone()),
-                            error_codes::INVALID_MESSAGE,
-                            format!("Invalid message format: {}", e),
-                        );
-                        let _ = sender.send(Message::Text(error_msg.to_json().into())).await;
-                    }
                 }
-            }
+                Err(e) => {
+                    warn!("Failed to parse client message: {}", e);
+                    let error_msg = ServerMessage::error(
+                        Some(session_id.clone()),
+                        error_codes::INVALID_MESSAGE,
+                        format!("Invalid message format: {}", e),
+                    );
+                    let _ = sender.send(Message::Text(error_msg.to_json().into())).await;
+                }
+            },
             Ok(Message::Close(_)) => {
                 info!(
                     "Client closed WebSocket connection for session {}",
@@ -407,7 +407,9 @@ pub async fn handle_offer(
             enable_audio: false,
         })
         .await
-        .map_err(|e| AppError::InternalServerError(format!("Failed to create peer connection: {}", e)))?;
+        .map_err(|e| {
+            AppError::InternalServerError(format!("Failed to create peer connection: {}", e))
+        })?;
 
     // Create session with the peer connection
     let session_id = session_manager
@@ -538,20 +540,21 @@ pub async fn close_session(
     ),
     security(("jwt" = []))
 )]
-pub async fn get_stats(State(state): State<AppState>) -> AppResult<Json<NativeWebRtcStatsResponse>> {
-    let (active_sessions, engine_status) = if let Some(session_manager) =
-        state.native_session_manager.as_ref()
-    {
-        let count = session_manager.active_session_count();
-        let status = if state.native_webrtc_engine.is_some() {
-            "available"
+pub async fn get_stats(
+    State(state): State<AppState>,
+) -> AppResult<Json<NativeWebRtcStatsResponse>> {
+    let (active_sessions, engine_status) =
+        if let Some(session_manager) = state.native_session_manager.as_ref() {
+            let count = session_manager.active_session_count();
+            let status = if state.native_webrtc_engine.is_some() {
+                "available"
+            } else {
+                "unavailable"
+            };
+            (count, status.to_string())
         } else {
-            "unavailable"
+            (0, "unavailable".to_string())
         };
-        (count, status.to_string())
-    } else {
-        (0, "unavailable".to_string())
-    };
 
     Ok(Json(NativeWebRtcStatsResponse {
         active_sessions,

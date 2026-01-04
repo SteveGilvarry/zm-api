@@ -47,7 +47,10 @@ pub struct SessionManager {
 impl SessionManager {
     /// Create a new session manager with a maximum session limit
     pub fn new(max_sessions: usize) -> Self {
-        tracing::info!("Initializing SessionManager with max_sessions={}", max_sessions);
+        tracing::info!(
+            "Initializing SessionManager with max_sessions={}",
+            max_sessions
+        );
         Self {
             sessions: DashMap::new(),
             max_sessions,
@@ -166,7 +169,7 @@ impl SessionManager {
                 if session.monitor_id == monitor_id {
                     session_ids.push(entry.key().clone());
                 }
-            };  // Add semicolon to drop the guard immediately
+            }; // Add semicolon to drop the guard immediately
         }
 
         tracing::debug!(
@@ -279,17 +282,15 @@ pub enum SessionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use webrtc::api::APIBuilder;
     use webrtc::api::media_engine::MediaEngine;
+    use webrtc::api::APIBuilder;
     use webrtc::peer_connection::configuration::RTCConfiguration;
 
     async fn create_test_peer_connection() -> Arc<RTCPeerConnection> {
         let mut media_engine = MediaEngine::default();
         media_engine.register_default_codecs().unwrap();
 
-        let api = APIBuilder::new()
-            .with_media_engine(media_engine)
-            .build();
+        let api = APIBuilder::new().with_media_engine(media_engine).build();
 
         let config = RTCConfiguration::default();
         Arc::new(api.new_peer_connection(config).await.unwrap())

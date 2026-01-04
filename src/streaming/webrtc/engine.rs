@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use interceptor::registry::Registry;
+use std::sync::Arc;
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
 use webrtc::api::setting_engine::SettingEngine;
@@ -129,7 +129,9 @@ impl WebRtcEngine {
         }
 
         if ice_servers.is_empty() {
-            tracing::warn!("No ICE servers configured, peer connections may fail for non-local networks");
+            tracing::warn!(
+                "No ICE servers configured, peer connections may fail for non-local networks"
+            );
         }
 
         Ok(ice_servers)
@@ -166,8 +168,9 @@ impl WebRtcEngine {
                 mime_type: "video/H264".to_owned(),
                 clock_rate: 90000,
                 channels: 0,
-                sdp_fmtp_line: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
-                    .to_owned(),
+                sdp_fmtp_line:
+                    "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
+                        .to_owned(),
                 rtcp_feedback: vec![],
             },
             format!("video-{}", params.monitor_id),
@@ -178,7 +181,9 @@ impl WebRtcEngine {
         let _rtp_sender = peer_connection
             .add_track(Arc::clone(&video_track) as Arc<dyn TrackLocal + Send + Sync>)
             .await
-            .map_err(|e| EngineError::PeerConnection(format!("Failed to add video track: {}", e)))?;
+            .map_err(|e| {
+                EngineError::PeerConnection(format!("Failed to add video track: {}", e))
+            })?;
 
         tracing::debug!("Video track added to peer connection");
 
@@ -378,8 +383,9 @@ fn configure_media_engine() -> Result<MediaEngine, EngineError> {
                     mime_type: "video/H264".to_owned(),
                     clock_rate: 90000,
                     channels: 0,
-                    sdp_fmtp_line: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
-                        .to_owned(),
+                    sdp_fmtp_line:
+                        "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
+                            .to_owned(),
                     rtcp_feedback: vec![],
                 },
                 payload_type: 96,

@@ -26,7 +26,7 @@ use crate::util::claim::UserClaims;
         crate::handlers::auth::login,
         crate::handlers::auth::logout,
         crate::handlers::auth::refresh_token,
-        
+
         // config
         crate::handlers::configs::get_config,
         crate::handlers::configs::list_configs,
@@ -315,7 +315,7 @@ use crate::util::claim::UserClaims;
             TokenInfoRequest,
             TokenResponse,
             UserClaims,
-            
+
             // config
             crate::dto::request::config::UpdateConfigRequest,
             crate::dto::response::config::ConfigResponse,
