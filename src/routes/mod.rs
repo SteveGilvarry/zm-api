@@ -17,9 +17,10 @@ pub mod controls; // Controls
 pub mod devices; // Devices
 pub mod event_data; // Event Data
 pub mod events; // Add events module
-pub mod events_tags;
+pub mod events_tags; // Events Tags
 pub mod filters; // Filters
 pub mod frames; // Frames
+pub mod go2rtc_proxy;
 pub mod groups; // Groups
 pub mod groups_monitors; // Groups Monitors
 pub mod groups_permissions; // Groups Permissions
@@ -50,7 +51,7 @@ pub mod user_preferences; // User Preferences
 pub mod users; // Users
 pub mod webrtc; // Add WebRTC module
 pub mod zone_presets; // Zone Presets
-pub mod zones; // Zones // Events Tags
+pub mod zones; // Zones // go2rtc WebSocket proxy
 
 async fn fallback_handler(path: MatchedPath) -> &'static str {
     tracing::error!("Unknown route: {}", path.as_str());
@@ -136,6 +137,7 @@ pub fn create_router_app(state: AppState) -> Router {
     let snapshot_event_routes = snapshots_events::add_snapshot_event_routes(Router::new());
     let event_data_routes = event_data::add_event_data_routes(Router::new());
     let event_tag_routes = events_tags::add_event_tag_routes(Router::new());
+    let go2rtc_proxy_routes = go2rtc_proxy::add_go2rtc_proxy_routes(Router::new());
 
     Router::new()
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
@@ -180,6 +182,7 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(snapshot_event_routes)
         .merge(event_data_routes)
         .merge(event_tag_routes)
+        .merge(go2rtc_proxy_routes)
         .fallback(any(fallback_handler))
         .layer(cors) // Apply CORS middleware to all routes
         .with_state(state)

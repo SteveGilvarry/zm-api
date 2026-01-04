@@ -3,6 +3,7 @@ use crate::{configure::AppConfig, error::AppResult};
 
 pub mod database;
 pub mod email;
+pub mod go2rtc;
 pub mod http;
 pub mod webrtc_signaling;
 

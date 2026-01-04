@@ -8,7 +8,7 @@ use crate::util::dir::get_project_root;
 
 use self::{
     db::DatabaseConfig, email::EmailConfig, http::HttpClientConfig, secret::SecretConfig,
-    sentry::SentryConfig, server::ServerConfig, worker::WorkerConfig,
+    sentry::SentryConfig, server::ServerConfig, streaming::StreamingConfig, worker::WorkerConfig,
 };
 
 pub mod db;
@@ -18,6 +18,7 @@ pub mod http;
 pub mod secret;
 pub mod sentry;
 pub mod server;
+pub mod streaming;
 pub mod template;
 pub mod tracing;
 pub mod worker;
@@ -32,6 +33,7 @@ pub struct AppConfig {
     pub secret: SecretConfig,
     pub worker: WorkerConfig,
     pub http: HttpClientConfig,
+    pub streaming: StreamingConfig,
 }
 
 impl AppConfig {
@@ -57,9 +59,11 @@ pub fn get_settings_dir() -> Result<std::path::PathBuf, ConfigError> {
             return Ok(std::path::PathBuf::from(dir));
         }
     }
-    Ok(get_project_root()
-        .map_err(|e| ConfigError::Message(e.to_string()))?
-        .join("settings"))
+    Ok(
+        get_project_root()
+            .map_err(|e| ConfigError::Message(e.to_string()))?
+            .join("settings"),
+    )
 }
 
 pub fn get_static_dir() -> Result<std::path::PathBuf, ConfigError> {
@@ -68,9 +72,11 @@ pub fn get_static_dir() -> Result<std::path::PathBuf, ConfigError> {
             return Ok(std::path::PathBuf::from(dir));
         }
     }
-    Ok(get_project_root()
-        .map_err(|e| ConfigError::Message(e.to_string()))?
-        .join("static"))
+    Ok(
+        get_project_root()
+            .map_err(|e| ConfigError::Message(e.to_string()))?
+            .join("static"),
+    )
 }
 
 #[derive(
