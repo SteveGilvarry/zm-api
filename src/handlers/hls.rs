@@ -5,8 +5,8 @@
 use axum::{
     body::Body,
     extract::{Path, Query, State},
-    http::{header, HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    http::{header, StatusCode},
+    response::Response,
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -15,7 +15,6 @@ use tracing::{debug, info};
 
 use crate::error::{AppError, AppResponseError, AppResult};
 use crate::server::state::AppState;
-use crate::streaming::hls::{HlsSessionManager, HlsSessionStats};
 
 /// Query parameters for LL-HLS blocking reload
 #[derive(Debug, Deserialize)]
@@ -210,7 +209,7 @@ pub async fn get_master_playlist(
     let playlist = hls_manager
         .get_master_playlist(camera_id)
         .await
-        .map_err(|e| {
+        .map_err(|_err| {
             AppError::NotFoundError(crate::error::Resource {
                 resource_type: crate::error::ResourceType::Monitor,
                 details: vec![("camera_id".to_string(), camera_id.to_string())],
@@ -260,7 +259,7 @@ pub async fn get_media_playlist(
         }
     }
 
-    let playlist = hls_manager.get_playlist(camera_id).await.map_err(|e| {
+    let playlist = hls_manager.get_playlist(camera_id).await.map_err(|_err| {
         AppError::NotFoundError(crate::error::Resource {
             resource_type: crate::error::ResourceType::Monitor,
             details: vec![("camera_id".to_string(), camera_id.to_string())],
@@ -300,7 +299,7 @@ pub async fn get_init_segment(
         AppError::ServiceUnavailableError("HLS streaming not configured".to_string())
     })?;
 
-    let data = hls_manager.get_init_segment(camera_id).await.map_err(|e| {
+    let data = hls_manager.get_init_segment(camera_id).await.map_err(|_err| {
         AppError::NotFoundError(crate::error::Resource {
             resource_type: crate::error::ResourceType::Monitor,
             details: vec![
@@ -363,7 +362,7 @@ pub async fn get_segment(
     let data = hls_manager
         .get_segment(path.camera_id, sequence)
         .await
-        .map_err(|e| {
+        .map_err(|_err| {
             AppError::NotFoundError(crate::error::Resource {
                 resource_type: crate::error::ResourceType::Monitor,
                 details: vec![

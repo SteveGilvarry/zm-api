@@ -69,7 +69,6 @@ pub struct ZmFifoReader {
     video_reader: Option<BufReader<File>>,
     codec: VideoCodec,
     config: ZoneMinderConfig,
-    broadcast_capacity: usize,
     /// Broadcast channel for distributing packets to multiple consumers
     tx: broadcast::Sender<FifoPacket>,
 }
@@ -174,7 +173,6 @@ impl ZmFifoReader {
             video_reader: None,
             codec: detected_codec,
             config,
-            broadcast_capacity,
             tx,
         }
     }

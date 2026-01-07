@@ -22,28 +22,6 @@ use tracing::info;
 pub fn add_native_webrtc_routes(router: Router<AppState>) -> Router<AppState> {
     info!("Registering native WebRTC routes...");
 
-    let native_routes = Router::new()
-        // WebSocket signaling endpoint
-        .route(
-            "/{camera_id}/signaling",
-            get(webrtc_native::signaling_websocket),
-        )
-        // REST fallback for SDP offer
-        .route("/{camera_id}/offer", post(webrtc_native::handle_offer))
-        // ICE candidate endpoint
-        .route(
-            "/{camera_id}/{session_id}/candidate",
-            post(webrtc_native::add_ice_candidate),
-        )
-        // Close session
-        .route("/{session_id}", delete(webrtc_native::close_session))
-        // Statistics and management
-        .route("/stats", get(webrtc_native::get_stats))
-        .route("/sessions", get(webrtc_native::list_sessions))
-        .route("/sessions/{session_id}", get(webrtc_native::get_session))
-        // Health check (no auth required)
-        .route("/health", get(webrtc_native::health_check));
-
     // Apply auth middleware to all routes except health
     let authenticated_routes = Router::new()
         .route(

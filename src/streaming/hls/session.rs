@@ -7,13 +7,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, RwLock};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 use super::playlist::{MediaPlaylist, PlaylistGenerator, SegmentRef};
 use super::segmenter::{FMP4Segment, HlsSegmenter, InitSegment};
-use super::storage::{HlsStorage, SegmentInfo, StorageConfig, StorageError};
+use super::storage::{HlsStorage, StorageConfig, StorageError};
 use crate::configure::streaming::HlsConfig;
-use crate::streaming::source::fifo::{FifoPacket, VideoCodec};
+use crate::streaming::source::fifo::FifoPacket;
 
 /// HLS session for a single monitor
 pub struct HlsSession {
