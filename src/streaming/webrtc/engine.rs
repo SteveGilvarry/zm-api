@@ -21,7 +21,6 @@ use crate::configure::streaming::WebRtcConfig;
 /// WebRTC engine for creating and managing peer connections
 pub struct WebRtcEngine {
     api: API,
-    config: WebRtcConfig,
     ice_servers: Vec<RTCIceServer>,
 }
 
@@ -97,11 +96,7 @@ impl WebRtcEngine {
             ice_servers.len()
         );
 
-        Ok(Self {
-            api,
-            config,
-            ice_servers,
-        })
+        Ok(Self { api, ice_servers })
     }
 
     /// Parse ICE servers from configuration
