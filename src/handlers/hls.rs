@@ -299,15 +299,18 @@ pub async fn get_init_segment(
         AppError::ServiceUnavailableError("HLS streaming not configured".to_string())
     })?;
 
-    let data = hls_manager.get_init_segment(camera_id).await.map_err(|_err| {
-        AppError::NotFoundError(crate::error::Resource {
-            resource_type: crate::error::ResourceType::Monitor,
-            details: vec![
-                ("camera_id".to_string(), camera_id.to_string()),
-                ("segment".to_string(), "init.mp4".to_string()),
-            ],
-        })
-    })?;
+    let data = hls_manager
+        .get_init_segment(camera_id)
+        .await
+        .map_err(|_err| {
+            AppError::NotFoundError(crate::error::Resource {
+                resource_type: crate::error::ResourceType::Monitor,
+                details: vec![
+                    ("camera_id".to_string(), camera_id.to_string()),
+                    ("segment".to_string(), "init.mp4".to_string()),
+                ],
+            })
+        })?;
 
     Ok(Response::builder()
         .status(StatusCode::OK)

@@ -96,10 +96,7 @@ impl WebRtcEngine {
             ice_servers.len()
         );
 
-        Ok(Self {
-            api,
-            ice_servers,
-        })
+        Ok(Self { api, ice_servers })
     }
 
     /// Parse ICE servers from configuration
