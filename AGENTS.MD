@@ -15,6 +15,8 @@ Keep it practical: commands that work, where code lives, and project-specific co
 ## Guardrails (Important)
 
 - Prefer small, targeted changes; don’t “clean up” unrelated code.
+- When you need authoritative details on Rust or Axum behavior/APIs (extractors, response types, middleware layers, Tower traits, async semantics), use the Context7 MCP to look it up rather than guessing.
+- When you need repository context (PR discussion, review comments, issue history, CI failures), use the GitHub MCP to fetch it rather than guessing.
 - Work tests-first: add/adjust tests before (or alongside) implementation; don’t merge code without green tests.
 - Keep CI green: `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-features` must pass.
 - Don’t commit secrets. Local profiles like `settings/dev.toml` are intentionally gitignored.
