@@ -123,7 +123,8 @@ fn default_bin_path() -> PathBuf {
 }
 
 fn default_script_path() -> PathBuf {
-    PathBuf::from("/usr/share/zoneminder/scripts")
+    // On Ubuntu/Debian, scripts are also in /usr/bin
+    PathBuf::from("/usr/bin")
 }
 
 fn default_min_backoff_seconds() -> u64 {
@@ -177,9 +178,10 @@ mod tests {
             config.resolve_daemon_path("zmc"),
             PathBuf::from("/usr/bin/zmc")
         );
+        // On Ubuntu/Debian, scripts are also in /usr/bin
         assert_eq!(
             config.resolve_daemon_path("zmfilter.pl"),
-            PathBuf::from("/usr/share/zoneminder/scripts/zmfilter.pl")
+            PathBuf::from("/usr/bin/zmfilter.pl")
         );
     }
 

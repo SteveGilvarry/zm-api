@@ -118,8 +118,9 @@ transport = "auto"
 enabled = true
 socket_path = "/run/zm"
 socket_name = "zmdc.sock"
+# On Ubuntu/Debian, both binaries and scripts are in /usr/bin
 bin_path = "/usr/bin"
-script_path = "/usr/share/zoneminder/scripts"
+script_path = "/usr/bin"
 min_backoff_seconds = 5
 max_backoff_seconds = 900
 shutdown_timeout_seconds = 30
