@@ -112,3 +112,17 @@ rtp_port_range_start = 20000
 rtp_port_range_end = 30000
 max_sessions = 100
 transport = "auto"
+
+# Daemon controller configuration (replaces zmdc.pl/zmpkg.pl)
+[daemon]
+enabled = true
+socket_path = "/run/zm"
+socket_name = "zmdc.sock"
+bin_path = "/usr/bin"
+script_path = "/usr/share/zoneminder/scripts"
+min_backoff_seconds = 5
+max_backoff_seconds = 900
+shutdown_timeout_seconds = 30
+stats_update_interval_seconds = 60
+enable_socket_ipc = true
+enable_rest_api = true
