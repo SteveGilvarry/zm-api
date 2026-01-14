@@ -28,7 +28,7 @@ pub enum DaemonCommand {
     /// Stop a specific daemon
     Stop { daemon: String },
     /// Restart a specific daemon
-    Restart { daemon: String },
+    Restart { daemon: String, args: Vec<String> },
     /// Send SIGHUP to reload configuration
     Reload { daemon: String },
 
@@ -84,6 +84,7 @@ impl DaemonCommand {
                 }
                 Ok(DaemonCommand::Restart {
                     daemon: parts[1].to_string(),
+                    args: parts[2..].iter().map(|s| s.to_string()).collect(),
                 })
             }
             "reload" => {
@@ -126,7 +127,13 @@ impl DaemonCommand {
                 }
             }
             DaemonCommand::Stop { daemon } => format!("stop;{}", daemon),
-            DaemonCommand::Restart { daemon } => format!("restart;{}", daemon),
+            DaemonCommand::Restart { daemon, args } => {
+                if args.is_empty() {
+                    format!("restart;{}", daemon)
+                } else {
+                    format!("restart;{};{}", daemon, args.join(";"))
+                }
+            }
             DaemonCommand::Reload { daemon } => format!("reload;{}", daemon),
             DaemonCommand::PackageStart => "pkg_start".to_string(),
             DaemonCommand::PackageStop => "pkg_stop".to_string(),

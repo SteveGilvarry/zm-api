@@ -186,10 +186,12 @@ async fn execute_command(cmd: DaemonCommand, manager: &Arc<DaemonManager>) -> Da
             Ok(resp) => resp,
             Err(e) => DaemonResponse::error(e.to_string()),
         },
-        DaemonCommand::Restart { daemon } => match manager.restart_daemon(&daemon).await {
-            Ok(resp) => resp,
-            Err(e) => DaemonResponse::error(e.to_string()),
-        },
+        DaemonCommand::Restart { daemon, args } => {
+            match manager.restart_daemon(&daemon, &args).await {
+                Ok(resp) => resp,
+                Err(e) => DaemonResponse::error(e.to_string()),
+            }
+        }
         DaemonCommand::Reload { daemon } => match manager.reload_daemon(&daemon).await {
             Ok(resp) => resp,
             Err(e) => DaemonResponse::error(e.to_string()),

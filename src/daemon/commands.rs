@@ -52,7 +52,10 @@ fn parse_json_command(input: &str) -> Result<DaemonCommand, String> {
         }
         "restart" => {
             let daemon = json.daemon.ok_or("restart requires daemon field")?;
-            Ok(DaemonCommand::Restart { daemon })
+            Ok(DaemonCommand::Restart {
+                daemon,
+                args: json.args,
+            })
         }
         "reload" => {
             let daemon = json.daemon.ok_or("reload requires daemon field")?;

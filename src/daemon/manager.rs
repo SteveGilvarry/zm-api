@@ -191,11 +191,26 @@ impl DaemonManager {
     }
 
     /// Restart a daemon process.
-    pub async fn restart_daemon(&self, id: &str) -> AppResult<DaemonResponse> {
-        // Get the current args before stopping
-        let args = {
+    ///
+    /// If `provided_args` is non-empty, those args are used. Otherwise, we try
+    /// to use the args from the existing process entry, falling back to parsing
+    /// args from the daemon ID string (e.g., "zmc -m 1").
+    pub async fn restart_daemon(
+        &self,
+        id: &str,
+        provided_args: &[String],
+    ) -> AppResult<DaemonResponse> {
+        // Determine which args to use
+        let args = if !provided_args.is_empty() {
+            // Use provided args (from socket command or API call)
+            provided_args.to_vec()
+        } else {
+            // Try to get args from existing process entry
             let processes = self.processes.read().await;
-            processes.get(id).map(|p| p.args.clone())
+            processes
+                .get(id)
+                .map(|p| p.args.clone())
+                .unwrap_or_default()
         };
 
         // Stop if running
@@ -217,8 +232,6 @@ impl DaemonManager {
             }
         }
 
-        // Start with the same args (or empty if not found)
-        let args = args.unwrap_or_default();
         self.start_daemon(id, &args).await
     }
 
@@ -434,7 +447,8 @@ impl DaemonManager {
                 "Process {} appears hung (no CPU activity for {:?}), restarting",
                 id, max_delay
             );
-            if let Err(e) = self.restart_daemon(&id).await {
+            // Pass empty args - restart_daemon will get args from existing process entry
+            if let Err(e) = self.restart_daemon(&id, &[]).await {
                 error!("Failed to restart hung daemon {}: {}", id, e);
             }
         }
@@ -461,6 +475,7 @@ impl DaemonManager {
     /// Check daemon health and restart if needed.
     pub async fn check_daemons(&self) {
         let mut to_restart = Vec::new();
+        let mut pids_to_remove = Vec::new();
 
         {
             let mut processes = self.processes.write().await;
@@ -473,10 +488,9 @@ impl DaemonManager {
                             // Process exited
                             info!("Daemon {} exited with status: {:?}", id, status);
 
-                            // Remove from PID map
+                            // Collect PID for removal (will remove after releasing lock)
                             if let Some(pid) = process.pid {
-                                let mut pid_map = self.pid_map.blocking_write();
-                                pid_map.remove(&pid);
+                                pids_to_remove.push(pid);
                             }
 
                             if process.auto_restart {
@@ -506,6 +520,14 @@ impl DaemonManager {
                 if process.state == ProcessState::Restarting && process.backoff_elapsed() {
                     to_restart.push((id.clone(), process.args.clone()));
                 }
+            }
+        }
+
+        // Remove PIDs from map (now that processes lock is released)
+        if !pids_to_remove.is_empty() {
+            let mut pid_map = self.pid_map.write().await;
+            for pid in pids_to_remove {
+                pid_map.remove(&pid);
             }
         }
 

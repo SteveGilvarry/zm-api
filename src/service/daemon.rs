@@ -81,7 +81,8 @@ pub async fn restart_daemon(state: &AppState, id: &str) -> AppResult<DaemonActio
         .ok_or_else(|| AppError::ServiceUnavailableError("Daemon manager not available".into()))?;
 
     info!("Restarting daemon: {}", id);
-    let resp = manager.restart_daemon(id).await?;
+    // Pass empty args - daemon ID (e.g., "zmc -m 1") contains the args
+    let resp = manager.restart_daemon(id, &[]).await?;
     Ok(response_to_action(resp))
 }
 
