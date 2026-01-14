@@ -67,6 +67,10 @@ pub struct ManagedProcess {
     pub monitor_id: Option<u32>,
     /// Time when SIGTERM was sent (for timeout tracking)
     pub term_sent_at: Option<Instant>,
+    /// Last recorded CPU time (utime + stime from /proc/[pid]/stat) for hang detection
+    pub last_cpu_time: Option<u64>,
+    /// When we last checked process activity
+    pub last_activity_check: Option<Instant>,
 }
 
 impl ManagedProcess {
@@ -94,6 +98,8 @@ impl ManagedProcess {
             auto_restart,
             monitor_id,
             term_sent_at: None,
+            last_cpu_time: None,
+            last_activity_check: None,
         }
     }
 
@@ -225,6 +231,99 @@ impl ManagedProcess {
     pub fn reset_backoff(&mut self, min_backoff: Duration) {
         self.restart_count = 0;
         self.current_backoff = min_backoff;
+    }
+
+    /// Read CPU time from /proc/[pid]/stat.
+    ///
+    /// Returns the sum of utime and stime (user + system CPU time in clock ticks).
+    /// Returns None if the process doesn't exist or /proc is not available.
+    #[cfg(target_os = "linux")]
+    pub fn read_cpu_time(&self) -> Option<u64> {
+        use std::fs;
+
+        let pid = self.pid?;
+        let stat_path = format!("/proc/{}/stat", pid);
+        let content = fs::read_to_string(stat_path).ok()?;
+
+        // /proc/[pid]/stat format: pid (comm) state ppid pgrp session tty_nr tpgid flags
+        // minflt cminflt majflt cmajflt utime stime cutime cstime ...
+        // Fields 14 and 15 (0-indexed: 13 and 14) are utime and stime
+
+        // Handle the tricky (comm) field which can contain spaces and parentheses
+        let start = content.find(')')?;
+        let fields_after_comm: Vec<&str> = content[start + 2..].split_whitespace().collect();
+
+        // After (comm), field index 11 is utime, 12 is stime (0-indexed from after comm)
+        let utime: u64 = fields_after_comm.get(11)?.parse().ok()?;
+        let stime: u64 = fields_after_comm.get(12)?.parse().ok()?;
+
+        Some(utime + stime)
+    }
+
+    /// Read CPU time - stub for non-Linux platforms.
+    #[cfg(not(target_os = "linux"))]
+    pub fn read_cpu_time(&self) -> Option<u64> {
+        None // Activity tracking not available on non-Linux
+    }
+
+    /// Check process activity and update tracking.
+    ///
+    /// Returns true if the process appears to be active (CPU time changed).
+    /// Returns None if we can't determine activity (first check or non-Linux).
+    pub fn check_activity(&mut self) -> Option<bool> {
+        let current_cpu_time = self.read_cpu_time()?;
+        let now = Instant::now();
+
+        let is_active = if let Some(last_cpu) = self.last_cpu_time {
+            current_cpu_time > last_cpu
+        } else {
+            // First check - assume active
+            true
+        };
+
+        self.last_cpu_time = Some(current_cpu_time);
+        self.last_activity_check = Some(now);
+
+        Some(is_active)
+    }
+
+    /// Check if the process appears to be hung (no CPU activity for too long).
+    ///
+    /// Returns true if:
+    /// - Process is running
+    /// - We've been checking activity
+    /// - CPU time hasn't changed since last check
+    /// - Enough time has passed since last activity
+    pub fn appears_hung(&self, max_inactive: Duration) -> bool {
+        if self.state != ProcessState::Running {
+            return false;
+        }
+
+        // If we haven't done activity checks, can't determine if hung
+        let Some(last_check) = self.last_activity_check else {
+            return false;
+        };
+
+        // If last check was recent, wait for more data
+        if last_check.elapsed() < max_inactive {
+            return false;
+        }
+
+        // On non-Linux or if we can't read CPU time, don't report as hung
+        let Some(current_cpu) = self.read_cpu_time() else {
+            return false;
+        };
+
+        // If CPU time matches last recorded (hasn't changed), process may be hung
+        self.last_cpu_time
+            .map(|last| current_cpu == last)
+            .unwrap_or(false)
+    }
+
+    /// Reset activity tracking (call after restart).
+    pub fn reset_activity(&mut self) {
+        self.last_cpu_time = None;
+        self.last_activity_check = None;
     }
 }
 

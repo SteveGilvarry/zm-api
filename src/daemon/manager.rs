@@ -353,17 +353,109 @@ impl DaemonManager {
         }
     }
 
-    /// Start the daemon manager.
-    pub async fn startup(&self) -> AppResult<DaemonResponse> {
+    /// Start the daemon manager and background health check task.
+    pub async fn startup(self: &Arc<Self>) -> AppResult<DaemonResponse> {
         let mut running = self.running.write().await;
         if *running {
             return Ok(DaemonResponse::error("Daemon manager already running"));
         }
 
         *running = true;
-        info!("Daemon manager started");
+        drop(running); // Release lock before spawning
+
+        // Start background health check task
+        let manager = Arc::clone(self);
+        let check_interval = self.config.watch_check_interval();
+        let max_delay = self.config.watch_max_delay();
+
+        tokio::spawn(async move {
+            manager
+                .run_health_check_loop(check_interval, max_delay)
+                .await;
+        });
+
+        info!("Daemon manager started with health monitoring");
 
         Ok(DaemonResponse::ok("Daemon manager started"))
+    }
+
+    /// Run the background health check loop.
+    async fn run_health_check_loop(
+        &self,
+        check_interval: std::time::Duration,
+        max_delay: std::time::Duration,
+    ) {
+        // Initial delay before first check (like zmwatch.pl's 30 second delay)
+        let startup_delay = std::time::Duration::from_secs(30);
+
+        info!(
+            "Health monitor starting (startup delay: {:?}, check interval: {:?}, max delay: {:?})",
+            startup_delay, check_interval, max_delay
+        );
+
+        tokio::select! {
+            _ = tokio::time::sleep(startup_delay) => {},
+            _ = self.shutdown.notified() => {
+                info!("Health monitor shutdown during startup delay");
+                return;
+            }
+        }
+
+        let mut interval = tokio::time::interval(check_interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    self.perform_health_check(max_delay).await;
+                }
+                _ = self.shutdown.notified() => {
+                    info!("Health monitor received shutdown signal");
+                    break;
+                }
+            }
+        }
+
+        info!("Health monitor stopped");
+    }
+
+    /// Perform a single health check cycle.
+    async fn perform_health_check(&self, max_delay: std::time::Duration) {
+        debug!("Performing health check");
+
+        // Check for exited processes and handle restarts
+        self.check_daemons().await;
+
+        // Check for hung processes
+        let hung_processes = self.check_for_hung_processes(max_delay).await;
+
+        for id in hung_processes {
+            warn!(
+                "Process {} appears hung (no CPU activity for {:?}), restarting",
+                id, max_delay
+            );
+            if let Err(e) = self.restart_daemon(&id).await {
+                error!("Failed to restart hung daemon {}: {}", id, e);
+            }
+        }
+    }
+
+    /// Check for processes that appear to be hung (no CPU activity).
+    async fn check_for_hung_processes(&self, max_delay: std::time::Duration) -> Vec<String> {
+        let mut hung = Vec::new();
+        let mut processes = self.processes.write().await;
+
+        for (id, process) in processes.iter_mut() {
+            // Update activity tracking
+            process.check_activity();
+
+            // Check if process appears hung
+            if process.appears_hung(max_delay) {
+                hung.push(id.clone());
+            }
+        }
+
+        hung
     }
 
     /// Check daemon health and restart if needed.
@@ -516,21 +608,27 @@ mod tests {
     #[tokio::test]
     async fn test_daemon_manager_startup() {
         let config = DaemonConfig::default();
-        let manager = DaemonManager::new(config, None);
+        let manager = Arc::new(DaemonManager::new(config, None));
 
         let resp = manager.startup().await.unwrap();
         assert!(resp.success);
         assert!(manager.is_running().await);
+
+        // Signal shutdown to stop background task
+        manager.signal_shutdown();
     }
 
     #[tokio::test]
     async fn test_daemon_manager_double_startup() {
         let config = DaemonConfig::default();
-        let manager = DaemonManager::new(config, None);
+        let manager = Arc::new(DaemonManager::new(config, None));
 
         manager.startup().await.unwrap();
         let resp = manager.startup().await.unwrap();
         assert!(!resp.success); // Already running
+
+        // Signal shutdown to stop background task
+        manager.signal_shutdown();
     }
 
     #[tokio::test]

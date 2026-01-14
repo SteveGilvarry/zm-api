@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use self::state::AppState;
 use crate::configure::server::AcmeChallenge;
 use crate::configure::AppConfig;
+use crate::daemon::ipc::socket::DaemonSocketServer;
 use crate::error::AppResult;
 use crate::routes::create_router_app;
 use futures::StreamExt;
@@ -22,6 +25,32 @@ impl AppServer {
         let addr = config.server.get_socket_addr()?;
         let tls_config = config.server.tls.clone();
         let acme_config = config.server.acme.clone();
+
+        // Start daemon-related background services if enabled
+        if config.daemon.enabled {
+            if let Some(ref daemon_manager) = self.state.daemon_manager {
+                // Start the daemon manager (includes health monitoring)
+                if let Err(e) = daemon_manager.startup().await {
+                    tracing::error!("Failed to start daemon manager: {}", e);
+                }
+
+                // Start the Unix socket server for legacy zmdc.pl compatibility
+                if config.daemon.enable_socket_ipc {
+                    let socket_path = config.daemon.socket_file();
+                    let manager = Arc::clone(daemon_manager);
+                    let socket_server = DaemonSocketServer::new(socket_path.clone(), manager);
+
+                    tracing::info!("Starting daemon socket server at {:?}", socket_path);
+
+                    tokio::spawn(async move {
+                        if let Err(e) = socket_server.run().await {
+                            tracing::error!("Daemon socket server error: {}", e);
+                        }
+                    });
+                }
+            }
+        }
+
         let router = create_router_app(self.state);
 
         if let Some(acme) = acme_config.filter(|acme| acme.enabled) {

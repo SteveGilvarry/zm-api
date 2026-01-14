@@ -143,7 +143,7 @@ async fn handle_client(stream: UnixStream, manager: Arc<DaemonManager>) -> AppRe
 }
 
 /// Execute a daemon command and return a response.
-async fn execute_command(cmd: DaemonCommand, manager: &DaemonManager) -> DaemonResponse {
+async fn execute_command(cmd: DaemonCommand, manager: &Arc<DaemonManager>) -> DaemonResponse {
     match cmd {
         DaemonCommand::Startup => match manager.startup().await {
             Ok(resp) => resp,
@@ -229,7 +229,7 @@ mod tests {
     #[tokio::test]
     async fn test_execute_command_check() {
         let config = DaemonConfig::default();
-        let manager = DaemonManager::new(config, None);
+        let manager = Arc::new(DaemonManager::new(config, None));
 
         let resp = execute_command(DaemonCommand::Check, &manager).await;
         assert!(resp.success);
@@ -239,7 +239,7 @@ mod tests {
     #[tokio::test]
     async fn test_execute_command_version() {
         let config = DaemonConfig::default();
-        let manager = DaemonManager::new(config, None);
+        let manager = Arc::new(DaemonManager::new(config, None));
 
         let resp = execute_command(DaemonCommand::Version, &manager).await;
         assert!(resp.success);
@@ -249,17 +249,20 @@ mod tests {
     #[tokio::test]
     async fn test_execute_command_startup() {
         let config = DaemonConfig::default();
-        let manager = DaemonManager::new(config, None);
+        let manager = Arc::new(DaemonManager::new(config, None));
 
         let resp = execute_command(DaemonCommand::Startup, &manager).await;
         assert!(resp.success);
         assert!(manager.is_running().await);
+
+        // Signal shutdown to stop background task
+        manager.signal_shutdown();
     }
 
     #[tokio::test]
     async fn test_execute_command_status() {
         let config = DaemonConfig::default();
-        let manager = DaemonManager::new(config, None);
+        let manager = Arc::new(DaemonManager::new(config, None));
 
         let resp = execute_command(DaemonCommand::Status, &manager).await;
         assert!(resp.success);

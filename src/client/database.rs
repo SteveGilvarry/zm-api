@@ -66,6 +66,7 @@ mod tests {
     use crate::constant::CONFIG;
 
     #[tokio::test]
+    #[ignore = "requires database connection"]
     async fn test_ping_database() {
         DatabaseClient::build_from_config(&CONFIG)
             .await

@@ -50,6 +50,18 @@ pub struct DaemonConfig {
     /// Enable REST API integration (default: true)
     #[serde(default = "default_enable_rest_api")]
     pub enable_rest_api: bool,
+
+    /// Enable watchdog to monitor daemon health (default: true)
+    #[serde(default = "default_enable_watchdog")]
+    pub enable_watchdog: bool,
+
+    /// Watchdog check interval in seconds (default: 10, matches ZM_WATCH_CHECK_INTERVAL)
+    #[serde(default = "default_watch_check_interval_seconds")]
+    pub watch_check_interval_seconds: u64,
+
+    /// Maximum heartbeat delay before restart in seconds (default: 30, matches ZM_WATCH_MAX_DELAY)
+    #[serde(default = "default_watch_max_delay_seconds")]
+    pub watch_max_delay_seconds: u64,
 }
 
 impl Default for DaemonConfig {
@@ -66,6 +78,9 @@ impl Default for DaemonConfig {
             stats_update_interval_seconds: default_stats_update_interval_seconds(),
             enable_socket_ipc: default_enable_socket_ipc(),
             enable_rest_api: default_enable_rest_api(),
+            enable_watchdog: default_enable_watchdog(),
+            watch_check_interval_seconds: default_watch_check_interval_seconds(),
+            watch_max_delay_seconds: default_watch_max_delay_seconds(),
         }
     }
 }
@@ -94,6 +109,16 @@ impl DaemonConfig {
     /// Get the stats update interval duration.
     pub fn stats_update_interval(&self) -> Duration {
         Duration::from_secs(self.stats_update_interval_seconds)
+    }
+
+    /// Get the watchdog check interval duration.
+    pub fn watch_check_interval(&self) -> Duration {
+        Duration::from_secs(self.watch_check_interval_seconds)
+    }
+
+    /// Get the maximum heartbeat delay before restart.
+    pub fn watch_max_delay(&self) -> Duration {
+        Duration::from_secs(self.watch_max_delay_seconds)
     }
 
     /// Resolve a daemon command to its full path.
@@ -151,6 +176,18 @@ fn default_enable_rest_api() -> bool {
     true
 }
 
+fn default_enable_watchdog() -> bool {
+    true
+}
+
+fn default_watch_check_interval_seconds() -> u64 {
+    10 // ZM_WATCH_CHECK_INTERVAL default
+}
+
+fn default_watch_max_delay_seconds() -> u64 {
+    30 // ZM_WATCH_MAX_DELAY default
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,6 +200,9 @@ mod tests {
         assert_eq!(config.socket_name, "zmdc.sock");
         assert_eq!(config.min_backoff_seconds, 5);
         assert_eq!(config.max_backoff_seconds, 900);
+        assert!(config.enable_watchdog);
+        assert_eq!(config.watch_check_interval_seconds, 10);
+        assert_eq!(config.watch_max_delay_seconds, 30);
     }
 
     #[test]
@@ -192,5 +232,7 @@ mod tests {
         assert_eq!(config.max_backoff(), Duration::from_secs(900));
         assert_eq!(config.shutdown_timeout(), Duration::from_secs(30));
         assert_eq!(config.stats_update_interval(), Duration::from_secs(60));
+        assert_eq!(config.watch_check_interval(), Duration::from_secs(10));
+        assert_eq!(config.watch_max_delay(), Duration::from_secs(30));
     }
 }
