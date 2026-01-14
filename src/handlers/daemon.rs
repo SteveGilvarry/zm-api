@@ -58,7 +58,7 @@ pub async fn get_daemon(
     params(
         ("id" = String, Path, description = "Daemon identifier")
     ),
-    request_body = StartDaemonRequest,
+    request_body(content = Option<StartDaemonRequest>, description = "Optional arguments"),
     responses(
         (status = 200, description = "Daemon started", body = DaemonActionResponse),
         (status = 503, description = "Daemon manager not available")
@@ -69,10 +69,11 @@ pub async fn get_daemon(
 pub async fn start_daemon(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(request): Json<StartDaemonRequest>,
+    request: Option<Json<StartDaemonRequest>>,
 ) -> AppResult<Json<DaemonActionResponse>> {
-    info!("Starting daemon: {} with args: {:?}", id, request.args);
-    let response = service::daemon::start_daemon(&state, &id, &request.args).await?;
+    let args = request.map(|r| r.0.args).unwrap_or_default();
+    info!("Starting daemon: {} with args: {:?}", id, args);
+    let response = service::daemon::start_daemon(&state, &id, &args).await?;
     Ok(Json(response))
 }
 
