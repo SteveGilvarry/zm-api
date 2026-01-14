@@ -202,28 +202,65 @@ pub async fn system_shutdown(
     Ok(Json(response))
 }
 
+/// Perform full system restart.
+#[utoipa::path(
+    post,
+    path = "/api/v3/system/restart",
+    responses(
+        (status = 200, description = "System restarted", body = DaemonActionResponse),
+        (status = 503, description = "Daemon manager not available")
+    ),
+    tag = "System",
+    security(("jwt" = []))
+)]
+pub async fn system_restart(
+    State(state): State<AppState>,
+) -> AppResult<Json<DaemonActionResponse>> {
+    info!("Restarting system");
+    let response = service::daemon::system_restart(&state).await?;
+    Ok(Json(response))
+}
+
+/// Trigger log rotation for all daemons.
+#[utoipa::path(
+    post,
+    path = "/api/v3/system/logrot",
+    responses(
+        (status = 200, description = "Log rotation triggered", body = DaemonActionResponse),
+        (status = 503, description = "Daemon manager not available")
+    ),
+    tag = "System",
+    security(("jwt" = []))
+)]
+pub async fn system_logrot(State(state): State<AppState>) -> AppResult<Json<DaemonActionResponse>> {
+    info!("Triggering log rotation");
+    let response = service::daemon::system_logrot(&state).await?;
+    Ok(Json(response))
+}
+
 /// Apply a system state.
+///
+/// States are predefined monitor configurations stored in the database.
+/// Applying a state updates monitor Function/Enabled settings and restarts affected daemons.
 #[utoipa::path(
     post,
     path = "/api/v3/system/state",
     request_body = ApplyStateRequest,
     responses(
         (status = 200, description = "State applied", body = DaemonActionResponse),
+        (status = 404, description = "State not found"),
         (status = 503, description = "Daemon manager not available")
     ),
     tag = "System",
     security(("jwt" = []))
 )]
 pub async fn apply_state(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Json(request): Json<ApplyStateRequest>,
 ) -> AppResult<Json<DaemonActionResponse>> {
     info!("Applying state: {}", request.state_name);
-    // TODO: Implement state application with database lookup
-    Ok(Json(DaemonActionResponse::success(format!(
-        "State '{}' applied (stub)",
-        request.state_name
-    ))))
+    let response = service::daemon::apply_state(&state, &request.state_name).await?;
+    Ok(Json(response))
 }
 
 #[cfg(test)]

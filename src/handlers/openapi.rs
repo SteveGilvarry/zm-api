@@ -289,6 +289,20 @@ use crate::util::claim::UserClaims;
         crate::handlers::webrtc::health_check,
         crate::handlers::webrtc::websocket_handler,
 
+        // daemons
+        crate::handlers::daemon::list_daemons,
+        crate::handlers::daemon::get_daemon,
+        crate::handlers::daemon::start_daemon,
+        crate::handlers::daemon::stop_daemon,
+        crate::handlers::daemon::restart_daemon,
+        crate::handlers::daemon::reload_daemon,
+        crate::handlers::daemon::get_system_status,
+        crate::handlers::daemon::system_startup,
+        crate::handlers::daemon::system_shutdown,
+        crate::handlers::daemon::system_restart,
+        crate::handlers::daemon::system_logrot,
+        crate::handlers::daemon::apply_state,
+
         // zone presets
         crate::handlers::zone_presets::create_zone_preset,
         crate::handlers::zone_presets::delete_zone_preset,
@@ -509,6 +523,14 @@ use crate::util::claim::UserClaims;
             crate::dto::request::zones::CreateZoneRequest,
             crate::dto::response::zones::ZoneResponse,
             crate::handlers::zones::UpdateZoneRequest,
+
+            // daemons
+            crate::dto::request::daemon::ApplyStateRequest,
+            crate::dto::request::daemon::StartDaemonRequest,
+            crate::dto::response::daemon::DaemonActionResponse,
+            crate::dto::response::daemon::DaemonListResponse,
+            crate::dto::response::daemon::DaemonStatusResponse,
+            crate::dto::response::daemon::SystemStatusResponse,
         )
     ),
     tags(
@@ -552,6 +574,8 @@ use crate::util::claim::UserClaims;
         (name = "Users", description = "User management endpoints"),
         (name = "Zone Presets", description = "Zone preset endpoints"),
         (name = "Zones", description = "Zone management endpoints"),
+        (name = "Daemons", description = "Daemon process control (replaces zmdc.pl)"),
+        (name = "System", description = "System-level control (replaces zmpkg.pl)"),
     ),
     modifiers(&SecurityAddon)
 )]

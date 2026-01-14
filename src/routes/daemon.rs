@@ -22,5 +22,7 @@ pub fn add_daemon_routes(router: Router<AppState>) -> Router<AppState> {
         .route("/api/v3/system/status", get(daemon::get_system_status))
         .route("/api/v3/system/startup", post(daemon::system_startup))
         .route("/api/v3/system/shutdown", post(daemon::system_shutdown))
+        .route("/api/v3/system/restart", post(daemon::system_restart))
+        .route("/api/v3/system/logrot", post(daemon::system_logrot))
         .route("/api/v3/system/state", post(daemon::apply_state))
 }
