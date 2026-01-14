@@ -3,6 +3,7 @@ pub mod code;
 pub mod config;
 pub mod control_presets;
 pub mod controls;
+pub mod daemon;
 pub mod devices;
 pub mod email;
 pub mod event_data;

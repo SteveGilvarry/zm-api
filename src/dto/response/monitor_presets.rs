@@ -41,7 +41,7 @@ impl From<&MonitorPresetModel> for MonitorPresetResponse {
             name: model.name.clone(),
             r#type: model.r#type.clone(),
             device: model.device.clone(),
-            channel: model.channel.clone(),
+            channel: model.channel,
             format: model.format,
             protocol: model.protocol.clone(),
             method: model.method.clone(),

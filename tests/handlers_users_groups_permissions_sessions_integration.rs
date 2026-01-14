@@ -1,5 +1,6 @@
 // Integration tests for users, groups, permissions, and sessions with a real database
 // Run with: cargo test --test handlers_users_groups_permissions_sessions_integration -- --include-ignored
+#![allow(clippy::needless_borrows_for_generic_args)]
 
 mod common;
 

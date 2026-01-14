@@ -1,5 +1,6 @@
 // Integration tests for configs, storage, logs, reports, and tags with a real database
 // Run with: cargo test --test handlers_meta_integration -- --include-ignored
+#![allow(clippy::needless_borrows_for_generic_args)]
 
 mod common;
 

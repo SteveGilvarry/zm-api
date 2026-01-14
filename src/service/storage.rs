@@ -89,7 +89,7 @@ mod tests {
             .append_query_results::<StorageModel, _, _>(vec![empty])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let err = get_by_id(&state, 9).await.err().expect("should err");
+        let err = get_by_id(&state, 9).await.expect_err("should err");
         matches!(err, AppError::NotFoundError(_));
     }
 
@@ -112,8 +112,7 @@ mod tests {
             None,
         )
         .await
-        .err()
-        .expect("should err");
+        .expect_err("should err");
         matches!(err, AppError::NotFoundError(_));
     }
 
@@ -126,7 +125,7 @@ mod tests {
             }])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let err = delete(&state, 1).await.err().expect("should err");
+        let err = delete(&state, 1).await.expect_err("should err");
         matches!(err, AppError::NotFoundError(_));
     }
 

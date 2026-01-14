@@ -75,6 +75,9 @@ bytes = "1"
 # Dashboard/stats
 dashmap = "6"
 
+# Unix signal handling
+nix = { version = "0.29", features = ["signal"] }
+
 [dependencies.sea-orm]
 version = "1"
 features = ["sqlx-mysql", "sqlx-postgres", "runtime-tokio-rustls", "mock"]

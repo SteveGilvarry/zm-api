@@ -1,6 +1,7 @@
 pub mod client;
 pub mod configure;
 pub mod constant;
+pub mod daemon;
 pub mod dto;
 pub mod entity;
 pub mod enum_traits;

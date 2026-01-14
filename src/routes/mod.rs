@@ -14,6 +14,7 @@ pub mod auth;
 pub mod configs; // Config management
 pub mod control_presets; // Control Presets
 pub mod controls; // Controls
+pub mod daemon; // Daemon control
 pub mod devices; // Devices
 pub mod event_data; // Event Data
 pub mod events; // Add events module
@@ -142,6 +143,7 @@ pub fn create_router_app(state: AppState) -> Router {
     let go2rtc_proxy_routes = go2rtc_proxy::add_go2rtc_proxy_routes(Router::new());
     let native_webrtc_routes = webrtc_native::add_native_webrtc_routes(Router::new());
     let hls_routes = Router::new().nest("/api/v3/hls", hls::routes());
+    let daemon_routes = daemon::add_daemon_routes(Router::new());
 
     Router::new()
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
@@ -189,6 +191,7 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(go2rtc_proxy_routes)
         .merge(native_webrtc_routes) // Native WebRTC (Phase 2)
         .merge(hls_routes) // HLS streaming (Phase 3)
+        .merge(daemon_routes) // Daemon control
         .fallback(any(fallback_handler))
         .layer(cors) // Apply CORS middleware to all routes
         .with_state(state)

@@ -35,7 +35,7 @@ pub async fn create(
         name: Set(req.name.clone()),
         r#type: Set(req.r#type.clone()),
         device: Set(req.device.clone()),
-        channel: Set(req.channel.clone()),
+        channel: Set(req.channel),
         format: Set(req.format),
         protocol: Set(req.protocol.clone()),
         method: Set(req.method.clone()),

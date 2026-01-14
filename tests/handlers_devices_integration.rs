@@ -104,7 +104,7 @@ async fn test_api_devices_get() {
 
     let response = app
         .oneshot(
-            Request::get(&format!("/api/v3/devices/{}", device.id))
+            Request::get(format!("/api/v3/devices/{}", device.id))
                 .header(header::AUTHORIZATION, auth_header())
                 .body(Body::empty())
                 .unwrap(),
@@ -153,7 +153,7 @@ async fn test_api_devices_create_delete() {
 
     let response = app
         .oneshot(
-            Request::delete(&format!("/api/v3/devices/{}", device_id))
+            Request::delete(format!("/api/v3/devices/{}", device_id))
                 .header(header::AUTHORIZATION, auth_header())
                 .body(Body::empty())
                 .unwrap(),

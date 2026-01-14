@@ -21,6 +21,7 @@ pub async fn get_test_db() -> Result<DatabaseConnection, DbErr> {
 }
 
 /// Stable identifier for the current test run.
+#[allow(dead_code)]
 pub fn test_run_id() -> &'static str {
     static TEST_RUN_ID: OnceLock<String> = OnceLock::new();
     TEST_RUN_ID
@@ -37,12 +38,14 @@ pub fn test_run_id() -> &'static str {
 }
 
 /// Prefix for test data that should be cleaned up.
+#[allow(dead_code)]
 pub fn test_prefix() -> String {
     format!("Test_{}", test_run_id())
 }
 
 /// Delete rows where `column` starts with `prefix`.
 /// Table/column names are controlled by tests; keep inputs literal.
+#[allow(dead_code)]
 pub async fn cleanup_by_prefix(
     db: &DatabaseConnection,
     table: &str,
@@ -58,6 +61,7 @@ pub async fn cleanup_by_prefix(
 }
 
 /// Cleanup multiple tables using the same prefix.
+#[allow(dead_code)]
 pub async fn cleanup_by_prefixes(
     db: &DatabaseConnection,
     prefix: &str,

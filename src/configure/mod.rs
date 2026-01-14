@@ -7,10 +7,12 @@ use serde::Deserialize;
 use crate::util::dir::get_project_root;
 
 use self::{
-    db::DatabaseConfig, email::EmailConfig, http::HttpClientConfig, secret::SecretConfig,
-    sentry::SentryConfig, server::ServerConfig, streaming::StreamingConfig, worker::WorkerConfig,
+    daemon::DaemonConfig, db::DatabaseConfig, email::EmailConfig, http::HttpClientConfig,
+    secret::SecretConfig, sentry::SentryConfig, server::ServerConfig, streaming::StreamingConfig,
+    worker::WorkerConfig,
 };
 
+pub mod daemon;
 pub mod db;
 pub mod email;
 pub mod env;
@@ -34,6 +36,8 @@ pub struct AppConfig {
     pub worker: WorkerConfig,
     pub http: HttpClientConfig,
     pub streaming: StreamingConfig,
+    #[serde(default)]
+    pub daemon: DaemonConfig,
 }
 
 impl AppConfig {

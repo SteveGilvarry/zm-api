@@ -1,6 +1,7 @@
 pub mod configs;
 pub mod control_presets;
 pub mod controls;
+pub mod daemon;
 pub mod devices;
 pub mod event_data;
 pub mod events_tags;

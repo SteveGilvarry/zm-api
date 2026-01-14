@@ -11,6 +11,7 @@ use crate::client::{
 };
 use crate::configure::{self, env::get_env_source, AppConfig};
 use crate::constant::ENV_PREFIX;
+use crate::daemon::DaemonManager;
 use crate::error::AppResult;
 use crate::mse_client::MseStreamManager;
 use crate::streaming::hls::HlsSessionManager;
@@ -29,6 +30,8 @@ pub struct AppState {
     pub native_session_manager: Option<Arc<SessionManager>>,
     // HLS Streaming (Phase 3)
     pub hls_session_manager: Option<Arc<HlsSessionManager>>,
+    // Daemon Controller
+    pub daemon_manager: Option<Arc<DaemonManager>>,
 }
 
 impl AppState {
@@ -73,6 +76,18 @@ impl AppState {
             None
         };
 
+        // Initialize daemon manager if enabled
+        let daemon_manager = if config.daemon.enabled {
+            tracing::info!("Daemon controller enabled, initializing manager");
+            Some(Arc::new(DaemonManager::new(
+                config.daemon.clone(),
+                None, // Server ID can be set from DB config later
+            )))
+        } else {
+            tracing::info!("Daemon controller disabled in configuration");
+            None
+        };
+
         Ok(Self {
             config: Arc::new(config),
             db,
@@ -83,6 +98,7 @@ impl AppState {
             native_webrtc_engine,
             native_session_manager,
             hls_session_manager,
+            daemon_manager,
         })
     }
 
@@ -118,6 +134,7 @@ impl AppState {
             native_webrtc_engine: None,
             native_session_manager: None,
             hls_session_manager: None,
+            daemon_manager: None,
         }
     }
 }

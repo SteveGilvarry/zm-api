@@ -69,6 +69,7 @@ pub struct ZmFifoReader {
     video_reader: Option<BufReader<File>>,
     codec: VideoCodec,
     config: ZoneMinderConfig,
+    #[allow(dead_code)]
     broadcast_capacity: usize,
     /// Broadcast channel for distributing packets to multiple consumers
     tx: broadcast::Sender<FifoPacket>,
@@ -396,7 +397,7 @@ impl ZmFifoReader {
         // Bits 1-6: NAL type (bit 0 is forbidden_zero_bit)
         let h265_nal_type = (first_byte >> 1) & 0x3F;
         // VPS = 32, SPS = 33, PPS = 34 (H.265 specific)
-        if h265_nal_type >= 32 && h265_nal_type <= 34 {
+        if (32..=34).contains(&h265_nal_type) {
             return VideoCodec::H265;
         }
 

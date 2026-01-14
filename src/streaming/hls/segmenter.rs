@@ -1037,6 +1037,6 @@ mod tests {
         // Now should work
         let init = segmenter.generate_init_segment();
         assert!(init.is_some());
-        assert!(init.unwrap().data.len() > 0);
+        assert!(!init.unwrap().data.is_empty());
     }
 }

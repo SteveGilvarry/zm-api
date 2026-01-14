@@ -72,7 +72,7 @@ mod tests {
             .append_query_results::<UserModel, _, _>(vec![empty])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let err = get_by_id(&state, 123).await.err().expect("should err");
+        let err = get_by_id(&state, 123).await.expect_err("should err");
         matches!(err, AppError::NotFoundError(_));
     }
 
@@ -85,8 +85,7 @@ mod tests {
         let state = AppState::for_test_with_db(db);
         let err = update(&state, 1, Some("x@y.com".into()), Some(1))
             .await
-            .err()
-            .expect("should err");
+            .expect_err("should err");
         matches!(err, AppError::NotFoundError(_));
     }
 
@@ -99,7 +98,7 @@ mod tests {
             }])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let err = delete(&state, 77).await.err().expect("should err");
+        let err = delete(&state, 77).await.expect_err("should err");
         matches!(err, AppError::NotFoundError(_));
     }
 

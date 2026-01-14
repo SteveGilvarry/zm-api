@@ -5,8 +5,8 @@
 use axum::{
     body::Body,
     extract::{Path, Query, State},
-    http::{header, HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    http::{header, StatusCode},
+    response::Response,
     Json,
 };
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,7 @@ use tracing::{debug, info};
 
 use crate::error::{AppError, AppResponseError, AppResult};
 use crate::server::state::AppState;
+#[allow(unused_imports)]
 use crate::streaming::hls::{HlsSessionManager, HlsSessionStats};
 
 /// Query parameters for LL-HLS blocking reload
@@ -210,7 +211,7 @@ pub async fn get_master_playlist(
     let playlist = hls_manager
         .get_master_playlist(camera_id)
         .await
-        .map_err(|e| {
+        .map_err(|_e| {
             AppError::NotFoundError(crate::error::Resource {
                 resource_type: crate::error::ResourceType::Monitor,
                 details: vec![("camera_id".to_string(), camera_id.to_string())],
@@ -254,13 +255,17 @@ pub async fn get_media_playlist(
     // Handle LL-HLS blocking reload
     if let Some(msn) = ll_hls.msn {
         let timeout = Duration::from_secs(5);
-        if let Err(_) = hls_manager.wait_for_segment(camera_id, msn, timeout).await {
+        if hls_manager
+            .wait_for_segment(camera_id, msn, timeout)
+            .await
+            .is_err()
+        {
             // Timeout - return current playlist anyway
             debug!("LL-HLS wait timeout for camera {} msn {}", camera_id, msn);
         }
     }
 
-    let playlist = hls_manager.get_playlist(camera_id).await.map_err(|e| {
+    let playlist = hls_manager.get_playlist(camera_id).await.map_err(|_e| {
         AppError::NotFoundError(crate::error::Resource {
             resource_type: crate::error::ResourceType::Monitor,
             details: vec![("camera_id".to_string(), camera_id.to_string())],
@@ -300,15 +305,18 @@ pub async fn get_init_segment(
         AppError::ServiceUnavailableError("HLS streaming not configured".to_string())
     })?;
 
-    let data = hls_manager.get_init_segment(camera_id).await.map_err(|e| {
-        AppError::NotFoundError(crate::error::Resource {
-            resource_type: crate::error::ResourceType::Monitor,
-            details: vec![
-                ("camera_id".to_string(), camera_id.to_string()),
-                ("segment".to_string(), "init.mp4".to_string()),
-            ],
-        })
-    })?;
+    let data = hls_manager
+        .get_init_segment(camera_id)
+        .await
+        .map_err(|_e| {
+            AppError::NotFoundError(crate::error::Resource {
+                resource_type: crate::error::ResourceType::Monitor,
+                details: vec![
+                    ("camera_id".to_string(), camera_id.to_string()),
+                    ("segment".to_string(), "init.mp4".to_string()),
+                ],
+            })
+        })?;
 
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -363,7 +371,7 @@ pub async fn get_segment(
     let data = hls_manager
         .get_segment(path.camera_id, sequence)
         .await
-        .map_err(|e| {
+        .map_err(|_e| {
             AppError::NotFoundError(crate::error::Resource {
                 resource_type: crate::error::ResourceType::Monitor,
                 details: vec![

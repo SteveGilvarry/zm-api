@@ -1,5 +1,6 @@
 // Integration tests for monitors, events, and frames with a real database
 // Run with: cargo test --test handlers_monitors_events_frames_integration -- --include-ignored
+#![allow(clippy::needless_borrows_for_generic_args)]
 
 mod common;
 

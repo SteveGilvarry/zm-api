@@ -1,5 +1,6 @@
 // Integration tests for filters, zones, snapshots, and streaming auth gates
 // Run with: cargo test --test handlers_filters_zones_snapshots_streaming_integration -- --include-ignored
+#![allow(clippy::needless_borrows_for_generic_args)]
 
 mod common;
 

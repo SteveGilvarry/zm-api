@@ -114,7 +114,7 @@ mod tests {
             username: "bob".into(),
             password: "wrong".into(),
         };
-        let err = login(&state, req).await.err().expect("should fail");
+        let err = login(&state, req).await.expect_err("should fail");
         matches!(err, AppError::InvalidInputError(_));
     }
 
@@ -130,7 +130,7 @@ mod tests {
             username: "nobody".into(),
             password: "x".into(),
         };
-        let err = login(&state, req).await.err().expect("should fail");
+        let err = login(&state, req).await.expect_err("should fail");
         matches!(err, AppError::NotFoundError(_));
     }
 }

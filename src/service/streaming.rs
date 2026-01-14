@@ -23,6 +23,7 @@ use crate::service::monitor as monitor_service;
 ///
 /// # Returns
 /// * `AppResult<Go2RtcClient>` - Configured client or error
+#[allow(clippy::result_large_err)]
 fn get_go2rtc_client(state: &AppState) -> AppResult<Go2RtcClient> {
     let config = &state.config.streaming.go2rtc;
 
@@ -245,9 +246,9 @@ pub async fn list_active_streams(state: &AppState) -> AppResult<Vec<ActiveStream
     let active_streams: Vec<ActiveStreamInfo> = all_streams
         .into_iter()
         .filter_map(|(stream_name, stream_info)| {
-            if stream_name.starts_with("zm") {
+            if let Some(id_str) = stream_name.strip_prefix("zm") {
                 // Extract monitor ID from stream name "zm{id}"
-                stream_name[2..]
+                id_str
                     .parse::<u32>()
                     .ok()
                     .map(|monitor_id| ActiveStreamInfo {

@@ -151,7 +151,7 @@ mod tests {
             .append_query_results::<FilterModel, _, _>(vec![empty])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let err = get_by_id(&state, 99).await.err().expect("should error");
+        let err = get_by_id(&state, 99).await.expect_err("should error");
         matches!(err, AppError::NotFoundError(_));
     }
 
@@ -164,8 +164,7 @@ mod tests {
         let state = AppState::for_test_with_db(db);
         let err = update(&state, 1, Some("x".into()), None)
             .await
-            .err()
-            .expect("should error");
+            .expect_err("should error");
         matches!(err, AppError::NotFoundError(_));
     }
 
@@ -178,7 +177,7 @@ mod tests {
             }])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let err = delete(&state, 1).await.err().expect("should error");
+        let err = delete(&state, 1).await.expect_err("should error");
         matches!(err, AppError::NotFoundError(_));
     }
 }

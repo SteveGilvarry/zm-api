@@ -1,5 +1,6 @@
 // Integration tests for server and stats endpoints with a real database
 // Run with: cargo test --test handlers_server_stats_integration -- --include-ignored
+#![allow(clippy::needless_borrows_for_generic_args)]
 
 mod common;
 
