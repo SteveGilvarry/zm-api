@@ -66,15 +66,9 @@ pub const ZM_DAEMONS: &[DaemonDefinition] = &[
         requires_db: true,
         priority: 50,
     },
-    DaemonDefinition {
-        name: "zmwatch",
-        command: "zmwatch.pl",
-        description: "Watch daemon - monitors capture daemons and restarts if needed",
-        auto_restart: true,
-        singleton: true,
-        requires_db: true,
-        priority: 60,
-    },
+    // NOTE: zmwatch.pl is no longer needed - its functionality (monitoring capture
+    // daemons and restarting them) is now integrated into the Rust DaemonManager's
+    // health check loop.
     DaemonDefinition {
         name: "zmstats",
         command: "zmstats.pl",
@@ -173,10 +167,11 @@ mod tests {
     #[test]
     fn test_singletons() {
         let singletons: Vec<_> = DaemonDefinition::singletons().collect();
-        // zmfilter, zmaudit, zmtrigger, zmwatch, zmstats, zmtelemetry, zmeventnotification
+        // zmfilter, zmaudit, zmtrigger, zmstats, zmtelemetry, zmeventnotification
+        // NOTE: zmwatch.pl removed - functionality now in Rust DaemonManager
         assert!(singletons.iter().all(|d| d.singleton));
         assert!(singletons.iter().any(|d| d.name == "zmfilter"));
-        assert!(singletons.iter().any(|d| d.name == "zmwatch"));
+        assert!(singletons.iter().any(|d| d.name == "zmstats"));
     }
 
     #[test]
