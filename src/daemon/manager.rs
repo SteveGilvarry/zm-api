@@ -175,7 +175,12 @@ impl DaemonManager {
         )))
     }
 
-    /// Stop a daemon process.
+    /// Stop a daemon process gracefully.
+    ///
+    /// This follows zmdc.pl behavior:
+    /// 1. Send SIGTERM to allow graceful shutdown
+    /// 2. The health check loop monitors terminating processes
+    /// 3. After shutdown_timeout (30s), SIGKILL is sent
     pub async fn stop_daemon(&self, id: &str) -> AppResult<DaemonResponse> {
         let mut processes = self.processes.write().await;
 
@@ -196,27 +201,139 @@ impl DaemonManager {
         // Disable auto-restart during intentional stop
         process.auto_restart = false;
 
-        // Try to kill the child process
-        if let Some(child) = process.child_mut() {
-            match child.kill().await {
+        // Get the PID for sending signal
+        let pid = match process.pid {
+            Some(p) => p,
+            None => {
+                process.set_state(ProcessState::Stopped);
+                return Ok(DaemonResponse::ok(format!("Stopped {} (no PID)", id)));
+            }
+        };
+
+        // Send SIGTERM for graceful shutdown (like zmdc.pl's send_stop)
+        #[cfg(unix)]
+        {
+            use nix::sys::signal::{kill, Signal};
+            use nix::unistd::Pid;
+
+            match kill(Pid::from_raw(pid as i32), Signal::SIGTERM) {
                 Ok(_) => {
-                    info!("Sent SIGKILL to daemon {}", id);
+                    info!("Sent SIGTERM to daemon {} (PID {})", id, pid);
+                    process.mark_term_sent();
                 }
                 Err(e) => {
-                    warn!("Failed to kill daemon {}: {}", id, e);
+                    // Process may have already exited
+                    warn!("Failed to send SIGTERM to daemon {} (PID {}): {}", id, pid, e);
+                    process.set_state(ProcessState::Stopped);
+
+                    // Clean up PID map
+                    drop(processes); // Release lock before acquiring pid_map lock
+                    let mut pid_map = self.pid_map.write().await;
+                    pid_map.remove(&pid);
+
+                    return Ok(DaemonResponse::ok(format!("Stopped {} (process already gone)", id)));
                 }
             }
         }
 
-        // Update PID map
-        if let Some(pid) = process.pid {
+        #[cfg(not(unix))]
+        {
+            // On non-Unix, fall back to tokio's kill (which is SIGKILL)
+            if let Some(child) = process.child_mut() {
+                let _ = child.kill().await;
+            }
+            process.set_state(ProcessState::Stopped);
+
+            drop(processes);
             let mut pid_map = self.pid_map.write().await;
             pid_map.remove(&pid);
+
+            return Ok(DaemonResponse::ok(format!("Stopped {}", id)));
         }
 
-        process.set_state(ProcessState::Stopped);
+        Ok(DaemonResponse::ok(format!(
+            "Sent stop signal to {} (PID {}), waiting for graceful shutdown",
+            id, pid
+        )))
+    }
 
-        Ok(DaemonResponse::ok(format!("Stopped {}", id)))
+    /// Force kill a daemon process immediately with SIGKILL.
+    ///
+    /// Use this when graceful shutdown has timed out or immediate termination is needed.
+    pub async fn kill_daemon(&self, id: &str) -> AppResult<DaemonResponse> {
+        let mut processes = self.processes.write().await;
+
+        let process = match processes.get_mut(id) {
+            Some(p) => p,
+            None => {
+                return Ok(DaemonResponse::error(format!("Daemon {} not found", id)));
+            }
+        };
+
+        let pid = process.pid;
+
+        // Try to kill via child handle first
+        if let Some(child) = process.child_mut() {
+            match child.kill().await {
+                Ok(_) => {
+                    info!("Sent SIGKILL to daemon {} via child handle", id);
+                }
+                Err(e) => {
+                    warn!("Failed to kill daemon {} via child handle: {}", id, e);
+                }
+            }
+        }
+
+        // Also try sending SIGKILL directly to PID (in case child handle is stale)
+        #[cfg(unix)]
+        if let Some(p) = pid {
+            use nix::sys::signal::{kill, Signal};
+            use nix::unistd::Pid;
+
+            let _ = kill(Pid::from_raw(p as i32), Signal::SIGKILL);
+        }
+
+        // Update state
+        process.set_state(ProcessState::Stopped);
+        process.term_sent_at = None;
+
+        // Clean up PID map
+        if let Some(p) = pid {
+            drop(processes);
+            let mut pid_map = self.pid_map.write().await;
+            pid_map.remove(&p);
+        }
+
+        Ok(DaemonResponse::ok(format!("Killed {}", id)))
+    }
+
+    /// Check for processes that need to be force-killed after timeout.
+    ///
+    /// This matches zmdc.pl's check_for_processes_to_kill behavior:
+    /// processes that were sent SIGTERM but haven't died after KILL_DELAY
+    /// get sent SIGKILL.
+    pub async fn check_terminating_processes(&self) {
+        let timeout = self.config.shutdown_timeout();
+        let mut to_kill = Vec::new();
+
+        {
+            let processes = self.processes.read().await;
+            for (id, process) in processes.iter() {
+                if process.state == ProcessState::Stopping && process.term_timeout_expired(timeout) {
+                    to_kill.push(id.clone());
+                }
+            }
+        }
+
+        for id in to_kill {
+            warn!(
+                "Daemon {} has not stopped after {:?}, sending SIGKILL",
+                id, timeout
+            );
+            if let Err(e) = self.kill_daemon(&id).await {
+                error!("Failed to force kill daemon {}: {}", id, e);
+            }
+        }
     }
 
     /// Restart a daemon process.
@@ -357,40 +474,97 @@ impl DaemonManager {
         })
     }
 
-    /// Shutdown all daemons.
+    /// Shutdown all daemons gracefully.
+    ///
+    /// This matches zmdc.pl's shutdownAll behavior:
+    /// 1. Send SIGTERM to all processes
+    /// 2. Wait for processes to exit (up to shutdown_timeout)
+    /// 3. Force kill any remaining processes with SIGKILL
     pub async fn shutdown_all(&self) -> AppResult<DaemonResponse> {
         info!("Shutting down all daemons");
 
-        let mut stopped = 0;
-        let mut failed = 0;
+        let timeout = self.config.shutdown_timeout();
+        let check_interval = std::time::Duration::from_millis(500);
 
+        // Step 1: Send SIGTERM to all running processes
         let ids: Vec<String> = {
             let processes = self.processes.read().await;
-            processes.keys().cloned().collect()
+            processes
+                .iter()
+                .filter(|(_, p)| p.is_running() || p.state == ProcessState::Starting)
+                .map(|(id, _)| id.clone())
+                .collect()
         };
 
-        for id in ids {
-            match self.stop_daemon(&id).await {
-                Ok(resp) if resp.success => stopped += 1,
-                _ => failed += 1,
+        let total = ids.len();
+        info!("Sending stop signal to {} daemons", total);
+
+        for id in &ids {
+            let _ = self.stop_daemon(id).await;
+        }
+
+        // Step 2: Wait for processes to exit, checking periodically
+        let start = std::time::Instant::now();
+        loop {
+            // Check for exited processes
+            self.check_daemons().await;
+
+            // Count how many are still stopping
+            let still_stopping = {
+                let processes = self.processes.read().await;
+                processes
+                    .values()
+                    .filter(|p| p.state == ProcessState::Stopping)
+                    .count()
+            };
+
+            if still_stopping == 0 {
+                info!("All daemons have stopped");
+                break;
             }
+
+            if start.elapsed() >= timeout {
+                warn!(
+                    "{} daemons still running after {:?}, sending SIGKILL",
+                    still_stopping, timeout
+                );
+                // Force kill remaining processes
+                self.check_terminating_processes().await;
+                break;
+            }
+
+            debug!(
+                "Waiting for {} daemons to stop ({:?} elapsed)",
+                still_stopping,
+                start.elapsed()
+            );
+            tokio::time::sleep(check_interval).await;
         }
 
         // Mark as not running
         *self.running.write().await = false;
 
-        // Signal shutdown
+        // Signal shutdown to background tasks
         self.signal_shutdown();
 
-        if failed > 0 {
-            Ok(DaemonResponse::ok(format!(
-                "Shutdown complete: {} stopped, {} failed",
-                stopped, failed
-            )))
-        } else {
+        // Count final results
+        let stopped = {
+            let processes = self.processes.read().await;
+            processes
+                .values()
+                .filter(|p| p.state == ProcessState::Stopped)
+                .count()
+        };
+
+        if stopped == total {
             Ok(DaemonResponse::ok(format!(
                 "Shutdown complete: {} daemons stopped",
                 stopped
+            )))
+        } else {
+            Ok(DaemonResponse::ok(format!(
+                "Shutdown complete: {} of {} daemons stopped",
+                stopped, total
             )))
         }
     }
@@ -714,6 +888,10 @@ impl DaemonManager {
         // Check for exited processes and handle restarts
         self.check_daemons().await;
 
+        // Check for processes that need SIGKILL after graceful shutdown timeout
+        // (like zmdc.pl's check_for_processes_to_kill)
+        self.check_terminating_processes().await;
+
         // Check for hung processes
         let hung_processes = self.check_for_hung_processes(max_delay).await;
 
@@ -761,14 +939,30 @@ impl DaemonManager {
                     match child.try_wait() {
                         Ok(Some(status)) => {
                             // Process exited
-                            info!("Daemon {} exited with status: {:?}", id, status);
+                            let was_stopping = process.state == ProcessState::Stopping;
+
+                            if was_stopping {
+                                info!(
+                                    "Daemon {} gracefully stopped with status: {:?}",
+                                    id, status
+                                );
+                            } else {
+                                info!("Daemon {} exited with status: {:?}", id, status);
+                            }
 
                             // Collect PID for removal (will remove after releasing lock)
                             if let Some(pid) = process.pid {
                                 pids_to_remove.push(pid);
                             }
 
-                            if process.auto_restart {
+                            // Clear term_sent_at since process has exited
+                            process.term_sent_at = None;
+
+                            // If the process was being stopped (Stopping state) or
+                            // auto_restart is disabled, just mark it stopped
+                            if was_stopping || !process.auto_restart {
+                                process.set_state(ProcessState::Stopped);
+                            } else {
                                 // Prepare for restart with backoff
                                 process.prepare_restart(
                                     self.config.min_backoff(),
@@ -778,8 +972,6 @@ impl DaemonManager {
                                     "Daemon {} will restart in {:?}",
                                     id, process.current_backoff
                                 );
-                            } else {
-                                process.set_state(ProcessState::Stopped);
                             }
                         }
                         Ok(None) => {
