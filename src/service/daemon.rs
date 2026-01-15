@@ -1,9 +1,8 @@
 //! Daemon controller service layer.
 
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
-use crate::daemon::daemons::DaemonDefinition;
 use crate::daemon::ipc::DaemonResponse;
 use crate::dto::response::daemon::{
     DaemonActionResponse, DaemonListResponse, DaemonStatusResponse, SystemStatusResponse,
@@ -111,10 +110,14 @@ pub async fn get_system_status(state: &AppState) -> AppResult<SystemStatusRespon
 
 /// Perform full system startup.
 ///
-/// This function starts all ZoneMinder daemons in the correct order:
-/// 1. Per-monitor capture daemons (zmc) for enabled monitors
-/// 2. Per-monitor analysis daemons (zma) for monitors requiring motion detection
-/// 3. Singleton daemons (zmfilter.pl, zmwatch.pl, zmstats.pl, etc.)
+/// This delegates to DaemonManager.start_all_daemons() which:
+/// 1. Queries monitors (Capturing != None, not WebSite type)
+/// 2. For Local type: starts `zmc -d <device>`
+/// 3. For other types: starts `zmc -m <id>`
+/// 4. Starts zma for monitors with Modect/Mocord function
+/// 5. Starts zmcontrol.pl for controllable monitors
+/// 6. Starts zmtrack.pl for monitors with motion tracking
+/// 7. Starts singleton daemons (zmfilter.pl, zmstats.pl, etc.)
 pub async fn system_startup(state: &AppState) -> AppResult<DaemonActionResponse> {
     let manager = state
         .daemon_manager
@@ -123,155 +126,9 @@ pub async fn system_startup(state: &AppState) -> AppResult<DaemonActionResponse>
 
     info!("Starting ZoneMinder system");
 
-    // Mark manager as running
-    manager.startup().await?;
-
-    let mut started = 0;
-    let mut failed = 0;
-    let mut errors: Vec<String> = Vec::new();
-
-    // Query enabled monitors from database
-    let monitors = monitors::Entity::find()
-        .filter(monitors::Column::Enabled.eq(1_u8))
-        .filter(monitors::Column::Deleted.eq(false))
-        .all(state.db.as_ref())
-        .await?;
-
-    info!("Found {} enabled monitors", monitors.len());
-
-    // Start per-monitor daemons based on Function
-    for monitor in &monitors {
-        let monitor_id = monitor.id;
-        let function = &monitor.function;
-
-        // Determine which daemons this monitor needs
-        let needs_capture = needs_capture_daemon(function);
-        let needs_analysis = needs_analysis_daemon(function);
-
-        debug!(
-            "Monitor {} ({}): function={:?}, capture={}, analysis={}",
-            monitor_id, monitor.name, function, needs_capture, needs_analysis
-        );
-
-        // Start zmc (capture daemon) if needed
-        if needs_capture {
-            let daemon_id = format!("zmc -m {}", monitor_id);
-            match manager.start_daemon(&daemon_id, &[]).await {
-                Ok(resp) if resp.success => {
-                    started += 1;
-                    info!("Started zmc for monitor {}", monitor_id);
-                }
-                Ok(resp) => {
-                    // If already running, that's ok
-                    if !resp.message.contains("already running") {
-                        failed += 1;
-                        errors.push(format!("zmc -m {}: {}", monitor_id, resp.message));
-                        warn!(
-                            "Failed to start zmc for monitor {}: {}",
-                            monitor_id, resp.message
-                        );
-                    }
-                }
-                Err(e) => {
-                    failed += 1;
-                    errors.push(format!("zmc -m {}: {}", monitor_id, e));
-                    error!("Error starting zmc for monitor {}: {}", monitor_id, e);
-                }
-            }
-        }
-
-        // Start zma (analysis daemon) if needed
-        if needs_analysis {
-            let daemon_id = format!("zma -m {}", monitor_id);
-            match manager.start_daemon(&daemon_id, &[]).await {
-                Ok(resp) if resp.success => {
-                    started += 1;
-                    info!("Started zma for monitor {}", monitor_id);
-                }
-                Ok(resp) => {
-                    if !resp.message.contains("already running") {
-                        failed += 1;
-                        errors.push(format!("zma -m {}: {}", monitor_id, resp.message));
-                        warn!(
-                            "Failed to start zma for monitor {}: {}",
-                            monitor_id, resp.message
-                        );
-                    }
-                }
-                Err(e) => {
-                    failed += 1;
-                    errors.push(format!("zma -m {}: {}", monitor_id, e));
-                    error!("Error starting zma for monitor {}: {}", monitor_id, e);
-                }
-            }
-        }
-    }
-
-    // Start singleton daemons in priority order
-    let singletons: Vec<_> = DaemonDefinition::singletons()
-        .filter(|d| d.requires_db) // Only start DB-dependent singletons
-        .collect();
-
-    // Sort by priority
-    let mut singletons = singletons;
-    singletons.sort_by_key(|d| d.priority);
-
-    for daemon in singletons {
-        debug!(
-            "Starting singleton daemon: {} (priority {})",
-            daemon.name, daemon.priority
-        );
-
-        match manager.start_daemon(daemon.command, &[]).await {
-            Ok(resp) if resp.success => {
-                started += 1;
-                info!("Started {}", daemon.name);
-            }
-            Ok(resp) => {
-                if !resp.message.contains("already running") {
-                    // Some daemons may not exist on all systems, treat as warning
-                    warn!("Could not start {}: {}", daemon.name, resp.message);
-                }
-            }
-            Err(e) => {
-                // Non-critical - some daemons may not be installed
-                warn!("Could not start {}: {}", daemon.name, e);
-            }
-        }
-    }
-
-    let message = if failed > 0 {
-        format!(
-            "System startup completed: {} daemons started, {} failed. Errors: {}",
-            started,
-            failed,
-            errors.join("; ")
-        )
-    } else {
-        format!("System startup completed: {} daemons started", started)
-    };
-
-    info!("{}", message);
-
-    if failed > 0 && started == 0 {
-        Ok(DaemonActionResponse::error(message))
-    } else {
-        Ok(DaemonActionResponse::success(message))
-    }
-}
-
-/// Determine if a monitor needs a capture daemon (zmc).
-///
-/// All functions except None need capture.
-fn needs_capture_daemon(function: &Function) -> bool {
-    !matches!(function, Function::None)
-}
-
-/// Determine if a monitor needs an analysis daemon (zma).
-///
-/// Modect and Mocord need analysis for motion detection.
-fn needs_analysis_daemon(function: &Function) -> bool {
-    matches!(function, Function::Modect | Function::Mocord)
+    // Delegate to manager which has full startup logic matching zmpkg.pl
+    let resp = manager.start_all_daemons().await?;
+    Ok(response_to_action(resp))
 }
 
 /// Perform full system shutdown.
@@ -486,27 +343,5 @@ mod tests {
         let action = response_to_action(resp);
         assert!(!action.success);
         assert_eq!(action.message, "Failed");
-    }
-
-    #[test]
-    fn test_needs_capture_daemon() {
-        // All functions except None need capture
-        assert!(!needs_capture_daemon(&Function::None));
-        assert!(needs_capture_daemon(&Function::Monitor));
-        assert!(needs_capture_daemon(&Function::Modect));
-        assert!(needs_capture_daemon(&Function::Record));
-        assert!(needs_capture_daemon(&Function::Mocord));
-        assert!(needs_capture_daemon(&Function::Nodect));
-    }
-
-    #[test]
-    fn test_needs_analysis_daemon() {
-        // Only Modect and Mocord need analysis
-        assert!(!needs_analysis_daemon(&Function::None));
-        assert!(!needs_analysis_daemon(&Function::Monitor));
-        assert!(needs_analysis_daemon(&Function::Modect));
-        assert!(!needs_analysis_daemon(&Function::Record));
-        assert!(needs_analysis_daemon(&Function::Mocord));
-        assert!(!needs_analysis_daemon(&Function::Nodect));
     }
 }

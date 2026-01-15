@@ -13,7 +13,7 @@ use crate::daemon::daemons::DaemonDefinition;
 use crate::daemon::ipc::{DaemonResponse, ProcessStatus, SystemStatus};
 use crate::daemon::process::{ManagedProcess, ProcessState};
 use crate::entity::monitors;
-use crate::entity::sea_orm_active_enums::Function;
+use crate::entity::sea_orm_active_enums::{Capturing, Function, MonitorType};
 use crate::error::AppResult;
 
 /// Internal command for the daemon manager.
@@ -423,10 +423,15 @@ impl DaemonManager {
 
     /// Start all ZoneMinder daemons.
     ///
-    /// This queries the database for enabled monitors and starts:
-    /// 1. Per-monitor capture daemons (zmc) for enabled monitors
-    /// 2. Per-monitor analysis daemons (zma) for monitors requiring motion detection
-    /// 3. Singleton daemons (zmfilter.pl, zmstats.pl, etc.)
+    /// This matches the behavior of zmpkg.pl startup:
+    /// 1. Query monitors that are not deleted and have Capturing != None
+    /// 2. Skip WebSite type monitors (they don't need capture daemons)
+    /// 3. For Local type monitors: start `zmc -d <device>`
+    /// 4. For other types: start `zmc -m <id>`
+    /// 5. Start zma for monitors requiring motion detection (Modect/Mocord)
+    /// 6. Start zmcontrol.pl for controllable monitors
+    /// 7. Start zmtrack.pl for monitors with motion tracking enabled
+    /// 8. Start singleton daemons (zmfilter.pl, zmstats.pl, etc.)
     pub async fn start_all_daemons(self: &Arc<Self>) -> AppResult<DaemonResponse> {
         let db = match &self.db {
             Some(db) => db.clone(),
@@ -437,7 +442,7 @@ impl DaemonManager {
             }
         };
 
-        // First ensure we're running
+        // First ensure we're running (starts health check loop)
         if !self.is_running().await {
             self.startup().await?;
         }
@@ -446,55 +451,92 @@ impl DaemonManager {
         let mut failed = 0;
         let mut errors: Vec<String> = Vec::new();
 
-        // Query enabled monitors from database
+        // Query monitors from database
+        // Match zmpkg.pl logic: Deleted => 0, Capturing != 'None'
         let monitor_list = monitors::Entity::find()
-            .filter(monitors::Column::Enabled.eq(1_u8))
             .filter(monitors::Column::Deleted.eq(false))
             .all(db.as_ref())
             .await?;
 
-        info!("Found {} enabled monitors", monitor_list.len());
+        // Filter monitors that need capture (Capturing != None)
+        // Also filter by server_id if configured (multi-server support)
+        let monitors_to_start: Vec<_> = monitor_list
+            .iter()
+            .filter(|m| {
+                // Skip if Capturing is None
+                if matches!(m.capturing, Capturing::None) {
+                    return false;
+                }
+                // Skip WebSite type monitors (they don't need zmc)
+                if matches!(m.r#type, MonitorType::WebSite) {
+                    return false;
+                }
+                // Multi-server support: if server_id is configured, filter by it
+                if let Some(our_server_id) = self.server_id {
+                    if let Some(monitor_server_id) = m.server_id {
+                        return monitor_server_id == our_server_id;
+                    }
+                    // If monitor has no server_id, include it (backwards compatibility)
+                }
+                true
+            })
+            .collect();
 
-        // Start per-monitor daemons based on Function
-        for monitor in &monitor_list {
+        info!(
+            "Found {} monitors to start (of {} total)",
+            monitors_to_start.len(),
+            monitor_list.len()
+        );
+
+        // Start per-monitor daemons
+        for monitor in &monitors_to_start {
             let monitor_id = monitor.id;
             let function = &monitor.function;
+            let monitor_type = &monitor.r#type;
 
-            let needs_capture = !matches!(function, Function::None);
+            // Determine if we need analysis daemon (motion detection)
             let needs_analysis = matches!(function, Function::Modect | Function::Mocord);
 
             debug!(
-                "Monitor {} ({}): function={:?}, capture={}, analysis={}",
-                monitor_id, monitor.name, function, needs_capture, needs_analysis
+                "Monitor {} ({}): type={:?}, function={:?}, analysis={}",
+                monitor_id, monitor.name, monitor_type, function, needs_analysis
             );
 
-            // Start zmc (capture daemon) if needed
-            if needs_capture {
-                let daemon_id = format!("zmc -m {}", monitor_id);
-                match self.start_daemon(&daemon_id, &[]).await {
-                    Ok(resp) if resp.success => {
-                        started += 1;
-                        info!("Started zmc for monitor {}", monitor_id);
-                    }
-                    Ok(resp) => {
-                        if !resp.message.contains("already running") {
-                            failed += 1;
-                            errors.push(format!("zmc -m {}: {}", monitor_id, resp.message));
-                            warn!(
-                                "Failed to start zmc for monitor {}: {}",
-                                monitor_id, resp.message
-                            );
-                        }
-                    }
-                    Err(e) => {
+            // Start zmc (capture daemon)
+            // For Local type: use -d <device>, otherwise use -m <id>
+            let (daemon_id, daemon_desc) =
+                if matches!(monitor_type, MonitorType::Local) && !monitor.device.is_empty() {
+                    (
+                        format!("zmc -d {}", monitor.device),
+                        format!("zmc for device {}", monitor.device),
+                    )
+                } else {
+                    (
+                        format!("zmc -m {}", monitor_id),
+                        format!("zmc for monitor {}", monitor_id),
+                    )
+                };
+
+            match self.start_daemon(&daemon_id, &[]).await {
+                Ok(resp) if resp.success => {
+                    started += 1;
+                    info!("Started {}", daemon_desc);
+                }
+                Ok(resp) => {
+                    if !resp.message.contains("already running") {
                         failed += 1;
-                        errors.push(format!("zmc -m {}: {}", monitor_id, e));
-                        error!("Error starting zmc for monitor {}: {}", monitor_id, e);
+                        errors.push(format!("{}: {}", daemon_id, resp.message));
+                        warn!("Failed to start {}: {}", daemon_desc, resp.message);
                     }
+                }
+                Err(e) => {
+                    failed += 1;
+                    errors.push(format!("{}: {}", daemon_id, e));
+                    error!("Error starting {}: {}", daemon_desc, e);
                 }
             }
 
-            // Start zma (analysis daemon) if needed
+            // Start zma (analysis daemon) if needed for motion detection
             if needs_analysis {
                 let daemon_id = format!("zma -m {}", monitor_id);
                 match self.start_daemon(&daemon_id, &[]).await {
@@ -516,6 +558,62 @@ impl DaemonManager {
                         failed += 1;
                         errors.push(format!("zma -m {}: {}", monitor_id, e));
                         error!("Error starting zma for monitor {}: {}", monitor_id, e);
+                    }
+                }
+            }
+
+            // Start zmcontrol.pl for controllable monitors (PTZ control)
+            if monitor.controllable != 0 {
+                let daemon_id = format!("zmcontrol.pl --id {}", monitor_id);
+                match self.start_daemon(&daemon_id, &[]).await {
+                    Ok(resp) if resp.success => {
+                        started += 1;
+                        info!("Started zmcontrol.pl for monitor {}", monitor_id);
+                    }
+                    Ok(resp) => {
+                        if !resp.message.contains("already running")
+                            && !resp.message.contains("not found")
+                        {
+                            warn!(
+                                "Could not start zmcontrol.pl for monitor {}: {}",
+                                monitor_id, resp.message
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        // zmcontrol.pl may not be installed - just warn
+                        warn!(
+                            "Could not start zmcontrol.pl for monitor {}: {}",
+                            monitor_id, e
+                        );
+                    }
+                }
+            }
+
+            // Start zmtrack.pl for monitors with motion tracking
+            if monitor.track_motion != 0 && needs_analysis {
+                let daemon_id = format!("zmtrack.pl -m {}", monitor_id);
+                match self.start_daemon(&daemon_id, &[]).await {
+                    Ok(resp) if resp.success => {
+                        started += 1;
+                        info!("Started zmtrack.pl for monitor {}", monitor_id);
+                    }
+                    Ok(resp) => {
+                        if !resp.message.contains("already running")
+                            && !resp.message.contains("not found")
+                        {
+                            warn!(
+                                "Could not start zmtrack.pl for monitor {}: {}",
+                                monitor_id, resp.message
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        // zmtrack.pl may not be installed - just warn
+                        warn!(
+                            "Could not start zmtrack.pl for monitor {}: {}",
+                            monitor_id, e
+                        );
                     }
                 }
             }
