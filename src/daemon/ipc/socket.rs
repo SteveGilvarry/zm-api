@@ -145,7 +145,7 @@ async fn handle_client(stream: UnixStream, manager: Arc<DaemonManager>) -> AppRe
 /// Execute a daemon command and return a response.
 async fn execute_command(cmd: DaemonCommand, manager: &Arc<DaemonManager>) -> DaemonResponse {
     match cmd {
-        DaemonCommand::Startup => match manager.startup().await {
+        DaemonCommand::Startup => match manager.start_all_daemons().await {
             Ok(resp) => resp,
             Err(e) => DaemonResponse::error(e.to_string()),
         },
@@ -197,9 +197,9 @@ async fn execute_command(cmd: DaemonCommand, manager: &Arc<DaemonManager>) -> Da
             Err(e) => DaemonResponse::error(e.to_string()),
         },
         DaemonCommand::PackageStart => {
-            // Full system startup
-            match manager.startup().await {
-                Ok(_) => DaemonResponse::ok("Package startup complete"),
+            // Full system startup - starts all daemons
+            match manager.start_all_daemons().await {
+                Ok(resp) => resp,
                 Err(e) => DaemonResponse::error(e.to_string()),
             }
         }
@@ -208,10 +208,12 @@ async fn execute_command(cmd: DaemonCommand, manager: &Arc<DaemonManager>) -> Da
             Err(e) => DaemonResponse::error(e.to_string()),
         },
         DaemonCommand::PackageRestart => {
-            // Stop then start
+            // Stop then start all daemons
             let _ = manager.shutdown_all().await;
-            match manager.startup().await {
-                Ok(_) => DaemonResponse::ok("Package restart complete"),
+            // Small delay to let processes terminate
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            match manager.start_all_daemons().await {
+                Ok(resp) => resp,
                 Err(e) => DaemonResponse::error(e.to_string()),
             }
         }
@@ -249,16 +251,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_execute_command_startup() {
+    async fn test_execute_command_startup_without_db() {
+        // Without database, startup should fail with informative error
         let config = DaemonConfig::default();
         let manager = Arc::new(DaemonManager::new(config, None));
 
         let resp = execute_command(DaemonCommand::Startup, &manager).await;
-        assert!(resp.success);
-        assert!(manager.is_running().await);
-
-        // Signal shutdown to stop background task
-        manager.signal_shutdown();
+        // Should fail because no database is configured
+        assert!(!resp.success);
+        assert!(resp.message.contains("Database not configured"));
     }
 
     #[tokio::test]

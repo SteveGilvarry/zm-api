@@ -3,13 +3,17 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use tokio::process::Command;
 use tokio::sync::{mpsc, Notify, RwLock};
 use tracing::{debug, error, info, warn};
 
 use crate::daemon::config::DaemonConfig;
+use crate::daemon::daemons::DaemonDefinition;
 use crate::daemon::ipc::{DaemonResponse, ProcessStatus, SystemStatus};
 use crate::daemon::process::{ManagedProcess, ProcessState};
+use crate::entity::monitors;
+use crate::entity::sea_orm_active_enums::Function;
 use crate::error::AppResult;
 
 /// Internal command for the daemon manager.
@@ -46,6 +50,8 @@ pub struct DaemonManager {
     server_id: Option<u32>,
     /// Whether the manager is running
     running: Arc<RwLock<bool>>,
+    /// Database connection for querying monitors
+    db: Option<Arc<DatabaseConnection>>,
 }
 
 impl DaemonManager {
@@ -58,6 +64,29 @@ impl DaemonManager {
             shutdown: Arc::new(Notify::new()),
             server_id,
             running: Arc::new(RwLock::new(false)),
+            db: None,
+        }
+    }
+
+    /// Set the database connection for querying monitors.
+    pub fn set_database(&mut self, db: Arc<DatabaseConnection>) {
+        self.db = Some(db);
+    }
+
+    /// Create a new daemon manager with database connection.
+    pub fn with_database(
+        config: DaemonConfig,
+        server_id: Option<u32>,
+        db: Arc<DatabaseConnection>,
+    ) -> Self {
+        Self {
+            processes: Arc::new(RwLock::new(HashMap::new())),
+            pid_map: Arc::new(RwLock::new(HashMap::new())),
+            config: Arc::new(config),
+            shutdown: Arc::new(Notify::new()),
+            server_id,
+            running: Arc::new(RwLock::new(false)),
+            db: Some(db),
         }
     }
 
@@ -390,6 +419,154 @@ impl DaemonManager {
         info!("Daemon manager started with health monitoring");
 
         Ok(DaemonResponse::ok("Daemon manager started"))
+    }
+
+    /// Start all ZoneMinder daemons.
+    ///
+    /// This queries the database for enabled monitors and starts:
+    /// 1. Per-monitor capture daemons (zmc) for enabled monitors
+    /// 2. Per-monitor analysis daemons (zma) for monitors requiring motion detection
+    /// 3. Singleton daemons (zmfilter.pl, zmstats.pl, etc.)
+    pub async fn start_all_daemons(self: &Arc<Self>) -> AppResult<DaemonResponse> {
+        let db = match &self.db {
+            Some(db) => db.clone(),
+            None => {
+                return Ok(DaemonResponse::error(
+                    "Database not configured - cannot query monitors",
+                ));
+            }
+        };
+
+        // First ensure we're running
+        if !self.is_running().await {
+            self.startup().await?;
+        }
+
+        let mut started = 0;
+        let mut failed = 0;
+        let mut errors: Vec<String> = Vec::new();
+
+        // Query enabled monitors from database
+        let monitor_list = monitors::Entity::find()
+            .filter(monitors::Column::Enabled.eq(1_u8))
+            .filter(monitors::Column::Deleted.eq(false))
+            .all(db.as_ref())
+            .await?;
+
+        info!("Found {} enabled monitors", monitor_list.len());
+
+        // Start per-monitor daemons based on Function
+        for monitor in &monitor_list {
+            let monitor_id = monitor.id;
+            let function = &monitor.function;
+
+            let needs_capture = !matches!(function, Function::None);
+            let needs_analysis = matches!(function, Function::Modect | Function::Mocord);
+
+            debug!(
+                "Monitor {} ({}): function={:?}, capture={}, analysis={}",
+                monitor_id, monitor.name, function, needs_capture, needs_analysis
+            );
+
+            // Start zmc (capture daemon) if needed
+            if needs_capture {
+                let daemon_id = format!("zmc -m {}", monitor_id);
+                match self.start_daemon(&daemon_id, &[]).await {
+                    Ok(resp) if resp.success => {
+                        started += 1;
+                        info!("Started zmc for monitor {}", monitor_id);
+                    }
+                    Ok(resp) => {
+                        if !resp.message.contains("already running") {
+                            failed += 1;
+                            errors.push(format!("zmc -m {}: {}", monitor_id, resp.message));
+                            warn!(
+                                "Failed to start zmc for monitor {}: {}",
+                                monitor_id, resp.message
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        failed += 1;
+                        errors.push(format!("zmc -m {}: {}", monitor_id, e));
+                        error!("Error starting zmc for monitor {}: {}", monitor_id, e);
+                    }
+                }
+            }
+
+            // Start zma (analysis daemon) if needed
+            if needs_analysis {
+                let daemon_id = format!("zma -m {}", monitor_id);
+                match self.start_daemon(&daemon_id, &[]).await {
+                    Ok(resp) if resp.success => {
+                        started += 1;
+                        info!("Started zma for monitor {}", monitor_id);
+                    }
+                    Ok(resp) => {
+                        if !resp.message.contains("already running") {
+                            failed += 1;
+                            errors.push(format!("zma -m {}: {}", monitor_id, resp.message));
+                            warn!(
+                                "Failed to start zma for monitor {}: {}",
+                                monitor_id, resp.message
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        failed += 1;
+                        errors.push(format!("zma -m {}: {}", monitor_id, e));
+                        error!("Error starting zma for monitor {}: {}", monitor_id, e);
+                    }
+                }
+            }
+        }
+
+        // Start singleton daemons in priority order
+        let mut singletons: Vec<_> = DaemonDefinition::singletons()
+            .filter(|d| d.requires_db)
+            .collect();
+        singletons.sort_by_key(|d| d.priority);
+
+        for daemon in singletons {
+            debug!(
+                "Starting singleton daemon: {} (priority {})",
+                daemon.name, daemon.priority
+            );
+
+            match self.start_daemon(daemon.command, &[]).await {
+                Ok(resp) if resp.success => {
+                    started += 1;
+                    info!("Started {}", daemon.name);
+                }
+                Ok(resp) => {
+                    if !resp.message.contains("already running") {
+                        warn!("Could not start {}: {}", daemon.name, resp.message);
+                    }
+                }
+                Err(e) => {
+                    warn!("Could not start {}: {}", daemon.name, e);
+                }
+            }
+        }
+
+        let message = if failed > 0 {
+            format!(
+                "System startup completed: {} daemons started, {} failed. Errors: {}",
+                started,
+                failed,
+                errors.join("; ")
+            )
+        } else {
+            format!("System startup completed: {} daemons started", started)
+        };
+
+        info!("{}", message);
+
+        if failed > 0 && started == 0 {
+            Ok(DaemonResponse::error(message))
+        } else {
+            Ok(DaemonResponse::ok(message))
+        }
     }
 
     /// Run the background health check loop.

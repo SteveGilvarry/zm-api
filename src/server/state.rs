@@ -79,9 +79,10 @@ impl AppState {
         // Initialize daemon manager if enabled
         let daemon_manager = if config.daemon.enabled {
             tracing::info!("Daemon controller enabled, initializing manager");
-            Some(Arc::new(DaemonManager::new(
+            Some(Arc::new(DaemonManager::with_database(
                 config.daemon.clone(),
                 None, // Server ID can be set from DB config later
+                db.clone(),
             )))
         } else {
             tracing::info!("Daemon controller disabled in configuration");
