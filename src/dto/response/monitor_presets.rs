@@ -29,8 +29,8 @@ pub struct MonitorPresetResponse {
     pub control_id: Option<String>,
     pub control_device: Option<String>,
     pub control_address: Option<String>,
-    pub default_rate: u16,
-    pub default_scale: u16,
+    pub default_rate: String,
+    pub default_scale: String,
 }
 
 impl From<&MonitorPresetModel> for MonitorPresetResponse {
@@ -57,8 +57,8 @@ impl From<&MonitorPresetModel> for MonitorPresetResponse {
             control_id: model.control_id.clone(),
             control_device: model.control_device.clone(),
             control_address: model.control_address.clone(),
-            default_rate: model.default_rate,
-            default_scale: model.default_scale,
+            default_rate: model.default_rate.clone(),
+            default_scale: model.default_scale.clone(),
         }
     }
 }

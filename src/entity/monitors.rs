@@ -261,9 +261,9 @@ pub struct Model {
     #[sea_orm(column_name = "ModectDuringPTZ")]
     pub modect_during_ptz: u8,
     #[sea_orm(column_name = "DefaultRate")]
-    pub default_rate: u16,
+    pub default_rate: String,
     #[sea_orm(column_name = "DefaultScale")]
-    pub default_scale: u16,
+    pub default_scale: String,
     #[sea_orm(column_name = "DefaultCodec")]
     pub default_codec: DefaultCodec,
     #[sea_orm(column_name = "SignalCheckPoints")]
