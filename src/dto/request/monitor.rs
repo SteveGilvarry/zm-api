@@ -350,8 +350,8 @@ pub struct CreateMonitorRequest {
     #[garde(range(min = 0, max = 1))]
     pub modect_during_ptz: u8,
 
-    #[garde(length(min = 0))]
-    pub default_rate: String,
+    #[garde(skip)]
+    pub default_rate: u16,
 
     #[garde(length(min = 0))]
     pub default_scale: String,
@@ -750,8 +750,8 @@ pub struct UpdateMonitorRequest {
     #[garde(range(min = 0, max = 1))]
     pub modect_during_ptz: Option<u8>,
 
-    #[garde(length(min = 0))]
-    pub default_rate: Option<String>,
+    #[garde(skip)]
+    pub default_rate: Option<u16>,
 
     #[garde(length(min = 0))]
     pub default_scale: Option<String>,

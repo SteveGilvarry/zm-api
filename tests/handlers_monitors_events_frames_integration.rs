@@ -139,7 +139,7 @@ fn build_create_monitor_request(name: String) -> CreateMonitorRequest {
         return_location: 0,
         return_delay: None,
         modect_during_ptz: 0,
-        default_rate: "100".to_string(),
+        default_rate: 100,
         default_scale: "100".to_string(),
         default_codec: DefaultCodec::Auto,
         signal_check_points: 0,

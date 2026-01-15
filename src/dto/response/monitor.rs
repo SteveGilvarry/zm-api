@@ -112,7 +112,7 @@ pub struct MonitorResponse {
     pub return_location: i8,
     pub return_delay: Option<u16>,
     pub modect_during_ptz: u8,
-    pub default_rate: String,
+    pub default_rate: u16,
     pub default_scale: String,
     pub default_codec: String,
     pub signal_check_points: u32,
