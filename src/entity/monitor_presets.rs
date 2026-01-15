@@ -53,9 +53,9 @@ pub struct Model {
     #[sea_orm(column_name = "ControlAddress")]
     pub control_address: Option<String>,
     #[sea_orm(column_name = "DefaultRate")]
-    pub default_rate: String,
+    pub default_rate: u16,
     #[sea_orm(column_name = "DefaultScale")]
-    pub default_scale: String,
+    pub default_scale: u16,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

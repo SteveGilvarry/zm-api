@@ -51,8 +51,8 @@ pub async fn create(
         control_id: Set(req.control_id.clone()),
         control_device: Set(req.control_device.clone()),
         control_address: Set(req.control_address.clone()),
-        default_rate: Set(req.default_rate.clone().unwrap_or_else(|| "100".to_string())),
-        default_scale: Set(req.default_scale.clone().unwrap_or_else(|| "100".to_string())),
+        default_rate: Set(req.default_rate.unwrap_or(100)),
+        default_scale: Set(req.default_scale.unwrap_or(100)),
     };
     Ok(am.insert(db).await?)
 }
@@ -127,11 +127,11 @@ pub async fn update(
     if let Some(v) = &req.control_address {
         am.control_address = Set(Some(v.clone()));
     }
-    if let Some(v) = &req.default_rate {
-        am.default_rate = Set(v.clone());
+    if let Some(v) = req.default_rate {
+        am.default_rate = Set(v);
     }
-    if let Some(v) = &req.default_scale {
-        am.default_scale = Set(v.clone());
+    if let Some(v) = req.default_scale {
+        am.default_scale = Set(v);
     }
 
     let updated = am.update(db).await?;
