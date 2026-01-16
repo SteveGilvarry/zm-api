@@ -12,6 +12,21 @@ pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<TagModel>> {
     Ok(Tags::find().all(db).await?)
 }
 
+pub async fn find_all_paginated(
+    db: &DatabaseConnection,
+    page: u64,
+    page_size: u64,
+) -> AppResult<(Vec<TagModel>, u64)> {
+    let paginator = Tags::find()
+        .order_by_asc(Column::Id)
+        .paginate(db, page_size);
+
+    let total = paginator.num_items().await?;
+    let items = paginator.fetch_page(page.saturating_sub(1)).await?;
+
+    Ok((items, total))
+}
+
 pub async fn find_by_id(db: &DatabaseConnection, id: u64) -> AppResult<Option<TagModel>> {
     Ok(Tags::find_by_id(id).one(db).await?)
 }

@@ -1,5 +1,7 @@
 use crate::dto::request::frames::{CreateFrameRequest, UpdateFrameRequest};
+use crate::dto::request::PaginationParams;
 use crate::dto::response::frames::FrameResponse;
+use crate::dto::response::PaginatedResponse;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use crate::service;
@@ -12,28 +14,38 @@ use serde::Deserialize;
 pub struct FrameQueryParams {
     /// Filter frames by event ID
     pub event_id: Option<u64>,
+    /// Page number (1-indexed)
+    pub page: Option<u64>,
+    /// Number of items per page
+    pub page_size: Option<u64>,
 }
 
-/// List frames, optionally filtered by event_id
+/// List frames with pagination, optionally filtered by event_id
 #[utoipa::path(
     get,
     path = "/api/v3/frames",
     params(
-        ("event_id" = Option<u64>, Query, description = "Filter by event")
+        ("event_id" = Option<u64>, Query, description = "Filter by event"),
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Number of items per page (max 1000)", example = 20)
     ),
     responses(
-        (status = 200, description = "List frames", body = Vec<FrameResponse>)
+        (status = 200, description = "Paginated list of frames", body = PaginatedResponse<FrameResponse>)
     ),
     tag = "Frames",
-    summary = "List frames; optionally filter by event id.",
+    summary = "List frames with pagination; optionally filter by event id.",
     description = "- Requires a valid JWT.",
     security(("jwt" = []))
 )]
 pub async fn list_frames(
     State(state): State<AppState>,
     Query(params): Query<FrameQueryParams>,
-) -> AppResult<Json<Vec<FrameResponse>>> {
-    let frames = service::frames::list_all(&state, params.event_id).await?;
+) -> AppResult<Json<PaginatedResponse<FrameResponse>>> {
+    let pagination = PaginationParams {
+        page: params.page,
+        page_size: params.page_size,
+    };
+    let frames = service::frames::list_all_paginated(&state, params.event_id, &pagination).await?;
     Ok(Json(frames))
 }
 

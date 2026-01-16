@@ -1,25 +1,32 @@
-use crate::dto::request::CreateGroupRequest;
-use crate::dto::response::GroupResponse;
+use crate::dto::request::{CreateGroupRequest, PaginationParams};
+use crate::dto::response::{GroupResponse, PaginatedResponse};
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 use serde::Deserialize;
 
-/// List user groups.
+/// List user groups with pagination.
 ///
 /// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/groups",
-    responses((status = 200, description = "List groups", body = serde_json::Value)),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Number of items per page (max 1000)", example = 20)
+    ),
+    responses((status = 200, description = "Paginated list of groups", body = PaginatedResponse<GroupResponse>)),
     tag = "Groups",
     security(("jwt" = []))
 )]
-pub async fn list_groups(State(state): State<AppState>) -> AppResult<Json<Vec<GroupResponse>>> {
-    let items = crate::service::groups::list_all(&state).await?;
+pub async fn list_groups(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedResponse<GroupResponse>>> {
+    let items = crate::service::groups::list_all_paginated(&state, &params).await?;
     Ok(Json(items))
 }
 

@@ -1,8 +1,9 @@
 #![allow(clippy::result_large_err)]
 use crate::dto::request::{
-    AlarmControlRequest, CreateMonitorRequest, UpdateMonitorRequest, UpdateStateRequest,
+    AlarmControlRequest, CreateMonitorRequest, PaginationParams, UpdateMonitorRequest,
+    UpdateStateRequest,
 };
-use crate::dto::response::{MonitorResponse, MonitorStreamingDetails};
+use crate::dto::response::{MonitorResponse, MonitorStreamingDetails, PaginatedResponse};
 use crate::entity::monitors;
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
@@ -16,6 +17,25 @@ pub async fn list_all(state: &AppState) -> AppResult<Vec<MonitorResponse>> {
     info!("Listing all monitors.");
     let monitors = repo::monitors::find_all(state.db()).await?;
     Ok(monitors.into_iter().map(MonitorResponse::from).collect())
+}
+
+pub async fn list_all_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<MonitorResponse>> {
+    let page = params.page();
+    let page_size = params.page_size();
+
+    info!(
+        "Listing monitors with pagination: page={}, page_size={}",
+        page, page_size
+    );
+
+    let (monitors, total) = repo::monitors::find_all_paginated(state.db(), page, page_size).await?;
+
+    let data = monitors.into_iter().map(MonitorResponse::from).collect();
+
+    Ok(PaginatedResponse::new(data, total, page, page_size))
 }
 
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<MonitorResponse> {

@@ -1,5 +1,7 @@
 use crate::dto::request::frames::{CreateFrameRequest, UpdateFrameRequest};
+use crate::dto::request::PaginationParams;
 use crate::dto::response::frames::FrameResponse;
+use crate::dto::response::PaginatedResponse;
 use crate::error::{AppError, AppResult};
 use crate::repo;
 use crate::server::state::AppState;
@@ -8,6 +10,23 @@ use crate::server::state::AppState;
 pub async fn list_all(state: &AppState, event_id: Option<u64>) -> AppResult<Vec<FrameResponse>> {
     let frames = repo::frames::find_all(state.db(), event_id).await?;
     Ok(frames.iter().map(FrameResponse::from).collect())
+}
+
+/// List all frames with pagination, optionally filtered by event_id
+pub async fn list_all_paginated(
+    state: &AppState,
+    event_id: Option<u64>,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<FrameResponse>> {
+    let page = params.page();
+    let page_size = params.page_size();
+
+    let (frames, total) =
+        repo::frames::find_all_paginated(state.db(), event_id, page, page_size).await?;
+
+    let data = frames.iter().map(FrameResponse::from).collect();
+
+    Ok(PaginatedResponse::new(data, total, page, page_size))
 }
 
 /// Get frame by id

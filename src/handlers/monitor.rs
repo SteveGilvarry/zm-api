@@ -1,11 +1,12 @@
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::Json;
 use tracing::{info, warn};
 
 use crate::dto::request::{
-    AlarmControlRequest, CreateMonitorRequest, UpdateMonitorRequest, UpdateStateRequest,
+    AlarmControlRequest, CreateMonitorRequest, PaginationParams, UpdateMonitorRequest,
+    UpdateStateRequest,
 };
-use crate::dto::response::MonitorResponse;
+use crate::dto::response::{MonitorResponse, PaginatedResponse};
 use crate::error::AppResponseError;
 use crate::error::AppResult;
 use crate::server::state::AppState;
@@ -14,8 +15,12 @@ use crate::service;
 #[utoipa::path(
     get,
     path = "/api/v3/monitors",
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Number of items per page (max 1000)", example = 20)
+    ),
     responses(
-        (status = 200, description = "List all monitors", body = Vec<MonitorResponse>),
+        (status = 200, description = "Paginated list of monitors", body = PaginatedResponse<MonitorResponse>),
         (status = 401, description = "Unauthorized - Invalid or missing token", body = AppResponseError),
         (status = 500, description = "Internal server error", body = AppResponseError)
     ),
@@ -24,9 +29,12 @@ use crate::service;
     ),
     tag = "Monitors"
 )]
-pub async fn list_monitors(State(state): State<AppState>) -> AppResult<Json<Vec<MonitorResponse>>> {
-    info!("Listing all monitors.");
-    match service::monitor::list_all(&state).await {
+pub async fn list_monitors(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedResponse<MonitorResponse>>> {
+    info!("Listing monitors with pagination.");
+    match service::monitor::list_all_paginated(&state, &params).await {
         Ok(monitors) => Ok(Json(monitors)),
         Err(e) => {
             warn!("Failed to list monitors: {e:?}.");

@@ -3,7 +3,8 @@ use crate::entity::frames::{ActiveModel, Column, Entity as FrameEntity, Model as
 use crate::error::AppResult;
 use chrono::DateTime;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, Set,
 };
 
 /// Find all frames, optionally filtered by event_id
@@ -19,6 +20,27 @@ pub async fn find_all(
 
     let frames = query.order_by_asc(Column::FrameId).all(db).await?;
     Ok(frames)
+}
+
+/// Find all frames with pagination, optionally filtered by event_id
+pub async fn find_all_paginated(
+    db: &DatabaseConnection,
+    event_id: Option<u64>,
+    page: u64,
+    page_size: u64,
+) -> AppResult<(Vec<FrameModel>, u64)> {
+    let mut query = FrameEntity::find();
+
+    if let Some(eid) = event_id {
+        query = query.filter(Column::EventId.eq(eid));
+    }
+
+    let paginator = query.order_by_asc(Column::FrameId).paginate(db, page_size);
+
+    let total = paginator.num_items().await?;
+    let frames = paginator.fetch_page(page.saturating_sub(1)).await?;
+
+    Ok((frames, total))
 }
 
 /// Find frame by id

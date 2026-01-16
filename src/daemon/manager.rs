@@ -223,7 +223,10 @@ impl DaemonManager {
                 }
                 Err(e) => {
                     // Process may have already exited
-                    warn!("Failed to send SIGTERM to daemon {} (PID {}): {}", id, pid, e);
+                    warn!(
+                        "Failed to send SIGTERM to daemon {} (PID {}): {}",
+                        id, pid, e
+                    );
                     process.set_state(ProcessState::Stopped);
 
                     // Clean up PID map
@@ -231,7 +234,10 @@ impl DaemonManager {
                     let mut pid_map = self.pid_map.write().await;
                     pid_map.remove(&pid);
 
-                    return Ok(DaemonResponse::ok(format!("Stopped {} (process already gone)", id)));
+                    return Ok(DaemonResponse::ok(format!(
+                        "Stopped {} (process already gone)",
+                        id
+                    )));
                 }
             }
         }
@@ -319,7 +325,8 @@ impl DaemonManager {
         {
             let processes = self.processes.read().await;
             for (id, process) in processes.iter() {
-                if process.state == ProcessState::Stopping && process.term_timeout_expired(timeout) {
+                if process.state == ProcessState::Stopping && process.term_timeout_expired(timeout)
+                {
                     to_kill.push(id.clone());
                 }
             }
@@ -942,10 +949,7 @@ impl DaemonManager {
                             let was_stopping = process.state == ProcessState::Stopping;
 
                             if was_stopping {
-                                info!(
-                                    "Daemon {} gracefully stopped with status: {:?}",
-                                    id, status
-                                );
+                                info!("Daemon {} gracefully stopped with status: {:?}", id, status);
                             } else {
                                 info!("Daemon {} exited with status: {:?}", id, status);
                             }

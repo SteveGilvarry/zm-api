@@ -1,13 +1,28 @@
-use crate::entity::logs::{Entity as Logs, Model as LogModel};
+use crate::entity::logs::{Column as LogColumn, Entity as Logs, Model as LogModel};
 use crate::error::AppResult;
 use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection, limit: u64) -> AppResult<Vec<LogModel>> {
     Ok(Logs::find()
-        .order_by_desc(crate::entity::logs::Column::Id)
+        .order_by_desc(LogColumn::Id)
         .limit(limit)
         .all(db)
         .await?)
+}
+
+pub async fn find_all_paginated(
+    db: &DatabaseConnection,
+    page: u64,
+    page_size: u64,
+) -> AppResult<(Vec<LogModel>, u64)> {
+    let paginator = Logs::find()
+        .order_by_desc(LogColumn::Id)
+        .paginate(db, page_size);
+
+    let total = paginator.num_items().await?;
+    let items = paginator.fetch_page(page.saturating_sub(1)).await?;
+
+    Ok((items, total))
 }
 
 pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<LogModel>> {

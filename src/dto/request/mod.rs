@@ -19,6 +19,7 @@ pub mod monitor_status;
 pub mod monitors_permissions;
 pub mod montage_layouts;
 pub mod object_types;
+pub mod pagination;
 pub mod reports;
 #[allow(clippy::module_inception)]
 mod request;
@@ -44,6 +45,7 @@ pub use groups::*;
 pub use manufacturers::*;
 pub use models::*;
 pub use monitor::*;
+pub use pagination::*;
 pub use request::*;
 pub use servers::*;
 pub use storage::*;

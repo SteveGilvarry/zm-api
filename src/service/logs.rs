@@ -1,4 +1,5 @@
-use crate::dto::response::LogResponse;
+use crate::dto::request::PaginationParams;
+use crate::dto::response::{LogResponse, PaginatedResponse};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -6,6 +7,20 @@ use crate::server::state::AppState;
 pub async fn list_recent(state: &AppState, limit: u64) -> AppResult<Vec<LogResponse>> {
     let items = repo::logs::find_all(state.db(), limit).await?;
     Ok(items.iter().map(LogResponse::from).collect())
+}
+
+pub async fn list_all_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<LogResponse>> {
+    let page = params.page();
+    let page_size = params.page_size();
+
+    let (items, total) = repo::logs::find_all_paginated(state.db(), page, page_size).await?;
+
+    let data = items.iter().map(LogResponse::from).collect();
+
+    Ok(PaginatedResponse::new(data, total, page, page_size))
 }
 
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<LogResponse> {

@@ -1,25 +1,32 @@
-use crate::dto::request::CreateUserRequest;
-use crate::dto::response::UserResponse;
+use crate::dto::request::{CreateUserRequest, PaginationParams};
+use crate::dto::response::{PaginatedResponse, UserResponse};
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 use serde::Deserialize;
 
-/// List ZoneMinder users.
+/// List ZoneMinder users with pagination.
 ///
 /// - Requires a valid JWT with appropriate permissions.
 #[utoipa::path(
     get,
     path = "/api/v3/users",
-    responses((status = 200, description = "List users", body = serde_json::Value)),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Number of items per page (max 1000)", example = 20)
+    ),
+    responses((status = 200, description = "Paginated list of users", body = PaginatedResponse<UserResponse>)),
     tag = "Users",
     security(("jwt" = []))
 )]
-pub async fn list_users(State(state): State<AppState>) -> AppResult<Json<Vec<UserResponse>>> {
-    let items = crate::service::users::list_all(&state).await?;
+pub async fn list_users(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedResponse<UserResponse>>> {
+    let items = crate::service::users::list_all_paginated(&state, &params).await?;
     Ok(Json(items))
 }
 

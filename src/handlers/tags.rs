@@ -2,24 +2,32 @@ use axum::extract::{Path, Query, State};
 use axum::Json;
 
 use crate::dto::request::tags::{CreateTagRequest, TagDetailQuery, UpdateTagRequest};
+use crate::dto::request::PaginationParams;
 use crate::dto::response::events_tags::TagDetailResponse;
-use crate::dto::response::TagResponse;
+use crate::dto::response::{PaginatedResponse, TagResponse};
 use crate::error::AppResult;
 use crate::server::state::AppState;
 
-/// List all tags.
+/// List all tags with pagination.
 ///
 /// - Requires a valid JWT.
 /// - Returns event_count for each tag.
 #[utoipa::path(
     get,
     path = "/api/v3/tags",
-    responses((status = 200, description = "List tags with event counts", body = [TagResponse])),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Number of items per page (max 1000)", example = 20)
+    ),
+    responses((status = 200, description = "Paginated list of tags with event counts", body = PaginatedResponse<TagResponse>)),
     tag = "Tags",
     security(("jwt" = []))
 )]
-pub async fn list_tags(State(state): State<AppState>) -> AppResult<Json<Vec<TagResponse>>> {
-    let items = crate::service::tags::list_all(&state).await?;
+pub async fn list_tags(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedResponse<TagResponse>>> {
+    let items = crate::service::tags::list_all_paginated(&state, &params).await?;
     Ok(Json(items))
 }
 

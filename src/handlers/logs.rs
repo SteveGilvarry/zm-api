@@ -1,24 +1,31 @@
-use crate::dto::response::LogResponse;
+use crate::dto::request::PaginationParams;
+use crate::dto::response::{LogResponse, PaginatedResponse};
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 
-/// List recent log entries ordered by newest first.
+/// List log entries with pagination, ordered by newest first.
 ///
-/// - Defaults to a capped list (service uses a limit of 200 entries).
 /// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/logs",
-    responses((status = 200, description = "List logs", body = serde_json::Value)),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Number of items per page (max 1000)", example = 20)
+    ),
+    responses((status = 200, description = "Paginated list of logs", body = PaginatedResponse<LogResponse>)),
     tag = "Logs",
     security(("jwt" = []))
 )]
-pub async fn list_logs(State(state): State<AppState>) -> AppResult<Json<Vec<LogResponse>>> {
-    let items = crate::service::logs::list_recent(&state, 200).await?;
+pub async fn list_logs(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedResponse<LogResponse>>> {
+    let items = crate::service::logs::list_all_paginated(&state, &params).await?;
     Ok(Json(items))
 }
 
