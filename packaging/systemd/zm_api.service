@@ -7,10 +7,10 @@ Requires=mariadb.service
 
 [Service]
 Type=simple
-# Run as www-data to match ZoneMinder's typical setup
-User=www-data
-Group=www-data
-# Add video group for camera access
+# Dedicated zoneminder user (create with install script)
+User=zoneminder
+Group=zoneminder
+# video: camera access, ssl-cert: TLS certificates
 SupplementaryGroups=video ssl-cert
 
 # Environment configuration
