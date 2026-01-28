@@ -6,16 +6,35 @@ use std::path::Path;
 
 use crate::daemon::ipc::SystemStats;
 
+/// CPU breakdown statistics.
+struct CpuBreakdown {
+    user_percent: f64,
+    nice_percent: f64,
+    system_percent: f64,
+    idle_percent: f64,
+    usage_percent: f64,
+}
+
 /// Collect current system statistics.
 pub fn collect_stats() -> io::Result<SystemStats> {
     let cpu_load = read_load_average()?;
-    let cpu_usage = read_cpu_usage().unwrap_or(0.0);
+    let cpu_breakdown = read_cpu_breakdown().unwrap_or(CpuBreakdown {
+        user_percent: 0.0,
+        nice_percent: 0.0,
+        system_percent: 0.0,
+        idle_percent: 100.0,
+        usage_percent: 0.0,
+    });
     let (total_mem, free_mem) = read_memory_info()?;
     let (total_swap, free_swap) = read_swap_info().unwrap_or((0, 0));
 
     Ok(SystemStats {
         cpu_load,
-        cpu_usage_percent: cpu_usage,
+        cpu_usage_percent: cpu_breakdown.usage_percent,
+        cpu_user_percent: cpu_breakdown.user_percent,
+        cpu_nice_percent: cpu_breakdown.nice_percent,
+        cpu_system_percent: cpu_breakdown.system_percent,
+        cpu_idle_percent: cpu_breakdown.idle_percent,
         total_mem,
         free_mem,
         total_swap,
@@ -41,14 +60,21 @@ fn read_load_average() -> io::Result<f64> {
     Ok(first_value)
 }
 
-/// Calculate CPU usage percentage from /proc/stat.
+/// Calculate CPU usage breakdown from /proc/stat.
 ///
+/// Returns percentages for user, nice, system, idle, and overall usage.
 /// This is a snapshot calculation - for more accurate results,
 /// compare two readings over time.
-fn read_cpu_usage() -> io::Result<f64> {
+fn read_cpu_breakdown() -> io::Result<CpuBreakdown> {
     let path = Path::new("/proc/stat");
     if !path.exists() {
-        return Ok(0.0);
+        return Ok(CpuBreakdown {
+            user_percent: 0.0,
+            nice_percent: 0.0,
+            system_percent: 0.0,
+            idle_percent: 100.0,
+            usage_percent: 0.0,
+        });
     }
 
     let file = fs::File::open(path)?;
@@ -73,16 +99,34 @@ fn read_cpu_usage() -> io::Result<f64> {
                 let softirq = values.get(6).copied().unwrap_or(0);
 
                 let total = user + nice + system + idle + iowait + irq + softirq;
-                let active = total - idle - iowait;
 
                 if total > 0 {
-                    return Ok((active as f64 / total as f64) * 100.0);
+                    let total_f = total as f64;
+                    let user_percent = (user as f64 / total_f) * 100.0;
+                    let nice_percent = (nice as f64 / total_f) * 100.0;
+                    let system_percent = (system as f64 / total_f) * 100.0;
+                    let idle_percent = ((idle + iowait) as f64 / total_f) * 100.0;
+                    let usage_percent = 100.0 - idle_percent;
+
+                    return Ok(CpuBreakdown {
+                        user_percent,
+                        nice_percent,
+                        system_percent,
+                        idle_percent,
+                        usage_percent,
+                    });
                 }
             }
         }
     }
 
-    Ok(0.0)
+    Ok(CpuBreakdown {
+        user_percent: 0.0,
+        nice_percent: 0.0,
+        system_percent: 0.0,
+        idle_percent: 100.0,
+        usage_percent: 0.0,
+    })
 }
 
 /// Read memory information from /proc/meminfo.

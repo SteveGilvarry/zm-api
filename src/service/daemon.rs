@@ -8,7 +8,7 @@ use crate::dto::response::daemon::{
     DaemonActionResponse, DaemonListResponse, DaemonStatusResponse, SystemStatusResponse,
 };
 use crate::entity::monitors;
-use crate::entity::sea_orm_active_enums::Function;
+use crate::entity::sea_orm_active_enums::{Analysing, Capturing, Function, Recording};
 use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 
@@ -203,7 +203,10 @@ pub async fn system_logrot(state: &AppState) -> AppResult<DaemonActionResponse> 
 
 /// Apply a named system state from the database.
 ///
-/// States define monitor configurations (Function, Enabled settings).
+/// States define monitor configurations. Two formats are supported:
+/// - Legacy (3-part): "id:function:enabled" - Updates Function and Enabled fields
+/// - New (4-part): "id:capturing:analysing:recording" - Updates Capturing, Analysing, Recording fields
+///
 /// Applying a state:
 /// 1. Looks up the state by name in the States table
 /// 2. Parses the Definition to get monitor configurations
@@ -228,36 +231,40 @@ pub async fn apply_state(state: &AppState, state_name: &str) -> AppResult<Daemon
         })?;
 
     // Parse the state definition
-    // Format is: "monitor_id:function:enabled,monitor_id:function:enabled,..."
-    // Example: "1:Monitor:1,2:Modect:1,3:None:0"
+    // Two formats supported:
+    // - Legacy (3-part): "id:function:enabled" e.g., "1:Monitor:1,2:Modect:1,3:None:0"
+    // - New (4-part): "id:capturing:analysing:recording" e.g., "1:Always:Always:OnMotion"
     let definition = &zm_state.definition;
     let mut updated_monitors = 0;
 
     for entry in definition.split(',') {
-        let parts: Vec<&str> = entry.trim().split(':').collect();
-        if parts.len() >= 3 {
-            if let Ok(monitor_id) = parts[0].parse::<u32>() {
-                let function_str = parts[1];
-                let enabled_str = parts[2];
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
 
-                // Parse function
-                let function = match function_str {
-                    "None" => Function::None,
-                    "Monitor" => Function::Monitor,
-                    "Modect" => Function::Modect,
-                    "Record" => Function::Record,
-                    "Mocord" => Function::Mocord,
-                    "Nodect" => Function::Nodect,
-                    _ => {
-                        warn!(
-                            "Unknown function '{}' for monitor {}",
-                            function_str, monitor_id
-                        );
+        let parts: Vec<&str> = entry.split(':').collect();
+
+        match parts.len() {
+            3 => {
+                // Legacy format: id:function:enabled
+                let monitor_id = match parts[0].parse::<u32>() {
+                    Ok(id) => id,
+                    Err(_) => {
+                        warn!("Invalid monitor ID in state definition: {}", parts[0]);
                         continue;
                     }
                 };
 
-                let enabled: u8 = enabled_str.parse().unwrap_or(1);
+                let function = match parse_function(parts[1]) {
+                    Some(f) => f,
+                    None => {
+                        warn!("Unknown function '{}' for monitor {}", parts[1], monitor_id);
+                        continue;
+                    }
+                };
+
+                let enabled: u8 = parts[2].parse().unwrap_or(1);
 
                 // Update monitor in database
                 let monitor = monitors::Entity::find_by_id(monitor_id)
@@ -266,15 +273,85 @@ pub async fn apply_state(state: &AppState, state_name: &str) -> AppResult<Daemon
 
                 if let Some(monitor) = monitor {
                     let mut active: monitors::ActiveModel = monitor.into();
-                    active.function = Set(function);
+                    active.function = Set(function.clone());
                     active.enabled = Set(enabled);
                     active.update(state.db.as_ref()).await?;
                     updated_monitors += 1;
                     debug!(
-                        "Updated monitor {}: function={}, enabled={}",
-                        monitor_id, function_str, enabled
+                        "Updated monitor {} (legacy): function={:?}, enabled={}",
+                        monitor_id, function, enabled
                     );
                 }
+            }
+            4 => {
+                // New format: id:capturing:analysing:recording
+                let monitor_id = match parts[0].parse::<u32>() {
+                    Ok(id) => id,
+                    Err(_) => {
+                        warn!("Invalid monitor ID in state definition: {}", parts[0]);
+                        continue;
+                    }
+                };
+
+                let capturing = match parse_capturing(parts[1]) {
+                    Some(c) => c,
+                    None => {
+                        warn!(
+                            "Unknown capturing value '{}' for monitor {}",
+                            parts[1], monitor_id
+                        );
+                        continue;
+                    }
+                };
+
+                let analysing = match parse_analysing(parts[2]) {
+                    Some(a) => a,
+                    None => {
+                        warn!(
+                            "Unknown analysing value '{}' for monitor {}",
+                            parts[2], monitor_id
+                        );
+                        continue;
+                    }
+                };
+
+                let recording = match parse_recording(parts[3]) {
+                    Some(r) => r,
+                    None => {
+                        warn!(
+                            "Unknown recording value '{}' for monitor {}",
+                            parts[3], monitor_id
+                        );
+                        continue;
+                    }
+                };
+
+                // Update monitor in database
+                let monitor = monitors::Entity::find_by_id(monitor_id)
+                    .one(state.db.as_ref())
+                    .await?;
+
+                if let Some(monitor) = monitor {
+                    let mut active: monitors::ActiveModel = monitor.into();
+                    active.capturing = Set(capturing.clone());
+                    active.analysing = Set(analysing.clone());
+                    active.recording = Set(recording.clone());
+                    active.update(state.db.as_ref()).await?;
+                    updated_monitors += 1;
+                    debug!(
+                        "Updated monitor {} (new): capturing={:?}, analysing={:?}, recording={:?}",
+                        monitor_id, capturing, analysing, recording
+                    );
+                }
+            }
+            _ => {
+                if !entry.is_empty() {
+                    warn!(
+                        "Invalid state definition entry (expected 3 or 4 parts): {}",
+                        entry
+                    );
+                }
+                continue;
             }
         }
     }
@@ -306,6 +383,123 @@ pub async fn apply_state(state: &AppState, state_name: &str) -> AppResult<Daemon
         "State '{}' applied: {} monitors updated. {}",
         state_name, updated_monitors, restart_result.message
     )))
+}
+
+/// Parse a function string to the Function enum.
+fn parse_function(s: &str) -> Option<Function> {
+    match s {
+        "None" => Some(Function::None),
+        "Monitor" => Some(Function::Monitor),
+        "Modect" => Some(Function::Modect),
+        "Record" => Some(Function::Record),
+        "Mocord" => Some(Function::Mocord),
+        "Nodect" => Some(Function::Nodect),
+        _ => None,
+    }
+}
+
+/// Parse a capturing string to the Capturing enum.
+fn parse_capturing(s: &str) -> Option<Capturing> {
+    match s {
+        "None" => Some(Capturing::None),
+        "Ondemand" => Some(Capturing::Ondemand),
+        "Always" => Some(Capturing::Always),
+        _ => None,
+    }
+}
+
+/// Parse an analysing string to the Analysing enum.
+fn parse_analysing(s: &str) -> Option<Analysing> {
+    match s {
+        "None" => Some(Analysing::None),
+        "Always" => Some(Analysing::Always),
+        _ => None,
+    }
+}
+
+/// Parse a recording string to the Recording enum.
+fn parse_recording(s: &str) -> Option<Recording> {
+    match s {
+        "None" => Some(Recording::None),
+        "OnMotion" => Some(Recording::OnMotion),
+        "Always" => Some(Recording::Always),
+        _ => None,
+    }
+}
+
+/// Ensure the States table is sane.
+///
+/// This function ensures:
+/// 1. A "default" state exists (creates one if missing)
+/// 2. Exactly one state is marked as active (fixes if not)
+///
+/// This matches the behavior of zmpkg.pl which ensures the states table
+/// has a default state and exactly one active state at system startup.
+pub async fn ensure_state_sanity(db: &sea_orm::DatabaseConnection) -> AppResult<()> {
+    use crate::entity::states;
+    use sea_orm::{ActiveModelTrait, ActiveValue::Set, QueryOrder};
+
+    info!("Checking state table sanity");
+
+    // Step 1: Ensure "default" state exists
+    let default_states: Vec<states::Model> = states::Entity::find()
+        .filter(states::Column::Name.eq("default"))
+        .order_by_asc(states::Column::Id)
+        .all(db)
+        .await?;
+
+    // Remove duplicate "default" states if any (keep the first one)
+    if default_states.len() > 1 {
+        warn!(
+            "Found {} duplicate 'default' states, removing extras",
+            default_states.len() - 1
+        );
+        for state in default_states.iter().skip(1) {
+            states::Entity::delete_by_id(state.id).exec(db).await?;
+        }
+    }
+
+    // Create default state if missing
+    let default_state = if default_states.is_empty() {
+        info!("Creating missing 'default' state");
+        let new_default = states::ActiveModel {
+            name: Set("default".to_string()),
+            definition: Set(String::new()),
+            is_active: Set(1),
+            ..Default::default()
+        };
+        new_default.insert(db).await?
+    } else {
+        default_states.into_iter().next().unwrap()
+    };
+
+    // Step 2: Ensure exactly one active state
+    let active_states: Vec<states::Model> = states::Entity::find()
+        .filter(states::Column::IsActive.eq(1u8))
+        .all(db)
+        .await?;
+
+    let active_count = active_states.len();
+    if active_count != 1 {
+        info!("Found {} active states (expected 1), fixing", active_count);
+
+        // Reset all states to inactive
+        use sea_orm::sea_query::Expr;
+        states::Entity::update_many()
+            .col_expr(states::Column::IsActive, Expr::value(0u8))
+            .exec(db)
+            .await?;
+
+        // Set default state as active
+        let mut active_default: states::ActiveModel = default_state.into();
+        active_default.is_active = Set(1);
+        active_default.update(db).await?;
+
+        info!("Set 'default' state as the active state");
+    }
+
+    debug!("State table sanity check complete");
+    Ok(())
 }
 
 /// Convert daemon response to action response.
@@ -343,5 +537,43 @@ mod tests {
         let action = response_to_action(resp);
         assert!(!action.success);
         assert_eq!(action.message, "Failed");
+    }
+
+    #[test]
+    fn test_parse_function() {
+        assert_eq!(parse_function("None"), Some(Function::None));
+        assert_eq!(parse_function("Monitor"), Some(Function::Monitor));
+        assert_eq!(parse_function("Modect"), Some(Function::Modect));
+        assert_eq!(parse_function("Record"), Some(Function::Record));
+        assert_eq!(parse_function("Mocord"), Some(Function::Mocord));
+        assert_eq!(parse_function("Nodect"), Some(Function::Nodect));
+        assert_eq!(parse_function("invalid"), None);
+        assert_eq!(parse_function(""), None);
+    }
+
+    #[test]
+    fn test_parse_capturing() {
+        assert_eq!(parse_capturing("None"), Some(Capturing::None));
+        assert_eq!(parse_capturing("Ondemand"), Some(Capturing::Ondemand));
+        assert_eq!(parse_capturing("Always"), Some(Capturing::Always));
+        assert_eq!(parse_capturing("invalid"), None);
+        assert_eq!(parse_capturing(""), None);
+    }
+
+    #[test]
+    fn test_parse_analysing() {
+        assert_eq!(parse_analysing("None"), Some(Analysing::None));
+        assert_eq!(parse_analysing("Always"), Some(Analysing::Always));
+        assert_eq!(parse_analysing("invalid"), None);
+        assert_eq!(parse_analysing(""), None);
+    }
+
+    #[test]
+    fn test_parse_recording() {
+        assert_eq!(parse_recording("None"), Some(Recording::None));
+        assert_eq!(parse_recording("OnMotion"), Some(Recording::OnMotion));
+        assert_eq!(parse_recording("Always"), Some(Recording::Always));
+        assert_eq!(parse_recording("invalid"), None);
+        assert_eq!(parse_recording(""), None);
     }
 }

@@ -37,18 +37,13 @@ pub struct ServerAcmeConfig {
     pub http_port: Option<u16>,
 }
 
-#[derive(Debug, Deserialize, Clone, Copy)]
+#[derive(Debug, Default, Deserialize, Clone, Copy)]
 pub enum AcmeChallenge {
     #[serde(rename = "tls-alpn-01", alias = "tls-alpn01")]
+    #[default]
     TlsAlpn01,
     #[serde(rename = "http-01", alias = "http01")]
     Http01,
-}
-
-impl Default for AcmeChallenge {
-    fn default() -> Self {
-        Self::TlsAlpn01
-    }
 }
 
 impl ServerConfig {

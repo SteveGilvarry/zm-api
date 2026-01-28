@@ -2,8 +2,13 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use rust_decimal::prelude::FromPrimitive;
+use rust_decimal::Decimal;
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
+};
 use tokio::process::Command;
 use tokio::sync::{mpsc, Notify, RwLock};
 use tracing::{debug, error, info, warn};
@@ -12,8 +17,8 @@ use crate::daemon::config::DaemonConfig;
 use crate::daemon::daemons::DaemonDefinition;
 use crate::daemon::ipc::{DaemonResponse, ProcessStatus, SystemStatus};
 use crate::daemon::process::{ManagedProcess, ProcessState};
-use crate::entity::monitors;
-use crate::entity::sea_orm_active_enums::{Capturing, Function, MonitorType};
+use crate::entity::sea_orm_active_enums::{Capturing, Function, MonitorType, Status};
+use crate::entity::{monitors, servers};
 use crate::error::AppResult;
 
 /// Internal command for the daemon manager.
@@ -223,7 +228,10 @@ impl DaemonManager {
                 }
                 Err(e) => {
                     // Process may have already exited
-                    warn!("Failed to send SIGTERM to daemon {} (PID {}): {}", id, pid, e);
+                    warn!(
+                        "Failed to send SIGTERM to daemon {} (PID {}): {}",
+                        id, pid, e
+                    );
                     process.set_state(ProcessState::Stopped);
 
                     // Clean up PID map
@@ -231,7 +239,10 @@ impl DaemonManager {
                     let mut pid_map = self.pid_map.write().await;
                     pid_map.remove(&pid);
 
-                    return Ok(DaemonResponse::ok(format!("Stopped {} (process already gone)", id)));
+                    return Ok(DaemonResponse::ok(format!(
+                        "Stopped {} (process already gone)",
+                        id
+                    )));
                 }
             }
         }
@@ -319,7 +330,8 @@ impl DaemonManager {
         {
             let processes = self.processes.read().await;
             for (id, process) in processes.iter() {
-                if process.state == ProcessState::Stopping && process.term_timeout_expired(timeout) {
+                if process.state == ProcessState::Stopping && process.term_timeout_expired(timeout)
+                {
                     to_kill.push(id.clone());
                 }
             }
@@ -590,6 +602,19 @@ impl DaemonManager {
                 .await;
         });
 
+        // Start server status update loop if server_id is configured
+        if let (Some(server_id), Some(db)) = (self.server_id, &self.db) {
+            let manager = Arc::clone(self);
+            let db = Arc::clone(db);
+            info!(
+                "Starting server status update loop for server_id={}",
+                server_id
+            );
+            tokio::spawn(async move {
+                manager.run_server_status_loop(db, server_id).await;
+            });
+        }
+
         info!("Daemon manager started with health monitoring");
 
         Ok(DaemonResponse::ok("Daemon manager started"))
@@ -598,14 +623,15 @@ impl DaemonManager {
     /// Start all ZoneMinder daemons.
     ///
     /// This matches the behavior of zmpkg.pl startup:
-    /// 1. Query monitors that are not deleted and have Capturing != None
-    /// 2. Skip WebSite type monitors (they don't need capture daemons)
-    /// 3. For Local type monitors: start `zmc -d <device>`
-    /// 4. For other types: start `zmc -m <id>`
-    /// 5. Start zma for monitors requiring motion detection (Modect/Mocord)
-    /// 6. Start zmcontrol.pl for controllable monitors
-    /// 7. Start zmtrack.pl for monitors with motion tracking enabled
-    /// 8. Start singleton daemons (zmfilter.pl, zmstats.pl, etc.)
+    /// 1. Ensure state table sanity (default state exists, one active)
+    /// 2. Query monitors that are not deleted and have Capturing != None
+    /// 3. Skip WebSite type monitors (they don't need capture daemons)
+    /// 4. For Local type monitors: start `zmc -d <device>`
+    /// 5. For other types: start `zmc -m <id>`
+    /// 6. Start zma for monitors requiring motion detection (Modect/Mocord)
+    /// 7. Start zmcontrol.pl for controllable monitors
+    /// 8. Start zmtrack.pl for monitors with motion tracking enabled
+    /// 9. Start singleton daemons (zmfilter.pl, zmstats.pl, etc.)
     pub async fn start_all_daemons(self: &Arc<Self>) -> AppResult<DaemonResponse> {
         let db = match &self.db {
             Some(db) => db.clone(),
@@ -619,6 +645,12 @@ impl DaemonManager {
         // First ensure we're running (starts health check loop)
         if !self.is_running().await {
             self.startup().await?;
+        }
+
+        // Ensure state table sanity (matches zmpkg.pl behavior)
+        if let Err(e) = crate::service::daemon::ensure_state_sanity(db.as_ref()).await {
+            warn!("Failed to ensure state sanity: {}", e);
+            // Continue anyway - this is not fatal
         }
 
         let mut started = 0;
@@ -881,6 +913,110 @@ impl DaemonManager {
         info!("Health monitor stopped");
     }
 
+    /// Run periodic server status updates (every 60 seconds).
+    ///
+    /// This matches the behavior of zmdc.pl which updates the Server record
+    /// with CPU load, memory usage, and other statistics.
+    async fn run_server_status_loop(&self, db: Arc<DatabaseConnection>, server_id: u32) {
+        let update_interval = Duration::from_secs(60);
+
+        info!(
+            "Server status loop starting (server_id={}, interval={:?})",
+            server_id, update_interval
+        );
+
+        let mut interval = tokio::time::interval(update_interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        // Immediately set status to Running on first tick
+        let _ = interval.tick().await;
+        if let Err(e) = self.update_server_status(&db, server_id).await {
+            error!("Failed initial server status update: {}", e);
+        }
+
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    if let Err(e) = self.update_server_status(&db, server_id).await {
+                        error!("Failed to update server status: {}", e);
+                    }
+                }
+                _ = self.shutdown.notified() => {
+                    // Set status to NotRunning on shutdown
+                    if let Err(e) = self.set_server_not_running(&db, server_id).await {
+                        error!("Failed to set server NotRunning status: {}", e);
+                    }
+                    break;
+                }
+            }
+        }
+
+        info!("Server status loop stopped");
+    }
+
+    /// Update the Server record with current system statistics.
+    async fn update_server_status(&self, db: &DatabaseConnection, server_id: u32) -> AppResult<()> {
+        let stats = crate::daemon::stats::collect_stats().map_err(|e| {
+            crate::error::AppError::InternalServerError(format!("Failed to collect stats: {}", e))
+        })?;
+
+        let server = servers::Entity::find_by_id(server_id)
+            .one(db)
+            .await?
+            .ok_or_else(|| {
+                crate::error::AppError::NotFoundError(crate::error::Resource {
+                    resource_type: crate::error::ResourceType::Config,
+                    details: vec![("server_id".to_string(), server_id.to_string())],
+                })
+            })?;
+
+        let mut active: servers::ActiveModel = server.into();
+        active.status = Set(Status::Running);
+        active.cpu_load = Set(Decimal::from_f64(stats.cpu_load));
+        active.cpu_user_percent = Set(Decimal::from_f64(stats.cpu_user_percent));
+        active.cpu_nice_percent = Set(Decimal::from_f64(stats.cpu_nice_percent));
+        active.cpu_system_percent = Set(Decimal::from_f64(stats.cpu_system_percent));
+        active.cpu_idle_percent = Set(Decimal::from_f64(stats.cpu_idle_percent));
+        active.cpu_usage_percent = Set(Decimal::from_f64(stats.cpu_usage_percent));
+        active.total_mem = Set(Some(stats.total_mem));
+        active.free_mem = Set(Some(stats.free_mem));
+        active.total_swap = Set(Some(stats.total_swap));
+        active.free_swap = Set(Some(stats.free_swap));
+        active.update(db).await?;
+
+        debug!(
+            "Updated server {} status: cpu_load={:.1}, cpu_usage={:.1}%, mem_used={:.1}%",
+            server_id,
+            stats.cpu_load,
+            stats.cpu_usage_percent,
+            if stats.total_mem > 0 {
+                ((stats.total_mem - stats.free_mem) as f64 / stats.total_mem as f64) * 100.0
+            } else {
+                0.0
+            }
+        );
+
+        Ok(())
+    }
+
+    /// Set the Server status to NotRunning (called on shutdown).
+    async fn set_server_not_running(
+        &self,
+        db: &DatabaseConnection,
+        server_id: u32,
+    ) -> AppResult<()> {
+        let server = servers::Entity::find_by_id(server_id).one(db).await?;
+
+        if let Some(server) = server {
+            let mut active: servers::ActiveModel = server.into();
+            active.status = Set(Status::NotRunning);
+            active.update(db).await?;
+            info!("Set server {} status to NotRunning", server_id);
+        }
+
+        Ok(())
+    }
+
     /// Perform a single health check cycle.
     async fn perform_health_check(&self, max_delay: std::time::Duration) {
         debug!("Performing health check");
@@ -942,10 +1078,7 @@ impl DaemonManager {
                             let was_stopping = process.state == ProcessState::Stopping;
 
                             if was_stopping {
-                                info!(
-                                    "Daemon {} gracefully stopped with status: {:?}",
-                                    id, status
-                                );
+                                info!("Daemon {} gracefully stopped with status: {:?}", id, status);
                             } else {
                                 info!("Daemon {} exited with status: {:?}", id, status);
                             }

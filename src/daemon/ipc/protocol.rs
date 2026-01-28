@@ -249,8 +249,16 @@ pub struct SystemStatus {
 pub struct SystemStats {
     /// CPU load average (1 minute)
     pub cpu_load: f64,
-    /// CPU usage percentage
+    /// CPU usage percentage (overall)
     pub cpu_usage_percent: f64,
+    /// CPU user percentage
+    pub cpu_user_percent: f64,
+    /// CPU nice percentage
+    pub cpu_nice_percent: f64,
+    /// CPU system percentage
+    pub cpu_system_percent: f64,
+    /// CPU idle percentage
+    pub cpu_idle_percent: f64,
     /// Total memory in bytes
     pub total_mem: u64,
     /// Free memory in bytes

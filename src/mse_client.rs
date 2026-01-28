@@ -380,7 +380,7 @@ impl MseClient {
                         no_data_count += 1;
 
                         // Log periodically to show we're polling but not getting data
-                        if no_data_count % 100 == 0 {
+                        if no_data_count.is_multiple_of(100) {
                             debug!(
                                 "No data from socket plugin for camera {} after {} polls",
                                 camera_id, no_data_count
@@ -395,7 +395,7 @@ impl MseClient {
                                 frame_count,
                             )) = socket_client.get_buffer_stats(camera_id)
                             {
-                                debug!("Socket plugin stats for camera {}: buffer_size={}, total_segments={}, dropped_segments={}, bytes_received={}, frame_count={}", 
+                                debug!("Socket plugin stats for camera {}: buffer_size={}, total_segments={}, dropped_segments={}, bytes_received={}, frame_count={}",
                                        camera_id, buffer_size, total_segments, dropped_segments, bytes_received, frame_count);
                             }
                         }
@@ -407,7 +407,7 @@ impl MseClient {
                         no_data_count += 1;
 
                         // Log periodically to show we're polling but getting errors
-                        if no_data_count % 100 == 0 {
+                        if no_data_count.is_multiple_of(100) {
                             debug!(
                                 "Error from socket plugin for camera {} after {} polls: {}",
                                 camera_id, no_data_count, e

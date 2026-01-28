@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, RwLock};
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 use super::playlist::{MediaPlaylist, PlaylistGenerator, SegmentRef};
 use super::segmenter::{FMP4Segment, HlsSegmenter, InitSegment};
