@@ -1,26 +1,52 @@
 [Unit]
 Description=ZoneMinder API Service
-After=network-online.target
+Documentation=https://github.com/ZoneMinder/zoneminder
+After=network-online.target mariadb.service mysql.service
 Wants=network-online.target
+Requires=mariadb.service
 
 [Service]
 Type=simple
-DynamicUser=yes
-SupplementaryGroups=ssl-cert
+# Run as www-data to match ZoneMinder's typical setup
+User=www-data
+Group=www-data
+# Add video group for camera access
+SupplementaryGroups=video ssl-cert
+
+# Environment configuration
 EnvironmentFile=-/etc/zm_api/zm_api.env
-ExecStart=/usr/bin/zm_api
-WorkingDirectory=/var/lib/zm_api
+
+# Paths
+WorkingDirectory=/usr/share/zoneminder
+RuntimeDirectory=zm
+RuntimeDirectoryMode=0755
 StateDirectory=zm_api
-RuntimeDirectory=zm_api
+
+# Execution
+ExecStart=/usr/bin/zm_api
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Graceful shutdown - match our 30s SIGTERM timeout
+KillSignal=SIGTERM
+TimeoutStopSec=35
+KillMode=mixed
+
+# Restart policy
 Restart=on-failure
 RestartSec=5
+
+# Resource limits
 LimitNOFILE=65535
-NoNewPrivileges=yes
-PrivateTmp=yes
-ProtectSystem=strict
-ProtectHome=true
+
+# Security hardening (relaxed for daemon control)
+NoNewPrivileges=no
+PrivateTmp=no
+ProtectSystem=full
+ProtectHome=read-only
+
+# Allow binding to privileged ports if needed
 AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_KILL CAP_SYS_PTRACE
 
 [Install]
 WantedBy=multi-user.target

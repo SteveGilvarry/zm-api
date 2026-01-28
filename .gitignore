@@ -25,3 +25,4 @@ static/key/*.pem
 # Database
 zm_schema.sql
 *.sql
+.grepai/
