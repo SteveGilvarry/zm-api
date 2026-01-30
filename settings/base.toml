@@ -32,7 +32,10 @@ port = 6_379
 database_name = ""
 
 [sentry]
-key = "https://ceaa8e5d40646d02986f3afecf3807c7@o4507954772705280.ingest.de.sentry.io/4507954781356112"
+# Sentry error reporting - disabled by default for privacy
+# Users can enable and provide their own DSN if desired
+enabled = false
+dsn = ""
 
 [email]
 username = "email_user"

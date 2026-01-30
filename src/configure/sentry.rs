@@ -3,15 +3,26 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct SentryConfig {
-    key: String,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    dsn: String,
 }
 
-pub fn init(config: &SentryConfig) -> ClientInitGuard {
-    sentry::init((
-        config.key.clone(),
+/// Initialize Sentry error reporting if enabled and DSN is configured.
+/// Returns None if Sentry is disabled or DSN is empty.
+pub fn init(config: &SentryConfig) -> Option<ClientInitGuard> {
+    if !config.enabled || config.dsn.is_empty() {
+        tracing::info!("Sentry error reporting is disabled");
+        return None;
+    }
+
+    tracing::info!("Initializing Sentry error reporting");
+    Some(sentry::init((
+        config.dsn.clone(),
         sentry::ClientOptions {
             release: sentry::release_name!(),
             ..Default::default()
         },
-    ))
+    )))
 }
