@@ -834,6 +834,22 @@ pub struct UpdateStateRequest {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct AlarmControlRequest {
+    /// Action to perform: "on" (trigger), "off"/"cancel" (cancel), "status" (get status)
     #[garde(custom(is_valid_alarm_action))]
     pub action: String,
+
+    /// Alarm score (1-100+). Only used when action is "on". Default: 100
+    #[garde(skip)]
+    #[serde(default)]
+    pub score: Option<u32>,
+
+    /// Short cause string (max 31 chars). Only used when action is "on". Default: "API"
+    #[garde(length(max = 31))]
+    #[serde(default)]
+    pub cause: Option<String>,
+
+    /// Description text (max 255 chars). Only used when action is "on".
+    #[garde(length(max = 255))]
+    #[serde(default)]
+    pub text: Option<String>,
 }

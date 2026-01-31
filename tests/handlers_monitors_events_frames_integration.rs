@@ -334,6 +334,9 @@ async fn test_api_monitors_state_alarm() {
 
     let alarm_body = serde_json::to_vec(&AlarmControlRequest {
         action: "status".to_string(),
+        score: None,
+        cause: None,
+        text: None,
     })
     .expect("serialize alarm request");
     let response = app

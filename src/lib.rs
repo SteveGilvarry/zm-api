@@ -17,3 +17,4 @@ pub mod service;
 pub mod streaming;
 pub mod util;
 pub mod webrtc_ffi;
+pub mod zm_shm;

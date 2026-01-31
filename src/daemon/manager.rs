@@ -615,6 +615,15 @@ impl DaemonManager {
             });
         }
 
+        // Start monitor reconciliation loop (syncs DB state with running daemons)
+        if self.db.is_some() {
+            let manager = Arc::clone(self);
+            info!("Starting monitor reconciliation loop");
+            tokio::spawn(async move {
+                manager.run_reconciliation_loop().await;
+            });
+        }
+
         info!("Daemon manager started with health monitoring");
 
         Ok(DaemonResponse::ok("Daemon manager started"))
@@ -1017,6 +1026,148 @@ impl DaemonManager {
         Ok(())
     }
 
+    /// Run the monitor reconciliation loop.
+    ///
+    /// This periodically compares the desired state (from database) with the
+    /// actual running state (daemons) and starts/stops processes as needed.
+    /// This provides self-healing when:
+    /// - The API crashes between DB update and daemon control
+    /// - Daemons are started/stopped externally
+    /// - System restarts
+    async fn run_reconciliation_loop(&self) {
+        // Reconciliation interval (check every 60 seconds)
+        let interval = Duration::from_secs(60);
+        // Initial delay before first reconciliation (allow startup to complete)
+        let startup_delay = Duration::from_secs(45);
+
+        info!(
+            "Reconciliation loop starting (startup delay: {:?}, interval: {:?})",
+            startup_delay, interval
+        );
+
+        tokio::select! {
+            _ = tokio::time::sleep(startup_delay) => {},
+            _ = self.shutdown.notified() => {
+                info!("Reconciliation loop shutdown during startup delay");
+                return;
+            }
+        }
+
+        let mut ticker = tokio::time::interval(interval);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                _ = ticker.tick() => {
+                    if let Err(e) = self.reconcile_monitors().await {
+                        error!("Monitor reconciliation failed: {}", e);
+                    }
+                }
+                _ = self.shutdown.notified() => {
+                    info!("Reconciliation loop received shutdown signal");
+                    break;
+                }
+            }
+        }
+
+        info!("Reconciliation loop stopped");
+    }
+
+    /// Reconcile monitor daemon state with database.
+    ///
+    /// Compares what should be running (enabled monitors in DB) with what is
+    /// actually running (tracked daemons) and corrects any discrepancies.
+    async fn reconcile_monitors(&self) -> AppResult<()> {
+        let db = match &self.db {
+            Some(db) => db.clone(),
+            None => return Ok(()), // No DB, nothing to reconcile
+        };
+
+        debug!("Running monitor reconciliation");
+
+        // Query monitors from database
+        let monitor_list = monitors::Entity::find()
+            .filter(monitors::Column::Deleted.eq(false))
+            .all(db.as_ref())
+            .await?;
+
+        let mut started = 0;
+        let mut stopped = 0;
+
+        for monitor in &monitor_list {
+            let monitor_id = monitor.id;
+            let should_run = monitor.enabled != 0
+                && !matches!(monitor.capturing, Capturing::None)
+                && !matches!(monitor.r#type, MonitorType::WebSite);
+
+            // Check server_id filtering if configured
+            let should_run = should_run && {
+                if let Some(our_server_id) = self.server_id {
+                    monitor.server_id.map(|sid| sid == our_server_id).unwrap_or(true)
+                } else {
+                    true
+                }
+            };
+
+            let is_running = self.is_monitor_running(monitor_id).await;
+
+            if should_run && !is_running {
+                // Monitor should be running but isn't - start it
+                debug!(
+                    "Reconciliation: starting monitor {} (enabled but not running)",
+                    monitor_id
+                );
+                match self.start_monitor(monitor_id).await {
+                    Ok(resp) if resp.success => {
+                        started += 1;
+                        info!("Reconciliation: started monitor {}", monitor_id);
+                    }
+                    Ok(resp) => {
+                        warn!(
+                            "Reconciliation: failed to start monitor {}: {}",
+                            monitor_id, resp.message
+                        );
+                    }
+                    Err(e) => {
+                        error!("Reconciliation: error starting monitor {}: {}", monitor_id, e);
+                    }
+                }
+            } else if !should_run && is_running {
+                // Monitor shouldn't be running but is - stop it
+                debug!(
+                    "Reconciliation: stopping monitor {} (disabled but running)",
+                    monitor_id
+                );
+                match self.stop_monitor(monitor_id).await {
+                    Ok(resp) if resp.success => {
+                        stopped += 1;
+                        info!("Reconciliation: stopped monitor {}", monitor_id);
+                    }
+                    Ok(resp) => {
+                        warn!(
+                            "Reconciliation: failed to stop monitor {}: {}",
+                            monitor_id, resp.message
+                        );
+                    }
+                    Err(e) => {
+                        error!("Reconciliation: error stopping monitor {}: {}", monitor_id, e);
+                    }
+                }
+            }
+        }
+
+        if started > 0 || stopped > 0 {
+            info!(
+                "Reconciliation complete: started {} monitors, stopped {} monitors",
+                started, stopped
+            );
+        } else {
+            debug!("Reconciliation complete: no changes needed");
+        }
+
+        Ok(())
+    }
+
     /// Perform a single health check cycle.
     async fn perform_health_check(&self, max_delay: std::time::Duration) {
         debug!("Performing health check");
@@ -1150,6 +1301,239 @@ impl DaemonManager {
     pub async fn list_daemon_ids(&self) -> Vec<String> {
         let processes = self.processes.read().await;
         processes.keys().cloned().collect()
+    }
+
+    // =========================================================================
+    // Monitor-specific daemon control
+    // =========================================================================
+
+    /// Start all daemons for a specific monitor.
+    ///
+    /// This starts the appropriate daemons based on the monitor's configuration:
+    /// - `zmc -m {id}`: Capture daemon (always started)
+    /// - `zma -m {id}`: Analysis daemon (if function is Modect/Mocord)
+    ///
+    /// # Arguments
+    ///
+    /// * `monitor_id` - The monitor ID to start daemons for
+    ///
+    /// # Returns
+    ///
+    /// A response indicating success/failure and details about what was started.
+    pub async fn start_monitor(&self, monitor_id: u32) -> AppResult<DaemonResponse> {
+        let db = match &self.db {
+            Some(db) => db.clone(),
+            None => {
+                return Ok(DaemonResponse::error(
+                    "Database not configured - cannot query monitor",
+                ));
+            }
+        };
+
+        // Query monitor to determine what daemons to start
+        let monitor = monitors::Entity::find_by_id(monitor_id)
+            .one(db.as_ref())
+            .await?
+            .ok_or_else(|| {
+                crate::error::AppError::NotFoundError(crate::error::Resource {
+                    resource_type: crate::error::ResourceType::Monitor,
+                    details: vec![("id".to_string(), monitor_id.to_string())],
+                })
+            })?;
+
+        let mut started = Vec::new();
+        let mut errors = Vec::new();
+
+        // Start zmc (capture daemon)
+        let zmc_id = format!("zmc -m {}", monitor_id);
+        match self.start_daemon(&zmc_id, &[]).await {
+            Ok(resp) if resp.success => {
+                started.push("zmc".to_string());
+                info!("Started zmc for monitor {}", monitor_id);
+            }
+            Ok(resp) => {
+                if !resp.message.contains("already running") {
+                    errors.push(format!("zmc: {}", resp.message));
+                }
+            }
+            Err(e) => {
+                errors.push(format!("zmc: {}", e));
+            }
+        }
+
+        // Start zma (analysis daemon) if needed for motion detection
+        let needs_analysis = matches!(monitor.function, Function::Modect | Function::Mocord);
+        if needs_analysis {
+            let zma_id = format!("zma -m {}", monitor_id);
+            match self.start_daemon(&zma_id, &[]).await {
+                Ok(resp) if resp.success => {
+                    started.push("zma".to_string());
+                    info!("Started zma for monitor {}", monitor_id);
+                }
+                Ok(resp) => {
+                    if !resp.message.contains("already running") {
+                        errors.push(format!("zma: {}", resp.message));
+                    }
+                }
+                Err(e) => {
+                    errors.push(format!("zma: {}", e));
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(DaemonResponse::ok(format!(
+                "Started monitor {}: {}",
+                monitor_id,
+                started.join(", ")
+            )))
+        } else if !started.is_empty() {
+            Ok(DaemonResponse::ok(format!(
+                "Partially started monitor {}: started [{}], errors [{}]",
+                monitor_id,
+                started.join(", "),
+                errors.join("; ")
+            )))
+        } else {
+            Ok(DaemonResponse::error(format!(
+                "Failed to start monitor {}: {}",
+                monitor_id,
+                errors.join("; ")
+            )))
+        }
+    }
+
+    /// Stop all daemons for a specific monitor.
+    ///
+    /// This stops both zmc and zma daemons for the specified monitor.
+    pub async fn stop_monitor(&self, monitor_id: u32) -> AppResult<DaemonResponse> {
+        let mut stopped = Vec::new();
+        let mut errors = Vec::new();
+
+        // Stop zmc
+        let zmc_id = format!("zmc -m {}", monitor_id);
+        match self.stop_daemon(&zmc_id).await {
+            Ok(resp) if resp.success => {
+                stopped.push("zmc".to_string());
+                info!("Stopped zmc for monitor {}", monitor_id);
+            }
+            Ok(resp) => {
+                if !resp.message.contains("not found") && !resp.message.contains("not running") {
+                    errors.push(format!("zmc: {}", resp.message));
+                }
+            }
+            Err(e) => {
+                errors.push(format!("zmc: {}", e));
+            }
+        }
+
+        // Stop zma
+        let zma_id = format!("zma -m {}", monitor_id);
+        match self.stop_daemon(&zma_id).await {
+            Ok(resp) if resp.success => {
+                stopped.push("zma".to_string());
+                info!("Stopped zma for monitor {}", monitor_id);
+            }
+            Ok(resp) => {
+                // zma might not be running if monitor doesn't need analysis
+                if !resp.message.contains("not found") && !resp.message.contains("not running") {
+                    errors.push(format!("zma: {}", resp.message));
+                }
+            }
+            Err(e) => {
+                errors.push(format!("zma: {}", e));
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(DaemonResponse::ok(format!(
+                "Stopped monitor {}: {}",
+                monitor_id,
+                if stopped.is_empty() {
+                    "no daemons were running".to_string()
+                } else {
+                    stopped.join(", ")
+                }
+            )))
+        } else {
+            Ok(DaemonResponse::error(format!(
+                "Errors stopping monitor {}: {}",
+                monitor_id,
+                errors.join("; ")
+            )))
+        }
+    }
+
+    /// Restart all daemons for a specific monitor.
+    ///
+    /// This stops then starts the monitor's daemons.
+    pub async fn restart_monitor(&self, monitor_id: u32) -> AppResult<DaemonResponse> {
+        info!("Restarting daemons for monitor {}", monitor_id);
+
+        // Stop first
+        let stop_result = self.stop_monitor(monitor_id).await?;
+        if !stop_result.success {
+            warn!(
+                "Stop phase had issues for monitor {}: {}",
+                monitor_id, stop_result.message
+            );
+        }
+
+        // Brief delay to allow cleanup
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+        // Start
+        self.start_monitor(monitor_id).await
+    }
+
+    /// Check if a specific monitor's daemons are running.
+    ///
+    /// Returns true if at least zmc is running for the monitor.
+    pub async fn is_monitor_running(&self, monitor_id: u32) -> bool {
+        let zmc_id = format!("zmc -m {}", monitor_id);
+        let processes = self.processes.read().await;
+
+        if let Some(process) = processes.get(&zmc_id) {
+            process.is_running()
+        } else {
+            false
+        }
+    }
+
+    /// Get status of a specific monitor's daemons.
+    pub async fn get_monitor_daemon_status(&self, monitor_id: u32) -> Vec<ProcessStatus> {
+        let processes = self.processes.read().await;
+        let mut statuses = Vec::new();
+
+        // Check zmc
+        let zmc_id = format!("zmc -m {}", monitor_id);
+        if let Some(p) = processes.get(&zmc_id) {
+            statuses.push(ProcessStatus {
+                id: p.id.clone(),
+                name: p.name.clone(),
+                state: p.state,
+                pid: p.pid,
+                uptime_seconds: p.uptime().map(|d| d.as_secs()),
+                restart_count: p.restart_count,
+                monitor_id: p.monitor_id,
+            });
+        }
+
+        // Check zma
+        let zma_id = format!("zma -m {}", monitor_id);
+        if let Some(p) = processes.get(&zma_id) {
+            statuses.push(ProcessStatus {
+                id: p.id.clone(),
+                name: p.name.clone(),
+                state: p.state,
+                pid: p.pid,
+                uptime_seconds: p.uptime().map(|d| d.as_secs()),
+                restart_count: p.restart_count,
+                monitor_id: p.monitor_id,
+            });
+        }
+
+        statuses
     }
 }
 

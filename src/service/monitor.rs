@@ -647,21 +647,19 @@ pub async fn update_state(
 
     let mut monitor: monitors::ActiveModel = monitor_model.clone().into();
 
-    // Update the monitor state based on the request
-    match req.state.as_str() {
+    // Determine the action and update DB state
+    let action = req.state.as_str();
+    match action {
         "start" => {
-            // Enable the monitor
+            // Enable the monitor in DB
             monitor.enabled = Set(1);
-            // TODO: Additional logic to actually start the monitor via ZoneMinder API
         }
         "stop" => {
-            // Disable the monitor
+            // Disable the monitor in DB
             monitor.enabled = Set(0);
-            // TODO: Additional logic to actually stop the monitor via ZoneMinder API
         }
         "restart" => {
-            // No change to enabled state, it will be restarted by ZoneMinder
-            // TODO: Additional logic to actually restart the monitor via ZoneMinder API
+            // No change to enabled state for restart
         }
         _ => {
             return Err(AppError::BadRequestError(format!(
@@ -671,8 +669,39 @@ pub async fn update_state(
         }
     }
 
-    // Use repository to update the monitor
+    // Update the database first
     let updated_monitor = repo::monitors::update(state.db(), monitor).await?;
+
+    // Now control the daemons (if daemon manager is available)
+    if let Some(dm) = &state.daemon_manager {
+        let daemon_result = match action {
+            "start" => dm.start_monitor(id).await,
+            "stop" => dm.stop_monitor(id).await,
+            "restart" => dm.restart_monitor(id).await,
+            _ => unreachable!(), // Already validated above
+        };
+
+        match daemon_result {
+            Ok(resp) => {
+                if resp.success {
+                    info!("Daemon control for monitor {}: {}", id, resp.message);
+                } else {
+                    // Log warning but don't fail - reconciliation will fix it
+                    tracing::warn!(
+                        "Daemon control issue for monitor {}: {}",
+                        id,
+                        resp.message
+                    );
+                }
+            }
+            Err(e) => {
+                // Log error but don't fail the request - reconciliation will fix it
+                tracing::error!("Daemon control error for monitor {}: {}", id, e);
+            }
+        }
+    } else {
+        tracing::debug!("Daemon manager not available, skipping daemon control");
+    }
 
     // Return the updated monitor
     Ok(MonitorResponse::from(updated_monitor))
@@ -763,9 +792,11 @@ pub async fn control_alarm(
     id: u32,
     req: AlarmControlRequest,
 ) -> AppResult<MonitorResponse> {
+    use crate::zm_shm::{self, MonitorShm};
+
     info!("Controlling alarm of monitor with ID: {id} and request: {req:?}.");
 
-    // Use repository to fetch the monitor
+    // Use repository to fetch the monitor (validates it exists)
     let monitor_model = repo::monitors::find_by_id(state.db(), id)
         .await?
         .ok_or_else(|| {
@@ -775,34 +806,62 @@ pub async fn control_alarm(
             })
         })?;
 
-    // Handle the alarm action
+    // Handle the alarm action via shared memory
     match req.action.as_str() {
         "on" => {
-            // TODO: Set monitor to alarm state
-            // This will require additional implementation to trigger an alarm in ZoneMinder
-            // For example, creating an event in the Events table and/or
-            // making an API call to ZoneMinder
+            // Trigger alarm via shared memory
+            let score = req.score.unwrap_or(100);
+            let cause = req.cause.as_deref().unwrap_or("API");
+            let text = req.text.as_deref().unwrap_or("Triggered via REST API");
+
+            zm_shm::trigger_alarm(id, score, cause, text).map_err(|e| {
+                AppError::ServiceUnavailableError(format!(
+                    "Failed to trigger alarm for monitor {}: {}",
+                    id, e
+                ))
+            })?;
+
+            info!(
+                "Triggered alarm on monitor {}: score={}, cause={}",
+                id, score, cause
+            );
         }
-        "off" => {
-            // TODO: Cancel alarm state
-            // This will require additional implementation to cancel an active alarm
-            // in ZoneMinder
+        "off" | "cancel" => {
+            // Cancel alarm via shared memory
+            zm_shm::cancel_alarm(id).map_err(|e| {
+                AppError::ServiceUnavailableError(format!(
+                    "Failed to cancel alarm for monitor {}: {}",
+                    id, e
+                ))
+            })?;
+
+            info!("Cancelled alarm on monitor {}", id);
         }
         "status" => {
-            // TODO: Get current alarm status
-            // This will require checking if there are any active events/alarms
-            // for this monitor
+            // Get current alarm status from shared memory
+            match MonitorShm::connect(id) {
+                Ok(shm) => {
+                    let state = shm.get_state();
+                    let trigger_state = shm.get_trigger_state();
+                    info!(
+                        "Monitor {} alarm status: state={}, trigger={:?}",
+                        id, state, trigger_state
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!("Could not read alarm status for monitor {}: {}", id, e);
+                }
+            }
         }
         _ => {
             return Err(AppError::BadRequestError(format!(
-                "Invalid alarm action: {}",
+                "Invalid alarm action: {}. Valid actions: on, off, cancel, status",
                 req.action
             )));
         }
     }
 
-    // For now, simply return the current monitor state
-    // In a complete implementation, this would reflect the alarm status
+    // Return the current monitor state from DB
     Ok(MonitorResponse::from(monitor_model))
 }
 
