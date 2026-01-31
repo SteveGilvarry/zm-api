@@ -14,7 +14,7 @@ pub const API_NAME: &str = env!("CARGO_PKG_NAME");
 pub const ENV_PREFIX: &str = "APP";
 pub const CODE_LEN: usize = 5;
 pub const CLIENT_TIMEOUT: Duration = Duration::from_secs(120);
-// Expiry constants previously used with Redis for short-lived codes.
+// Expiry constants for various time-limited operations
 pub const EXPIRE_SESSION_CODE_SECS: Duration = Duration::from_secs(2000);
 pub const EXPIRE_INVITATION_CODE_SECS: Duration = Duration::from_secs(86000);
 pub const EXPIRE_BLOCKED_EMAIL_SECS: Duration = Duration::from_secs(100);

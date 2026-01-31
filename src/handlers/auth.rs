@@ -90,8 +90,8 @@ pub async fn logout(
     let username = request.get_user_name()?;
     info!("Handling logout request for user: {}", username);
 
-    // In a real implementation, you might invalidate the token in Redis or a token blacklist
-    // For now, we'll just acknowledge the logout
+    // JWT tokens are stateless - logout is handled client-side by discarding the token
+    // A token blacklist could be added if immediate invalidation is needed
 
     Ok(Json(MessageResponse::new("Logout successful")))
 }

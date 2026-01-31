@@ -24,13 +24,6 @@ password = "password"
 database_name = "database_name"
 max_connections = 5
 
-[redis]
-username = "redis_user"
-password = ""
-host = "127.0.0.1"
-port = 6_379
-database_name = ""
-
 [sentry]
 # Sentry error reporting - disabled by default for privacy
 # Users can enable and provide their own DSN if desired

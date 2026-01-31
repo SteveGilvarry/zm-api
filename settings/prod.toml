@@ -12,13 +12,6 @@ password = "password"
 database_name = "database_name"
 max_connections = 5
 
-[redis]
-username = "redis_user"
-password = ""
-host = "127.0.0.1"
-port = 6_379
-database_name = ""
-
 [email]
 username = "email_user"
 password = "email_pass"
@@ -26,7 +19,8 @@ host = "smtp.gmail.com"
 port = 1_025
 
 [sentry]
-key = "https://ceaa8e5d40646d02986f3afecf3807c7@o4507954772705280.ingest.de.sentry.io/4507954781356112"
+enabled = false
+dsn = ""
 
 
 [secret]
