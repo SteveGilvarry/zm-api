@@ -20,6 +20,7 @@ pub mod sentry;
 pub mod server;
 pub mod streaming;
 pub mod tracing;
+pub mod zmconf;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
@@ -35,6 +36,15 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
+    /// Read application configuration from files and environment
+    ///
+    /// Configuration is loaded in this priority order (highest to lowest):
+    /// 1. Environment variables (APP_DB__HOST, etc.)
+    /// 2. Profile TOML file (settings/{profile}.toml)
+    /// 3. Base TOML file (settings/base.toml)
+    /// 4. ZoneMinder zm.conf (/etc/zm/zm.conf + /etc/zm/conf.d/*.conf)
+    ///
+    /// This allows zm_api to work out of the box on ZoneMinder installations.
     pub fn read(env_src: Environment) -> Result<Self, config::ConfigError> {
         let config_dir = get_settings_dir()?;
         let profile = std::env::var("APP_PROFILE")
@@ -47,7 +57,13 @@ impl AppConfig {
             .add_source(env_src)
             .build()?;
         info!("Successfully read config profile: {profile}.");
-        config.try_deserialize()
+
+        let mut app_config: Self = config.try_deserialize()?;
+
+        // Apply ZoneMinder zm.conf as fallback for database config
+        app_config.db.apply_zmconf_fallback();
+
+        Ok(app_config)
     }
 }
 

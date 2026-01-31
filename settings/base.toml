@@ -16,9 +16,13 @@ production = false
 challenge = "tls-alpn-01"
 http_port = 80
 
+# Database configuration
+# By default, uses ZoneMinder's zm.conf settings (/etc/zm/zm.conf + conf.d/)
+# Override here or via environment variables (APP_DB__HOST, etc.) if needed
 [db]
-host = "127.0.0.1"
-port = 5_432
+# These placeholder values trigger zm.conf fallback
+host = "localhost"
+port = 3306
 username = "username"
 password = "password"
 database_name = "database_name"

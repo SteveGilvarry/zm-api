@@ -4,9 +4,13 @@ profile = "prod"
 addr = "0.0.0.0"
 port = 8_080
 
+# Database configuration
+# By default, uses ZoneMinder's zm.conf settings (/etc/zm/zm.conf + conf.d/)
+# Override here or via environment variables (APP_DB__HOST, etc.) if needed
 [db]
-host = "127.0.0.1"
-port = 5_432
+# These placeholder values trigger zm.conf fallback
+host = "localhost"
+port = 3306
 username = "username"
 password = "password"
 database_name = "database_name"
@@ -15,7 +19,6 @@ max_connections = 5
 [sentry]
 enabled = false
 dsn = ""
-
 
 [secret]
 private_access_key = "/var/lib/zm_api/keys/private_access_rsa_key.pem"
