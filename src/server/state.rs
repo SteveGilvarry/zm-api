@@ -4,10 +4,8 @@ use sea_orm::DatabaseConnection;
 
 use crate::client::{
     database::{DatabaseClient, DatabaseClientExt},
-    email::EmailClient,
     http::HttpClient,
     webrtc_signaling::WebRtcSignalingClient,
-    ClientBuilder,
 };
 use crate::configure::{self, env::get_env_source, AppConfig};
 use crate::constant::ENV_PREFIX;
@@ -21,7 +19,6 @@ use crate::streaming::webrtc::{session::SessionManager, WebRtcEngine};
 pub struct AppState {
     pub config: Arc<AppConfig>,
     pub db: Arc<DatabaseClient>,
-    pub email: Arc<EmailClient>,
     pub http: HttpClient,
     pub webrtc_client: WebRtcSignalingClient,
     pub mse_manager: Arc<MseStreamManager>,
@@ -36,7 +33,6 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new(config: AppConfig) -> AppResult<Self> {
-        let email = Arc::new(EmailClient::build_from_config(&config)?);
         let db = Arc::new(DatabaseClient::build_from_config(&config).await?);
         let http = reqwest::Client::builder()
             .no_proxy()
@@ -92,7 +88,6 @@ impl AppState {
         Ok(Self {
             config: Arc::new(config),
             db,
-            email,
             http,
             webrtc_client,
             mse_manager,
@@ -117,7 +112,6 @@ impl AppState {
     pub fn for_test_with_db(db: DatabaseConnection) -> Self {
         let config =
             configure::AppConfig::read(get_env_source(ENV_PREFIX)).expect("read config for test");
-        let email = std::sync::Arc::new(EmailClient::builder_dangerous("127.0.0.1").build());
         let http = crate::client::http::HttpClient::builder()
             .no_proxy()
             .build()
@@ -128,7 +122,6 @@ impl AppState {
         Self {
             config: std::sync::Arc::new(config),
             db: std::sync::Arc::new(db),
-            email,
             http,
             webrtc_client,
             mse_manager,

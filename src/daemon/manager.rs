@@ -1103,7 +1103,10 @@ impl DaemonManager {
             // Check server_id filtering if configured
             let should_run = should_run && {
                 if let Some(our_server_id) = self.server_id {
-                    monitor.server_id.map(|sid| sid == our_server_id).unwrap_or(true)
+                    monitor
+                        .server_id
+                        .map(|sid| sid == our_server_id)
+                        .unwrap_or(true)
                 } else {
                     true
                 }
@@ -1129,7 +1132,10 @@ impl DaemonManager {
                         );
                     }
                     Err(e) => {
-                        error!("Reconciliation: error starting monitor {}: {}", monitor_id, e);
+                        error!(
+                            "Reconciliation: error starting monitor {}: {}",
+                            monitor_id, e
+                        );
                     }
                 }
             } else if !should_run && is_running {
@@ -1150,7 +1156,10 @@ impl DaemonManager {
                         );
                     }
                     Err(e) => {
-                        error!("Reconciliation: error stopping monitor {}: {}", monitor_id, e);
+                        error!(
+                            "Reconciliation: error stopping monitor {}: {}",
+                            monitor_id, e
+                        );
                     }
                 }
             }

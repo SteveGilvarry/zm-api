@@ -12,12 +12,6 @@ password = "password"
 database_name = "database_name"
 max_connections = 5
 
-[email]
-username = "email_user"
-password = "email_pass"
-host = "smtp.gmail.com"
-port = 1_025
-
 [sentry]
 enabled = false
 dsn = ""

@@ -687,11 +687,7 @@ pub async fn update_state(
                     info!("Daemon control for monitor {}: {}", id, resp.message);
                 } else {
                     // Log warning but don't fail - reconciliation will fix it
-                    tracing::warn!(
-                        "Daemon control issue for monitor {}: {}",
-                        id,
-                        resp.message
-                    );
+                    tracing::warn!("Daemon control issue for monitor {}: {}", id, resp.message);
                 }
             }
             Err(e) => {

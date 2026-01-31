@@ -219,14 +219,14 @@ const _: () = assert!(
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
 struct TriggerData {
-    size: u32,                    // +0
-    trigger_state: u32,           // +4 (TriggerState enum)
-    trigger_score: u32,           // +8
-    padding: u32,                 // +12
-    trigger_cause: [u8; 32],      // +16
-    trigger_text: [u8; 256],      // +48
-    trigger_showtext: [u8; 256],  // +304
-                                  // = 560 total
+    size: u32,               // +0
+    trigger_state: u32,      // +4 (TriggerState enum)
+    trigger_score: u32,      // +8
+    padding: u32,            // +12
+    trigger_cause: [u8; 32], // +16
+    trigger_text: [u8; 256], // +48
+    trigger_showtext: [u8; 256], // +304
+                             // = 560 total
 }
 
 const TRIGGER_DATA_SIZE: usize = 560;
@@ -244,13 +244,13 @@ const _: () = assert!(
 #[repr(C)]
 #[allow(dead_code)]
 struct VideoStoreData {
-    size: u32,                    // +0
-    _padding: u32,                // +4 (alignment for u64)
-    current_event: u64,           // +8
-    event_file: [u8; 4096],       // +16
-    recording_sec: i64,           // +4112 (timeval.tv_sec)
-    recording_usec: i64,          // +4120 (timeval.tv_usec)
-                                  // = 4128 total (may vary)
+    size: u32,              // +0
+    _padding: u32,          // +4 (alignment for u64)
+    current_event: u64,     // +8
+    event_file: [u8; 4096], // +16
+    recording_sec: i64,     // +4112 (timeval.tv_sec)
+    recording_usec: i64,    // +4120 (timeval.tv_usec)
+                            // = 4128 total (may vary)
 }
 
 /// Minimum total shared memory size.

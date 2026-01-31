@@ -12,12 +12,6 @@ password = "zm_test_pass"
 database_name = "zm_test"
 max_connections = 5
 
-[email]
-username = "email_user"
-password = "email_pass"
-host = "127.0.0.1"
-port = 1_025
-
 [sentry]
 enabled = false
 dsn = ""

@@ -30,12 +30,6 @@ max_connections = 5
 enabled = false
 dsn = ""
 
-[email]
-username = "email_user"
-password = "email_pass"
-host = "127.0.0.1"
-port = 1_025
-
 [env]
 RUST_LOG = "info"
 [secret]

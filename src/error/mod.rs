@@ -74,14 +74,6 @@ pub enum AppError {
     ConfigError(#[from] config::ConfigError),
 
     #[error(transparent)]
-    #[schema(value_type = String, example = "SMTP error")]
-    SmtpError(#[from] lettre::transport::smtp::Error),
-
-    #[error(transparent)]
-    #[schema(value_type = String, example = "Letter error")]
-    LetterError(#[from] lettre::error::Error),
-
-    #[error(transparent)]
     #[schema(value_type = String, example = "JSON parse error")]
     ParseJsonError(#[from] serde_json::Error),
 
@@ -96,10 +88,6 @@ pub enum AppError {
     #[error(transparent)]
     #[schema(value_type = String, example = "Task join error")]
     SpawnTaskError(#[from] tokio::task::JoinError),
-
-    #[error(transparent)]
-    #[schema(value_type = String, example = "Template error")]
-    TeraError(#[from] tera::Error),
 
     #[error(transparent)]
     #[schema(value_type = String, example = "Base64 decode error")]
@@ -309,18 +297,6 @@ impl AppError {
                 vec![],
                 StatusCode::UNAUTHORIZED,
             ),
-            SmtpError(_err) => (
-                "SMTP_ERROR".to_string(),
-                None,
-                vec![],
-                StatusCode::INTERNAL_SERVER_ERROR,
-            ),
-            LetterError(_err) => (
-                "LETTER_ERROR".to_string(),
-                None,
-                vec![],
-                StatusCode::INTERNAL_SERVER_ERROR,
-            ),
             HashError(_err) => (
                 "HASH_ERROR".to_string(),
                 None,
@@ -329,12 +305,6 @@ impl AppError {
             ),
             ParseFloatError(_err) => (
                 "PARSE_FLOAT_ERROR".to_string(),
-                None,
-                vec![],
-                StatusCode::INTERNAL_SERVER_ERROR,
-            ),
-            TeraError(_err) => (
-                "TERA_ERROR".to_string(),
                 None,
                 vec![],
                 StatusCode::INTERNAL_SERVER_ERROR,
