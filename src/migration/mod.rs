@@ -1,8 +1,12 @@
-pub use sea_orm_migration::prelude::*;
+//! Database migrations for zm_api-owned tables.
+//!
+//! Note: ZoneMinder's schema is managed externally. These migrations are only
+//! for tables owned by zm_api itself (if any are needed in the future).
+//!
+//! SeaORM supports both MySQL/MariaDB and PostgreSQL - migrations here should
+//! use portable SQL or conditional logic for database-specific syntax.
 
-mod m20220101_000001_create_role_type;
-mod m20220101_000002_create_user_table;
-mod m20220101_000003_create_message_table;
+pub use sea_orm_migration::prelude::*;
 
 pub struct Migrator;
 
@@ -10,9 +14,8 @@ pub struct Migrator;
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
         vec![
-            Box::new(m20220101_000001_create_role_type::Migration),
-            Box::new(m20220101_000002_create_user_table::Migration),
-            Box::new(m20220101_000003_create_message_table::Migration),
+            // No zm_api-specific migrations yet.
+            // ZoneMinder's schema is created/managed by ZoneMinder itself.
         ]
     }
 }

@@ -8,7 +8,7 @@ use crate::util::dir::get_project_root;
 
 use self::{
     daemon::DaemonConfig, db::DatabaseConfig, http::HttpClientConfig, secret::SecretConfig,
-    sentry::SentryConfig, server::ServerConfig, streaming::StreamingConfig, worker::WorkerConfig,
+    sentry::SentryConfig, server::ServerConfig, streaming::StreamingConfig,
 };
 
 pub mod daemon;
@@ -20,7 +20,6 @@ pub mod sentry;
 pub mod server;
 pub mod streaming;
 pub mod tracing;
-pub mod worker;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
@@ -29,7 +28,6 @@ pub struct AppConfig {
     pub db: DatabaseConfig,
     pub sentry: SentryConfig,
     pub secret: SecretConfig,
-    pub worker: WorkerConfig,
     pub http: HttpClientConfig,
     pub streaming: StreamingConfig,
     #[serde(default)]

@@ -38,9 +38,6 @@ public_access_key = "static/key/public_access_rsa_key.pem"
 private_refresh_key = "static/key/private_refresh_rsa_key.pem"
 public_refresh_key = "static/key/public_refresh_rsa_key.pem"
 
-[worker]
-failed_task_delay = 50
-
 [http]
 timeout = 10
 

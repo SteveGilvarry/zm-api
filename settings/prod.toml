@@ -23,8 +23,5 @@ public_access_key = "/var/lib/zm_api/keys/public_access_rsa_key.pem"
 private_refresh_key = "/var/lib/zm_api/keys/private_refresh_rsa_key.pem"
 public_refresh_key = "/var/lib/zm_api/keys/public_refresh_rsa_key.pem"
 
-[worker]
-failed_task_delay = 100
-
 [http]
 timeout = 10
