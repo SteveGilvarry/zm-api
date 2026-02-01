@@ -1,7 +1,9 @@
 use axum::body::{self, Body};
 use axum::http::{header, Request, StatusCode};
-use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
+use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult, Value};
+use std::collections::BTreeMap;
 use tower::ServiceExt;
+use zm_api::dto::response::devices::PaginatedDevicesResponse;
 use zm_api::dto::response::DeviceResponse;
 use zm_api::entity::devices::Model as DeviceModel;
 use zm_api::entity::sea_orm_active_enums::DeviceType;
@@ -25,7 +27,12 @@ fn auth_header() -> String {
 #[tokio::test]
 async fn test_list_devices() {
     let devices = vec![sample_device()];
+    // Mock both the COUNT query (for num_items) and the data query (for fetch_page)
+    // The COUNT query returns an i32 for MySQL backend
+    let count_result: BTreeMap<String, Value> =
+        BTreeMap::from([("num_items".to_string(), Value::Int(Some(1)))]);
     let db = MockDatabase::new(DatabaseBackend::MySql)
+        .append_query_results(vec![vec![count_result]])
         .append_query_results::<DeviceModel, _, _>(vec![devices])
         .into_connection();
     let state = zm_api::server::state::AppState::for_test_with_db(db);
@@ -45,9 +52,10 @@ async fn test_list_devices() {
     let bytes = body::to_bytes(response.into_body(), 64 * 1024)
         .await
         .unwrap();
-    let body: Vec<DeviceResponse> = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(body.len(), 1);
-    assert_eq!(body[0].name, "X10 Controller");
+    let body: PaginatedDevicesResponse = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body.items.len(), 1);
+    assert_eq!(body.items[0].name, "X10 Controller");
+    assert_eq!(body.total, 1);
 }
 
 #[tokio::test]

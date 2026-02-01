@@ -1,8 +1,9 @@
+use crate::dto::PaginationParams;
 use crate::entity;
 use crate::error::AppResult;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, ModelTrait,
-    QueryFilter,
+    PaginatorTrait, QueryFilter,
 };
 use std::sync::Arc;
 
@@ -51,6 +52,23 @@ where
 {
     let monitors = entity::monitors::Entity::find().all(conn).await?;
     Ok(monitors)
+}
+
+/// Find monitors with pagination
+#[tracing::instrument(skip_all)]
+pub async fn find_paginated<C>(
+    conn: &C,
+    params: &PaginationParams,
+) -> AppResult<(Vec<entity::monitors::Model>, u64)>
+where
+    C: ConnectionTrait,
+{
+    let paginator = entity::monitors::Entity::find().paginate(conn, params.page_size());
+    let total = paginator.num_items().await?;
+    let items = paginator
+        .fetch_page(params.page().saturating_sub(1))
+        .await?;
+    Ok((items, total))
 }
 
 /// Find a monitor by its ID

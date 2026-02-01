@@ -1,25 +1,34 @@
 use crate::dto::request::devices::{CreateDeviceRequest, UpdateDeviceRequest};
+use crate::dto::response::devices::PaginatedDevicesResponse;
 use crate::dto::response::DeviceResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 
-/// List all devices.
+/// List all devices with pagination.
 ///
 /// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/devices",
-    responses((status = 200, description = "List devices", body = [DeviceResponse])),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of devices", body = PaginatedDevicesResponse)),
     tag = "Devices",
     security(("jwt" = []))
 )]
-pub async fn list_devices(State(state): State<AppState>) -> AppResult<Json<Vec<DeviceResponse>>> {
-    let items = crate::service::devices::list_all(&state).await?;
-    Ok(Json(items))
+pub async fn list_devices(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedDevicesResponse>> {
+    let result = crate::service::devices::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedDevicesResponse::from(result)))
 }
 
 /// Get device by id.

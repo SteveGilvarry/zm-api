@@ -1,5 +1,6 @@
 use crate::dto::request::frames::{CreateFrameRequest, UpdateFrameRequest};
-use crate::dto::response::frames::FrameResponse;
+use crate::dto::response::frames::{FrameResponse, PaginatedFramesResponse};
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use crate::service;
@@ -12,17 +13,23 @@ use serde::Deserialize;
 pub struct FrameQueryParams {
     /// Filter frames by event ID
     pub event_id: Option<u64>,
+    /// Page number (1-indexed, defaults to 1)
+    pub page: Option<u64>,
+    /// Number of items per page (defaults to 25, max 1000)
+    pub page_size: Option<u64>,
 }
 
-/// List frames, optionally filtered by event_id
+/// List frames with pagination, optionally filtered by event_id
 #[utoipa::path(
     get,
     path = "/api/v3/frames",
     params(
-        ("event_id" = Option<u64>, Query, description = "Filter by event")
+        ("event_id" = Option<u64>, Query, description = "Filter by event"),
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
     ),
     responses(
-        (status = 200, description = "List frames", body = Vec<FrameResponse>)
+        (status = 200, description = "Paginated list of frames", body = PaginatedFramesResponse)
     ),
     tag = "Frames",
     summary = "List frames; optionally filter by event id.",
@@ -32,9 +39,13 @@ pub struct FrameQueryParams {
 pub async fn list_frames(
     State(state): State<AppState>,
     Query(params): Query<FrameQueryParams>,
-) -> AppResult<Json<Vec<FrameResponse>>> {
-    let frames = service::frames::list_all(&state, params.event_id).await?;
-    Ok(Json(frames))
+) -> AppResult<Json<PaginatedFramesResponse>> {
+    let pagination = PaginationParams {
+        page: params.page,
+        page_size: params.page_size,
+    };
+    let result = service::frames::list_paginated(&state, params.event_id, &pagination).await?;
+    Ok(Json(PaginatedFramesResponse::from(result)))
 }
 
 /// Get frame by id

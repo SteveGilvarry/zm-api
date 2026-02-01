@@ -1,26 +1,35 @@
 use crate::dto::request::CreateServerRequest;
+use crate::dto::response::servers::PaginatedServersResponse;
 use crate::dto::response::ServerResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 use serde::Deserialize;
 
-/// List registered ZoneMinder servers.
+/// List registered ZoneMinder servers with pagination.
 ///
 /// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/servers",
-    responses((status = 200, description = "List servers", body = serde_json::Value)),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of servers", body = PaginatedServersResponse)),
     tag = "Servers",
     security(("jwt" = []))
 )]
-pub async fn list_servers(State(state): State<AppState>) -> AppResult<Json<Vec<ServerResponse>>> {
-    let items = crate::service::servers::list_all(&state).await?;
-    Ok(Json(items))
+pub async fn list_servers(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedServersResponse>> {
+    let result = crate::service::servers::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedServersResponse::from(result)))
 }
 
 /// Get a server by id.

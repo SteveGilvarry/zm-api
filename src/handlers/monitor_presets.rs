@@ -1,37 +1,36 @@
 use crate::dto::request::monitor_presets::{
     CreateMonitorPresetRequest, UpdateMonitorPresetRequest,
 };
+use crate::dto::response::monitor_presets::PaginatedMonitorPresetsResponse;
 use crate::dto::response::MonitorPresetResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
-pub struct MonitorPresetQuery {
-    pub model_id: Option<u32>,
-}
-
-/// List monitor presets; optionally filter by model id.
+/// List all monitor presets with pagination.
 ///
 /// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/monitor_presets",
-    params(("model_id" = Option<u32>, Query, description = "Filter by model")),
-    responses((status = 200, description = "List monitor presets", body = [MonitorPresetResponse])),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of monitor presets", body = PaginatedMonitorPresetsResponse)),
     tag = "Monitor Presets",
     security(("jwt" = []))
 )]
 pub async fn list_monitor_presets(
     State(state): State<AppState>,
-    Query(q): Query<MonitorPresetQuery>,
-) -> AppResult<Json<Vec<MonitorPresetResponse>>> {
-    let items = crate::service::monitor_presets::list_all(&state, q.model_id).await?;
-    Ok(Json(items))
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedMonitorPresetsResponse>> {
+    let result = crate::service::monitor_presets::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedMonitorPresetsResponse::from(result)))
 }
 
 /// Get a monitor preset by id.

@@ -412,6 +412,7 @@ use crate::util::claim::UserClaims;
             crate::dto::request::devices::CreateDeviceRequest,
             crate::dto::request::devices::UpdateDeviceRequest,
             crate::dto::response::devices::DeviceResponse,
+            crate::dto::response::devices::PaginatedDevicesResponse,
 
             // event data
             crate::dto::request::event_data::CreateEventDataRequest,
@@ -591,6 +592,7 @@ use crate::util::claim::UserClaims;
 
             // storage
             crate::dto::request::storage::CreateStorageRequest,
+            crate::dto::response::storage::PaginatedStorageResponse,
             crate::dto::response::storage::StorageResponse,
             crate::handlers::storage::UpdateStorageRequest,
 

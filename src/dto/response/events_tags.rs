@@ -4,11 +4,12 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::dto::wrappers::DateTimeWrapper;
+use crate::dto::PaginatedResponse;
 use crate::entity::events::Model as EventModel;
 use crate::entity::events_tags::Model as EventTagModel;
 use crate::entity::tags::Model as TagModel;
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct EventTagResponse {
     #[schema(example = 1)]
     pub tag_id: u64,
@@ -27,6 +28,28 @@ impl From<&EventTagModel> for EventTagResponse {
             event_id: model.event_id,
             assigned_date: model.assigned_date,
             assigned_by: model.assigned_by,
+        }
+    }
+}
+
+/// Paginated response for event-tag associations
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct PaginatedEventsTagsResponse {
+    pub items: Vec<EventTagResponse>,
+    pub total: u64,
+    pub per_page: u64,
+    pub current_page: u64,
+    pub last_page: u64,
+}
+
+impl From<PaginatedResponse<EventTagResponse>> for PaginatedEventsTagsResponse {
+    fn from(r: PaginatedResponse<EventTagResponse>) -> Self {
+        Self {
+            items: r.items,
+            total: r.total,
+            per_page: r.per_page,
+            current_page: r.current_page,
+            last_page: r.last_page,
         }
     }
 }

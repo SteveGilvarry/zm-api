@@ -1,4 +1,5 @@
 use crate::dto::request::monitor_status::UpdateMonitorStatusRequest;
+use crate::dto::PaginationParams;
 use crate::entity::monitor_status::{
     ActiveModel, Entity as MonitorStatuses, Model as MonitorStatusModel,
 };
@@ -10,6 +11,18 @@ use std::str::FromStr;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<MonitorStatusModel>> {
     Ok(MonitorStatuses::find().all(db).await?)
+}
+
+pub async fn find_paginated(
+    db: &DatabaseConnection,
+    params: &PaginationParams,
+) -> AppResult<(Vec<MonitorStatusModel>, u64)> {
+    let paginator = MonitorStatuses::find().paginate(db, params.page_size());
+    let total = paginator.num_items().await?;
+    let items = paginator
+        .fetch_page(params.page().saturating_sub(1))
+        .await?;
+    Ok((items, total))
 }
 
 pub async fn find_by_monitor_id(

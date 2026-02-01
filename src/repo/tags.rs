@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use sea_orm::*;
 
 use crate::dto::request::tags::{CreateTagRequest, UpdateTagRequest};
+use crate::dto::PaginationParams;
 use crate::entity::events;
 use crate::entity::events_tags;
 use crate::entity::tags::{ActiveModel, Column, Entity as Tags, Model as TagModel};
@@ -10,6 +11,18 @@ use crate::error::AppResult;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<TagModel>> {
     Ok(Tags::find().all(db).await?)
+}
+
+pub async fn find_paginated(
+    db: &DatabaseConnection,
+    params: &PaginationParams,
+) -> AppResult<(Vec<TagModel>, u64)> {
+    let paginator = Tags::find().paginate(db, params.page_size());
+    let total = paginator.num_items().await?;
+    let items = paginator
+        .fetch_page(params.page().saturating_sub(1))
+        .await?;
+    Ok((items, total))
 }
 
 pub async fn find_by_id(db: &DatabaseConnection, id: u64) -> AppResult<Option<TagModel>> {

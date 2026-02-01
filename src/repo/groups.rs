@@ -1,9 +1,22 @@
+use crate::dto::PaginationParams;
 use crate::entity::groups::{Entity as Groups, Model as GroupModel};
 use crate::error::AppResult;
 use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<GroupModel>> {
     Ok(Groups::find().all(db).await?)
+}
+
+pub async fn find_paginated(
+    db: &DatabaseConnection,
+    params: &PaginationParams,
+) -> AppResult<(Vec<GroupModel>, u64)> {
+    let paginator = Groups::find().paginate(db, params.page_size());
+    let total = paginator.num_items().await?;
+    let items = paginator
+        .fetch_page(params.page().saturating_sub(1))
+        .await?;
+    Ok((items, total))
 }
 
 pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<GroupModel>> {

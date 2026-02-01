@@ -1,5 +1,7 @@
 use crate::dto::request::event_data::{CreateEventDataRequest, UpdateEventDataRequest};
+use crate::dto::response::event_data::PaginatedEventDataResponse;
 use crate::dto::response::EventDataResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
@@ -11,25 +13,31 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct EventDataQuery {
     event_id: Option<u64>,
+    #[serde(flatten)]
+    pagination: PaginationParams,
 }
 
-/// List all event data.
+/// List all event data with pagination.
 #[utoipa::path(
     get,
     path = "/api/v3/event-data",
     params(
-        ("event_id" = Option<u64>, Query, description = "Filter by event ID")
+        ("event_id" = Option<u64>, Query, description = "Filter by event ID"),
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
     ),
-    responses((status = 200, description = "List event data", body = [EventDataResponse])),
+    responses((status = 200, description = "Paginated list of event data", body = PaginatedEventDataResponse)),
     tag = "Event Data",
     security(("jwt" = []))
 )]
 pub async fn list_event_data(
     Query(params): Query<EventDataQuery>,
     State(state): State<AppState>,
-) -> AppResult<Json<Vec<EventDataResponse>>> {
-    let items = crate::service::event_data::list_all(&state, params.event_id).await?;
-    Ok(Json(items))
+) -> AppResult<Json<PaginatedEventDataResponse>> {
+    let result =
+        crate::service::event_data::list_paginated(&state, &params.pagination, params.event_id)
+            .await?;
+    Ok(Json(PaginatedEventDataResponse::from(result)))
 }
 
 /// Get event data by id.

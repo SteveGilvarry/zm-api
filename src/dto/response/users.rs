@@ -1,7 +1,8 @@
+use crate::dto::PaginatedResponse;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UserResponse {
     pub id: u32,
     pub username: String,
@@ -34,6 +35,28 @@ impl From<&crate::entity::users::Model> for UserResponse {
             groups: format!("{:?}", m.groups),
             devices: format!("{:?}", m.devices),
             snapshots: format!("{:?}", m.snapshots),
+        }
+    }
+}
+
+/// Paginated response for users
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct PaginatedUsersResponse {
+    pub items: Vec<UserResponse>,
+    pub total: u64,
+    pub per_page: u64,
+    pub current_page: u64,
+    pub last_page: u64,
+}
+
+impl From<PaginatedResponse<UserResponse>> for PaginatedUsersResponse {
+    fn from(r: PaginatedResponse<UserResponse>) -> Self {
+        Self {
+            items: r.items,
+            total: r.total,
+            per_page: r.per_page,
+            current_page: r.current_page,
+            last_page: r.last_page,
         }
     }
 }

@@ -1,3 +1,4 @@
+use crate::dto::PaginatedResponse;
 use crate::entity::monitor_presets::Model as MonitorPresetModel;
 use crate::entity::sea_orm_active_enums::MonitorType;
 use rust_decimal::Decimal;
@@ -59,6 +60,28 @@ impl From<&MonitorPresetModel> for MonitorPresetResponse {
             control_address: model.control_address.clone(),
             default_rate: model.default_rate,
             default_scale: model.default_scale,
+        }
+    }
+}
+
+/// Paginated response for monitor presets
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct PaginatedMonitorPresetsResponse {
+    pub items: Vec<MonitorPresetResponse>,
+    pub total: u64,
+    pub per_page: u64,
+    pub current_page: u64,
+    pub last_page: u64,
+}
+
+impl From<PaginatedResponse<MonitorPresetResponse>> for PaginatedMonitorPresetsResponse {
+    fn from(r: PaginatedResponse<MonitorPresetResponse>) -> Self {
+        Self {
+            items: r.items,
+            total: r.total,
+            per_page: r.per_page,
+            current_page: r.current_page,
+            last_page: r.last_page,
         }
     }
 }

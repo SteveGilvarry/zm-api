@@ -1,37 +1,36 @@
 use crate::dto::request::user_preferences::{
     CreateUserPreferenceRequest, UpdateUserPreferenceRequest,
 };
+use crate::dto::response::user_preferences::PaginatedUserPreferencesResponse;
 use crate::dto::response::UserPreferenceResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
-pub struct UserPreferenceQuery {
-    pub user_id: Option<u32>,
-}
-
-/// List user preferences; optionally filter by user_id.
+/// List user preferences with pagination.
 ///
 /// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/user_preferences",
-    params(("user_id" = Option<u32>, Query, description = "Filter by user")),
-    responses((status = 200, description = "List user preferences", body = [UserPreferenceResponse])),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of user preferences", body = PaginatedUserPreferencesResponse)),
     tag = "User Preferences",
     security(("jwt" = []))
 )]
 pub async fn list_user_preferences(
     State(state): State<AppState>,
-    Query(q): Query<UserPreferenceQuery>,
-) -> AppResult<Json<Vec<UserPreferenceResponse>>> {
-    let items = crate::service::user_preferences::list_all(&state, q.user_id).await?;
-    Ok(Json(items))
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedUserPreferencesResponse>> {
+    let result = crate::service::user_preferences::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedUserPreferencesResponse::from(result)))
 }
 
 /// Get a user preference by id.

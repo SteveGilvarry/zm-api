@@ -1,25 +1,34 @@
 use crate::dto::request::sessions::{CreateSessionRequest, UpdateSessionRequest};
+use crate::dto::response::sessions::PaginatedSessionsResponse;
 use crate::dto::response::SessionResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 
-/// List all sessions.
+/// List all sessions with pagination.
 ///
 /// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/sessions",
-    responses((status = 200, description = "List sessions", body = [SessionResponse])),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of sessions", body = PaginatedSessionsResponse)),
     tag = "Sessions",
     security(("jwt" = []))
 )]
-pub async fn list_sessions(State(state): State<AppState>) -> AppResult<Json<Vec<SessionResponse>>> {
-    let items = crate::service::sessions::list_all(&state).await?;
-    Ok(Json(items))
+pub async fn list_sessions(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedSessionsResponse>> {
+    let result = crate::service::sessions::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedSessionsResponse::from(result)))
 }
 
 /// Get a session by id.

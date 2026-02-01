@@ -1,6 +1,7 @@
 use crate::dto::request::monitor_presets::{
     CreateMonitorPresetRequest, UpdateMonitorPresetRequest,
 };
+use crate::dto::PaginationParams;
 use crate::entity::monitor_presets::{
     ActiveModel, Column, Entity as MonitorPresets, Model as MonitorPresetModel,
 };
@@ -9,6 +10,18 @@ use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<MonitorPresetModel>> {
     Ok(MonitorPresets::find().all(db).await?)
+}
+
+pub async fn find_paginated(
+    db: &DatabaseConnection,
+    params: &PaginationParams,
+) -> AppResult<(Vec<MonitorPresetModel>, u64)> {
+    let paginator = MonitorPresets::find().paginate(db, params.page_size());
+    let total = paginator.num_items().await?;
+    let items = paginator
+        .fetch_page(params.page().saturating_sub(1))
+        .await?;
+    Ok((items, total))
 }
 
 pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<MonitorPresetModel>> {

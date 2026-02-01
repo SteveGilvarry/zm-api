@@ -1,4 +1,6 @@
+use crate::dto::response::zones::PaginatedZonesResponse;
 use crate::dto::response::ZoneResponse;
+use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -6,6 +8,19 @@ use crate::server::state::AppState;
 pub async fn list_by_monitor(state: &AppState, monitor_id: u32) -> AppResult<Vec<ZoneResponse>> {
     let zones = repo::zones::find_by_monitor(state.db(), monitor_id).await?;
     Ok(zones.iter().map(ZoneResponse::from).collect())
+}
+
+pub async fn list_by_monitor_paginated(
+    state: &AppState,
+    monitor_id: u32,
+    params: &PaginationParams,
+) -> AppResult<PaginatedZonesResponse> {
+    let (items, total) =
+        repo::zones::find_by_monitor_paginated(state.db(), monitor_id, params).await?;
+    let responses: Vec<ZoneResponse> = items.iter().map(ZoneResponse::from).collect();
+    Ok(PaginatedZonesResponse::from(
+        PaginatedResponse::from_params(responses, total, params),
+    ))
 }
 
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<ZoneResponse> {

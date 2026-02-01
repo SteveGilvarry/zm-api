@@ -2,6 +2,7 @@ use tracing::instrument;
 
 use crate::{
     dto::response::event_summaries::EventSummaryResponse,
+    dto::{PaginatedResponse, PaginationParams},
     error::{AppError, AppResult, Resource, ResourceType},
     repo::event_summaries as event_summaries_repo,
     server::state::AppState,
@@ -16,6 +17,18 @@ pub async fn list_all(state: &AppState) -> AppResult<Vec<EventSummaryResponse>> 
         .into_iter()
         .map(EventSummaryResponse::from)
         .collect())
+}
+
+/// List event summaries with pagination
+#[instrument(skip(state))]
+pub async fn list_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<EventSummaryResponse>> {
+    let (items, total) = event_summaries_repo::find_paginated(state, params).await?;
+    let responses: Vec<EventSummaryResponse> =
+        items.into_iter().map(EventSummaryResponse::from).collect();
+    Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
 /// Get event summary for a specific monitor

@@ -1,25 +1,34 @@
 use crate::dto::request::states::{CreateStateRequest, UpdateStateRequest};
+use crate::dto::response::states::PaginatedStatesResponse;
 use crate::dto::response::StateResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 
-/// List all states.
+/// List all states with pagination.
 ///
 /// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/states",
-    responses((status = 200, description = "List states", body = [StateResponse])),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of states", body = PaginatedStatesResponse)),
     tag = "States",
     security(("jwt" = []))
 )]
-pub async fn list_states(State(state): State<AppState>) -> AppResult<Json<Vec<StateResponse>>> {
-    let items = crate::service::states::list_all(&state).await?;
-    Ok(Json(items))
+pub async fn list_states(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedStatesResponse>> {
+    let result = crate::service::states::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedStatesResponse::from(result)))
 }
 
 /// Get a state by id.

@@ -1,5 +1,6 @@
 use crate::dto::request::monitor_status::UpdateMonitorStatusRequest;
 use crate::dto::response::MonitorStatusResponse;
+use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -7,6 +8,16 @@ use crate::server::state::AppState;
 pub async fn list_all(state: &AppState) -> AppResult<Vec<MonitorStatusResponse>> {
     let items = repo::monitor_status::find_all(state.db()).await?;
     Ok(items.iter().map(MonitorStatusResponse::from).collect())
+}
+
+pub async fn list_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<MonitorStatusResponse>> {
+    let (items, total) = repo::monitor_status::find_paginated(state.db(), params).await?;
+    let responses: Vec<MonitorStatusResponse> =
+        items.iter().map(MonitorStatusResponse::from).collect();
+    Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
 pub async fn get_by_monitor_id(

@@ -1,10 +1,23 @@
 use crate::dto::request::states::{CreateStateRequest, UpdateStateRequest};
+use crate::dto::PaginationParams;
 use crate::entity::states::{ActiveModel, Entity as States, Model as StateModel};
 use crate::error::AppResult;
 use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<StateModel>> {
     Ok(States::find().all(db).await?)
+}
+
+pub async fn find_paginated(
+    db: &DatabaseConnection,
+    params: &PaginationParams,
+) -> AppResult<(Vec<StateModel>, u64)> {
+    let paginator = States::find().paginate(db, params.page_size());
+    let total = paginator.num_items().await?;
+    let items = paginator
+        .fetch_page(params.page().saturating_sub(1))
+        .await?;
+    Ok((items, total))
 }
 
 pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<StateModel>> {

@@ -1,25 +1,32 @@
 use crate::dto::request::monitor_status::UpdateMonitorStatusRequest;
+use crate::dto::response::monitor_status::PaginatedMonitorStatusesResponse;
 use crate::dto::response::MonitorStatusResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 
-/// List all monitor statuses.
+/// List all monitor statuses with pagination.
 #[utoipa::path(
     get,
     path = "/api/v3/monitor-status",
-    responses((status = 200, description = "List monitor statuses", body = [MonitorStatusResponse])),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of monitor statuses", body = PaginatedMonitorStatusesResponse)),
     tag = "Monitor Status",
     security(("jwt" = []))
 )]
 pub async fn list_monitor_statuses(
     State(state): State<AppState>,
-) -> AppResult<Json<Vec<MonitorStatusResponse>>> {
-    let items = crate::service::monitor_status::list_all(&state).await?;
-    Ok(Json(items))
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedMonitorStatusesResponse>> {
+    let result = crate::service::monitor_status::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedMonitorStatusesResponse::from(result)))
 }
 
 /// Get monitor status by monitor ID.

@@ -1,3 +1,4 @@
+use crate::dto::PaginatedResponse;
 use crate::entity::stats::Model as StatModel;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -43,6 +44,28 @@ impl From<&StatModel> for StatResponse {
             min_y: model.min_y,
             max_y: model.max_y,
             score: model.score,
+        }
+    }
+}
+
+/// Paginated response for stats
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct PaginatedStatsResponse {
+    pub items: Vec<StatResponse>,
+    pub total: u64,
+    pub per_page: u64,
+    pub current_page: u64,
+    pub last_page: u64,
+}
+
+impl From<PaginatedResponse<StatResponse>> for PaginatedStatsResponse {
+    fn from(r: PaginatedResponse<StatResponse>) -> Self {
+        Self {
+            items: r.items,
+            total: r.total,
+            per_page: r.per_page,
+            current_page: r.current_page,
+            last_page: r.last_page,
         }
     }
 }

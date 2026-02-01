@@ -1,27 +1,34 @@
 use crate::dto::request::snapshots::{CreateSnapshotRequest, UpdateSnapshotRequest};
+use crate::dto::response::snapshots::PaginatedSnapshotsResponse;
 use crate::dto::response::SnapshotResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 
-/// List all snapshots.
+/// List all snapshots with pagination.
 ///
 /// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/snapshots",
-    responses((status = 200, description = "List snapshots", body = [SnapshotResponse])),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of snapshots", body = PaginatedSnapshotsResponse)),
     tag = "Snapshots",
     security(("jwt" = []))
 )]
 pub async fn list_snapshots(
     State(state): State<AppState>,
-) -> AppResult<Json<Vec<SnapshotResponse>>> {
-    let items = crate::service::snapshots::list_all(&state).await?;
-    Ok(Json(items))
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedSnapshotsResponse>> {
+    let result = crate::service::snapshots::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedSnapshotsResponse::from(result)))
 }
 
 /// Get a snapshot by id.

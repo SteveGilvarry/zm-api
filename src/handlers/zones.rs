@@ -1,13 +1,15 @@
 use crate::dto::request::CreateZoneRequest;
+use crate::dto::response::zones::PaginatedZonesResponse;
 use crate::dto::response::ZoneResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 
-/// List detection zones configured for a given monitor.
+/// List detection zones configured for a given monitor with pagination.
 ///
 /// - Path parameter `id` identifies the monitor.
 /// - Requires a valid JWT.
@@ -15,9 +17,13 @@ use axum::{
 #[utoipa::path(
     get,
     path = "/api/v3/monitors/{id}/zones",
-    params(("id" = u32, Path, description = "Monitor ID")),
+    params(
+        ("id" = u32, Path, description = "Monitor ID"),
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
     responses(
-        (status = 200, description = "Zones for a monitor", body = [ZoneResponse]),
+        (status = 200, description = "Paginated zones for a monitor", body = PaginatedZonesResponse),
         (status = 401, description = "Unauthorized", body = crate::error::AppResponseError)
     ),
     tag = "Zones",
@@ -26,9 +32,10 @@ use axum::{
 pub async fn list_by_monitor(
     Path(id): Path<u32>,
     State(state): State<AppState>,
-) -> AppResult<Json<Vec<ZoneResponse>>> {
-    let zones = crate::service::zones::list_by_monitor(&state, id).await?;
-    Ok(Json(zones))
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedZonesResponse>> {
+    let result = crate::service::zones::list_by_monitor_paginated(&state, id, &params).await?;
+    Ok(Json(result))
 }
 
 /// Fetch a single detection zone by its identifier.

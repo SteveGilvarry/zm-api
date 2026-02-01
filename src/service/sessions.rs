@@ -1,5 +1,6 @@
 use crate::dto::request::sessions::{CreateSessionRequest, UpdateSessionRequest};
 use crate::dto::response::SessionResponse;
+use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -7,6 +8,15 @@ use crate::server::state::AppState;
 pub async fn list_all(state: &AppState) -> AppResult<Vec<SessionResponse>> {
     let items = repo::sessions::find_all(state.db()).await?;
     Ok(items.iter().map(SessionResponse::from).collect())
+}
+
+pub async fn list_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<SessionResponse>> {
+    let (items, total) = repo::sessions::find_paginated(state.db(), params).await?;
+    let responses: Vec<SessionResponse> = items.iter().map(SessionResponse::from).collect();
+    Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
 pub async fn get_by_id(state: &AppState, id: &str) -> AppResult<SessionResponse> {

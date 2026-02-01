@@ -1,7 +1,8 @@
+use crate::dto::PaginatedResponse;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ZoneResponse {
     pub id: u32,
     pub monitor_id: u32,
@@ -22,6 +23,28 @@ impl From<&crate::entity::zones::Model> for ZoneResponse {
             units: m.units.to_string(),
             num_coords: m.num_coords,
             coords: m.coords.clone(),
+        }
+    }
+}
+
+/// Paginated response for zones
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct PaginatedZonesResponse {
+    pub items: Vec<ZoneResponse>,
+    pub total: u64,
+    pub per_page: u64,
+    pub current_page: u64,
+    pub last_page: u64,
+}
+
+impl From<PaginatedResponse<ZoneResponse>> for PaginatedZonesResponse {
+    fn from(r: PaginatedResponse<ZoneResponse>) -> Self {
+        Self {
+            items: r.items,
+            total: r.total,
+            per_page: r.per_page,
+            current_page: r.current_page,
+            last_page: r.last_page,
         }
     }
 }

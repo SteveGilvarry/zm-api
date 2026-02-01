@@ -1,4 +1,5 @@
 use crate::dto::request::server_stats::CreateServerStatRequest;
+use crate::dto::PaginationParams;
 use crate::entity::server_stats::{ActiveModel, Entity as ServerStats, Model as ServerStatModel};
 use crate::error::{AppError, AppResult};
 use chrono::Utc;
@@ -8,6 +9,18 @@ use std::str::FromStr;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<ServerStatModel>> {
     Ok(ServerStats::find().all(db).await?)
+}
+
+pub async fn find_paginated(
+    db: &DatabaseConnection,
+    params: &PaginationParams,
+) -> AppResult<(Vec<ServerStatModel>, u64)> {
+    let paginator = ServerStats::find().paginate(db, params.page_size());
+    let total = paginator.num_items().await?;
+    let items = paginator
+        .fetch_page(params.page().saturating_sub(1))
+        .await?;
+    Ok((items, total))
 }
 
 pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<ServerStatModel>> {

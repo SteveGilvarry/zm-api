@@ -2,6 +2,7 @@ use chrono::Utc;
 use sea_orm::*;
 
 use crate::dto::request::events_tags::CreateEventTagRequest;
+use crate::dto::PaginationParams;
 use crate::entity::events_tags::{
     ActiveModel, Column, Entity as EventsTags, Model as EventTagModel,
 };
@@ -22,6 +23,29 @@ pub async fn find_all(
     }
 
     Ok(query.all(db).await?)
+}
+
+pub async fn find_paginated(
+    db: &DatabaseConnection,
+    event_id: Option<u64>,
+    tag_id: Option<u64>,
+    params: &PaginationParams,
+) -> AppResult<(Vec<EventTagModel>, u64)> {
+    let mut query = EventsTags::find();
+
+    if let Some(eid) = event_id {
+        query = query.filter(Column::EventId.eq(eid));
+    }
+    if let Some(tid) = tag_id {
+        query = query.filter(Column::TagId.eq(tid));
+    }
+
+    let paginator = query.paginate(db, params.page_size());
+    let total = paginator.num_items().await?;
+    let items = paginator
+        .fetch_page(params.page().saturating_sub(1))
+        .await?;
+    Ok((items, total))
 }
 
 pub async fn find_by_composite_id(

@@ -1,25 +1,34 @@
 use crate::dto::request::controls::{CreateControlRequest, UpdateControlRequest};
+use crate::dto::response::controls::PaginatedControlsResponse;
 use crate::dto::response::ControlResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 
-/// List all camera controls.
+/// List all camera controls with pagination.
 ///
 /// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/controls",
-    responses((status = 200, description = "List controls", body = [ControlResponse])),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of controls", body = PaginatedControlsResponse)),
     tag = "Controls",
     security(("jwt" = []))
 )]
-pub async fn list_controls(State(state): State<AppState>) -> AppResult<Json<Vec<ControlResponse>>> {
-    let items = crate::service::controls::list_all(&state).await?;
-    Ok(Json(items))
+pub async fn list_controls(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedControlsResponse>> {
+    let result = crate::service::controls::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedControlsResponse::from(result)))
 }
 
 /// Get control by id.

@@ -1,3 +1,4 @@
+use crate::dto::PaginatedResponse;
 use crate::entity::snapshots::Model as SnapshotModel;
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,28 @@ impl From<&SnapshotModel> for SnapshotResponse {
             description: model.description.clone(),
             created_by: model.created_by,
             created_on: model.created_on,
+        }
+    }
+}
+
+/// Paginated response for snapshots
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct PaginatedSnapshotsResponse {
+    pub items: Vec<SnapshotResponse>,
+    pub total: u64,
+    pub per_page: u64,
+    pub current_page: u64,
+    pub last_page: u64,
+}
+
+impl From<PaginatedResponse<SnapshotResponse>> for PaginatedSnapshotsResponse {
+    fn from(r: PaginatedResponse<SnapshotResponse>) -> Self {
+        Self {
+            items: r.items,
+            total: r.total,
+            per_page: r.per_page,
+            current_page: r.current_page,
+            last_page: r.last_page,
         }
     }
 }

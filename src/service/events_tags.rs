@@ -1,5 +1,6 @@
 use crate::dto::request::events_tags::CreateEventTagRequest;
 use crate::dto::response::EventTagResponse;
+use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -11,6 +12,18 @@ pub async fn list_all(
 ) -> AppResult<Vec<EventTagResponse>> {
     let items = repo::events_tags::find_all(state.db(), event_id, tag_id).await?;
     Ok(items.iter().map(EventTagResponse::from).collect())
+}
+
+pub async fn list_paginated(
+    state: &AppState,
+    event_id: Option<u64>,
+    tag_id: Option<u64>,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<EventTagResponse>> {
+    let (items, total) =
+        repo::events_tags::find_paginated(state.db(), event_id, tag_id, params).await?;
+    let responses: Vec<EventTagResponse> = items.iter().map(EventTagResponse::from).collect();
+    Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
 pub async fn get_by_id(

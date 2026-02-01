@@ -1,8 +1,19 @@
 use crate::dto::request::groups_monitors::CreateGroupMonitorRequest;
 use crate::dto::response::GroupMonitorResponse;
+use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
+
+pub async fn list_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<GroupMonitorResponse>> {
+    let (items, total) = repo::groups_monitors::find_paginated(state.db(), params).await?;
+    let responses: Vec<GroupMonitorResponse> =
+        items.iter().map(GroupMonitorResponse::from).collect();
+    Ok(PaginatedResponse::from_params(responses, total, params))
+}
 
 pub async fn list_all(
     state: &AppState,

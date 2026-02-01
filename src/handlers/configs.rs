@@ -1,9 +1,11 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 use tracing::info;
 
+use crate::dto::response::config::PaginatedConfigsResponse;
+use crate::dto::PaginationParams;
 use crate::dto::{request::config::UpdateConfigRequest, response::config::ConfigResponse};
 use crate::error::AppResult;
 use crate::server::state::AppState;
@@ -12,23 +14,30 @@ use crate::service;
 /// List all configuration key/value entries from the ZoneMinder `Config` table.
 ///
 /// - Requires a valid JWT.
-/// - Returns the complete set of config entries including metadata such as type, category,
+/// - Returns a paginated set of config entries including metadata such as type, category,
 ///   default value and readonly flags.
 #[utoipa::path(
     get,
     path = "/api/v3/configs",
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
     responses(
-        (status = 200, description = "List all config entries", body = Vec<ConfigResponse>),
+        (status = 200, description = "Paginated list of config entries", body = PaginatedConfigsResponse),
         (status = 401, description = "Unauthorized", body = crate::error::AppResponseError),
         (status = 500, description = "Internal server error", body = crate::error::AppResponseError)
     ),
     security(("jwt" = [])),
     tag = "Config"
 )]
-pub async fn list_configs(State(state): State<AppState>) -> AppResult<Json<Vec<ConfigResponse>>> {
-    info!("Listing all config entries");
-    let list = service::config::list_all(&state).await?;
-    Ok(Json(list))
+pub async fn list_configs(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedConfigsResponse>> {
+    info!("Listing config entries with pagination");
+    let result = service::config::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedConfigsResponse::from(result)))
 }
 
 /// Get a single configuration entry by its `name`.

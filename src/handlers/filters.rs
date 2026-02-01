@@ -1,27 +1,36 @@
 use crate::dto::request::CreateFilterRequest;
+use crate::dto::response::filters::PaginatedFiltersResponse;
 use crate::dto::response::FilterResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 use serde::Deserialize;
 
-/// List saved event filters.
+/// List saved event filters with pagination.
 ///
 /// - Supports server-side scheduled filters; this lists definitions (not executions).
 /// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/filters",
-    responses((status = 200, description = "List filters", body = serde_json::Value)),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of filters", body = PaginatedFiltersResponse)),
     tag = "Filters",
     security(("jwt" = []))
 )]
-pub async fn list_filters(State(state): State<AppState>) -> AppResult<Json<Vec<FilterResponse>>> {
-    let items = crate::service::filters::list_all(&state).await?;
-    Ok(Json(items))
+pub async fn list_filters(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedFiltersResponse>> {
+    let result = crate::service::filters::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedFiltersResponse::from(result)))
 }
 
 /// Get a single filter definition by id.

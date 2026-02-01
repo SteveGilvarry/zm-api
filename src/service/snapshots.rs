@@ -1,5 +1,6 @@
 use crate::dto::request::snapshots::{CreateSnapshotRequest, UpdateSnapshotRequest};
 use crate::dto::response::SnapshotResponse;
+use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -7,6 +8,15 @@ use crate::server::state::AppState;
 pub async fn list_all(state: &AppState) -> AppResult<Vec<SnapshotResponse>> {
     let items = repo::snapshots::find_all(state.db()).await?;
     Ok(items.iter().map(SnapshotResponse::from).collect())
+}
+
+pub async fn list_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<SnapshotResponse>> {
+    let (items, total) = repo::snapshots::find_paginated(state.db(), params).await?;
+    let responses: Vec<SnapshotResponse> = items.iter().map(SnapshotResponse::from).collect();
+    Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<SnapshotResponse> {

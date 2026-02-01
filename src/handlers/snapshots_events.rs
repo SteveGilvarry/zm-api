@@ -1,39 +1,32 @@
 use crate::dto::request::snapshots_events::CreateSnapshotEventRequest;
+use crate::dto::response::snapshots_events::PaginatedSnapshotEventsResponse;
 use crate::dto::response::SnapshotEventResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
-pub struct SnapshotEventQuery {
-    snapshot_id: Option<u32>,
-    event_id: Option<u64>,
-}
-
-/// List all snapshot-event associations.
+/// List all snapshot-event associations with pagination.
 #[utoipa::path(
     get,
     path = "/api/v3/snapshots-events",
     params(
-        ("snapshot_id" = Option<u32>, Query, description = "Filter by snapshot ID"),
-        ("event_id" = Option<u64>, Query, description = "Filter by event ID")
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
     ),
-    responses((status = 200, description = "List snapshot-event associations", body = [SnapshotEventResponse])),
+    responses((status = 200, description = "Paginated list of snapshot-event associations", body = PaginatedSnapshotEventsResponse)),
     tag = "Snapshots Events",
     security(("jwt" = []))
 )]
 pub async fn list_snapshot_events(
-    Query(params): Query<SnapshotEventQuery>,
     State(state): State<AppState>,
-) -> AppResult<Json<Vec<SnapshotEventResponse>>> {
-    let items =
-        crate::service::snapshots_events::list_all(&state, params.snapshot_id, params.event_id)
-            .await?;
-    Ok(Json(items))
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedSnapshotEventsResponse>> {
+    let result = crate::service::snapshots_events::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedSnapshotEventsResponse::from(result)))
 }
 
 /// Get a snapshot-event association by id.

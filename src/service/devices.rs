@@ -1,5 +1,6 @@
 use crate::dto::request::devices::{CreateDeviceRequest, UpdateDeviceRequest};
 use crate::dto::response::DeviceResponse;
+use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -7,6 +8,15 @@ use crate::server::state::AppState;
 pub async fn list_all(state: &AppState) -> AppResult<Vec<DeviceResponse>> {
     let items = repo::devices::find_all(state.db()).await?;
     Ok(items.iter().map(DeviceResponse::from).collect())
+}
+
+pub async fn list_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<DeviceResponse>> {
+    let (items, total) = repo::devices::find_paginated(state.db(), params).await?;
+    let responses: Vec<DeviceResponse> = items.iter().map(DeviceResponse::from).collect();
+    Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<DeviceResponse> {

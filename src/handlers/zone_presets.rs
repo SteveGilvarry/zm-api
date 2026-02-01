@@ -1,9 +1,11 @@
 use crate::dto::request::CreateZonePresetRequest;
+use crate::dto::response::zone_presets::PaginatedZonePresetsResponse;
 use crate::dto::response::ZonePresetResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 
@@ -14,15 +16,20 @@ use axum::{
 #[utoipa::path(
     get,
     path = "/api/v3/zone-presets",
-    responses((status = 200, description = "List zone presets", body = [ZonePresetResponse])),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of zone presets", body = PaginatedZonePresetsResponse)),
     tag = "Zones",
     security(("jwt" = []))
 )]
 pub async fn list_zone_presets(
     State(state): State<AppState>,
-) -> AppResult<Json<Vec<ZonePresetResponse>>> {
-    let items = crate::service::zone_presets::list_all(&state).await?;
-    Ok(Json(items))
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedZonePresetsResponse>> {
+    let result = crate::service::zone_presets::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedZonePresetsResponse::from(result)))
 }
 
 /// Get a single zone preset by id.

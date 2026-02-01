@@ -1,27 +1,34 @@
 use crate::dto::request::triggers_x10::{CreateTriggerX10Request, UpdateTriggerX10Request};
+use crate::dto::response::triggers_x10::PaginatedTriggersX10Response;
 use crate::dto::response::TriggerX10Response;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 
-/// List all X10 triggers.
+/// List all X10 triggers with pagination.
 ///
 /// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/triggers_x10",
-    responses((status = 200, description = "List X10 triggers", body = [TriggerX10Response])),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of X10 triggers", body = PaginatedTriggersX10Response)),
     tag = "TriggersX10",
     security(("jwt" = []))
 )]
 pub async fn list_triggers_x10(
     State(state): State<AppState>,
-) -> AppResult<Json<Vec<TriggerX10Response>>> {
-    let items = crate::service::triggers_x10::list_all(&state).await?;
-    Ok(Json(items))
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedTriggersX10Response>> {
+    let result = crate::service::triggers_x10::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedTriggersX10Response::from(result)))
 }
 
 /// Get an X10 trigger by monitor_id.

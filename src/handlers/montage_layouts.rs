@@ -1,37 +1,36 @@
 use crate::dto::request::montage_layouts::{
     CreateMontageLayoutRequest, UpdateMontageLayoutRequest,
 };
+use crate::dto::response::montage_layouts::PaginatedMontageLayoutsResponse;
 use crate::dto::response::MontageLayoutResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
-pub struct MontageLayoutQuery {
-    pub user_id: Option<u32>,
-}
-
-/// List montage layouts; optionally filter by user id.
+/// List all montage layouts with pagination.
 ///
 /// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/montage_layouts",
-    params(("user_id" = Option<u32>, Query, description = "Filter by user")),
-    responses((status = 200, description = "List montage layouts", body = [MontageLayoutResponse])),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of montage layouts", body = PaginatedMontageLayoutsResponse)),
     tag = "Montage Layouts",
     security(("jwt" = []))
 )]
 pub async fn list_montage_layouts(
     State(state): State<AppState>,
-    Query(q): Query<MontageLayoutQuery>,
-) -> AppResult<Json<Vec<MontageLayoutResponse>>> {
-    let items = crate::service::montage_layouts::list_all(&state, q.user_id).await?;
-    Ok(Json(items))
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedMontageLayoutsResponse>> {
+    let result = crate::service::montage_layouts::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedMontageLayoutsResponse::from(result)))
 }
 
 /// Get a montage layout by id.

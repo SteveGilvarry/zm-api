@@ -1,11 +1,12 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 use tracing::{info, instrument};
 
 use crate::{
-    dto::response::event_summaries::EventSummaryResponse,
+    dto::response::event_summaries::{EventSummaryResponse, PaginatedEventSummariesResponse},
+    dto::PaginationParams,
     error::{AppResponseError, AppResult},
     server::state::AppState,
     service,
@@ -20,8 +21,12 @@ use crate::{
     path = "/api/v3/event-summaries",
     operation_id = "listEventSummaries",
     tag = "Events",
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
     responses(
-        (status = 200, description = "List of event summaries for all monitors", body = Vec<EventSummaryResponse>),
+        (status = 200, description = "Paginated list of event summaries for all monitors", body = PaginatedEventSummariesResponse),
         (status = 401, description = "Unauthorized", body = AppResponseError),
         (status = 500, description = "Internal server error", body = AppResponseError)
     ),
@@ -32,12 +37,13 @@ use crate::{
 #[instrument(skip(state))]
 pub async fn list_event_summaries(
     State(state): State<AppState>,
-) -> AppResult<Json<Vec<EventSummaryResponse>>> {
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedEventSummariesResponse>> {
     info!("Listing event summaries for all monitors");
 
-    let summaries = service::event_summaries::list_all(&state).await?;
+    let result = service::event_summaries::list_paginated(&state, &params).await?;
 
-    Ok(Json(summaries))
+    Ok(Json(PaginatedEventSummariesResponse::from(result)))
 }
 
 /// Get event summary for a specific monitor

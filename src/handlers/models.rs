@@ -1,5 +1,7 @@
 use crate::dto::request::CreateModelRequest;
+use crate::dto::response::models::PaginatedModelsResponse;
 use crate::dto::response::ModelResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
@@ -11,25 +13,32 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct ModelListQuery {
     pub manufacturer_id: Option<u32>,
+    #[serde(flatten)]
+    pub pagination: PaginationParams,
 }
 
-/// List camera models; optionally filter by manufacturer id.
+/// List camera models with pagination; optionally filter by manufacturer id.
 ///
 /// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/models",
-    params(("manufacturer_id" = Option<u32>, Query, description = "Filter by manufacturer")),
-    responses((status = 200, description = "List models", body = [ModelResponse])),
+    params(
+        ("manufacturer_id" = Option<u32>, Query, description = "Filter by manufacturer"),
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of models", body = PaginatedModelsResponse)),
     tag = "Models",
     security(("jwt" = []))
 )]
 pub async fn list_models(
     State(state): State<AppState>,
     Query(q): Query<ModelListQuery>,
-) -> AppResult<Json<Vec<ModelResponse>>> {
-    let items = crate::service::models::list_all(&state, q.manufacturer_id).await?;
-    Ok(Json(items))
+) -> AppResult<Json<PaginatedModelsResponse>> {
+    let result =
+        crate::service::models::list_paginated(&state, &q.pagination, q.manufacturer_id).await?;
+    Ok(Json(PaginatedModelsResponse::from(result)))
 }
 
 /// Get a camera model by id.

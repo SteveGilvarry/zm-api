@@ -1,8 +1,9 @@
+use crate::dto::PaginatedResponse;
 use crate::entity::server_stats::Model as ServerStatModel;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ServerStatResponse {
     pub id: u32,
     pub server_id: Option<u32>,
@@ -35,6 +36,28 @@ impl From<&ServerStatModel> for ServerStatResponse {
             free_mem: model.free_mem,
             total_swap: model.total_swap,
             free_swap: model.free_swap,
+        }
+    }
+}
+
+/// Paginated response for server stats
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct PaginatedServerStatsResponse {
+    pub items: Vec<ServerStatResponse>,
+    pub total: u64,
+    pub per_page: u64,
+    pub current_page: u64,
+    pub last_page: u64,
+}
+
+impl From<PaginatedResponse<ServerStatResponse>> for PaginatedServerStatsResponse {
+    fn from(r: PaginatedResponse<ServerStatResponse>) -> Self {
+        Self {
+            items: r.items,
+            total: r.total,
+            per_page: r.per_page,
+            current_page: r.current_page,
+            last_page: r.last_page,
         }
     }
 }

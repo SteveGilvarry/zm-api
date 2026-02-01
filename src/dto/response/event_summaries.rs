@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::dto::PaginatedResponse;
 use crate::entity::event_summaries::Model as EventSummaryModel;
 
 /// Event counts and disk space summary for a monitor
-#[derive(Debug, Deserialize, Serialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct EventSummaryResponse {
     /// Monitor ID
     #[schema(example = 1)]
@@ -75,6 +76,28 @@ impl From<EventSummaryModel> for EventSummaryResponse {
             month_event_disk_space: model.month_event_disk_space.unwrap_or(0),
             archived_events: model.archived_events.unwrap_or(0),
             archived_event_disk_space: model.archived_event_disk_space.unwrap_or(0),
+        }
+    }
+}
+
+/// Paginated response for event summaries
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct PaginatedEventSummariesResponse {
+    pub items: Vec<EventSummaryResponse>,
+    pub total: u64,
+    pub per_page: u64,
+    pub current_page: u64,
+    pub last_page: u64,
+}
+
+impl From<PaginatedResponse<EventSummaryResponse>> for PaginatedEventSummariesResponse {
+    fn from(r: PaginatedResponse<EventSummaryResponse>) -> Self {
+        Self {
+            items: r.items,
+            total: r.total,
+            per_page: r.per_page,
+            current_page: r.current_page,
+            last_page: r.last_page,
         }
     }
 }

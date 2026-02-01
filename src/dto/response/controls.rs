@@ -1,3 +1,4 @@
+use crate::dto::PaginatedResponse;
 use crate::entity::controls::Model as ControlModel;
 use crate::entity::sea_orm_active_enums::MonitorType;
 use serde::{Deserialize, Serialize};
@@ -211,6 +212,28 @@ impl From<&ControlModel> for ControlResponse {
             turbo_tilt_speed: model.turbo_tilt_speed,
             can_auto_scan: model.can_auto_scan,
             num_scan_paths: model.num_scan_paths,
+        }
+    }
+}
+
+/// Paginated response for controls
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct PaginatedControlsResponse {
+    pub items: Vec<ControlResponse>,
+    pub total: u64,
+    pub per_page: u64,
+    pub current_page: u64,
+    pub last_page: u64,
+}
+
+impl From<PaginatedResponse<ControlResponse>> for PaginatedControlsResponse {
+    fn from(r: PaginatedResponse<ControlResponse>) -> Self {
+        Self {
+            items: r.items,
+            total: r.total,
+            per_page: r.per_page,
+            current_page: r.current_page,
+            last_page: r.last_page,
         }
     }
 }

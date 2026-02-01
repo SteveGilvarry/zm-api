@@ -1,3 +1,4 @@
+use crate::dto::PaginationParams;
 use crate::entity::filters::{Entity as Filters, Model as FilterModel};
 use crate::error::AppResult;
 use sea_orm::*;
@@ -6,6 +7,19 @@ use sea_orm::*;
 #[tracing::instrument(skip_all)]
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<FilterModel>> {
     Ok(Filters::find().all(db).await?)
+}
+
+#[tracing::instrument(skip_all)]
+pub async fn find_paginated(
+    db: &DatabaseConnection,
+    params: &PaginationParams,
+) -> AppResult<(Vec<FilterModel>, u64)> {
+    let paginator = Filters::find().paginate(db, params.page_size());
+    let total = paginator.num_items().await?;
+    let items = paginator
+        .fetch_page(params.page().saturating_sub(1))
+        .await?;
+    Ok((items, total))
 }
 
 #[tracing::instrument(skip_all)]

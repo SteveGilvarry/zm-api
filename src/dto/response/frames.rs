@@ -1,3 +1,4 @@
+use crate::dto::PaginatedResponse;
 use crate::entity::frames::Model as FrameModel;
 use crate::entity::sea_orm_active_enums::FrameType;
 use rust_decimal::Decimal;
@@ -35,6 +36,28 @@ impl From<&FrameModel> for FrameResponse {
             time_stamp: model.time_stamp.to_string(),
             delta: model.delta,
             score: model.score,
+        }
+    }
+}
+
+/// Paginated response for frames
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct PaginatedFramesResponse {
+    pub items: Vec<FrameResponse>,
+    pub total: u64,
+    pub per_page: u64,
+    pub current_page: u64,
+    pub last_page: u64,
+}
+
+impl From<PaginatedResponse<FrameResponse>> for PaginatedFramesResponse {
+    fn from(r: PaginatedResponse<FrameResponse>) -> Self {
+        Self {
+            items: r.items,
+            total: r.total,
+            per_page: r.per_page,
+            current_page: r.current_page,
+            last_page: r.last_page,
         }
     }
 }

@@ -1,41 +1,34 @@
 use crate::dto::request::groups_permissions::{
     CreateGroupPermissionRequest, UpdateGroupPermissionRequest,
 };
+use crate::dto::response::groups_permissions::PaginatedGroupPermissionsResponse;
 use crate::dto::response::GroupPermissionResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
-pub struct GroupPermissionQuery {
-    group_id: Option<u32>,
-    user_id: Option<u32>,
-}
-
-/// List all group permissions.
+/// List all group permissions with pagination.
 #[utoipa::path(
     get,
     path = "/api/v3/groups-permissions",
     params(
-        ("group_id" = Option<u32>, Query, description = "Filter by group ID"),
-        ("user_id" = Option<u32>, Query, description = "Filter by user ID")
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
     ),
-    responses((status = 200, description = "List group permissions", body = [GroupPermissionResponse])),
+    responses((status = 200, description = "Paginated list of group permissions", body = PaginatedGroupPermissionsResponse)),
     tag = "Groups Permissions",
     security(("jwt" = []))
 )]
 pub async fn list_groups_permissions(
-    Query(params): Query<GroupPermissionQuery>,
     State(state): State<AppState>,
-) -> AppResult<Json<Vec<GroupPermissionResponse>>> {
-    let items =
-        crate::service::groups_permissions::list_all(&state, params.group_id, params.user_id)
-            .await?;
-    Ok(Json(items))
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedGroupPermissionsResponse>> {
+    let result = crate::service::groups_permissions::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedGroupPermissionsResponse::from(result)))
 }
 
 /// Get a group permission by id.

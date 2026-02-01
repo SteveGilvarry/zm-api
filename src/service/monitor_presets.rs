@@ -2,6 +2,7 @@ use crate::dto::request::monitor_presets::{
     CreateMonitorPresetRequest, UpdateMonitorPresetRequest,
 };
 use crate::dto::response::MonitorPresetResponse;
+use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -16,6 +17,16 @@ pub async fn list_all(
         repo::monitor_presets::find_all(state.db()).await?
     };
     Ok(items.iter().map(MonitorPresetResponse::from).collect())
+}
+
+pub async fn list_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<MonitorPresetResponse>> {
+    let (items, total) = repo::monitor_presets::find_paginated(state.db(), params).await?;
+    let responses: Vec<MonitorPresetResponse> =
+        items.iter().map(MonitorPresetResponse::from).collect();
+    Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<MonitorPresetResponse> {

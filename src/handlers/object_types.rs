@@ -1,25 +1,34 @@
 use crate::dto::request::object_types::{CreateObjectTypeRequest, UpdateObjectTypeRequest};
+use crate::dto::response::object_types::PaginatedObjectTypesResponse;
 use crate::dto::response::ObjectTypeResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 
-/// List all object types.
+/// List all object types with pagination.
+///
+/// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/object-types",
-    responses((status = 200, description = "List object types", body = [ObjectTypeResponse])),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of object types", body = PaginatedObjectTypesResponse)),
     tag = "Object Types",
     security(("jwt" = []))
 )]
 pub async fn list_object_types(
     State(state): State<AppState>,
-) -> AppResult<Json<Vec<ObjectTypeResponse>>> {
-    let items = crate::service::object_types::list_all(&state).await?;
-    Ok(Json(items))
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedObjectTypesResponse>> {
+    let result = crate::service::object_types::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedObjectTypesResponse::from(result)))
 }
 
 /// Get an object type by id.

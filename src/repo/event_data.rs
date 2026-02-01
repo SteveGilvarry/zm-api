@@ -1,4 +1,5 @@
 use crate::dto::request::event_data::{CreateEventDataRequest, UpdateEventDataRequest};
+use crate::dto::PaginationParams;
 use crate::entity::event_data::{
     ActiveModel, Column, Entity as EventData, Model as EventDataModel,
 };
@@ -17,6 +18,25 @@ pub async fn find_all(
     }
 
     Ok(query.all(db).await?)
+}
+
+pub async fn find_paginated(
+    db: &DatabaseConnection,
+    params: &PaginationParams,
+    event_id: Option<u64>,
+) -> AppResult<(Vec<EventDataModel>, u64)> {
+    let mut query = EventData::find();
+
+    if let Some(eid) = event_id {
+        query = query.filter(Column::EventId.eq(eid));
+    }
+
+    let paginator = query.paginate(db, params.page_size());
+    let total = paginator.num_items().await?;
+    let items = paginator
+        .fetch_page(params.page().saturating_sub(1))
+        .await?;
+    Ok((items, total))
 }
 
 pub async fn find_by_id(db: &DatabaseConnection, id: u64) -> AppResult<Option<EventDataModel>> {

@@ -3,6 +3,7 @@ use crate::dto::request::{
     AlarmControlRequest, CreateMonitorRequest, UpdateMonitorRequest, UpdateStateRequest,
 };
 use crate::dto::response::{MonitorResponse, MonitorStreamingDetails};
+use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::entity::monitors;
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
@@ -16,6 +17,16 @@ pub async fn list_all(state: &AppState) -> AppResult<Vec<MonitorResponse>> {
     info!("Listing all monitors.");
     let monitors = repo::monitors::find_all(state.db()).await?;
     Ok(monitors.into_iter().map(MonitorResponse::from).collect())
+}
+
+pub async fn list_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<MonitorResponse>> {
+    info!("Listing monitors with pagination.");
+    let (items, total) = repo::monitors::find_paginated(state.db(), params).await?;
+    let responses: Vec<MonitorResponse> = items.into_iter().map(MonitorResponse::from).collect();
+    Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<MonitorResponse> {

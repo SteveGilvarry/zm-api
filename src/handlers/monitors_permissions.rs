@@ -1,41 +1,34 @@
 use crate::dto::request::monitors_permissions::{
     CreateMonitorPermissionRequest, UpdateMonitorPermissionRequest,
 };
+use crate::dto::response::monitors_permissions::PaginatedMonitorPermissionsResponse;
 use crate::dto::response::MonitorPermissionResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
-pub struct MonitorPermissionQuery {
-    monitor_id: Option<u32>,
-    user_id: Option<u32>,
-}
-
-/// List all monitor permissions.
+/// List all monitor permissions with pagination.
 #[utoipa::path(
     get,
     path = "/api/v3/monitors-permissions",
     params(
-        ("monitor_id" = Option<u32>, Query, description = "Filter by monitor ID"),
-        ("user_id" = Option<u32>, Query, description = "Filter by user ID")
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
     ),
-    responses((status = 200, description = "List monitor permissions", body = [MonitorPermissionResponse])),
+    responses((status = 200, description = "Paginated list of monitor permissions", body = PaginatedMonitorPermissionsResponse)),
     tag = "Monitors Permissions",
     security(("jwt" = []))
 )]
 pub async fn list_monitors_permissions(
-    Query(params): Query<MonitorPermissionQuery>,
     State(state): State<AppState>,
-) -> AppResult<Json<Vec<MonitorPermissionResponse>>> {
-    let items =
-        crate::service::monitors_permissions::list_all(&state, params.monitor_id, params.user_id)
-            .await?;
-    Ok(Json(items))
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedMonitorPermissionsResponse>> {
+    let result = crate::service::monitors_permissions::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedMonitorPermissionsResponse::from(result)))
 }
 
 /// Get a monitor permission by id.

@@ -1,6 +1,8 @@
 use crate::dto::request::tags::{CreateTagRequest, UpdateTagRequest};
 use crate::dto::response::events_tags::{EventSummary, TagDetailResponse};
+use crate::dto::response::tags::PaginatedTagsResponse;
 use crate::dto::response::TagResponse;
+use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -19,6 +21,26 @@ pub async fn list_all(state: &AppState) -> AppResult<Vec<TagResponse>> {
             TagResponse::with_event_count(t, count)
         })
         .collect())
+}
+
+pub async fn list_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+) -> AppResult<PaginatedTagsResponse> {
+    let (items, total) = repo::tags::find_paginated(state.db(), params).await?;
+    let counts = repo::tags::get_event_counts(state.db()).await?;
+
+    let responses: Vec<TagResponse> = items
+        .iter()
+        .map(|t| {
+            let count = counts.get(&t.id).copied().unwrap_or(0);
+            TagResponse::with_event_count(t, count)
+        })
+        .collect();
+
+    Ok(PaginatedTagsResponse::from(PaginatedResponse::from_params(
+        responses, total, params,
+    )))
 }
 
 pub async fn get_by_id(state: &AppState, id: u64) -> AppResult<TagResponse> {

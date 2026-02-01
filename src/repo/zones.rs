@@ -1,3 +1,4 @@
+use crate::dto::PaginationParams;
 use crate::entity::zones::{Entity as Zones, Model as ZoneModel};
 use crate::error::AppResult;
 use sea_orm::*;
@@ -11,6 +12,21 @@ pub async fn find_by_monitor(
         .all(db)
         .await?;
     Ok(zones)
+}
+
+pub async fn find_by_monitor_paginated(
+    db: &DatabaseConnection,
+    monitor_id: u32,
+    params: &PaginationParams,
+) -> AppResult<(Vec<ZoneModel>, u64)> {
+    let paginator = Zones::find()
+        .filter(crate::entity::zones::Column::MonitorId.eq(monitor_id))
+        .paginate(db, params.page_size());
+    let total = paginator.num_items().await?;
+    let items = paginator
+        .fetch_page(params.page().saturating_sub(1))
+        .await?;
+    Ok((items, total))
 }
 
 pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<ZoneModel>> {

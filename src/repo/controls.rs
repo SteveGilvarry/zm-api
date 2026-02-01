@@ -1,10 +1,23 @@
 use crate::dto::request::controls::{CreateControlRequest, UpdateControlRequest};
+use crate::dto::PaginationParams;
 use crate::entity::controls::{ActiveModel, Entity as Controls, Model as ControlModel};
 use crate::error::AppResult;
 use sea_orm::*;
 
 pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<ControlModel>> {
     Ok(Controls::find().all(db).await?)
+}
+
+pub async fn find_paginated(
+    db: &DatabaseConnection,
+    params: &PaginationParams,
+) -> AppResult<(Vec<ControlModel>, u64)> {
+    let paginator = Controls::find().paginate(db, params.page_size());
+    let total = paginator.num_items().await?;
+    let items = paginator
+        .fetch_page(params.page().saturating_sub(1))
+        .await?;
+    Ok((items, total))
 }
 
 pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<ControlModel>> {

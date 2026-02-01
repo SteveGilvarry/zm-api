@@ -3,29 +3,39 @@ use axum::http::StatusCode;
 use axum::Json;
 
 use crate::dto::request::events_tags::{CreateEventTagRequest, EventTagQuery};
+use crate::dto::response::events_tags::PaginatedEventsTagsResponse;
 use crate::dto::response::EventTagResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 
-/// List all event-tag associations.
+/// List all event-tag associations with pagination.
 #[utoipa::path(
     get,
     path = "/api/v3/events-tags",
     params(
         ("event_id" = Option<u64>, Query, description = "Filter by event ID"),
-        ("tag_id" = Option<u64>, Query, description = "Filter by tag ID")
+        ("tag_id" = Option<u64>, Query, description = "Filter by tag ID"),
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
     ),
-    responses((status = 200, description = "List event-tag associations", body = [EventTagResponse])),
+    responses((status = 200, description = "Paginated list of event-tag associations", body = PaginatedEventsTagsResponse)),
     tag = "Events Tags",
     security(("jwt" = []))
 )]
 pub async fn list_events_tags(
-    Query(params): Query<EventTagQuery>,
+    Query(filter): Query<EventTagQuery>,
+    Query(params): Query<PaginationParams>,
     State(state): State<AppState>,
-) -> AppResult<Json<Vec<EventTagResponse>>> {
-    let items =
-        crate::service::events_tags::list_all(&state, params.event_id, params.tag_id).await?;
-    Ok(Json(items))
+) -> AppResult<Json<PaginatedEventsTagsResponse>> {
+    let result = crate::service::events_tags::list_paginated(
+        &state,
+        filter.event_id,
+        filter.tag_id,
+        &params,
+    )
+    .await?;
+    Ok(Json(PaginatedEventsTagsResponse::from(result)))
 }
 
 /// Get an event-tag association by composite ID.

@@ -1,39 +1,34 @@
 use crate::dto::request::groups_monitors::CreateGroupMonitorRequest;
+use crate::dto::response::groups_monitors::PaginatedGroupMonitorsResponse;
 use crate::dto::response::GroupMonitorResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
-pub struct GroupMonitorQuery {
-    group_id: Option<u32>,
-    monitor_id: Option<u32>,
-}
-
-/// List all group-monitor associations.
+/// List all group-monitor associations with pagination.
+///
+/// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/groups-monitors",
     params(
-        ("group_id" = Option<u32>, Query, description = "Filter by group ID"),
-        ("monitor_id" = Option<u32>, Query, description = "Filter by monitor ID")
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
     ),
-    responses((status = 200, description = "List group-monitor associations", body = [GroupMonitorResponse])),
+    responses((status = 200, description = "Paginated list of group-monitor associations", body = PaginatedGroupMonitorsResponse)),
     tag = "Groups Monitors",
     security(("jwt" = []))
 )]
 pub async fn list_groups_monitors(
-    Query(params): Query<GroupMonitorQuery>,
     State(state): State<AppState>,
-) -> AppResult<Json<Vec<GroupMonitorResponse>>> {
-    let items =
-        crate::service::groups_monitors::list_all(&state, params.group_id, params.monitor_id)
-            .await?;
-    Ok(Json(items))
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedGroupMonitorsResponse>> {
+    let result = crate::service::groups_monitors::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedGroupMonitorsResponse::from(result)))
 }
 
 /// Get a group-monitor association by id.

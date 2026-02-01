@@ -2,6 +2,7 @@ use crate::dto::request::monitors_permissions::{
     CreateMonitorPermissionRequest, UpdateMonitorPermissionRequest,
 };
 use crate::dto::response::MonitorPermissionResponse;
+use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -19,6 +20,16 @@ pub async fn list_all(
         repo::monitors_permissions::find_all(state.db()).await?
     };
     Ok(items.iter().map(MonitorPermissionResponse::from).collect())
+}
+
+pub async fn list_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<MonitorPermissionResponse>> {
+    let (items, total) = repo::monitors_permissions::find_paginated(state.db(), params).await?;
+    let responses: Vec<MonitorPermissionResponse> =
+        items.iter().map(MonitorPermissionResponse::from).collect();
+    Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<MonitorPermissionResponse> {

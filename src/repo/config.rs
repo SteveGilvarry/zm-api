@@ -1,7 +1,8 @@
+use crate::dto::PaginationParams;
 use crate::entity::config;
 use crate::entity::config::{Column, Entity as Config};
 use crate::error::AppResult;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter};
 
 // Constants for config keys
 pub const ZM_VERSION_KEY: &str = "ZM_DYN_CURR_VERSION";
@@ -38,6 +39,20 @@ pub async fn get_zm_db_version(db: &DatabaseConnection) -> AppResult<String> {
 pub async fn list_all(db: &DatabaseConnection) -> AppResult<Vec<config::Model>> {
     let items = Config::find().all(db).await?;
     Ok(items)
+}
+
+/// List config entries with pagination
+#[tracing::instrument(skip_all)]
+pub async fn find_paginated(
+    db: &DatabaseConnection,
+    params: &PaginationParams,
+) -> AppResult<(Vec<config::Model>, u64)> {
+    let paginator = Config::find().paginate(db, params.page_size());
+    let total = paginator.num_items().await?;
+    let items = paginator
+        .fetch_page(params.page().saturating_sub(1))
+        .await?;
+    Ok((items, total))
 }
 
 /// Find a config entry by name

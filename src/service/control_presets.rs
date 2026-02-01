@@ -2,6 +2,7 @@ use crate::dto::request::control_presets::{
     CreateControlPresetRequest, UpdateControlPresetRequest,
 };
 use crate::dto::response::ControlPresetResponse;
+use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -9,6 +10,16 @@ use crate::server::state::AppState;
 pub async fn list_all(state: &AppState) -> AppResult<Vec<ControlPresetResponse>> {
     let items = repo::control_presets::find_all(state.db()).await?;
     Ok(items.iter().map(ControlPresetResponse::from).collect())
+}
+
+pub async fn list_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<ControlPresetResponse>> {
+    let (items, total) = repo::control_presets::find_paginated(state.db(), params).await?;
+    let responses: Vec<ControlPresetResponse> =
+        items.iter().map(ControlPresetResponse::from).collect();
+    Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
 pub async fn list_by_monitor(

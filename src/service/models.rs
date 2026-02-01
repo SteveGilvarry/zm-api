@@ -1,4 +1,5 @@
 use crate::dto::response::ModelResponse;
+use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -9,6 +10,16 @@ pub async fn list_all(
 ) -> AppResult<Vec<ModelResponse>> {
     let items = repo::models::find_all(state.db(), manufacturer_id).await?;
     Ok(items.iter().map(ModelResponse::from).collect())
+}
+
+pub async fn list_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+    manufacturer_id: Option<u32>,
+) -> AppResult<PaginatedResponse<ModelResponse>> {
+    let (items, total) = repo::models::find_paginated(state.db(), params, manufacturer_id).await?;
+    let responses: Vec<ModelResponse> = items.iter().map(ModelResponse::from).collect();
+    Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<ModelResponse> {

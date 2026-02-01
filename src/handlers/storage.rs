@@ -1,9 +1,11 @@
 use crate::dto::request::CreateStorageRequest;
+use crate::dto::response::storage::PaginatedStorageResponse;
 use crate::dto::response::StorageResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 use serde::Deserialize;
@@ -14,13 +16,20 @@ use serde::Deserialize;
 #[utoipa::path(
     get,
     path = "/api/v3/storage",
-    responses((status = 200, description = "List storage", body = serde_json::Value)),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of storage", body = PaginatedStorageResponse)),
     tag = "Storage",
     security(("jwt" = []))
 )]
-pub async fn list_storage(State(state): State<AppState>) -> AppResult<Json<Vec<StorageResponse>>> {
-    let items = crate::service::storage::list_all(&state).await?;
-    Ok(Json(items))
+pub async fn list_storage(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedStorageResponse>> {
+    let result = crate::service::storage::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedStorageResponse::from(result)))
 }
 
 /// Get a storage entry by id.

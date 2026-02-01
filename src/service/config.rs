@@ -1,5 +1,6 @@
 use crate::dto::request::config::UpdateConfigRequest;
 use crate::dto::response::config::ConfigResponse;
+use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult};
 use crate::repo;
 use crate::server::state::AppState;
@@ -26,6 +27,15 @@ fn to_response(m: &crate::entity::config::Model) -> ConfigResponse {
 pub async fn list_all(state: &AppState) -> AppResult<Vec<ConfigResponse>> {
     let items = repo::config::list_all(state.db()).await?;
     Ok(items.iter().map(to_response).collect())
+}
+
+pub async fn list_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<ConfigResponse>> {
+    let (items, total) = repo::config::find_paginated(state.db(), params).await?;
+    let responses: Vec<ConfigResponse> = items.iter().map(to_response).collect();
+    Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
 pub async fn get_by_name(state: &AppState, name: &str) -> AppResult<ConfigResponse> {

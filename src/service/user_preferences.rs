@@ -2,6 +2,7 @@ use crate::dto::request::user_preferences::{
     CreateUserPreferenceRequest, UpdateUserPreferenceRequest,
 };
 use crate::dto::response::UserPreferenceResponse;
+use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -16,6 +17,16 @@ pub async fn list_all(
         repo::user_preferences::find_all(state.db()).await?
     };
     Ok(items.iter().map(UserPreferenceResponse::from).collect())
+}
+
+pub async fn list_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<UserPreferenceResponse>> {
+    let (items, total) = repo::user_preferences::find_paginated(state.db(), params).await?;
+    let responses: Vec<UserPreferenceResponse> =
+        items.iter().map(UserPreferenceResponse::from).collect();
+    Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<UserPreferenceResponse> {

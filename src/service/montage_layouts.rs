@@ -2,6 +2,7 @@ use crate::dto::request::montage_layouts::{
     CreateMontageLayoutRequest, UpdateMontageLayoutRequest,
 };
 use crate::dto::response::MontageLayoutResponse;
+use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -16,6 +17,16 @@ pub async fn list_all(
         repo::montage_layouts::find_all(state.db()).await?
     };
     Ok(items.iter().map(MontageLayoutResponse::from).collect())
+}
+
+pub async fn list_paginated(
+    state: &AppState,
+    params: &PaginationParams,
+) -> AppResult<PaginatedResponse<MontageLayoutResponse>> {
+    let (items, total) = repo::montage_layouts::find_paginated(state.db(), params).await?;
+    let responses: Vec<MontageLayoutResponse> =
+        items.iter().map(MontageLayoutResponse::from).collect();
+    Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
 pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<MontageLayoutResponse> {

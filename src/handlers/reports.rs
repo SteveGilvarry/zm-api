@@ -1,23 +1,34 @@
 use crate::dto::request::reports::{CreateReportRequest, UpdateReportRequest};
+use crate::dto::response::reports::PaginatedReportsResponse;
 use crate::dto::response::ReportResponse;
+use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 
-/// List all reports.
+/// List all reports with pagination.
+///
+/// - Requires a valid JWT.
 #[utoipa::path(
     get,
     path = "/api/v3/reports",
-    responses((status = 200, description = "List reports", body = [ReportResponse])),
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    responses((status = 200, description = "Paginated list of reports", body = PaginatedReportsResponse)),
     tag = "Reports",
     security(("jwt" = []))
 )]
-pub async fn list_reports(State(state): State<AppState>) -> AppResult<Json<Vec<ReportResponse>>> {
-    let items = crate::service::reports::list_all(&state).await?;
-    Ok(Json(items))
+pub async fn list_reports(
+    State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
+) -> AppResult<Json<PaginatedReportsResponse>> {
+    let result = crate::service::reports::list_paginated(&state, &params).await?;
+    Ok(Json(PaginatedReportsResponse::from(result)))
 }
 
 /// Get a report by id.
