@@ -107,6 +107,10 @@ use crate::util::claim::UserClaims;
         crate::handlers::frames::list_frames,
         crate::handlers::frames::update_frame,
 
+        // go2rtc proxy
+        crate::handlers::go2rtc_proxy::go2rtc_ws_proxy,
+        crate::handlers::go2rtc_proxy::go2rtc_typed_ws_proxy,
+
         // groups
         crate::handlers::groups::create_group,
         crate::handlers::groups::delete_group,
@@ -126,6 +130,16 @@ use crate::util::claim::UserClaims;
         crate::handlers::groups_permissions::get_group_permission,
         crate::handlers::groups_permissions::list_groups_permissions,
         crate::handlers::groups_permissions::update_group_permission,
+
+        // hls streaming
+        crate::handlers::hls::list_sessions,
+        crate::handlers::hls::start_hls_stream,
+        crate::handlers::hls::stop_hls_stream,
+        crate::handlers::hls::get_hls_stats,
+        crate::handlers::hls::get_master_playlist,
+        crate::handlers::hls::get_media_playlist,
+        crate::handlers::hls::get_init_segment,
+        crate::handlers::hls::get_segment,
 
         // logs
         crate::handlers::logs::get_log,
@@ -192,6 +206,16 @@ use crate::util::claim::UserClaims;
         crate::handlers::mse::get_stream_stats,
         crate::handlers::mse::get_streams,
         crate::handlers::mse::websocket_handler,
+
+        // native webrtc
+        crate::handlers::webrtc_native::signaling_websocket,
+        crate::handlers::webrtc_native::handle_offer,
+        crate::handlers::webrtc_native::add_ice_candidate,
+        crate::handlers::webrtc_native::close_session,
+        crate::handlers::webrtc_native::get_stats,
+        crate::handlers::webrtc_native::list_sessions,
+        crate::handlers::webrtc_native::get_session,
+        crate::handlers::webrtc_native::health_check,
 
         // object types
         crate::handlers::object_types::create_object_type,
@@ -441,6 +465,10 @@ use crate::util::claim::UserClaims;
             crate::dto::request::groups_permissions::UpdateGroupPermissionRequest,
             crate::dto::response::groups_permissions::GroupPermissionResponse,
 
+            // hls streaming
+            crate::handlers::hls::HlsStartResponse,
+            crate::handlers::hls::HlsStatsResponse,
+
             // logs
             crate::dto::request::logs::LogQueryParams,
             crate::dto::response::logs::LogResponse,
@@ -481,6 +509,15 @@ use crate::util::claim::UserClaims;
             crate::dto::request::montage_layouts::CreateMontageLayoutRequest,
             crate::dto::request::montage_layouts::UpdateMontageLayoutRequest,
             crate::dto::response::montage_layouts::MontageLayoutResponse,
+
+            // native webrtc
+            crate::handlers::webrtc_native::SignalingQuery,
+            crate::handlers::webrtc_native::SessionInfoResponse,
+            crate::handlers::webrtc_native::NativeWebRtcStatsResponse,
+            crate::handlers::webrtc_native::OfferRequest,
+            crate::handlers::webrtc_native::AnswerResponse,
+            crate::handlers::webrtc_native::IceCandidateRequest,
+            crate::handlers::webrtc_native::SuccessResponse,
 
             // object types
             crate::dto::request::object_types::CreateObjectTypeRequest,
@@ -612,6 +649,7 @@ use crate::util::claim::UserClaims;
         (name = "Groups", description = "Group management endpoints"),
         (name = "Groups Monitors", description = "Group-monitor associations"),
         (name = "Groups Permissions", description = "Group permission management"),
+        (name = "HLS Streaming", description = "HTTP Live Streaming endpoints"),
         (name = "Logs", description = "Log endpoints"),
         (name = "Manufacturers", description = "Camera manufacturers"),
         (name = "Models", description = "Camera models"),
@@ -621,6 +659,7 @@ use crate::util::claim::UserClaims;
         (name = "Monitors Permissions", description = "Monitor permission management"),
         (name = "Montage Layouts", description = "UI montage layouts"),
         (name = "MSE", description = "Media Source Extensions streaming endpoints"),
+        (name = "Native WebRTC", description = "Native WebRTC streaming (Phase 2)"),
         (name = "Object Types", description = "Object detection type definitions"),
         (name = "PTZ", description = "Pan-Tilt-Zoom camera control"),
         (name = "Reports", description = "Report definitions and templates"),
