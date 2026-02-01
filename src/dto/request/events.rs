@@ -5,6 +5,40 @@ use utoipa::ToSchema;
 use crate::dto::wrappers::{DateTimeWrapper, DecimalWrapper};
 use crate::entity::sea_orm_active_enums::Orientation;
 
+/// Field to sort events by
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EventSortField {
+    /// Sort by event start time (default)
+    #[default]
+    StartTime,
+    /// Sort by event end time
+    EndTime,
+    /// Sort by number of alarm frames
+    AlarmFrames,
+    /// Sort by maximum score
+    MaxScore,
+    /// Sort by average score
+    AvgScore,
+    /// Sort by total score
+    TotScore,
+    /// Sort by event duration/length
+    Length,
+    /// Sort by event ID
+    Id,
+}
+
+/// Sort direction
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SortDirection {
+    /// Ascending order (oldest first, lowest score first)
+    Asc,
+    /// Descending order (newest first, highest score first) - default
+    #[default]
+    Desc,
+}
+
 #[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
 pub struct EventQueryParams {
     #[schema(example = "1")]
@@ -26,6 +60,26 @@ pub struct EventQueryParams {
     #[schema(example = "2025-04-29T23:59:59Z")]
     #[garde(skip)]
     pub end_time: Option<DateTimeWrapper>,
+
+    /// Field to sort results by (default: start_time)
+    #[schema(example = "start_time")]
+    #[garde(skip)]
+    pub sort: Option<EventSortField>,
+
+    /// Sort direction (default: desc)
+    #[schema(example = "desc")]
+    #[garde(skip)]
+    pub direction: Option<SortDirection>,
+
+    /// Filter events with at least this many alarm frames
+    #[schema(example = "5")]
+    #[garde(range(min = 0))]
+    pub alarm_frames_min: Option<u32>,
+
+    /// Filter to show only archived events
+    #[schema(example = "true")]
+    #[garde(skip)]
+    pub archived: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
@@ -96,4 +150,34 @@ pub struct EventUpdateRequest {
     #[schema(example = "ROTATE_0")]
     #[garde(skip)]
     pub orientation: Option<Orientation>,
+
+    /// Mark event as archived (protected from auto-deletion)
+    #[schema(example = true)]
+    #[garde(skip)]
+    pub archived: Option<bool>,
+
+    /// Lock event to prevent deletion by filters
+    #[schema(example = false)]
+    #[garde(skip)]
+    pub locked: Option<bool>,
+
+    /// Mark event as having been emailed
+    #[schema(example = false)]
+    #[garde(skip)]
+    pub emailed: Option<bool>,
+
+    /// Mark event as having been sent via push notification
+    #[schema(example = false)]
+    #[garde(skip)]
+    pub messaged: Option<bool>,
+
+    /// Mark event as having been uploaded to external storage
+    #[schema(example = false)]
+    #[garde(skip)]
+    pub uploaded: Option<bool>,
+
+    /// Mark event as having triggered an external action
+    #[schema(example = false)]
+    #[garde(skip)]
+    pub executed: Option<bool>,
 }

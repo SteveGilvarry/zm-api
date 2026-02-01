@@ -15,6 +15,15 @@ struct CpuBreakdown {
     usage_percent: f64,
 }
 
+/// Disk usage statistics.
+#[derive(Default)]
+struct DiskInfo {
+    total: u64,
+    used: u64,
+    free: u64,
+    usage_percent: f64,
+}
+
 /// Collect current system statistics.
 pub fn collect_stats() -> io::Result<SystemStats> {
     let cpu_load = read_load_average()?;
@@ -27,6 +36,7 @@ pub fn collect_stats() -> io::Result<SystemStats> {
     });
     let (total_mem, free_mem) = read_memory_info()?;
     let (total_swap, free_swap) = read_swap_info().unwrap_or((0, 0));
+    let disk_info = read_disk_info().unwrap_or_default();
 
     Ok(SystemStats {
         cpu_load,
@@ -39,6 +49,10 @@ pub fn collect_stats() -> io::Result<SystemStats> {
         free_mem,
         total_swap,
         free_swap,
+        total_disk: disk_info.total,
+        used_disk: disk_info.used,
+        free_disk: disk_info.free,
+        disk_usage_percent: disk_info.usage_percent,
     })
 }
 
@@ -188,6 +202,54 @@ fn read_swap_info() -> io::Result<(u64, u64)> {
     }
 
     Ok((total_swap, free_swap))
+}
+
+/// Read disk usage information for the root filesystem.
+///
+/// Uses nix::sys::statvfs to get filesystem statistics for "/".
+fn read_disk_info() -> io::Result<DiskInfo> {
+    #[cfg(unix)]
+    {
+        use nix::sys::statvfs::statvfs;
+
+        let stat = statvfs("/").map_err(io::Error::other)?;
+
+        // Calculate sizes in bytes (cast to u64 for cross-platform compatibility)
+        // The statvfs fields are u32 on some platforms (macOS) and u64 on others (Linux)
+        #[allow(clippy::unnecessary_cast)]
+        let block_size = stat.fragment_size() as u64;
+        #[allow(clippy::unnecessary_cast)]
+        let total = (stat.blocks() as u64) * block_size;
+        #[allow(clippy::unnecessary_cast)]
+        let free = (stat.blocks_free() as u64) * block_size;
+        #[allow(clippy::unnecessary_cast)]
+        let available = (stat.blocks_available() as u64) * block_size;
+
+        // Used = total - free (not available, as that accounts for reserved blocks)
+        let used = total.saturating_sub(free);
+
+        // Calculate usage percentage based on non-reserved space
+        // This matches how `df` calculates usage
+        let usable_total = used + available;
+        let usage_percent = if usable_total > 0 {
+            (used as f64 / usable_total as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        Ok(DiskInfo {
+            total,
+            used,
+            free: available, // Report available space (what users can use)
+            usage_percent,
+        })
+    }
+
+    #[cfg(not(unix))]
+    {
+        // Non-Unix systems: return zeros
+        Ok(DiskInfo::default())
+    }
 }
 
 /// Get total system memory using a platform-appropriate method.

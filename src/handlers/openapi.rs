@@ -62,11 +62,16 @@ use crate::util::claim::UserClaims;
 
         // events
         crate::handlers::events::get_event_counts,
+        crate::handlers::events::get_event_counts_by_monitor,
         crate::handlers::events::create_event,
         crate::handlers::events::delete_event,
         crate::handlers::events::get_event,
         crate::handlers::events::list_events,
         crate::handlers::events::update_event,
+
+        // event summaries
+        crate::handlers::event_summaries::list_event_summaries,
+        crate::handlers::event_summaries::get_event_summary,
 
         // events tags
         crate::handlers::events_tags::create_event_tag,
@@ -357,11 +362,18 @@ use crate::util::claim::UserClaims;
             // events
             crate::dto::request::events::EventCreateRequest,
             crate::dto::request::events::EventQueryParams,
+            crate::dto::request::events::EventSortField,
+            crate::dto::request::events::SortDirection,
             crate::dto::request::events::EventUpdateRequest,
             crate::dto::response::events::EventCountResponse,
             crate::dto::response::events::EventCountsResponse,
+            crate::dto::response::events::EventCountsByMonitorResponse,
+            crate::dto::response::events::MonitorEventCount,
             crate::dto::response::events::EventResponse,
             crate::dto::response::events::PaginatedEventsResponse,
+
+            // event summaries
+            crate::dto::response::event_summaries::EventSummaryResponse,
 
             // events tags
             crate::dto::request::events_tags::CreateEventTagRequest,
@@ -395,7 +407,9 @@ use crate::util::claim::UserClaims;
             crate::dto::response::groups_permissions::GroupPermissionResponse,
 
             // logs
+            crate::dto::request::logs::LogQueryParams,
             crate::dto::response::logs::LogResponse,
+            crate::dto::response::logs::PaginatedLogsResponse,
 
             // manufacturers
             crate::dto::request::manufacturers::CreateManufacturerRequest,

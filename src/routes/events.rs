@@ -21,6 +21,11 @@ pub fn routes() -> Router<AppState> {
                 .patch(handlers::events::update_event)
                 .delete(handlers::events::delete_event),
         )
-        // Use fully qualified handler path
+        // Event counts grouped by hour
         .route("/counts/{hours}", get(handlers::events::get_event_counts))
+        // Event counts grouped by monitor (for console view)
+        .route(
+            "/counts-by-monitor/{hours}",
+            get(handlers::events::get_event_counts_by_monitor),
+        )
 }

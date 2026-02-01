@@ -11,6 +11,7 @@ pub mod frames;
 pub mod groups;
 pub mod groups_monitors;
 pub mod groups_permissions;
+pub mod logs;
 pub mod manufacturers;
 pub mod models;
 mod monitor;
@@ -19,6 +20,7 @@ pub mod monitor_status;
 pub mod monitors_permissions;
 pub mod montage_layouts;
 pub mod object_types;
+pub mod ptz;
 pub mod reports;
 #[allow(clippy::module_inception)]
 mod request;

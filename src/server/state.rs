@@ -12,6 +12,7 @@ use crate::constant::ENV_PREFIX;
 use crate::daemon::DaemonManager;
 use crate::error::AppResult;
 use crate::mse_client::MseStreamManager;
+use crate::ptz::PtzManager;
 use crate::streaming::hls::HlsSessionManager;
 use crate::streaming::webrtc::{session::SessionManager, WebRtcEngine};
 
@@ -29,6 +30,8 @@ pub struct AppState {
     pub hls_session_manager: Option<Arc<HlsSessionManager>>,
     // Daemon Controller
     pub daemon_manager: Option<Arc<DaemonManager>>,
+    // PTZ Manager
+    pub ptz_manager: Arc<PtzManager>,
 }
 
 impl AppState {
@@ -85,6 +88,10 @@ impl AppState {
             None
         };
 
+        // Initialize PTZ manager
+        let ptz_manager = Arc::new(PtzManager::with_defaults());
+        tracing::info!("PTZ manager initialized");
+
         Ok(Self {
             config: Arc::new(config),
             db,
@@ -95,6 +102,7 @@ impl AppState {
             native_session_manager,
             hls_session_manager,
             daemon_manager,
+            ptz_manager,
         })
     }
 
@@ -129,6 +137,12 @@ impl AppState {
             native_session_manager: None,
             hls_session_manager: None,
             daemon_manager: None,
+            ptz_manager: std::sync::Arc::new(PtzManager::with_defaults()),
         }
+    }
+
+    /// Returns a reference to the PTZ manager
+    pub fn ptz_manager(&self) -> &PtzManager {
+        &self.ptz_manager
     }
 }

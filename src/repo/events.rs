@@ -4,27 +4,101 @@ use sea_orm::sea_query::{Alias, Order, SqliteQueryBuilder};
 use sea_orm::*;
 use tracing::instrument;
 
+use crate::dto::request::events::{EventSortField, SortDirection};
 use crate::entity::{events, events_tags, prelude::Events, tags};
 use crate::server::state::AppState;
 
-/// Find all events with pagination
+/// Query options for filtering and sorting events
+#[derive(Debug, Default)]
+pub struct EventQueryOptions {
+    pub monitor_id: Option<u32>,
+    pub start_time: Option<sea_orm::prelude::DateTime>,
+    pub end_time: Option<sea_orm::prelude::DateTime>,
+    pub sort_field: EventSortField,
+    pub sort_direction: SortDirection,
+    pub alarm_frames_min: Option<u32>,
+    pub archived: Option<bool>,
+}
+
+/// Helper to get the column for sorting
+fn get_sort_column(field: EventSortField) -> events::Column {
+    match field {
+        EventSortField::StartTime => events::Column::StartDateTime,
+        EventSortField::EndTime => events::Column::EndDateTime,
+        EventSortField::AlarmFrames => events::Column::AlarmFrames,
+        EventSortField::MaxScore => events::Column::MaxScore,
+        EventSortField::AvgScore => events::Column::AvgScore,
+        EventSortField::TotScore => events::Column::TotScore,
+        EventSortField::Length => events::Column::Length,
+        EventSortField::Id => events::Column::Id,
+    }
+}
+
+/// Helper to apply sorting to a query
+fn apply_sorting<E: EntityTrait>(
+    query: Select<E>,
+    column: E::Column,
+    direction: SortDirection,
+) -> Select<E> {
+    match direction {
+        SortDirection::Asc => query.order_by_asc(column),
+        SortDirection::Desc => query.order_by_desc(column),
+    }
+}
+
+/// Find all events with pagination and filtering/sorting options
 #[instrument(skip(state))]
 pub async fn find_all(
     state: &AppState,
     page: u64,
     page_size: u64,
 ) -> Result<(Vec<events::Model>, u64), DbErr> {
-    let paginator = Events::find()
-        .order_by_desc(events::Column::StartDateTime)
-        .paginate(state.db(), page_size);
+    find_with_options(state, EventQueryOptions::default(), page, page_size).await
+}
 
+/// Find events with full query options
+#[instrument(skip(state))]
+pub async fn find_with_options(
+    state: &AppState,
+    options: EventQueryOptions,
+    page: u64,
+    page_size: u64,
+) -> Result<(Vec<events::Model>, u64), DbErr> {
+    let mut query = Events::find();
+
+    // Apply filters
+    if let Some(monitor_id) = options.monitor_id {
+        query = query.filter(events::Column::MonitorId.eq(monitor_id));
+    }
+
+    if let Some(start) = options.start_time {
+        query = query.filter(events::Column::StartDateTime.gte(start));
+    }
+
+    if let Some(end) = options.end_time {
+        query = query.filter(events::Column::EndDateTime.lte(end));
+    }
+
+    if let Some(min_frames) = options.alarm_frames_min {
+        query = query.filter(events::Column::AlarmFrames.gte(min_frames));
+    }
+
+    if let Some(archived) = options.archived {
+        query = query.filter(events::Column::Archived.eq(if archived { 1u8 } else { 0u8 }));
+    }
+
+    // Apply sorting
+    let sort_column = get_sort_column(options.sort_field);
+    query = apply_sorting(query, sort_column, options.sort_direction);
+
+    let paginator = query.paginate(state.db(), page_size);
     let total = paginator.num_items().await?;
     let events = paginator.fetch_page(page).await?;
 
     Ok((events, total))
 }
 
-/// Find events by monitor ID with optional date range filter
+/// Find events by monitor ID with optional date range filter (legacy helper)
 #[instrument(skip(state))]
 pub async fn find_by_monitor_id(
     state: &AppState,
@@ -34,23 +108,18 @@ pub async fn find_by_monitor_id(
     page: u64,
     page_size: u64,
 ) -> Result<(Vec<events::Model>, u64), DbErr> {
-    let mut query = Events::find()
-        .filter(events::Column::MonitorId.eq(monitor_id))
-        .order_by_desc(events::Column::StartDateTime);
-
-    if let Some(start) = start_time {
-        query = query.filter(events::Column::StartDateTime.gte(start));
-    }
-
-    if let Some(end) = end_time {
-        query = query.filter(events::Column::EndDateTime.lte(end));
-    }
-
-    let paginator = query.paginate(state.db(), page_size);
-    let total = paginator.num_items().await?;
-    let events = paginator.fetch_page(page).await?;
-
-    Ok((events, total))
+    find_with_options(
+        state,
+        EventQueryOptions {
+            monitor_id: Some(monitor_id),
+            start_time,
+            end_time,
+            ..Default::default()
+        },
+        page,
+        page_size,
+    )
+    .await
 }
 
 /// Find event by ID

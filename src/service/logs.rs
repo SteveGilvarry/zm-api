@@ -1,8 +1,39 @@
-use crate::dto::response::LogResponse;
+use crate::dto::request::logs::LogQueryParams;
+use crate::dto::response::logs::{LogResponse, PaginatedLogsResponse};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
+use crate::repo::logs::LogQueryOptions;
 use crate::server::state::AppState;
 
+/// Default page size for log listing
+const DEFAULT_PAGE_SIZE: u64 = 50;
+
+/// List logs with pagination and filtering
+pub async fn list(state: &AppState, params: &LogQueryParams) -> AppResult<PaginatedLogsResponse> {
+    let page = params.page.unwrap_or(1);
+    let page_size = params.page_size.unwrap_or(DEFAULT_PAGE_SIZE);
+
+    let options = LogQueryOptions {
+        component: params.component.clone(),
+        level: params.level,
+        server_id: params.server_id,
+    };
+
+    let (logs, total) =
+        repo::logs::find_with_options(state.db(), options, page - 1, page_size).await?;
+
+    let total_pages = total.div_ceil(page_size);
+
+    Ok(PaginatedLogsResponse {
+        logs: logs.iter().map(LogResponse::from).collect(),
+        total,
+        per_page: page_size,
+        current_page: page,
+        last_page: total_pages,
+    })
+}
+
+/// List recent logs (legacy helper)
 pub async fn list_recent(state: &AppState, limit: u64) -> AppResult<Vec<LogResponse>> {
     let items = repo::logs::find_all(state.db(), limit).await?;
     Ok(items.iter().map(LogResponse::from).collect())

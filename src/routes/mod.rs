@@ -17,6 +17,7 @@ pub mod controls; // Controls
 pub mod daemon; // Daemon control
 pub mod devices; // Devices
 pub mod event_data; // Event Data
+pub mod event_summaries; // Event Summaries (pre-calculated counts)
 pub mod events; // Add events module
 pub mod events_tags; // Events Tags
 pub mod filters; // Filters
@@ -36,6 +37,7 @@ pub mod monitors_permissions; // Monitors Permissions
 pub mod montage_layouts; // Montage Layouts
 pub mod mse; // Add MSE module
 pub mod object_types; // Object Types
+pub mod ptz; // PTZ control
 pub mod reports; // Reports
 pub mod server;
 pub mod server_stats; // Server Stats
@@ -139,11 +141,13 @@ pub fn create_router_app(state: AppState) -> Router {
         monitors_permissions::add_monitor_permission_routes(Router::new());
     let snapshot_event_routes = snapshots_events::add_snapshot_event_routes(Router::new());
     let event_data_routes = event_data::add_event_data_routes(Router::new());
+    let event_summary_routes = event_summaries::add_event_summaries_routes(Router::new());
     let event_tag_routes = events_tags::add_event_tag_routes(Router::new());
     let go2rtc_proxy_routes = go2rtc_proxy::add_go2rtc_proxy_routes(Router::new());
     let native_webrtc_routes = webrtc_native::add_native_webrtc_routes(Router::new());
     let hls_routes = Router::new().nest("/api/v3/hls", hls::routes());
     let daemon_routes = daemon::add_daemon_routes(Router::new());
+    let ptz_routes = ptz::add_ptz_routes(Router::new());
 
     Router::new()
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
@@ -187,11 +191,13 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(monitor_permission_routes)
         .merge(snapshot_event_routes)
         .merge(event_data_routes)
+        .merge(event_summary_routes)
         .merge(event_tag_routes)
         .merge(go2rtc_proxy_routes)
         .merge(native_webrtc_routes) // Native WebRTC (Phase 2)
         .merge(hls_routes) // HLS streaming (Phase 3)
         .merge(daemon_routes) // Daemon control
+        .merge(ptz_routes) // PTZ control
         .fallback(any(fallback_handler))
         .layer(cors) // Apply CORS middleware to all routes
         .with_state(state)

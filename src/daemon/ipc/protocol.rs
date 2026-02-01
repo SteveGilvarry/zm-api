@@ -267,6 +267,14 @@ pub struct SystemStats {
     pub total_swap: u64,
     /// Free swap in bytes
     pub free_swap: u64,
+    /// Total disk space in bytes (root filesystem)
+    pub total_disk: u64,
+    /// Used disk space in bytes
+    pub used_disk: u64,
+    /// Free disk space in bytes
+    pub free_disk: u64,
+    /// Disk usage percentage
+    pub disk_usage_percent: f64,
 }
 
 #[cfg(test)]

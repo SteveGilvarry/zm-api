@@ -4,7 +4,7 @@ use tracing::instrument;
 
 use crate::{
     dto::{
-        request::events::{EventCreateRequest, EventUpdateRequest},
+        request::events::{EventCreateRequest, EventQueryParams, EventUpdateRequest},
         response::events::{
             EventCountResponse, EventCountsResponse, EventResponse, PaginatedEventsResponse,
         },
@@ -19,17 +19,27 @@ use crate::{
 /// Default page size for paginated event listing
 const DEFAULT_PAGE_SIZE: u64 = 20;
 
-/// List all events with pagination
+/// List events with full query parameters support
 #[instrument(skip(state))]
-pub async fn list_all(
+pub async fn list(
     state: &AppState,
-    page: Option<u64>,
-    page_size: Option<u64>,
+    params: &EventQueryParams,
 ) -> AppResult<PaginatedEventsResponse> {
-    let page = page.unwrap_or(1);
-    let page_size = page_size.unwrap_or(DEFAULT_PAGE_SIZE);
+    let page = params.page.unwrap_or(1);
+    let page_size = params.page_size.unwrap_or(DEFAULT_PAGE_SIZE);
 
-    let (events, total) = events_repo::find_all(state, page - 1, page_size).await?;
+    let options = events_repo::EventQueryOptions {
+        monitor_id: params.monitor_id,
+        start_time: params.start_time.as_ref().map(|dt| dt.0.naive_utc()),
+        end_time: params.end_time.as_ref().map(|dt| dt.0.naive_utc()),
+        sort_field: params.sort.unwrap_or_default(),
+        sort_direction: params.direction.unwrap_or_default(),
+        alarm_frames_min: params.alarm_frames_min,
+        archived: params.archived,
+    };
+
+    let (events, total) =
+        events_repo::find_with_options(state, options, page - 1, page_size).await?;
 
     let total_pages = total.div_ceil(page_size);
 
@@ -58,7 +68,31 @@ pub async fn list_all(
     })
 }
 
-/// List events by monitor ID with pagination
+/// List all events with pagination (legacy helper)
+#[instrument(skip(state))]
+pub async fn list_all(
+    state: &AppState,
+    page: Option<u64>,
+    page_size: Option<u64>,
+) -> AppResult<PaginatedEventsResponse> {
+    list(
+        state,
+        &EventQueryParams {
+            page,
+            page_size,
+            monitor_id: None,
+            start_time: None,
+            end_time: None,
+            sort: None,
+            direction: None,
+            alarm_frames_min: None,
+            archived: None,
+        },
+    )
+    .await
+}
+
+/// List events by monitor ID with pagination (legacy helper)
 #[instrument(skip(state))]
 pub async fn list_by_monitor(
     state: &AppState,
@@ -68,44 +102,23 @@ pub async fn list_by_monitor(
     start_time: Option<DateTime<Utc>>,
     end_time: Option<DateTime<Utc>>,
 ) -> AppResult<PaginatedEventsResponse> {
-    let page = page.unwrap_or(1);
-    let page_size = page_size.unwrap_or(DEFAULT_PAGE_SIZE);
+    use crate::dto::wrappers::DateTimeWrapper;
 
-    let (events, total) = events_repo::find_by_monitor_id(
+    list(
         state,
-        monitor_id,
-        start_time.map(|dt| dt.naive_utc()),
-        end_time.map(|dt| dt.naive_utc()),
-        page - 1,
-        page_size,
+        &EventQueryParams {
+            page,
+            page_size,
+            monitor_id: Some(monitor_id),
+            start_time: start_time.map(DateTimeWrapper),
+            end_time: end_time.map(DateTimeWrapper),
+            sort: None,
+            direction: None,
+            alarm_frames_min: None,
+            archived: None,
+        },
     )
-    .await?;
-
-    let total_pages = total.div_ceil(page_size);
-
-    // Batch load tags for all events
-    let event_ids: Vec<u64> = events.iter().map(|e| e.id).collect();
-    let tags_map = events_repo::find_tags_for_events(state, &event_ids).await?;
-
-    let event_responses = events
-        .into_iter()
-        .map(|e| {
-            let event_id = e.id;
-            let tags: Vec<TagSummary> = tags_map
-                .get(&event_id)
-                .map(|t| t.iter().map(TagSummary::from).collect())
-                .unwrap_or_default();
-            EventResponse::with_tags(e, tags)
-        })
-        .collect();
-
-    Ok(PaginatedEventsResponse {
-        events: event_responses,
-        total,
-        per_page: page_size,
-        current_page: page,
-        last_page: total_pages,
-    })
+    .await
 }
 
 /// Get event by ID
@@ -181,6 +194,30 @@ pub async fn update(
         active_event.orientation = Set(orientation);
     }
 
+    if let Some(archived) = event_update.archived {
+        active_event.archived = Set(if archived { 1 } else { 0 });
+    }
+
+    if let Some(locked) = event_update.locked {
+        active_event.locked = Set(if locked { 1 } else { 0 });
+    }
+
+    if let Some(emailed) = event_update.emailed {
+        active_event.emailed = Set(if emailed { 1 } else { 0 });
+    }
+
+    if let Some(messaged) = event_update.messaged {
+        active_event.messaged = Set(if messaged { 1 } else { 0 });
+    }
+
+    if let Some(uploaded) = event_update.uploaded {
+        active_event.uploaded = Set(if uploaded { 1 } else { 0 });
+    }
+
+    if let Some(executed) = event_update.executed {
+        active_event.executed = Set(if executed { 1 } else { 0 });
+    }
+
     let updated_event = events_repo::update(state, active_event).await?;
     Ok(EventResponse::from(updated_event))
 }
@@ -192,7 +229,7 @@ pub async fn delete(state: &AppState, id: u32) -> AppResult<()> {
     Ok(())
 }
 
-/// Get event counts for the last n hours
+/// Get event counts for the last n hours (grouped by hour)
 #[instrument(skip(state))]
 pub async fn get_event_counts(state: &AppState, hours: i64) -> AppResult<EventCountsResponse> {
     let counts = events_repo::get_counts_by_hour(state, hours).await?;
@@ -207,6 +244,27 @@ pub async fn get_event_counts(state: &AppState, hours: i64) -> AppResult<EventCo
 
     Ok(EventCountsResponse {
         counts: event_counts,
+        hours,
+    })
+}
+
+/// Get event counts for the last n hours (grouped by monitor)
+#[instrument(skip(state))]
+pub async fn get_event_counts_by_monitor(
+    state: &AppState,
+    hours: i64,
+) -> AppResult<crate::dto::response::events::EventCountsByMonitorResponse> {
+    use crate::dto::response::events::{EventCountsByMonitorResponse, MonitorEventCount};
+
+    let counts = events_repo::get_counts_by_monitor(state, hours).await?;
+
+    let monitor_counts = counts
+        .into_iter()
+        .map(|(monitor_id, count)| MonitorEventCount { monitor_id, count })
+        .collect();
+
+    Ok(EventCountsByMonitorResponse {
+        counts: monitor_counts,
         hours,
     })
 }
@@ -333,6 +391,12 @@ mod tests {
                 cause: None,
                 notes: None,
                 orientation: None,
+                archived: None,
+                locked: None,
+                emailed: None,
+                messaged: None,
+                uploaded: None,
+                executed: None,
             },
         )
         .await

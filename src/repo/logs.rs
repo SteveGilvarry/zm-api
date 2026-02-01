@@ -1,10 +1,49 @@
-use crate::entity::logs::{Entity as Logs, Model as LogModel};
+use crate::entity::logs::{self, Entity as Logs, Model as LogModel};
 use crate::error::AppResult;
 use sea_orm::*;
 
+/// Query options for filtering logs
+#[derive(Debug, Default)]
+pub struct LogQueryOptions {
+    pub component: Option<String>,
+    pub level: Option<i8>,
+    pub server_id: Option<u32>,
+}
+
+/// Find logs with pagination and filtering
+pub async fn find_with_options(
+    db: &DatabaseConnection,
+    options: LogQueryOptions,
+    page: u64,
+    page_size: u64,
+) -> AppResult<(Vec<LogModel>, u64)> {
+    let mut query = Logs::find().order_by_desc(logs::Column::TimeKey);
+
+    // Apply filters
+    if let Some(ref component) = options.component {
+        query = query.filter(logs::Column::Component.eq(component.clone()));
+    }
+
+    if let Some(level) = options.level {
+        // Filter logs with level >= the specified level
+        query = query.filter(logs::Column::Level.gte(level));
+    }
+
+    if let Some(server_id) = options.server_id {
+        query = query.filter(logs::Column::ServerId.eq(server_id));
+    }
+
+    let paginator = query.paginate(db, page_size);
+    let total = paginator.num_items().await?;
+    let logs = paginator.fetch_page(page).await?;
+
+    Ok((logs, total))
+}
+
+/// Find all logs with a limit (legacy helper)
 pub async fn find_all(db: &DatabaseConnection, limit: u64) -> AppResult<Vec<LogModel>> {
     Ok(Logs::find()
-        .order_by_desc(crate::entity::logs::Column::Id)
+        .order_by_desc(logs::Column::TimeKey)
         .limit(limit)
         .all(db)
         .await?)

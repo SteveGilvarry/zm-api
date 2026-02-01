@@ -86,6 +86,14 @@ pub struct SystemStatsResponse {
     pub total_swap: u64,
     /// Free swap in bytes
     pub free_swap: u64,
+    /// Total disk space in bytes (root filesystem)
+    pub total_disk: u64,
+    /// Used disk space in bytes
+    pub used_disk: u64,
+    /// Free disk space in bytes
+    pub free_disk: u64,
+    /// Disk usage percentage
+    pub disk_usage_percent: f64,
 }
 
 impl From<SystemStats> for SystemStatsResponse {
@@ -97,6 +105,10 @@ impl From<SystemStats> for SystemStatsResponse {
             free_mem: stats.free_mem,
             total_swap: stats.total_swap,
             free_swap: stats.free_swap,
+            total_disk: stats.total_disk,
+            used_disk: stats.used_disk,
+            free_disk: stats.free_disk,
+            disk_usage_percent: stats.disk_usage_percent,
         }
     }
 }

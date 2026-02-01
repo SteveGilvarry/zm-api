@@ -412,6 +412,8 @@ pub enum ResourceType {
     Config,
     #[strum(serialize = "EVENT_TAG")]
     EventTag,
+    #[strum(serialize = "EVENT_SUMMARY")]
+    EventSummary,
 }
 
 pub fn invalid_input_error(field: &'static str, message: &'static str) -> AppError {

@@ -10,7 +10,10 @@ use tracing::{info, instrument};
 use crate::{
     dto::{
         request::events::{EventCreateRequest, EventQueryParams, EventUpdateRequest},
-        response::events::{EventCountsResponse, EventResponse, PaginatedEventsResponse},
+        response::events::{
+            EventCountsByMonitorResponse, EventCountsResponse, EventResponse,
+            PaginatedEventsResponse,
+        },
     },
     error::{AppError, AppResponseError, AppResult},
     server::state::AppState,
@@ -28,7 +31,11 @@ use crate::{
         ("page_size" = Option<u64>, Query, description = "Number of items per page", example = 20),
         ("monitor_id" = Option<u32>, Query, description = "Filter by monitor ID", example = 1),
         ("start_time" = Option<String>, Query, description = "Filter by start time (ISO8601)", example = "2025-04-28T00:00:00Z"),
-        ("end_time" = Option<String>, Query, description = "Filter by end time (ISO8601)", example = "2025-04-29T23:59:59Z")
+        ("end_time" = Option<String>, Query, description = "Filter by end time (ISO8601)", example = "2025-04-29T23:59:59Z"),
+        ("sort" = Option<String>, Query, description = "Field to sort by: start_time, end_time, alarm_frames, max_score, avg_score, tot_score, length, id", example = "start_time"),
+        ("direction" = Option<String>, Query, description = "Sort direction: asc or desc", example = "desc"),
+        ("alarm_frames_min" = Option<u32>, Query, description = "Minimum number of alarm frames", example = 5),
+        ("archived" = Option<bool>, Query, description = "Filter by archived status", example = false)
     ),
     responses(
         (status = 200, description = "List of events", body = PaginatedEventsResponse),
@@ -47,23 +54,9 @@ pub async fn list_events(
 ) -> AppResult<Json<PaginatedEventsResponse>> {
     info!("Listing events with params: {:?}", params);
 
-    if let Some(monitor_id) = params.monitor_id {
-        let events = service::events::list_by_monitor(
-            &state,
-            monitor_id,
-            params.page,
-            params.page_size,
-            params.start_time.map(|dt| dt.0),
-            params.end_time.map(|dt| dt.0),
-        )
-        .await?;
+    let events = service::events::list(&state, &params).await?;
 
-        Ok(Json(events))
-    } else {
-        let events = service::events::list_all(&state, params.page, params.page_size).await?;
-
-        Ok(Json(events))
-    }
+    Ok(Json(events))
 }
 
 /// Get a specific event by ID
@@ -188,7 +181,7 @@ pub async fn delete_event(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// Get event counts
+/// Get event counts grouped by hour
 #[utoipa::path(
     get,
     path = "/api/v3/events/counts/{hours}",
@@ -198,7 +191,7 @@ pub async fn delete_event(
         ("hours" = i64, Path, description = "Number of hours to count back from now")
     ),
     responses(
-        (status = 200, description = "Event counts", body = EventCountsResponse),
+        (status = 200, description = "Event counts grouped by hour", body = EventCountsResponse),
         (status = 400, description = "Bad request", body = AppResponseError),
         (status = 401, description = "Unauthorized", body = AppResponseError),
         (status = 500, description = "Internal server error", body = AppResponseError)
@@ -213,6 +206,35 @@ pub async fn get_event_counts(
     Path(hours): Path<i64>,
 ) -> AppResult<Json<EventCountsResponse>> {
     let counts = service::events::get_event_counts(&state, hours).await?;
+
+    Ok(Json(counts))
+}
+
+/// Get event counts grouped by monitor (for console view)
+#[utoipa::path(
+    get,
+    path = "/api/v3/events/counts-by-monitor/{hours}",
+    operation_id = "getEventCountsByMonitor",
+    tag = "Events",
+    params(
+        ("hours" = i64, Path, description = "Number of hours to count back from now")
+    ),
+    responses(
+        (status = 200, description = "Event counts grouped by monitor", body = EventCountsByMonitorResponse),
+        (status = 400, description = "Bad request", body = AppResponseError),
+        (status = 401, description = "Unauthorized", body = AppResponseError),
+        (status = 500, description = "Internal server error", body = AppResponseError)
+    ),
+    security(
+        ("jwt" = [])
+    )
+)]
+#[instrument(skip(state))]
+pub async fn get_event_counts_by_monitor(
+    State(state): State<AppState>,
+    Path(hours): Path<i64>,
+) -> AppResult<Json<EventCountsByMonitorResponse>> {
+    let counts = service::events::get_event_counts_by_monitor(&state, hours).await?;
 
     Ok(Json(counts))
 }

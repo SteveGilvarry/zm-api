@@ -10,6 +10,7 @@ pub mod handlers;
 pub mod migration;
 pub mod mse_client;
 pub mod mse_socket_client;
+pub mod ptz;
 pub mod repo;
 pub mod routes;
 pub mod server;

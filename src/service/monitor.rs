@@ -724,9 +724,15 @@ pub async fn get_streaming_details(
     // Extract host and port from the path field
     let (host, port) = parse_host_port(&monitor.path)?;
 
+    // Get the actual RTSP URLs from the Path and SecondPath fields
+    let rtsp_url = monitor.path.clone();
+    let rtsp_url_secondary = monitor.second_path.clone();
+
     Ok(MonitorStreamingDetails {
         id: monitor.id,
         name: monitor.name.clone(),
+        rtsp_url,
+        rtsp_url_secondary,
         user,
         pass,
         host,

@@ -54,6 +54,10 @@ APP_PROFILE=test-db cargo test --test '*' -- --include-ignored
 - `src/migration/` – SeaORM migrations for project-owned tables.
 - `tests/` – integration tests; many are `#[ignore]` and require a running DB.
 
+## Active Implementation Plans
+
+- **PTZ Control System** – `docs/PTZ_TASKS.md` – Rust-based PTZ control API with Perl bridge fallback, phased implementation from immediate Perl proxy to native protocol implementations (ONVIF, Dahua, HikVision, Reolink, serial protocols).
+
 ## Fast Commands
 
 ```bash

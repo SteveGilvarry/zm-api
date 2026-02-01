@@ -191,3 +191,17 @@ pub struct EventCountsResponse {
     pub counts: Vec<EventCountResponse>,
     pub hours: i64,
 }
+
+/// Event count per monitor (for console view)
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct MonitorEventCount {
+    pub monitor_id: u32,
+    pub count: u64,
+}
+
+/// Response for event counts grouped by monitor
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct EventCountsByMonitorResponse {
+    pub counts: Vec<MonitorEventCount>,
+    pub hours: i64,
+}
