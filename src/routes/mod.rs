@@ -19,14 +19,14 @@ pub mod devices; // Devices
 pub mod event_data; // Event Data
 pub mod event_summaries; // Event Summaries (pre-calculated counts)
 pub mod events; // Add events module
+pub mod events_playback; // Event playback (video streaming)
 pub mod events_tags; // Events Tags
 pub mod filters; // Filters
 pub mod frames; // Frames
-pub mod go2rtc_proxy;
 pub mod groups; // Groups
 pub mod groups_monitors; // Groups Monitors
 pub mod groups_permissions; // Groups Permissions
-pub mod hls; // HLS streaming (Phase 3)
+pub mod live; // Live streaming (unified)
 pub mod logs; // Logs
 pub mod manufacturers; // Manufacturers
 pub mod models; // Models
@@ -35,7 +35,6 @@ pub mod monitor_status; // Monitor Status
 pub mod monitors;
 pub mod monitors_permissions; // Monitors Permissions
 pub mod montage_layouts; // Montage Layouts
-pub mod mse; // Add MSE module
 pub mod object_types; // Object Types
 pub mod ptz; // PTZ control
 pub mod reports; // Reports
@@ -48,13 +47,10 @@ pub mod snapshots_events; // Snapshots Events
 pub mod states; // States
 pub mod stats; // Stats
 pub mod storage; // Storage
-pub mod streaming;
 pub mod tags; // Tags
 pub mod triggers_x10; // X10 Triggers
 pub mod user_preferences; // User Preferences
 pub mod users; // Users
-pub mod webrtc; // Add WebRTC module
-pub mod webrtc_native; // Native WebRTC (Phase 2)
 pub mod zone_presets; // Zone Presets
 pub mod zones; // Zones // go2rtc WebSocket proxy
 
@@ -103,11 +99,8 @@ pub fn create_router_app(state: AppState) -> Router {
     let server_routes = server::add_server_routes(Router::new());
     let auth_routes = auth::add_routers(Router::new());
     let monitors_routes = monitors::add_monitor_routes(Router::new());
-    let streaming_routes = streaming::add_streaming_routes(Router::new());
-    let events_routes = events::add_event_routes(Router::new()); // Add events routes
-    let mse_routes = mse::add_mse_routes(Router::new()); // Add MSE routes
-    let webrtc_routes = webrtc::add_webrtc_routes(Router::new()); // Add WebRTC routes
-    let config_routes = configs::add_config_routes(Router::new()); // Add Config routes
+    let events_routes = events::add_event_routes(Router::new());
+    let config_routes = configs::add_config_routes(Router::new());
     let zone_routes = zones::add_zone_routes(Router::new());
     let filter_routes = filters::add_filter_routes(Router::new());
     let user_routes = users::add_user_routes(Router::new());
@@ -143,9 +136,8 @@ pub fn create_router_app(state: AppState) -> Router {
     let event_data_routes = event_data::add_event_data_routes(Router::new());
     let event_summary_routes = event_summaries::add_event_summaries_routes(Router::new());
     let event_tag_routes = events_tags::add_event_tag_routes(Router::new());
-    let go2rtc_proxy_routes = go2rtc_proxy::add_go2rtc_proxy_routes(Router::new());
-    let native_webrtc_routes = webrtc_native::add_native_webrtc_routes(Router::new());
-    let hls_routes = Router::new().nest("/api/v3/hls", hls::routes());
+    let live_routes = live::add_live_routes(Router::new());
+    let events_playback_routes = events_playback::add_events_playback_routes(Router::new());
     let daemon_routes = daemon::add_daemon_routes(Router::new());
     let ptz_routes = ptz::add_ptz_routes(Router::new());
 
@@ -154,10 +146,7 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(server_routes)
         .merge(auth_routes)
         .merge(monitors_routes)
-        .merge(streaming_routes)
-        .merge(events_routes) // Merge events routes
-        .merge(mse_routes) // Merge MSE routes
-        .merge(webrtc_routes) // Merge WebRTC routes
+        .merge(events_routes)
         .merge(config_routes)
         .merge(zone_routes)
         .merge(filter_routes)
@@ -193,9 +182,8 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(event_data_routes)
         .merge(event_summary_routes)
         .merge(event_tag_routes)
-        .merge(go2rtc_proxy_routes)
-        .merge(native_webrtc_routes) // Native WebRTC (Phase 2)
-        .merge(hls_routes) // HLS streaming (Phase 3)
+        .merge(live_routes) // Live streaming (unified)
+        .merge(events_playback_routes) // Event playback
         .merge(daemon_routes) // Daemon control
         .merge(ptz_routes) // PTZ control
         .fallback(any(fallback_handler))

@@ -39,12 +39,7 @@ pub mod zones;
 
 pub mod auth;
 pub mod events;
-pub mod go2rtc_proxy;
-pub mod hls;
+pub mod events_playback;
+pub mod live;
 pub mod monitor;
-pub mod mse;
 pub mod server;
-pub mod streaming;
-pub mod webrtc;
-pub mod webrtc_native;
-pub mod webrtc_signaling;

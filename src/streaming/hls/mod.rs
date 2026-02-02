@@ -21,5 +21,5 @@ pub mod storage;
 
 pub use playlist::{MasterPlaylist, MediaPlaylist, PlaylistGenerator};
 pub use segmenter::{FMP4Segment, HlsSegmenter, InitSegment};
-pub use session::{HlsSession, HlsSessionManager, HlsSessionStats};
+pub use session::{HlsError, HlsSession, HlsSessionManager, HlsSessionStats};
 pub use storage::{HlsStorage, SegmentInfo};

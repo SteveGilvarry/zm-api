@@ -200,6 +200,7 @@ impl ZmFifoReader {
             audio_fifo_suffix: audio_suffix.unwrap_or("").to_string(),
             fifo_read_timeout_ms: 5000,
             reconnect_delay_ms: 1000,
+            events_dir: "/var/lib/zoneminder/events".to_string(),
         };
 
         Self::new(monitor_id, config)

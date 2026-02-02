@@ -83,6 +83,12 @@ use crate::util::claim::UserClaims;
         crate::handlers::events::list_events,
         crate::handlers::events::update_event,
 
+        // event playback
+        crate::handlers::events_playback::get_event_playlist,
+        crate::handlers::events_playback::get_event_video,
+        crate::handlers::events_playback::get_event_stream_video,
+        crate::handlers::events_playback::get_event_thumbnail,
+
         // event summaries
         crate::handlers::event_summaries::list_event_summaries,
         crate::handlers::event_summaries::get_event_summary,
@@ -107,10 +113,6 @@ use crate::util::claim::UserClaims;
         crate::handlers::frames::list_frames,
         crate::handlers::frames::update_frame,
 
-        // go2rtc proxy
-        crate::handlers::go2rtc_proxy::go2rtc_ws_proxy,
-        crate::handlers::go2rtc_proxy::go2rtc_typed_ws_proxy,
-
         // groups
         crate::handlers::groups::create_group,
         crate::handlers::groups::delete_group,
@@ -131,15 +133,19 @@ use crate::util::claim::UserClaims;
         crate::handlers::groups_permissions::list_groups_permissions,
         crate::handlers::groups_permissions::update_group_permission,
 
-        // hls streaming
-        crate::handlers::hls::list_sessions,
-        crate::handlers::hls::start_hls_stream,
-        crate::handlers::hls::stop_hls_stream,
-        crate::handlers::hls::get_hls_stats,
-        crate::handlers::hls::get_master_playlist,
-        crate::handlers::hls::get_media_playlist,
-        crate::handlers::hls::get_init_segment,
-        crate::handlers::hls::get_segment,
+        // live streaming (unified at /api/v3/live)
+        crate::handlers::live::start_live_stream,
+        crate::handlers::live::stop_live_stream,
+        crate::handlers::live::get_live_stats,
+        crate::handlers::live::list_live_sessions,
+        crate::handlers::live::get_live_master_playlist,
+        crate::handlers::live::get_live_media_playlist,
+        crate::handlers::live::get_live_init_segment,
+        crate::handlers::live::get_live_segment,
+        crate::handlers::live::get_live_sources,
+        crate::handlers::live::mse_websocket_handler,
+        crate::handlers::live::get_mse_init_segment,
+        crate::handlers::live::webrtc_websocket_handler,
 
         // logs
         crate::handlers::logs::get_log,
@@ -193,29 +199,6 @@ use crate::util::claim::UserClaims;
         crate::handlers::montage_layouts::get_montage_layout,
         crate::handlers::montage_layouts::list_montage_layouts,
         crate::handlers::montage_layouts::update_montage_layout,
-
-        // MSE
-        crate::handlers::mse::create_stream,
-        crate::handlers::mse::delete_stream,
-        crate::handlers::mse::get_all_stats,
-        crate::handlers::mse::get_init_segment,
-        crate::handlers::mse::get_latest_segment,
-        crate::handlers::mse::get_segment,
-        crate::handlers::mse::get_segments_from,
-        crate::handlers::mse::get_stream_info,
-        crate::handlers::mse::get_stream_stats,
-        crate::handlers::mse::get_streams,
-        crate::handlers::mse::websocket_handler,
-
-        // native webrtc
-        crate::handlers::webrtc_native::signaling_websocket,
-        crate::handlers::webrtc_native::handle_offer,
-        crate::handlers::webrtc_native::add_ice_candidate,
-        crate::handlers::webrtc_native::close_session,
-        crate::handlers::webrtc_native::get_stats,
-        crate::handlers::webrtc_native::list_sessions,
-        crate::handlers::webrtc_native::get_session,
-        crate::handlers::webrtc_native::health_check,
 
         // object types
         crate::handlers::object_types::create_object_type,
@@ -317,11 +300,6 @@ use crate::util::claim::UserClaims;
         crate::handlers::storage::list_storage,
         crate::handlers::storage::update_storage,
 
-        // streaming
-        crate::handlers::streaming::delete_stream,
-        crate::handlers::streaming::get_stream,
-        crate::handlers::streaming::register_stream,
-
         // tags
         crate::handlers::tags::create_tag,
         crate::handlers::tags::delete_tag,
@@ -349,15 +327,6 @@ use crate::util::claim::UserClaims;
         crate::handlers::users::get_user,
         crate::handlers::users::list_users,
         crate::handlers::users::update_user,
-
-        // webrtc
-        crate::handlers::webrtc::get_available_streams,
-        crate::handlers::webrtc::get_camera_streams,
-        crate::handlers::webrtc::get_monitor_info,
-        crate::handlers::webrtc::get_service_status,
-        crate::handlers::webrtc::get_stats,
-        crate::handlers::webrtc::health_check,
-        crate::handlers::webrtc::websocket_handler,
 
         // zone presets
         crate::handlers::zone_presets::create_zone_preset,
@@ -432,6 +401,9 @@ use crate::util::claim::UserClaims;
             crate::dto::response::events::EventResponse,
             crate::dto::response::events::PaginatedEventsResponse,
 
+            // event playback
+            crate::handlers::events_playback::EventVideoInfo,
+
             // event summaries
             crate::dto::response::event_summaries::EventSummaryResponse,
 
@@ -466,9 +438,12 @@ use crate::util::claim::UserClaims;
             crate::dto::request::groups_permissions::UpdateGroupPermissionRequest,
             crate::dto::response::groups_permissions::GroupPermissionResponse,
 
-            // hls streaming
-            crate::handlers::hls::HlsStartResponse,
-            crate::handlers::hls::HlsStatsResponse,
+            // live streaming
+            crate::handlers::live::StartLiveRequest,
+            crate::handlers::live::StartLiveResponse,
+            crate::handlers::live::LiveStatsResponse,
+            crate::handlers::live::LiveProtocolStatus,
+            crate::handlers::live::MseSessionInfoResponse,
 
             // logs
             crate::dto::request::logs::LogQueryParams,
@@ -510,15 +485,6 @@ use crate::util::claim::UserClaims;
             crate::dto::request::montage_layouts::CreateMontageLayoutRequest,
             crate::dto::request::montage_layouts::UpdateMontageLayoutRequest,
             crate::dto::response::montage_layouts::MontageLayoutResponse,
-
-            // native webrtc
-            crate::handlers::webrtc_native::SignalingQuery,
-            crate::handlers::webrtc_native::SessionInfoResponse,
-            crate::handlers::webrtc_native::NativeWebRtcStatsResponse,
-            crate::handlers::webrtc_native::OfferRequest,
-            crate::handlers::webrtc_native::AnswerResponse,
-            crate::handlers::webrtc_native::IceCandidateRequest,
-            crate::handlers::webrtc_native::SuccessResponse,
 
             // object types
             crate::dto::request::object_types::CreateObjectTypeRequest,

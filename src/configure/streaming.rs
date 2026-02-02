@@ -69,6 +69,8 @@ pub struct ZoneMinderConfig {
     pub audio_fifo_suffix: String,
     pub fifo_read_timeout_ms: u64,
     pub reconnect_delay_ms: u64,
+    /// Path to ZoneMinder events directory
+    pub events_dir: String,
 }
 
 impl Default for ZoneMinderConfig {
@@ -80,6 +82,7 @@ impl Default for ZoneMinderConfig {
             audio_fifo_suffix: "/audio_fifo_".to_string(),
             fifo_read_timeout_ms: 5000,
             reconnect_delay_ms: 1000,
+            events_dir: "/var/lib/zoneminder/events".to_string(),
         }
     }
 }

@@ -5,7 +5,6 @@ use sea_orm::DatabaseConnection;
 use crate::client::{
     database::{DatabaseClient, DatabaseClientExt},
     http::HttpClient,
-    webrtc_signaling::WebRtcSignalingClient,
 };
 use crate::configure::{self, env::get_env_source, AppConfig};
 use crate::constant::ENV_PREFIX;
@@ -14,6 +13,8 @@ use crate::error::AppResult;
 use crate::mse_client::MseStreamManager;
 use crate::ptz::PtzManager;
 use crate::streaming::hls::HlsSessionManager;
+use crate::streaming::live::LiveStreamCoordinator;
+use crate::streaming::source::SourceRouter;
 use crate::streaming::webrtc::{session::SessionManager, WebRtcEngine};
 
 #[derive(Clone)]
@@ -21,13 +22,15 @@ pub struct AppState {
     pub config: Arc<AppConfig>,
     pub db: Arc<DatabaseClient>,
     pub http: HttpClient,
-    pub webrtc_client: WebRtcSignalingClient,
     pub mse_manager: Arc<MseStreamManager>,
     // Native WebRTC (Phase 2)
     pub native_webrtc_engine: Option<Arc<WebRtcEngine>>,
     pub native_session_manager: Option<Arc<SessionManager>>,
     // HLS Streaming (Phase 3)
     pub hls_session_manager: Option<Arc<HlsSessionManager>>,
+    // Live Streaming Coordinator
+    pub source_router: Option<Arc<SourceRouter>>,
+    pub live_coordinator: Option<Arc<LiveStreamCoordinator>>,
     // Daemon Controller
     pub daemon_manager: Option<Arc<DaemonManager>>,
     // PTZ Manager
@@ -41,9 +44,6 @@ impl AppState {
             .no_proxy()
             .build()
             .expect("http client");
-
-        // Initialize WebRTC signaling client
-        let webrtc_client = WebRtcSignalingClient::new("127.0.0.1:9050".to_string());
 
         // Initialize MSE stream manager
         let mse_manager = Arc::new(MseStreamManager::new());
@@ -68,11 +68,27 @@ impl AppState {
             tracing::info!("HLS streaming enabled, initializing session manager");
             Some(Arc::new(HlsSessionManager::new(
                 config.streaming.hls.clone(),
-                "/api/v3/hls",
+                "/api/v3/live", // Changed to use /api/v3/live/ prefix
             )))
         } else {
             tracing::info!("HLS streaming disabled in configuration");
             None
+        };
+
+        // Initialize source router and live coordinator
+        let (source_router, live_coordinator) = if config.streaming.enabled {
+            tracing::info!("Live streaming enabled, initializing source router and coordinator");
+            let router = Arc::new(SourceRouter::from_zoneminder_config(
+                config.streaming.zoneminder.clone(),
+            ));
+            let coordinator = Arc::new(LiveStreamCoordinator::new(
+                Arc::clone(&router),
+                hls_session_manager.clone(),
+            ));
+            (Some(router), Some(coordinator))
+        } else {
+            tracing::info!("Live streaming disabled in configuration");
+            (None, None)
         };
 
         // Initialize daemon manager if enabled
@@ -96,11 +112,12 @@ impl AppState {
             config: Arc::new(config),
             db,
             http,
-            webrtc_client,
             mse_manager,
             native_webrtc_engine,
             native_session_manager,
             hls_session_manager,
+            source_router,
+            live_coordinator,
             daemon_manager,
             ptz_manager,
         })
@@ -124,18 +141,17 @@ impl AppState {
             .no_proxy()
             .build()
             .expect("http client");
-        let webrtc_client =
-            crate::client::webrtc_signaling::WebRtcSignalingClient::new("127.0.0.1:0".to_string());
         let mse_manager = std::sync::Arc::new(crate::mse_client::MseStreamManager::new());
         Self {
             config: std::sync::Arc::new(config),
             db: std::sync::Arc::new(db),
             http,
-            webrtc_client,
             mse_manager,
             native_webrtc_engine: None,
             native_session_manager: None,
             hls_session_manager: None,
+            source_router: None,
+            live_coordinator: None,
             daemon_manager: None,
             ptz_manager: std::sync::Arc::new(PtzManager::with_defaults()),
         }
