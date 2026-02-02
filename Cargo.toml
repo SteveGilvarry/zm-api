@@ -27,7 +27,7 @@ futures = "0.3"
 futures-util = "0.3"
 garde = { version = "0.22", features = ["full"] }
 itertools = "0.14"
-jsonwebtoken = "9"
+jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 lazy_static = "1"
 log = "0.4"
 memmap2 = "0.9"
