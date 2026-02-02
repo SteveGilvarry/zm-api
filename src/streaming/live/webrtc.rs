@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 use uuid::Uuid;
 use webrtc::api::media_engine::MediaEngine;
 use webrtc::api::APIBuilder;
