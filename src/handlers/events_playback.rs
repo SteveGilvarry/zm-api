@@ -9,15 +9,18 @@ use axum::{
     http::{header, HeaderMap, StatusCode},
     response::Response,
 };
+use chrono::{Datelike, Timelike};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
-use tracing::debug;
+use tracing::{debug, warn};
 
-use crate::error::{AppError, AppResponseError, AppResult};
+use crate::entity::events::Model as EventModel;
+use crate::entity::sea_orm_active_enums::Scheme;
+use crate::error::{AppError, AppResponseError, AppResult, Resource, ResourceType};
+use crate::repo;
 use crate::server::state::AppState;
-use crate::service;
 
 // ============================================================================
 // DTOs
@@ -46,38 +49,142 @@ pub struct EventVideoInfo {
 // ============================================================================
 
 /// Get the video file path for an event
+///
+/// ZoneMinder supports multiple storage schemes:
+/// - **Deep**: `{storage_path}/{MonitorId}/{YY/MM/DD/HH/MM/SS}/{video_file}`
+/// - **Medium**: `{storage_path}/{MonitorId}/{YYYY-MM-DD}/{EventId}/{video_file}`
+/// - **Shallow**: `{storage_path}/{MonitorId}/{EventId}/{video_file}`
 async fn get_event_video_path(state: &AppState, event_id: u64) -> AppResult<PathBuf> {
-    // Get event from database
-    let event = service::events::get_by_id(state, event_id as u32).await?;
+    // Get event from database (using repo to get raw entity)
+    let event = get_event_entity(state, event_id).await?;
 
-    // Get the events directory from config
-    let events_dir = state.config.streaming.zoneminder.events_dir.clone();
+    // Get the video filename from the event (e.g., "467-video.h264.mp4")
+    let video_filename = if event.default_video.is_empty() {
+        format!("{}-video.mp4", event_id)
+    } else {
+        event.default_video.clone()
+    };
 
-    // Construct path based on ZoneMinder event storage structure
-    // Format: {events_dir}/{monitor_id}/{YYMM}/{DD}/{event_id}/
-    let monitor_id = event.monitor_id;
+    // Look up storage path from database
+    let storage = repo::storage::find_by_id(state.db(), event.storage_id).await?;
 
-    // The video file is typically named {event_id}-video.mp4
-    let video_filename = format!("{}-video.mp4", event_id);
+    let storage_path = match storage {
+        Some(s) => s.path,
+        None => {
+            // Fall back to config if storage not found in DB
+            warn!(
+                "Storage {} not found in database, using config default",
+                event.storage_id
+            );
+            state.config.streaming.zoneminder.events_dir.clone()
+        }
+    };
 
-    // Try the standard path first
-    let video_path = PathBuf::from(&events_dir)
-        .join(monitor_id.to_string())
-        .join(&video_filename);
+    // Build event directory path based on scheme
+    let event_dir = build_event_directory_path(
+        &storage_path,
+        event.monitor_id,
+        event_id,
+        event.start_date_time,
+        &event.scheme,
+    );
+
+    // Try the computed path
+    let video_path = event_dir.join(&video_filename);
+    debug!("Looking for video at: {:?}", video_path);
 
     if tokio::fs::metadata(&video_path).await.is_ok() {
         return Ok(video_path);
     }
 
-    // Try alternative structures with date-based directories
-    // ZoneMinder can use different storage schemes
-    Err(AppError::NotFoundError(crate::error::Resource {
-        resource_type: crate::error::ResourceType::Event,
+    // Try alternative video filenames if the default doesn't exist
+    let alternative_names = [
+        format!("{}-video.mp4", event_id),
+        format!("{}-video.h264.mp4", event_id),
+        format!("{}.mp4", event_id),
+    ];
+
+    for alt_name in &alternative_names {
+        let alt_path = event_dir.join(alt_name);
+        if tokio::fs::metadata(&alt_path).await.is_ok() {
+            debug!("Found video at alternative path: {:?}", alt_path);
+            return Ok(alt_path);
+        }
+    }
+
+    // Log what we tried for debugging
+    warn!(
+        "Video not found for event {}. Tried directory: {:?}, filename: {}, alternatives: {:?}",
+        event_id, event_dir, video_filename, alternative_names
+    );
+
+    Err(AppError::NotFoundError(Resource {
+        resource_type: ResourceType::Event,
         details: vec![
             ("event_id".to_string(), event_id.to_string()),
             ("reason".to_string(), "Video file not found".to_string()),
+            ("tried_path".to_string(), event_dir.display().to_string()),
         ],
     }))
+}
+
+/// Helper to get raw event entity from database
+async fn get_event_entity(state: &AppState, event_id: u64) -> AppResult<EventModel> {
+    repo::events::find_by_id(state, event_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::NotFoundError(Resource {
+                resource_type: ResourceType::Event,
+                details: vec![("event_id".to_string(), event_id.to_string())],
+            })
+        })
+}
+
+/// Build the event directory path based on ZoneMinder's storage scheme
+fn build_event_directory_path(
+    storage_path: &str,
+    monitor_id: u32,
+    event_id: u64,
+    start_time: Option<chrono::NaiveDateTime>,
+    scheme: &Scheme,
+) -> PathBuf {
+    let base = PathBuf::from(storage_path).join(monitor_id.to_string());
+
+    match scheme {
+        Scheme::Deep => {
+            // Deep: {storage}/{monitor_id}/{YY/MM/DD/HH/MM/SS}/
+            if let Some(dt) = start_time {
+                base.join(format!("{:02}", dt.year() % 100))
+                    .join(format!("{:02}", dt.month()))
+                    .join(format!("{:02}", dt.day()))
+                    .join(format!("{:02}", dt.hour()))
+                    .join(format!("{:02}", dt.minute()))
+                    .join(format!("{:02}", dt.second()))
+            } else {
+                // Fallback to shallow if no start time
+                base.join(event_id.to_string())
+            }
+        }
+        Scheme::Medium => {
+            // Medium: {storage}/{monitor_id}/{YYYY-MM-DD}/{event_id}/
+            if let Some(dt) = start_time {
+                base.join(format!(
+                    "{:04}-{:02}-{:02}",
+                    dt.year(),
+                    dt.month(),
+                    dt.day()
+                ))
+                .join(event_id.to_string())
+            } else {
+                // Fallback to shallow if no start time
+                base.join(event_id.to_string())
+            }
+        }
+        Scheme::Shallow => {
+            // Shallow: {storage}/{monitor_id}/{event_id}/
+            base.join(event_id.to_string())
+        }
+    }
 }
 
 /// Parse HTTP Range header
@@ -343,46 +450,66 @@ pub async fn get_event_thumbnail(
 ) -> Result<Response, AppError> {
     debug!("Getting thumbnail for event {}", path.id);
 
-    // Get event from database
-    let event = service::events::get_by_id(&state, path.id as u32).await?;
+    // Get event from database (using repo to get raw entity)
+    let event = get_event_entity(&state, path.id).await?;
 
-    // Get the events directory from config
-    let events_dir = &state.config.streaming.zoneminder.events_dir;
+    // Look up storage path from database
+    let storage = repo::storage::find_by_id(state.db(), event.storage_id).await?;
 
-    // Try to find thumbnail image
-    // ZoneMinder creates snapshot images during events
-    let snapshot_path = PathBuf::from(events_dir)
-        .join(event.monitor_id.to_string())
-        .join(format!("{}-snapshot.jpg", path.id));
+    let storage_path = match storage {
+        Some(s) => s.path,
+        None => {
+            warn!(
+                "Storage {} not found in database, using config default",
+                event.storage_id
+            );
+            state.config.streaming.zoneminder.events_dir.clone()
+        }
+    };
 
-    if let Ok(data) = tokio::fs::read(&snapshot_path).await {
-        return Ok(Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "image/jpeg")
-            .header(header::CACHE_CONTROL, "max-age=86400")
-            .body(Body::from(data))
-            .unwrap());
+    // Build event directory path based on scheme
+    let event_dir = build_event_directory_path(
+        &storage_path,
+        event.monitor_id,
+        path.id,
+        event.start_date_time,
+        &event.scheme,
+    );
+
+    // Try various thumbnail/snapshot filenames
+    let thumbnail_candidates = [
+        format!("{}-snapshot.jpg", path.id),
+        "snapshot.jpg".to_string(),
+        format!("{:05}-capture.jpg", 1), // First capture frame
+        format!("{:05}-analyse.jpg", 1), // First analyse frame
+        format!("{}-00001-analyse.jpg", path.id),
+        format!("{}-00001-capture.jpg", path.id),
+    ];
+
+    for filename in &thumbnail_candidates {
+        let thumb_path = event_dir.join(filename);
+        if let Ok(data) = tokio::fs::read(&thumb_path).await {
+            debug!("Found thumbnail at: {:?}", thumb_path);
+            return Ok(Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "image/jpeg")
+                .header(header::CACHE_CONTROL, "max-age=86400")
+                .body(Body::from(data))
+                .unwrap());
+        }
     }
 
-    // If no snapshot, try the first frame (analyse image)
-    let analyse_path = PathBuf::from(events_dir)
-        .join(event.monitor_id.to_string())
-        .join(format!("{}-00001-analyse.jpg", path.id));
+    warn!(
+        "Thumbnail not found for event {}. Tried directory: {:?}",
+        path.id, event_dir
+    );
 
-    if let Ok(data) = tokio::fs::read(&analyse_path).await {
-        return Ok(Response::builder()
-            .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "image/jpeg")
-            .header(header::CACHE_CONTROL, "max-age=86400")
-            .body(Body::from(data))
-            .unwrap());
-    }
-
-    Err(AppError::NotFoundError(crate::error::Resource {
-        resource_type: crate::error::ResourceType::Event,
+    Err(AppError::NotFoundError(Resource {
+        resource_type: ResourceType::Event,
         details: vec![
             ("event_id".to_string(), path.id.to_string()),
             ("reason".to_string(), "Thumbnail not found".to_string()),
+            ("tried_path".to_string(), event_dir.display().to_string()),
         ],
     }))
 }
