@@ -60,7 +60,7 @@ pub async fn list(
         .collect();
 
     Ok(PaginatedEventsResponse {
-        events: event_responses,
+        items: event_responses,
         total,
         per_page: page_size,
         current_page: page,

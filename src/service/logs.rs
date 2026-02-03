@@ -25,7 +25,7 @@ pub async fn list(state: &AppState, params: &LogQueryParams) -> AppResult<Pagina
     let total_pages = total.div_ceil(page_size);
 
     Ok(PaginatedLogsResponse {
-        logs: logs.iter().map(LogResponse::from).collect(),
+        items: logs.iter().map(LogResponse::from).collect(),
         total,
         per_page: page_size,
         current_page: page,

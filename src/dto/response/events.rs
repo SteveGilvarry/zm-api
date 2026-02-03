@@ -172,7 +172,7 @@ impl EventResponse {
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct PaginatedEventsResponse {
-    pub events: Vec<EventResponse>,
+    pub items: Vec<EventResponse>,
     pub total: u64,
     pub per_page: u64,
     pub current_page: u64,

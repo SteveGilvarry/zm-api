@@ -71,7 +71,7 @@ fn format_time_key(time_key: &Decimal) -> String {
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PaginatedLogsResponse {
     /// List of log entries
-    pub logs: Vec<LogResponse>,
+    pub items: Vec<LogResponse>,
     /// Total number of matching logs
     pub total: u64,
     /// Number of logs per page

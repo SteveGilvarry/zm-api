@@ -448,7 +448,7 @@ async fn test_api_events_list_get() {
         .await
         .unwrap();
     let body: PaginatedEventsResponse = serde_json::from_slice(&bytes).unwrap();
-    assert!(body.events.iter().any(|e| e.id == event.id));
+    assert!(body.items.iter().any(|e| e.id == event.id));
 
     let response = app
         .oneshot(
