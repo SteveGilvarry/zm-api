@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use sea_orm::sea_query::{Alias, Order, SqliteQueryBuilder};
+use sea_orm::sea_query::{Alias, MysqlQueryBuilder, Order};
 use sea_orm::*;
 use tracing::instrument;
 
@@ -174,7 +174,7 @@ pub async fn get_counts_by_monitor(
         .from(events::Entity)
         .and_where(Expr::col(events::Column::StartDateTime).gte(time_boundary_str))
         .group_by_col(events::Column::MonitorId)
-        .to_string(SqliteQueryBuilder);
+        .to_string(MysqlQueryBuilder);
 
     let stmt = Statement::from_sql_and_values(state.db().get_database_backend(), sql, vec![]);
 
@@ -213,7 +213,7 @@ pub async fn get_counts_by_hour(
     let count_alias = Alias::new("count");
     let sql = Query::select()
         .expr_as(
-            Expr::cust("strftime('%Y-%m-%d %H:00:00', start_date_time)"),
+            Expr::cust("DATE_FORMAT(StartDateTime, '%Y-%m-%d %H:00:00')"),
             hour_alias.clone(),
         )
         .expr_as(Expr::cust("COUNT(*)"), count_alias.clone())
@@ -221,7 +221,7 @@ pub async fn get_counts_by_hour(
         .and_where(Expr::col(events::Column::StartDateTime).gte(time_boundary_str))
         .group_by_col(hour_alias.clone())
         .order_by(hour_alias.clone(), Order::Asc)
-        .to_string(SqliteQueryBuilder);
+        .to_string(MysqlQueryBuilder);
 
     let stmt = Statement::from_sql_and_values(state.db().get_database_backend(), sql, vec![]);
 

@@ -15,8 +15,9 @@ use tracing::{debug, error, info, warn};
 
 use crate::daemon::config::DaemonConfig;
 use crate::daemon::daemons::DaemonDefinition;
-use crate::daemon::ipc::{DaemonResponse, ProcessStatus, SystemStatus};
+use crate::daemon::ipc::{DaemonResponse, ProcessStatus, SystemStats, SystemStatus};
 use crate::daemon::process::{ManagedProcess, ProcessState};
+use crate::daemon::stats;
 use crate::entity::sea_orm_active_enums::{Capturing, Function, MonitorType, Status};
 use crate::entity::{monitors, servers};
 use crate::error::AppResult;
@@ -465,10 +466,13 @@ impl DaemonManager {
             })
             .collect();
 
+        // Collect current system stats
+        let stats: Option<SystemStats> = stats::collect_stats().ok();
+
         SystemStatus {
             running,
             daemons,
-            stats: None, // Stats are updated separately
+            stats,
         }
     }
 
