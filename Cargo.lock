@@ -7399,6 +7399,7 @@ dependencies = [
  "itertools",
  "jsonwebtoken",
  "lazy_static",
+ "libc",
  "libloading",
  "log",
  "memmap2",

@@ -77,6 +77,9 @@ dashmap = "6"
 # Unix signal handling and filesystem utilities
 nix = { version = "0.29", features = ["signal", "fs"] }
 
+# Low-level libc bindings for PR_SET_PDEATHSIG
+libc = "0.2"
+
 [dependencies.sea-orm]
 version = "1"
 features = ["sqlx-mysql", "sqlx-postgres", "runtime-tokio-rustls", "mock"]

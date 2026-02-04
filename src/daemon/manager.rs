@@ -145,17 +145,11 @@ impl DaemonManager {
             )));
         }
 
-        // Spawn the process
-        let child = match Command::new(&full_path).args(&daemon_args).spawn() {
-            Ok(child) => child,
-            Err(e) => {
-                error!("Failed to spawn {}: {}", id, e);
-                return Ok(DaemonResponse::error(format!(
-                    "Failed to start {}: {}",
-                    id, e
-                )));
-            }
-        };
+        // Spawn the process with PR_SET_PDEATHSIG on Linux so children die when parent dies
+        let child = spawn_daemon(&full_path, &daemon_args).map_err(|e| {
+            error!("Failed to spawn {}: {}", id, e);
+            crate::error::AppError::InternalServerError(format!("Failed to start {}: {}", id, e))
+        })?;
 
         let pid = child.id();
 
@@ -659,6 +653,9 @@ impl DaemonManager {
         if !self.is_running().await {
             self.startup().await?;
         }
+
+        // Kill any orphaned daemons from previous crashes before starting fresh
+        kill_orphan_daemons().await;
 
         // Ensure state table sanity (matches zmpkg.pl behavior)
         if let Err(e) = crate::service::daemon::ensure_state_sanity(db.as_ref()).await {
@@ -1575,6 +1572,82 @@ fn extract_monitor_id(args: &[String]) -> Option<u32> {
         }
     }
     None
+}
+
+/// Spawn a daemon process with PR_SET_PDEATHSIG on Linux.
+///
+/// This ensures that child processes receive SIGTERM when the parent process dies,
+/// preventing orphaned daemons when zm_api crashes or is killed.
+#[cfg(target_os = "linux")]
+fn spawn_daemon(
+    path: &std::path::Path,
+    args: &[String],
+) -> Result<tokio::process::Child, std::io::Error> {
+    let mut cmd = Command::new(path);
+    cmd.args(args);
+
+    // SAFETY: prctl is async-signal-safe and we're only setting PR_SET_PDEATHSIG
+    // which is a simple flag operation with no memory allocation or locks.
+    unsafe {
+        cmd.pre_exec(|| {
+            // PR_SET_PDEATHSIG causes the child to receive the specified signal
+            // when its parent process terminates.
+            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+
+    cmd.spawn()
+}
+
+/// Spawn a daemon process (non-Linux fallback).
+#[cfg(not(target_os = "linux"))]
+fn spawn_daemon(
+    path: &std::path::Path,
+    args: &[String],
+) -> Result<tokio::process::Child, std::io::Error> {
+    Command::new(path).args(args).spawn()
+}
+
+/// Kill orphaned ZoneMinder daemons that may be left over from a crash.
+///
+/// This should be called on startup before starting new daemons to ensure
+/// a clean slate. Orphaned processes can cause shared memory conflicts
+/// and resource contention.
+pub async fn kill_orphan_daemons() {
+    let daemon_names = [
+        "zmc",
+        "zma",
+        "zmfilter.pl",
+        "zmstats.pl",
+        "zmtrack.pl",
+        "zmcontrol.pl",
+    ];
+
+    for daemon in &daemon_names {
+        match Command::new("pkill").args(["-9", daemon]).output().await {
+            Ok(output) => {
+                if output.status.success() {
+                    info!("Killed orphaned {} processes", daemon);
+                }
+                // Exit code 1 means no processes matched - that's fine
+            }
+            Err(e) => {
+                // pkill might not be available, try killall as fallback
+                debug!("pkill failed for {}: {}, trying killall", daemon, e);
+                if let Err(e2) = Command::new("killall").args(["-9", daemon]).output().await {
+                    debug!("killall also failed for {}: {}", daemon, e2);
+                }
+            }
+        }
+    }
+
+    // Brief pause to allow processes to terminate and release resources
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    info!("Orphan daemon cleanup complete");
 }
 
 #[cfg(test)]
