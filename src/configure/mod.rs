@@ -55,6 +55,7 @@ impl AppConfig {
             .add_source(config::File::from(config_dir.join("base.toml")))
             .add_source(config::File::from(config_dir.join(profile_filename)))
             .add_source(env_src)
+            .set_override("profile", profile.to_string())?
             .build()?;
         info!("Successfully read config profile: {profile}.");
 
