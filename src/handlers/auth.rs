@@ -27,11 +27,11 @@ pub async fn login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
 ) -> AppResult<Json<TokenResponse>> {
-    info!("Login user with request: {req:?}.");
+    info!("Login request for user: {}", req.username);
     req.validate()?;
     match service::auth::login(&state, req).await {
         Ok(resp) => {
-            info!("Successfully login user: {resp:?}.");
+            info!("Successfully logged in user.");
             Ok(Json(resp))
         }
         Err(e) => {
@@ -57,10 +57,11 @@ pub async fn refresh_token(
     State(state): State<AppState>,
     Json(req): Json<RefreshTokenRequest>,
 ) -> AppResult<Json<TokenResponse>> {
-    info!("Refresh token with request: {req:?}.");
+    info!("Refresh token request received.");
+    req.validate()?;
     match service::auth::refresh_token(&state, req).await {
         Ok(resp) => {
-            info!("Success refresh token user response: {resp:?}.");
+            info!("Successfully refreshed token.");
             Ok(Json(resp))
         }
         Err(e) => {

@@ -138,13 +138,24 @@ impl Default for WebRtcConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(default)]
 pub struct TurnConfig {
     pub enabled: bool,
     pub server: String,
     pub username: String,
     pub password: String,
+}
+
+impl std::fmt::Debug for TurnConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TurnConfig")
+            .field("enabled", &self.enabled)
+            .field("server", &self.server)
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .finish()
+    }
 }
 
 impl Default for TurnConfig {

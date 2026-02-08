@@ -1,5 +1,6 @@
 use axum::extract::{Path, Query, State};
 use axum::Json;
+use garde::Validate;
 use tracing::{info, warn};
 
 use crate::dto::request::{
@@ -98,6 +99,7 @@ pub async fn create_monitor(
     Json(req): Json<CreateMonitorRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
     info!("Creating new monitor with request: {req:?}.");
+    req.validate()?;
     match service::monitor::create(&state, req).await {
         Ok(monitor) => Ok(Json(monitor)),
         Err(e) => {
@@ -132,6 +134,7 @@ pub async fn update_monitor(
     Json(req): Json<UpdateMonitorRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
     info!("Editing monitor with ID: {id} and request: {req:?}.");
+    req.validate()?;
     match service::monitor::update(&state, id, req).await {
         Ok(monitor) => Ok(Json(monitor)),
         Err(e) => {

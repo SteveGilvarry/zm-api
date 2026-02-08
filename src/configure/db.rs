@@ -18,7 +18,7 @@ use super::zmconf::ZmConfig;
 ///
 /// When using placeholder values in TOML (like "username", "password"),
 /// the actual values will be loaded from ZoneMinder's zm.conf if available.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct DatabaseConfig {
     #[serde(default = "default_username")]
     pub username: String,
@@ -32,6 +32,19 @@ pub struct DatabaseConfig {
     pub max_connections: u32,
     #[serde(default = "default_database_name")]
     pub database_name: String,
+}
+
+impl std::fmt::Debug for DatabaseConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DatabaseConfig")
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .field("port", &self.port)
+            .field("host", &self.host)
+            .field("max_connections", &self.max_connections)
+            .field("database_name", &self.database_name)
+            .finish()
+    }
 }
 
 fn default_username() -> String {

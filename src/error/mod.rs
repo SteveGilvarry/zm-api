@@ -131,9 +131,86 @@ impl From<bcrypt::BcryptError> for AppError {
 }
 
 impl AppError {
+    /// Return a sanitized error message safe for external API responses.
+    /// Internal details (SQL, file paths, library errors) are logged server-side
+    /// but replaced with generic messages in HTTP responses.
+    fn sanitized_message(&self) -> String {
+        use AppError::*;
+        match self {
+            // Controlled messages from our code - safe to expose
+            NotFoundError(_)
+            | NotAvailableError(_)
+            | ResourceExistsError(_)
+            | PermissionDeniedError(_)
+            | UserNotActiveError(_)
+            | InvalidSessionError(_)
+            | ConflictError(_)
+            | UnauthorizedError(_)
+            | BadRequestError(_)
+            | InvalidPayloadError(_)
+            | HashError(_)
+            | InternalServerError(_)
+            | ServiceUnavailableError(_) => self.to_string(),
+            // Validation errors contain field-level info - safe to expose
+            InvalidInputError(_) => self.to_string(),
+            // Transparent variants may leak internals - log details, return generic message
+            DatabaseError(e) => {
+                tracing::error!("Database error: {e}");
+                "A database error occurred".to_string()
+            }
+            IoError(e) => {
+                tracing::error!("IO error: {e}");
+                match e.kind() {
+                    std::io::ErrorKind::NotFound => {
+                        "The requested resource was not found".to_string()
+                    }
+                    std::io::ErrorKind::PermissionDenied => "Permission denied".to_string(),
+                    _ => "An I/O error occurred".to_string(),
+                }
+            }
+            JwtError(e) => {
+                tracing::debug!("JWT error: {e}");
+                "Authentication failed".to_string()
+            }
+            HttpClientError(e) => {
+                tracing::error!("HTTP client error: {e}");
+                "An upstream service error occurred".to_string()
+            }
+            ConfigError(e) => {
+                tracing::error!("Config error: {e}");
+                "A configuration error occurred".to_string()
+            }
+            ParseJsonError(e) => {
+                tracing::error!("JSON parse error: {e}");
+                "Invalid JSON in request".to_string()
+            }
+            WebSocketError(e) => {
+                tracing::error!("WebSocket error: {e}");
+                "A WebSocket error occurred".to_string()
+            }
+            SpawnTaskError(e) => {
+                tracing::error!("Task error: {e}");
+                "An internal error occurred".to_string()
+            }
+            UnknownError(e) => {
+                tracing::error!("Unknown error: {e}");
+                "An internal error occurred".to_string()
+            }
+            UuidError(_) => "Invalid identifier format".to_string(),
+            ParseFloatError(_) => "Invalid numeric value".to_string(),
+            AddrParseError(_) => "Invalid address format".to_string(),
+            Base64Error(_) => "Invalid encoding".to_string(),
+            StrumParseError(_) => "Invalid enum value".to_string(),
+            SystemTimeError(_) => "An internal error occurred".to_string(),
+            AxumError(_) => "An internal error occurred".to_string(),
+            Infallible(_) => "An internal error occurred".to_string(),
+            TypeHeaderError(_) => "Invalid request headers".to_string(),
+        }
+    }
+
     pub fn response(self) -> (StatusCode, AppResponseError) {
         use AppError::*;
-        let message = self.to_string();
+        let message = self.sanitized_message();
         let (kind, code, details, status_code) = match self {
             InvalidPayloadError(_err) => (
                 "INVALID_PAYLOAD_ERROR".to_string(),

@@ -133,7 +133,16 @@ impl DaemonManager {
 
         // Parse the daemon command
         let (command, daemon_args) = parse_daemon_command(id, args);
-        let full_path = self.config.resolve_daemon_path(&command);
+        let full_path = match self.config.resolve_daemon_path(&command) {
+            Some(path) => path,
+            None => {
+                warn!("Rejected unknown or invalid daemon command: {}", command);
+                return Ok(DaemonResponse::error(format!(
+                    "Unknown daemon command: {}",
+                    command
+                )));
+            }
+        };
 
         info!("Starting daemon: {} {:?}", full_path.display(), daemon_args);
 

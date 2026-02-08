@@ -24,7 +24,7 @@ pub fn generate_tokens(username: String) -> AppResult<TokenResponse> {
 }
 
 pub async fn login(state: &AppState, req: LoginRequest) -> AppResult<TokenResponse> {
-    info!("Login user request :{req:?}.");
+    info!("Login user request for: {}", req.username);
     let user = user::find_by_username_and_status(&state.db, &req.username, true)
         .await?
         .to_result()?;
@@ -35,13 +35,13 @@ pub async fn login(state: &AppState, req: LoginRequest) -> AppResult<TokenRespon
 
 pub async fn refresh_token(state: &AppState, req: RefreshTokenRequest) -> AppResult<TokenResponse> {
     let user_claims = UserClaims::decode(&req.token, &REFRESH_TOKEN_DECODE_KEY)?.claims;
-    info!("Refresh token: {user_claims:?}");
+    info!("Refresh token for user: {}", user_claims.user);
     let user = user::find_by_username_and_status(&state.db, &user_claims.user, true)
         .await?
         .to_result()?;
     info!("Set new session for user: {}", user.id);
     let resp = token::generate_tokens(user.username)?;
-    info!("Refresh token success: {user_claims:?}");
+    info!("Refresh token success for user: {}", user_claims.user);
     Ok(resp)
 }
 

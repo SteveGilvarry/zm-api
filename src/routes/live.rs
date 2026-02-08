@@ -3,31 +3,36 @@
 //! Provides unified routes for live streaming via HLS, WebRTC, and MSE.
 
 use axum::{
+    middleware,
     routing::{delete, get, post},
     Router,
 };
 
 use crate::handlers::live;
 use crate::server::state::AppState;
-use crate::util::middleware::auth_middleware;
+use crate::util::middleware::{auth_middleware, media_auth_middleware};
 
-/// Create live streaming routes
+/// Create live streaming routes for per-monitor endpoints
 pub fn routes() -> Router<AppState> {
-    Router::new()
-        // Session control (requires auth)
+    // Session control endpoints require full auth
+    let session_routes = Router::new()
         .route("/start", post(live::start_live_stream))
         .route("/stop", delete(live::stop_live_stream))
         .route("/stats", get(live::get_live_stats))
-        // HLS endpoints (no auth for media delivery)
+        .layer(middleware::from_fn(auth_middleware));
+
+    // Media delivery endpoints use media auth (header or query param token)
+    let media_routes = Router::new()
         .route("/hls/master.m3u8", get(live::get_live_master_playlist))
         .route("/hls/live.m3u8", get(live::get_live_media_playlist))
         .route("/hls/init.mp4", get(live::get_live_init_segment))
         .route("/hls/{segment}", get(live::get_live_segment))
-        // MSE endpoints (WebSocket fMP4 streaming)
         .route("/mse/ws", get(live::mse_websocket_handler))
         .route("/mse/init.mp4", get(live::get_mse_init_segment))
-        // WebRTC endpoints (WebSocket signaling)
         .route("/webrtc/ws", get(live::webrtc_websocket_handler))
+        .layer(middleware::from_fn(media_auth_middleware));
+
+    session_routes.merge(media_routes)
 }
 
 /// Add live streaming routes to the router
@@ -38,10 +43,10 @@ pub fn add_live_routes(router: Router<AppState>) -> Router<AppState> {
         // Global live streaming endpoints
         .route(
             "/api/v3/live/sessions",
-            get(live::list_live_sessions).route_layer(axum::middleware::from_fn(auth_middleware)),
+            get(live::list_live_sessions).route_layer(middleware::from_fn(auth_middleware)),
         )
         .route(
             "/api/v3/live/sources",
-            get(live::get_live_sources).route_layer(axum::middleware::from_fn(auth_middleware)),
+            get(live::get_live_sources).route_layer(middleware::from_fn(auth_middleware)),
         )
 }

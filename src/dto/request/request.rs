@@ -72,7 +72,7 @@ impl Direction {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Dummy, ToSchema, Validate)]
+#[derive(Deserialize, Serialize, Dummy, ToSchema, Validate)]
 #[serde(tag = "type")]
 pub struct LoginRequest {
     #[dummy(faker = "Username()")]
@@ -84,16 +84,41 @@ pub struct LoginRequest {
     pub password: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema, Validate, Dummy, IntoParams)]
+impl std::fmt::Debug for LoginRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoginRequest")
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .finish()
+    }
+}
+
+#[derive(Serialize, Deserialize, ToSchema, Validate, Dummy, IntoParams)]
 pub struct RefreshTokenRequest {
     #[garde(length(min = 30))]
     pub token: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema, Validate, Dummy, IntoParams)]
+impl std::fmt::Debug for RefreshTokenRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RefreshTokenRequest")
+            .field("token", &"[REDACTED]")
+            .finish()
+    }
+}
+
+#[derive(Serialize, Deserialize, ToSchema, Validate, Dummy, IntoParams)]
 pub struct TokenInfoRequest {
     #[garde(length(min = 30))]
     pub token: String,
+}
+
+impl std::fmt::Debug for TokenInfoRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenInfoRequest")
+            .field("token", &"[REDACTED]")
+            .finish()
+    }
 }
 #[derive(Debug, Deserialize, ToSchema, Validate, Dummy, IntoParams)]
 pub struct ForgetPasswordQueryParam {

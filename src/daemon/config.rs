@@ -122,12 +122,45 @@ impl DaemonConfig {
     }
 
     /// Resolve a daemon command to its full path.
-    pub fn resolve_daemon_path(&self, command: &str) -> PathBuf {
-        if command.ends_with(".pl") {
+    ///
+    /// Only known ZoneMinder daemon names are allowed. Path traversal
+    /// sequences and unknown commands are rejected.
+    pub fn resolve_daemon_path(&self, command: &str) -> Option<PathBuf> {
+        // Allowlist of known ZoneMinder daemon names
+        const ALLOWED_DAEMONS: &[&str] = &[
+            "zmc",
+            "zma",
+            "zmdc.pl",
+            "zmfilter.pl",
+            "zmaudit.pl",
+            "zmtrigger.pl",
+            "zmx10.pl",
+            "zmwatch.pl",
+            "zmupdate.pl",
+            "zmtrack.pl",
+            "zmcontrol.pl",
+            "zmtelemetry.pl",
+            "zmsystemctl.pl",
+            "zmstats.pl",
+            "zm_rtsp_server",
+        ];
+
+        // Reject path separators and traversal sequences
+        if command.contains('/') || command.contains('\\') || command.contains('\0') {
+            return None;
+        }
+
+        // Check against allowlist
+        if !ALLOWED_DAEMONS.contains(&command) {
+            return None;
+        }
+
+        let path = if command.ends_with(".pl") {
             self.script_path.join(command)
         } else {
             self.bin_path.join(command)
-        }
+        };
+        Some(path)
     }
 }
 
@@ -216,13 +249,26 @@ mod tests {
         let config = DaemonConfig::default();
         assert_eq!(
             config.resolve_daemon_path("zmc"),
-            PathBuf::from("/usr/bin/zmc")
+            Some(PathBuf::from("/usr/bin/zmc"))
         );
         // On Ubuntu/Debian, scripts are also in /usr/bin
         assert_eq!(
             config.resolve_daemon_path("zmfilter.pl"),
-            PathBuf::from("/usr/bin/zmfilter.pl")
+            Some(PathBuf::from("/usr/bin/zmfilter.pl"))
         );
+    }
+
+    #[test]
+    fn test_resolve_daemon_path_rejects_unknown() {
+        let config = DaemonConfig::default();
+        assert_eq!(config.resolve_daemon_path("unknown_binary"), None);
+    }
+
+    #[test]
+    fn test_resolve_daemon_path_rejects_traversal() {
+        let config = DaemonConfig::default();
+        assert_eq!(config.resolve_daemon_path("../../bin/sh"), None);
+        assert_eq!(config.resolve_daemon_path("/bin/sh"), None);
     }
 
     #[test]

@@ -1,16 +1,18 @@
 //! Routes for daemon controller API.
 
 use axum::{
+    middleware,
     routing::{get, post},
     Router,
 };
 
 use crate::handlers::daemon;
 use crate::server::state::AppState;
+use crate::util::middleware::auth_middleware;
 
 /// Add daemon routes to a router.
 pub fn add_daemon_routes(router: Router<AppState>) -> Router<AppState> {
-    router
+    let protected_routes = Router::new()
         // Daemon management
         .route("/api/v3/daemons", get(daemon::list_daemons))
         .route("/api/v3/daemons/{id}", get(daemon::get_daemon))
@@ -25,4 +27,7 @@ pub fn add_daemon_routes(router: Router<AppState>) -> Router<AppState> {
         .route("/api/v3/system/restart", post(daemon::system_restart))
         .route("/api/v3/system/logrot", post(daemon::system_logrot))
         .route("/api/v3/system/state", post(daemon::apply_state))
+        .layer(middleware::from_fn(auth_middleware));
+
+    router.merge(protected_routes)
 }

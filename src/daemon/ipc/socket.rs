@@ -61,11 +61,11 @@ impl DaemonSocketServer {
         let listener = UnixListener::bind(&self.socket_path)?;
         info!("Daemon socket server listening on {:?}", self.socket_path);
 
-        // Set socket permissions (world-readable/writable for compatibility)
+        // Set socket permissions (owner + group only for security)
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o777);
+            let perms = std::fs::Permissions::from_mode(0o660);
             std::fs::set_permissions(&self.socket_path, perms)?;
         }
 

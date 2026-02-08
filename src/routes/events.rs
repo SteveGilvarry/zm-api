@@ -1,5 +1,6 @@
-use axum::{routing::get, Router};
+use axum::{middleware, routing::get, Router};
 
+use crate::util::middleware::auth_middleware;
 use crate::{handlers, server::state::AppState};
 
 /// Create events router using JWT middleware
@@ -28,4 +29,5 @@ pub fn routes() -> Router<AppState> {
             "/counts-by-monitor/{hours}",
             get(handlers::events::get_event_counts_by_monitor),
         )
+        .layer(middleware::from_fn(auth_middleware))
 }
