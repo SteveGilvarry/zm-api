@@ -34,6 +34,11 @@ impl AppServer {
                     tracing::error!("Failed to start daemon manager: {}", e);
                 }
 
+                // Start all ZoneMinder daemons (zmc, zma, singletons, etc.)
+                if let Err(e) = daemon_manager.start_all_daemons().await {
+                    tracing::error!("Failed to start ZoneMinder daemons: {}", e);
+                }
+
                 // Start the Unix socket server for legacy zmdc.pl compatibility
                 if config.daemon.enable_socket_ipc {
                     let socket_path = config.daemon.socket_file();
