@@ -8,6 +8,10 @@ use zm_api::{configure, util};
 #[tokio::main]
 #[allow(clippy::result_large_err)]
 async fn main() -> AppResult<()> {
+    // Install the rustls CryptoProvider before any TLS/DTLS usage.
+    // Required by rustls 0.23+ (used by webrtc-rs DTLS, axum-server TLS, sqlx).
+    zm_api::install_crypto_provider();
+
     let _file_appender_guard = configure::tracing::init()?;
     info!("The initialization of Tracing was successful.");
     let config = CONFIG.clone();

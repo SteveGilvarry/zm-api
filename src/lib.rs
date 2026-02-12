@@ -1,3 +1,12 @@
+/// Install the rustls `CryptoProvider` process-wide.
+///
+/// Must be called before any TLS/DTLS usage (WebRTC DTLS, axum-server TLS,
+/// sqlx TLS connections). Safe to call multiple times — subsequent calls are
+/// ignored if a provider is already installed.
+pub fn install_crypto_provider() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 pub mod client;
 pub mod configure;
 pub mod constant;

@@ -58,9 +58,9 @@ cache_sdp_seconds = 300
 
 [streaming.zoneminder]
 enabled = true
-fifo_base_path = "/dev/shm"
-video_fifo_suffix = "-v.fifo"
-audio_fifo_suffix = "-a.fifo"
+fifo_base_path = "/run/zm"
+video_fifo_suffix = "/video_fifo_"
+audio_fifo_suffix = "/audio_fifo_"
 fifo_read_timeout_ms = 5000
 reconnect_delay_ms = 1000
 

@@ -16,6 +16,7 @@ async-trait = "0.1"
 axum = { version = "0.8", features = ["ws"] }
 axum-extra = { version = "0.10", features = ["typed-header"] }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 rustls-acme = { version = "0.14.1", features = ["axum", "tokio", "tower"] }
 base64 = "0.22"
 bcrypt = "0.17"
