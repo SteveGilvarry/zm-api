@@ -76,6 +76,9 @@ bytes = "1"
 # Dashboard/stats
 dashmap = "6"
 
+# FFmpeg bindings for H.264 → JPEG snapshot decoding
+ffmpeg-next = "7"
+
 # Unix signal handling and filesystem utilities
 nix = { version = "0.29", features = ["signal", "fs"] }
 

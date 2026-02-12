@@ -9,7 +9,7 @@ use axum::{
 
 use crate::handlers::live;
 use crate::server::state::AppState;
-use crate::util::middleware::auth_middleware;
+use crate::util::middleware::{auth_middleware, media_auth_middleware};
 
 /// Create live streaming routes
 pub fn routes() -> Router<AppState> {
@@ -43,5 +43,11 @@ pub fn add_live_routes(router: Router<AppState>) -> Router<AppState> {
         .route(
             "/api/v3/live/sources",
             get(live::get_live_sources).route_layer(axum::middleware::from_fn(auth_middleware)),
+        )
+        // Monitor snapshot (supports token query param for <img> tags)
+        .route(
+            "/api/v3/monitors/{monitor_id}/snapshot",
+            get(live::get_monitor_snapshot)
+                .route_layer(axum::middleware::from_fn(media_auth_middleware)),
         )
 }

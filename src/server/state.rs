@@ -14,6 +14,7 @@ use crate::mse_client::MseStreamManager;
 use crate::ptz::PtzManager;
 use crate::streaming::hls::HlsSessionManager;
 use crate::streaming::live::LiveStreamCoordinator;
+use crate::streaming::snapshot::SnapshotService;
 use crate::streaming::source::SourceRouter;
 use crate::streaming::webrtc::{session::SessionManager, WebRtcEngine};
 
@@ -33,6 +34,8 @@ pub struct AppState {
     pub live_coordinator: Option<Arc<LiveStreamCoordinator>>,
     // Daemon Controller
     pub daemon_manager: Option<Arc<DaemonManager>>,
+    // Snapshot Service
+    pub snapshot_service: Option<Arc<SnapshotService>>,
     // PTZ Manager
     pub ptz_manager: Arc<PtzManager>,
 }
@@ -91,6 +94,11 @@ impl AppState {
             (None, None)
         };
 
+        // Initialize snapshot service (reuses source router)
+        let snapshot_service = source_router
+            .as_ref()
+            .map(|r| Arc::new(SnapshotService::with_defaults(Arc::clone(r))));
+
         // Initialize daemon manager if enabled
         let daemon_manager = if config.daemon.enabled {
             tracing::info!("Daemon controller enabled, initializing manager");
@@ -118,6 +126,7 @@ impl AppState {
             hls_session_manager,
             source_router,
             live_coordinator,
+            snapshot_service,
             daemon_manager,
             ptz_manager,
         })
@@ -152,6 +161,7 @@ impl AppState {
             hls_session_manager: None,
             source_router: None,
             live_coordinator: None,
+            snapshot_service: None,
             daemon_manager: None,
             ptz_manager: std::sync::Arc::new(PtzManager::with_defaults()),
         }

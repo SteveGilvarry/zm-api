@@ -1256,6 +1256,56 @@ async fn handle_webrtc_websocket(
     );
 }
 
+// ============================================================================
+// Monitor Snapshot
+// ============================================================================
+
+/// Get a JPEG snapshot from a live monitor
+#[utoipa::path(
+    get,
+    path = "/api/v3/monitors/{monitor_id}/snapshot",
+    operation_id = "getMonitorSnapshot",
+    tag = "Live Streaming",
+    params(
+        ("monitor_id" = u32, Path, description = "Monitor/Camera ID")
+    ),
+    responses(
+        (status = 200, description = "JPEG snapshot image", content_type = "image/jpeg"),
+        (status = 404, description = "Monitor not found", body = AppResponseError),
+        (status = 503, description = "Service unavailable", body = AppResponseError)
+    )
+)]
+pub async fn get_monitor_snapshot(
+    State(state): State<AppState>,
+    Path(monitor_id): Path<u32>,
+) -> AppResult<Response> {
+    let service = state.snapshot_service.as_ref().ok_or_else(|| {
+        AppError::ServiceUnavailableError("Snapshot service not configured".to_string())
+    })?;
+
+    let jpeg = service.get_snapshot(monitor_id).await.map_err(|e| {
+        use crate::streaming::snapshot::SnapshotError;
+        match e {
+            SnapshotError::SourceNotAvailable(id) | SnapshotError::KeyframeTimeout(id) => {
+                AppError::NotFoundError(crate::error::Resource {
+                    resource_type: crate::error::ResourceType::Monitor,
+                    details: vec![
+                        ("monitor_id".to_string(), id.to_string()),
+                        ("reason".to_string(), e.to_string()),
+                    ],
+                })
+            }
+            _ => AppError::InternalServerError(e.to_string()),
+        }
+    })?;
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "image/jpeg")
+        .header(header::CACHE_CONTROL, "no-cache, no-store")
+        .body(Body::from(jpeg))
+        .unwrap())
+}
 
 // ============================================================================
 // Source Statistics
