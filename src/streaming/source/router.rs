@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dashmap::DashMap;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, watch, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
@@ -17,6 +17,25 @@ use crate::configure::streaming::ZoneMinderConfig;
 
 /// Default broadcast channel capacity for source packets
 const DEFAULT_SOURCE_CAPACITY: usize = 100;
+
+/// Health state of the FIFO reader task.
+///
+/// Subscribers (e.g. the coordinator's processing task) can watch this to
+/// detect reader failures instead of hanging on a broadcast channel that
+/// never closes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReaderHealth {
+    /// Reader not started yet
+    Idle,
+    /// Attempting to open the FIFO
+    Opening,
+    /// FIFO open and producing packets
+    Active,
+    /// FIFO closed or errored, attempting reconnect
+    Reconnecting,
+    /// Reader task exited (watch sender dropped)
+    Stopped,
+}
 
 /// Represents an active monitor source with video and optional audio streams
 pub struct MonitorSource {
@@ -31,6 +50,10 @@ pub struct MonitorSource {
     codec: RwLock<VideoCodec>,
     /// Whether the source is actively reading
     active: RwLock<bool>,
+    /// Reader health watch — subscribers get notified on state transitions.
+    /// When the reader task exits, the sender is dropped and receivers get Err.
+    reader_health_tx: watch::Sender<ReaderHealth>,
+    reader_health_rx: watch::Receiver<ReaderHealth>,
 }
 
 impl MonitorSource {
@@ -43,6 +66,7 @@ impl MonitorSource {
         } else {
             None
         };
+        let (reader_health_tx, reader_health_rx) = watch::channel(ReaderHealth::Idle);
 
         Self {
             monitor_id,
@@ -51,6 +75,8 @@ impl MonitorSource {
             reader_handle: RwLock::new(None),
             codec: RwLock::new(VideoCodec::Unknown),
             active: RwLock::new(false),
+            reader_health_tx,
+            reader_health_rx,
         }
     }
 
@@ -82,6 +108,15 @@ impl MonitorSource {
     /// Check if the source is actively reading
     pub async fn is_active(&self) -> bool {
         *self.active.read().await
+    }
+
+    /// Subscribe to reader health state changes.
+    ///
+    /// Returns a watch receiver. When the reader task exits, the sender is
+    /// dropped and `changed().await` returns `Err`, which the caller should
+    /// interpret as `ReaderHealth::Stopped`.
+    pub fn subscribe_reader_health(&self) -> watch::Receiver<ReaderHealth> {
+        self.reader_health_rx.clone()
     }
 
     /// Get the number of video subscribers
@@ -203,6 +238,49 @@ impl SourceRouter {
         Self::with_config(RouterConfig::from_zoneminder(zm_config))
     }
 
+    /// Create a source for a monitor without starting the reader.
+    ///
+    /// Use this when you need to subscribe to the broadcast channel before
+    /// packets start flowing (avoids losing initial SPS/PPS NAL units).
+    /// Call `start_reader()` separately after subscribing.
+    pub async fn create_source(&self, monitor_id: u32) -> Result<Arc<MonitorSource>, RouterError> {
+        // Return existing if already created
+        if let Some(source) = self.active_sources.get(&monitor_id) {
+            return Ok(source.clone());
+        }
+
+        if self.active_sources.len() >= self.config.max_active_sources {
+            warn!(
+                "Max active sources ({}) reached, cannot add monitor {}",
+                self.config.max_active_sources, monitor_id
+            );
+            return Err(RouterError::SourceNotAvailable(monitor_id));
+        }
+
+        let reader = ZmFifoReader::new(monitor_id, self.config.zoneminder.clone());
+        if !reader.fifo_exists() {
+            return Err(RouterError::FifoNotFound(monitor_id));
+        }
+
+        let has_audio = reader.audio_path().is_some_and(|p| p.exists());
+        let source = Arc::new(MonitorSource::new(monitor_id, has_audio));
+        self.active_sources.insert(monitor_id, source.clone());
+
+        info!(
+            "Created source for monitor {} (audio: {})",
+            monitor_id, has_audio
+        );
+        Ok(source)
+    }
+
+    /// Get an existing source for a monitor without creating or starting one.
+    ///
+    /// Returns `None` if no source is currently active for this monitor.
+    /// Useful for piggybacking on an already-running reader (e.g. snapshots).
+    pub fn get_existing_source(&self, monitor_id: u32) -> Option<Arc<MonitorSource>> {
+        self.active_sources.get(&monitor_id).map(|s| s.clone())
+    }
+
     /// Get or create a source for a monitor - lazy initialization
     ///
     /// This will create a MonitorSource if one doesn't exist, and optionally
@@ -213,37 +291,12 @@ impl SourceRouter {
             return Ok(source.clone());
         }
 
-        // Check if we've hit the max active sources limit
-        if self.active_sources.len() >= self.config.max_active_sources {
-            warn!(
-                "Max active sources ({}) reached, cannot add monitor {}",
-                self.config.max_active_sources, monitor_id
-            );
-            return Err(RouterError::SourceNotAvailable(monitor_id));
-        }
-
-        // Check if FIFO exists
-        let reader = ZmFifoReader::new(monitor_id, self.config.zoneminder.clone());
-        if !reader.fifo_exists() {
-            return Err(RouterError::FifoNotFound(monitor_id));
-        }
-
-        // Check if audio FIFO exists
-        let has_audio = reader.audio_path().is_some_and(|p| p.exists());
-
-        // Create the source
-        let source = Arc::new(MonitorSource::new(monitor_id, has_audio));
-        self.active_sources.insert(monitor_id, source.clone());
+        let source = self.create_source(monitor_id).await?;
 
         // Start the reader if auto_start is enabled
         if self.config.auto_start {
             self.start_reader(monitor_id).await?;
         }
-
-        info!(
-            "Created source for monitor {} (audio: {})",
-            monitor_id, has_audio
-        );
 
         Ok(source)
     }
@@ -266,62 +319,91 @@ impl SourceRouter {
         let config = self.config.zoneminder.clone();
         let video_tx = source.video_tx.clone();
         let source_for_task = source.clone();
+        // Clone the health sender into the task — when the task exits (or is
+        // aborted), this sender is dropped and subscribers see Err from changed().
+        let health_tx = source.reader_health_tx.clone();
 
         let handle = tokio::spawn(async move {
             info!("Starting FIFO reader task for monitor {}", monitor_id);
-            *source_for_task.active.write().await = true;
 
-            let mut reader = ZmFifoReader::new(monitor_id, config.clone());
-
-            // Open the FIFO
-            if let Err(e) = reader.open().await {
-                error!("Failed to open FIFO for monitor {}: {}", monitor_id, e);
-                *source_for_task.active.write().await = false;
-                return;
-            }
-
-            // Read packets in a loop
+            // Outer loop: handles reconnection when FIFO closes or errors
             loop {
-                match reader.read_packet().await {
-                    Ok(packet) => {
-                        // Update codec if detected
-                        if packet.codec != VideoCodec::Unknown {
-                            let mut codec_guard = source_for_task.codec.write().await;
-                            if *codec_guard == VideoCodec::Unknown {
-                                *codec_guard = packet.codec;
-                                info!(
-                                    "Detected codec for monitor {}: {}",
-                                    monitor_id,
-                                    packet.codec.as_str()
-                                );
-                            }
-                        }
+                let mut reader = ZmFifoReader::new(monitor_id, config.clone());
+                let _ = health_tx.send(ReaderHealth::Opening);
 
-                        // Broadcast the packet (ignore errors if no receivers)
-                        if video_tx.send(packet).is_err() {
-                            // No receivers - this is fine, just means no one is subscribed
-                            debug!("No receivers for monitor {}", monitor_id);
-                        }
+                // Open the FIFO (with O_RDWR this won't block)
+                match reader.open().await {
+                    Ok(()) => {
+                        info!("FIFO opened for monitor {}", monitor_id);
+                        *source_for_task.active.write().await = true;
+                        let _ = health_tx.send(ReaderHealth::Active);
                     }
-                    Err(FifoError::Timeout { .. }) => {
-                        // Timeout is expected when no data is available
-                        debug!("Read timeout for monitor {}, continuing...", monitor_id);
+                    Err(FifoError::NotFound { .. }) => {
+                        debug!(
+                            "FIFO not found for monitor {}, waiting to retry...",
+                            monitor_id
+                        );
+                        tokio::time::sleep(Duration::from_millis(config.reconnect_delay_ms * 5))
+                            .await;
                         continue;
                     }
-                    Err(FifoError::Closed) => {
-                        warn!("FIFO closed for monitor {}, stopping reader", monitor_id);
-                        break;
-                    }
                     Err(e) => {
-                        error!("Error reading from FIFO for monitor {}: {}", monitor_id, e);
-                        // Small delay before retrying
+                        error!("Failed to open FIFO for monitor {}: {}", monitor_id, e);
                         tokio::time::sleep(Duration::from_millis(config.reconnect_delay_ms)).await;
+                        continue;
                     }
                 }
+
+                // Inner loop: read packets until FIFO closes or unrecoverable error
+                loop {
+                    match reader.read_packet().await {
+                        Ok(packet) => {
+                            // Update codec if detected
+                            if packet.codec != VideoCodec::Unknown {
+                                let mut codec_guard = source_for_task.codec.write().await;
+                                if *codec_guard == VideoCodec::Unknown {
+                                    *codec_guard = packet.codec;
+                                    info!(
+                                        "Detected codec for monitor {}: {}",
+                                        monitor_id,
+                                        packet.codec.as_str()
+                                    );
+                                }
+                            }
+
+                            // Broadcast the packet (ignore errors if no receivers)
+                            if video_tx.send(packet).is_err() {
+                                // No receivers - this is fine, just means no one is subscribed
+                                debug!("No receivers for monitor {}", monitor_id);
+                            }
+                        }
+                        Err(FifoError::Timeout { .. }) => {
+                            // Timeout is expected when no data is available
+                            debug!("Read timeout for monitor {}, continuing...", monitor_id);
+                            continue;
+                        }
+                        Err(FifoError::Closed) => {
+                            warn!("FIFO closed for monitor {}, will reconnect...", monitor_id);
+                            break; // Break inner loop to reconnect
+                        }
+                        Err(e) => {
+                            error!("Error reading from FIFO for monitor {}: {}", monitor_id, e);
+                            tokio::time::sleep(Duration::from_millis(config.reconnect_delay_ms))
+                                .await;
+                            break; // Break inner loop to reconnect with fresh reader
+                        }
+                    }
+                }
+
+                // Signal reconnecting before the delay
+                *source_for_task.active.write().await = false;
+                let _ = health_tx.send(ReaderHealth::Reconnecting);
+
+                // Brief delay before reconnecting
+                tokio::time::sleep(Duration::from_millis(config.reconnect_delay_ms)).await;
             }
 
-            *source_for_task.active.write().await = false;
-            info!("FIFO reader task stopped for monitor {}", monitor_id);
+            // Reached if the task is aborted — health_tx is dropped, signaling Stopped
         });
 
         *source.reader_handle.write().await = Some(handle);

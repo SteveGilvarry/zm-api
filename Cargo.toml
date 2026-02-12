@@ -65,6 +65,7 @@ mockall = "0.13"
 webrtc = "0.12"
 webrtc-util = "0.9"
 interceptor = "0.13"
+webrtc-media = "0.9"
 
 # RTSP client for stream sources
 retina = "0.4"

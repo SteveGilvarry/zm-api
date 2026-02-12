@@ -217,11 +217,13 @@ impl HlsSessionManager {
             return Err(HlsError::SessionExists(monitor_id));
         }
 
-        // Initialize storage
+        // Initialize storage and clean any stale files from a previous session
         self.storage.init_monitor(monitor_id).await?;
+        self.storage.clean_monitor(monitor_id).await?;
 
-        // Create session
-        let session = HlsSession::new(monitor_id, &self.config, &self.base_url);
+        // Create session with per-monitor base URL including /hls/ prefix
+        let session_base_url = format!("{}/{}/hls", self.base_url, monitor_id);
+        let session = HlsSession::new(monitor_id, &self.config, &session_base_url);
         sessions.insert(monitor_id, session);
 
         info!("Started HLS session for monitor {}", monitor_id);
@@ -259,7 +261,10 @@ impl HlsSessionManager {
                 .get_mut(&monitor_id)
                 .ok_or(HlsError::SessionNotFound(monitor_id))?;
 
-            // Try to generate init segment if we don't have one
+            // Process the packet first — this extracts SPS/PPS from NAL units
+            let segment = session.process_packet(packet);
+
+            // Now try to generate init segment (requires SPS+PPS from above)
             if session.get_init_segment().is_none() {
                 if let Some(init) = session.generate_init_segment() {
                     self.storage
@@ -268,7 +273,7 @@ impl HlsSessionManager {
                 }
             }
 
-            session.process_packet(packet)
+            segment
         };
 
         // If a segment was produced, store it
@@ -462,7 +467,7 @@ mod tests {
     #[test]
     fn test_session_creation() {
         let config = test_config();
-        let session = HlsSession::new(1, &config, "/api/v3/hls/1");
+        let session = HlsSession::new(1, &config, "/api/v3/live/1/hls");
 
         assert_eq!(session.monitor_id(), 1);
         assert_eq!(session.segment_count, 0);
@@ -471,7 +476,7 @@ mod tests {
     #[test]
     fn test_session_stats() {
         let config = test_config();
-        let session = HlsSession::new(1, &config, "/api/v3/hls/1");
+        let session = HlsSession::new(1, &config, "/api/v3/live/1/hls");
 
         let stats = session.stats();
         assert_eq!(stats.monitor_id, 1);
@@ -482,17 +487,18 @@ mod tests {
     #[test]
     fn test_playlist_generation() {
         let config = test_config();
-        let session = HlsSession::new(1, &config, "/api/v3/hls/1");
+        let session = HlsSession::new(1, &config, "/api/v3/live/1/hls");
 
         let playlist = session.generate_playlist();
         assert!(playlist.contains("#EXTM3U"));
         assert!(playlist.contains("#EXT-X-TARGETDURATION:2"));
+        assert!(playlist.contains("URI=\"/api/v3/live/1/hls/init.mp4\""));
     }
 
     #[tokio::test]
     async fn test_session_manager_creation() {
         let config = test_config();
-        let manager = HlsSessionManager::new(config, "/api/v3/hls");
+        let manager = HlsSessionManager::new(config, "/api/v3/live");
 
         let sessions = manager.list_sessions().await;
         assert!(sessions.is_empty());

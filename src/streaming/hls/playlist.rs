@@ -445,14 +445,20 @@ mod tests {
 
     #[test]
     fn test_playlist_generator() {
-        let generator = PlaylistGenerator::new(1, "/api/v3/hls/1", 4, 6);
+        let generator = PlaylistGenerator::new(1, "/api/v3/live/1/hls", 4, 6);
 
         let master = generator.generate_master_playlist();
         assert_eq!(master.variants.len(), 1);
         assert_eq!(master.variants[0].name, "live");
 
+        let master_content = master.generate();
+        assert!(master_content.contains("/api/v3/live/1/hls/live.m3u8"));
+
         let media = generator.generate_media_playlist();
         assert_eq!(media.target_duration, 4);
-        assert!(media.init_segment_uri.is_some());
+        assert_eq!(
+            media.init_segment_uri.as_deref(),
+            Some("/api/v3/live/1/hls/init.mp4")
+        );
     }
 }

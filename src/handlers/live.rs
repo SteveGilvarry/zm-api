@@ -23,7 +23,9 @@ use tracing::{debug, error, info, warn};
 use crate::error::{AppError, AppResponseError, AppResult};
 use crate::server::state::AppState;
 use crate::streaming::live::mse::{MseLiveConfig, MseLiveManager};
-use crate::streaming::live::webrtc::{WebRtcLiveConfig, WebRtcLiveManager};
+use crate::streaming::live::webrtc::{
+    extract_profile_level_id, AccessUnitAssembler, WebRtcLiveConfig, WebRtcLiveManager,
+};
 use crate::streaming::live::{CoordinatorError, LiveStreamConfig};
 use crate::streaming::source::VideoCodec;
 
@@ -187,6 +189,8 @@ pub async fn start_live_stream(
 }
 
 /// Stop live streaming for a monitor
+///
+/// This endpoint is idempotent: stopping a non-active stream returns 204.
 #[utoipa::path(
     delete,
     path = "/api/v3/live/{monitor_id}/stop",
@@ -196,8 +200,7 @@ pub async fn start_live_stream(
         ("monitor_id" = u32, Path, description = "Monitor/Camera ID")
     ),
     responses(
-        (status = 200, description = "Live streaming stopped"),
-        (status = 404, description = "Session not found", body = AppResponseError),
+        (status = 204, description = "Live streaming stopped (or was not active)"),
         (status = 503, description = "Service unavailable", body = AppResponseError)
     ),
     security(
@@ -214,17 +217,23 @@ pub async fn stop_live_stream(
         AppError::ServiceUnavailableError("Live streaming not configured".to_string())
     })?;
 
-    coordinator.stop_session(monitor_id).await.map_err(|e| {
-        AppError::NotFoundError(crate::error::Resource {
-            resource_type: crate::error::ResourceType::Monitor,
-            details: vec![
-                ("monitor_id".to_string(), monitor_id.to_string()),
-                ("error".to_string(), e.to_string()),
-            ],
-        })
-    })?;
+    match coordinator.stop_session(monitor_id).await {
+        Ok(()) => {}
+        Err(CoordinatorError::SessionNotFound(_)) => {
+            debug!(
+                "Stop requested for non-active monitor {}, returning 204",
+                monitor_id
+            );
+        }
+        Err(e) => {
+            return Err(AppError::BadRequestError(format!(
+                "Failed to stop live stream: {}",
+                e
+            )));
+        }
+    }
 
-    Ok(StatusCode::OK)
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Get live stream statistics
@@ -956,8 +965,47 @@ async fn handle_webrtc_websocket(
         codec
     };
 
-    // Create WebRTC session with offer
-    let (session_id, offer) = match webrtc_manager.create_session(monitor_id, codec).await {
+    // Detect the actual H264 profile from the first SPS NAL so the SDP
+    // offer advertises the correct profile-level-id.  Without this, the
+    // browser may refuse to create a decoder (decoderImpl=none).
+    let mut profile_level_id: Option<String> = None;
+    if codec == VideoCodec::H264 {
+        let mut detect_rx = source.subscribe_video();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            tokio::select! {
+                result = detect_rx.recv() => {
+                    match result {
+                        Ok(packet) => {
+                            if let Some(plid) = extract_profile_level_id(&packet.data) {
+                                info!(
+                                    "Detected H264 profile-level-id={} for monitor {}",
+                                    plid, monitor_id
+                                );
+                                profile_level_id = Some(plid);
+                                break;
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    }
+                }
+                _ = tokio::time::sleep_until(deadline) => {
+                    warn!(
+                        "Timeout waiting for SPS NAL on monitor {}, using default profile",
+                        monitor_id
+                    );
+                    break;
+                }
+            }
+        }
+    }
+
+    // Create WebRTC session with offer and state watch channel
+    let (session_id, offer, mut pc_state_rx) = match webrtc_manager
+        .create_session(monitor_id, codec, profile_level_id.as_deref())
+        .await
+    {
         Ok(result) => result,
         Err(e) => {
             error!(
@@ -990,8 +1038,17 @@ async fn handle_webrtc_websocket(
     // Subscribe to video packets for streaming
     let mut video_rx = source.subscribe_video();
 
-    // Track if we've received answer and can start streaming
+    // Assembles individual NAL units into complete access units (frames)
+    // so the H264 payloader assigns one RTP timestamp per picture.
+    let mut au_assembler = AccessUnitAssembler::new();
+
+    // Track if DTLS handshake is complete and we can stream media
     let mut streaming_started = false;
+    // Track if we've set the SDP answer (waiting for DTLS)
+    let mut answer_set = false;
+    // Connection timeout: 30s after answer is set, if not streaming yet
+    let connection_timeout = tokio::time::sleep(Duration::from_secs(30));
+    tokio::pin!(connection_timeout);
 
     // Main event loop
     loop {
@@ -1004,7 +1061,19 @@ async fn handle_webrtc_websocket(
                             match signaling_msg {
                                 WebRtcSignalingMessage::Answer { session_id: sid, sdp } => {
                                     if sid == session_id {
-                                        let answer = webrtc::peer_connection::sdp::session_description::RTCSessionDescription::answer(sdp).unwrap();
+                                        let answer = match webrtc::peer_connection::sdp::session_description::RTCSessionDescription::answer(sdp) {
+                                            Ok(a) => a,
+                                            Err(e) => {
+                                                error!("Invalid SDP answer from client: {}", e);
+                                                let error_msg = WebRtcSignalingMessage::Error {
+                                                    message: format!("Invalid SDP answer: {}", e),
+                                                };
+                                                if let Ok(json) = serde_json::to_string(&error_msg) {
+                                                    let _ = ws_sender.send(Message::Text(json.into())).await;
+                                                }
+                                                continue;
+                                            }
+                                        };
                                         if let Err(e) = webrtc_manager.set_answer(&session_id, answer).await {
                                             error!("Failed to set answer: {}", e);
                                             let error_msg = WebRtcSignalingMessage::Error {
@@ -1014,16 +1083,41 @@ async fn handle_webrtc_websocket(
                                                 let _ = ws_sender.send(Message::Text(json.into())).await;
                                             }
                                         } else {
-                                            // Send ready notification
-                                            let ready_msg = WebRtcSignalingMessage::Ready {
-                                                session_id: session_id.clone(),
-                                                monitor_id,
-                                            };
-                                            if let Ok(json) = serde_json::to_string(&ready_msg) {
-                                                let _ = ws_sender.send(Message::Text(json.into())).await;
+                                            answer_set = true;
+                                            // Reset timeout to 30s from now
+                                            connection_timeout.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(30));
+                                            info!("SDP answer set for session {}, waiting for DTLS completion", session_id);
+
+                                            // Check if peer connection already reached Connected
+                                            // before we started watching. This handles the race
+                                            // where DTLS completes very quickly (e.g. on LAN).
+                                            let current_state = *pc_state_rx.borrow_and_update();
+                                            match current_state {
+                                                webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState::Connected => {
+                                                    streaming_started = true;
+                                                    let ready_msg = WebRtcSignalingMessage::Ready {
+                                                        session_id: session_id.clone(),
+                                                        monitor_id,
+                                                    };
+                                                    if let Ok(json) = serde_json::to_string(&ready_msg) {
+                                                        let _ = ws_sender.send(Message::Text(json.into())).await;
+                                                    }
+                                                    info!("WebRTC session {} already connected, streaming started", session_id);
+                                                }
+                                                webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState::Failed => {
+                                                    error!("WebRTC peer connection already failed for session {}", session_id);
+                                                    let error_msg = WebRtcSignalingMessage::Error {
+                                                        message: "Peer connection failed".to_string(),
+                                                    };
+                                                    if let Ok(json) = serde_json::to_string(&error_msg) {
+                                                        let _ = ws_sender.send(Message::Text(json.into())).await;
+                                                    }
+                                                    break;
+                                                }
+                                                _ => {
+                                                    debug!("WebRTC session {} current state after answer: {:?}", session_id, current_state);
+                                                }
                                             }
-                                            streaming_started = true;
-                                            info!("WebRTC session {} ready for streaming", session_id);
                                         }
                                     }
                                 }
@@ -1060,12 +1154,86 @@ async fn handle_webrtc_websocket(
                 }
             }
 
-            // Handle video packets for RTP streaming
+            // Wait for peer connection state changes (DTLS handshake)
+            result = pc_state_rx.changed(), if answer_set && !streaming_started => {
+                match result {
+                    Ok(()) => {
+                        let state = *pc_state_rx.borrow_and_update();
+                        match state {
+                            webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState::Connected => {
+                                streaming_started = true;
+                                // Send ready notification now that DTLS is complete
+                                let ready_msg = WebRtcSignalingMessage::Ready {
+                                    session_id: session_id.clone(),
+                                    monitor_id,
+                                };
+                                if let Ok(json) = serde_json::to_string(&ready_msg) {
+                                    let _ = ws_sender.send(Message::Text(json.into())).await;
+                                }
+                                info!("WebRTC session {} connected (DTLS complete), streaming started", session_id);
+                            }
+                            webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState::Failed => {
+                                error!("WebRTC peer connection failed for session {}", session_id);
+                                let error_msg = WebRtcSignalingMessage::Error {
+                                    message: "Peer connection failed".to_string(),
+                                };
+                                if let Ok(json) = serde_json::to_string(&error_msg) {
+                                    let _ = ws_sender.send(Message::Text(json.into())).await;
+                                }
+                                break;
+                            }
+                            webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState::Disconnected
+                            | webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState::Closed => {
+                                warn!("WebRTC session {} peer connection state: {:?}", session_id, state);
+                                let error_msg = WebRtcSignalingMessage::Error {
+                                    message: format!("Peer connection {:?}", state),
+                                };
+                                if let Ok(json) = serde_json::to_string(&error_msg) {
+                                    let _ = ws_sender.send(Message::Text(json.into())).await;
+                                }
+                                break;
+                            }
+                            _ => {
+                                debug!("WebRTC session {} state: {:?}", session_id, state);
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        error!("WebRTC peer connection state watch dropped for session {}", session_id);
+                        let error_msg = WebRtcSignalingMessage::Error {
+                            message: "Peer connection closed unexpectedly".to_string(),
+                        };
+                        if let Ok(json) = serde_json::to_string(&error_msg) {
+                            let _ = ws_sender.send(Message::Text(json.into())).await;
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // Connection timeout: if answer was set but DTLS never completes
+            () = &mut connection_timeout, if answer_set && !streaming_started => {
+                error!("WebRTC connection timeout for session {} (30s after SDP answer)", session_id);
+                let error_msg = WebRtcSignalingMessage::Error {
+                    message: "Connection timeout: DTLS handshake did not complete within 30 seconds".to_string(),
+                };
+                if let Ok(json) = serde_json::to_string(&error_msg) {
+                    let _ = ws_sender.send(Message::Text(json.into())).await;
+                }
+                break;
+            }
+
+            // Handle video packets for streaming (only after DTLS connected)
             result = video_rx.recv(), if streaming_started => {
                 match result {
                     Ok(packet) => {
-                        if let Err(e) = webrtc_manager.write_packet(&session_id, &packet).await {
-                            debug!("Failed to write packet: {}", e);
+                        // Feed each NAL into the assembler; when a complete
+                        // access unit (frame) is ready, send it as one sample
+                        // so all NALs share a single RTP timestamp.
+                        if let Some(au) = au_assembler.push(&packet) {
+                            if let Err(e) = webrtc_manager.write_access_unit(&session_id, &au).await {
+                                debug!("Failed to write access unit: {}", e);
+                            }
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
@@ -1087,6 +1255,7 @@ async fn handle_webrtc_websocket(
         monitor_id
     );
 }
+
 
 // ============================================================================
 // Source Statistics

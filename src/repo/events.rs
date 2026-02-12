@@ -158,7 +158,7 @@ pub async fn get_counts_by_monitor(
     #[derive(FromQueryResult)]
     struct CountResult {
         monitor_id: u32,
-        count: u64,
+        count: i64,
     }
 
     // Calculate time boundary
@@ -182,7 +182,7 @@ pub async fn get_counts_by_monitor(
 
     let counts = results
         .into_iter()
-        .map(|r| (r.monitor_id, r.count))
+        .map(|r| (r.monitor_id, r.count as u64))
         .collect();
 
     Ok(counts)
@@ -200,7 +200,7 @@ pub async fn get_counts_by_hour(
     #[derive(FromQueryResult)]
     struct CountResult {
         hour: String,
-        count: u64,
+        count: i64,
     }
 
     // Calculate time boundary
@@ -236,7 +236,7 @@ pub async fn get_counts_by_hour(
                         .unwrap()
                         .naive_utc()
                 });
-            (naive_date, r.count)
+            (naive_date, r.count as u64)
         })
         .collect();
 

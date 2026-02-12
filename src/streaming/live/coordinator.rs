@@ -5,12 +5,14 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use crate::streaming::hls::HlsSessionManager;
+use crate::streaming::source::router::ReaderHealth;
 use crate::streaming::source::SourceRouter;
 
 /// Status of a live streaming session
@@ -162,10 +164,21 @@ impl LiveStreamCoordinator {
             return Err(CoordinatorError::SourceNotAvailable(monitor_id));
         }
 
-        // Get the source (this will start the reader if auto_start is enabled)
-        let _source = self
+        // Create the source WITHOUT starting the reader — this gives us a chance
+        // to subscribe before any packets flow, so we never miss SPS/PPS.
+        let source = self
             .source_router
-            .get_source(monitor_id)
+            .create_source(monitor_id)
+            .await
+            .map_err(|e| CoordinatorError::SourceError(e.to_string()))?;
+
+        // Subscribe BEFORE starting the reader — guarantees we see all packets
+        let video_rx = source.subscribe_video();
+        let reader_health_rx = source.subscribe_reader_health();
+
+        // NOW start the FIFO reader
+        self.source_router
+            .start_reader(monitor_id)
             .await
             .map_err(|e| CoordinatorError::SourceError(e.to_string()))?;
 
@@ -179,55 +192,151 @@ impl LiveStreamCoordinator {
             }
         }
 
-        // Create session
-        let mut session = LiveSession::new(monitor_id, config.clone());
-
-        // Start processing task
-        let task_handle = self.start_processing_task(monitor_id, config);
-        session.task_handle = Some(task_handle);
-        session.status = SessionStatus::Active;
-
-        // Store session
+        // Store session BEFORE spawning the processing task so the task
+        // can find and update it (status, packet counts). Status starts as
+        // Starting and transitions to Active when the first packet arrives.
         {
+            let session = LiveSession::new(monitor_id, config.clone());
             let mut sessions = self.sessions.write().await;
             sessions.insert(monitor_id, session);
+        }
+
+        // Start processing task with pre-subscribed receivers
+        let task_handle =
+            self.start_processing_task(monitor_id, config, video_rx, reader_health_rx);
+
+        // Store the task handle
+        {
+            let mut sessions = self.sessions.write().await;
+            if let Some(session) = sessions.get_mut(&monitor_id) {
+                session.task_handle = Some(task_handle);
+            }
         }
 
         info!("Started live streaming session for monitor {}", monitor_id);
         Ok(())
     }
 
-    /// Start the packet processing task
-    fn start_processing_task(&self, monitor_id: u32, config: LiveStreamConfig) -> JoinHandle<()> {
-        let source_router = Arc::clone(&self.source_router);
+    /// Start the packet processing task with a pre-subscribed receiver.
+    ///
+    /// The receiver must be created BEFORE the FIFO reader starts to guarantee
+    /// no packets (especially initial SPS/PPS) are lost.
+    ///
+    /// The task transitions the session from Starting → Active on first packet,
+    /// or Starting → Error if no packets arrive within the startup timeout.
+    fn start_processing_task(
+        &self,
+        monitor_id: u32,
+        config: LiveStreamConfig,
+        video_rx: tokio::sync::broadcast::Receiver<crate::streaming::source::fifo::FifoPacket>,
+        reader_health_rx: tokio::sync::watch::Receiver<ReaderHealth>,
+    ) -> JoinHandle<()> {
+        /// Maximum time to wait for the first video packet before marking the
+        /// session as errored. Covers FIFO open retries + ZoneMinder startup.
+        const STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
+
         let hls_manager = self.hls_manager.clone();
         let sessions = Arc::clone(&self.sessions);
 
         tokio::spawn(async move {
             info!("Starting packet processing task for monitor {}", monitor_id);
+            let mut video_rx = video_rx;
+            let mut reader_health_rx = reader_health_rx;
+            let mut received_first_packet = false;
+            let startup_deadline = tokio::time::Instant::now() + STARTUP_TIMEOUT;
 
-            // Subscribe to video packets
-            let mut video_rx = match source_router.subscribe_video(monitor_id).await {
-                Ok(rx) => rx,
-                Err(e) => {
-                    error!(
-                        "Failed to subscribe to video for monitor {}: {}",
-                        monitor_id, e
-                    );
-                    return;
-                }
-            };
-
-            // Process packets
             loop {
-                match video_rx.recv().await {
+                // Until the first packet arrives, race recv against a startup
+                // timeout so we detect dead readers (missing FIFO, ZM not running).
+                // Also monitor reader health — if the watch sender is dropped
+                // (reader task exited), we stop instead of hanging forever on the
+                // broadcast channel (which never closes while MonitorSource lives).
+                let recv_result = if !received_first_packet {
+                    tokio::select! {
+                        result = video_rx.recv() => result,
+                        () = tokio::time::sleep_until(startup_deadline) => {
+                            warn!(
+                                "No video packets received within {}s for monitor {}, marking session as error",
+                                STARTUP_TIMEOUT.as_secs(),
+                                monitor_id,
+                            );
+                            let mut sessions_guard = sessions.write().await;
+                            if let Some(session) = sessions_guard.get_mut(&monitor_id) {
+                                session.status = SessionStatus::Error;
+                            }
+                            return;
+                        }
+                        health = reader_health_rx.changed() => {
+                            match health {
+                                Ok(()) => {
+                                    // Reader health changed — log it but keep waiting for packets
+                                    let state = *reader_health_rx.borrow();
+                                    debug!(
+                                        "Reader health for monitor {}: {:?}",
+                                        monitor_id, state
+                                    );
+                                    continue;
+                                }
+                                Err(_) => {
+                                    // Watch sender dropped — reader task exited
+                                    warn!(
+                                        "Reader task exited for monitor {}, marking session as error",
+                                        monitor_id,
+                                    );
+                                    let mut sessions_guard = sessions.write().await;
+                                    if let Some(session) = sessions_guard.get_mut(&monitor_id) {
+                                        session.status = SessionStatus::Error;
+                                    }
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    tokio::select! {
+                        result = video_rx.recv() => result,
+                        health = reader_health_rx.changed() => {
+                            match health {
+                                Ok(()) => {
+                                    let state = *reader_health_rx.borrow();
+                                    debug!(
+                                        "Reader health for monitor {}: {:?}",
+                                        monitor_id, state
+                                    );
+                                    continue;
+                                }
+                                Err(_) => {
+                                    warn!(
+                                        "Reader task exited for monitor {}, stopping processing",
+                                        monitor_id,
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                };
+
+                match recv_result {
                     Ok(packet) => {
+                        // Transition Starting → Active on first packet
+                        if !received_first_packet {
+                            received_first_packet = true;
+                            let mut sessions_guard = sessions.write().await;
+                            if let Some(session) = sessions_guard.get_mut(&monitor_id) {
+                                session.status = SessionStatus::Active;
+                            }
+                            info!(
+                                "First video packet received for monitor {}, session active",
+                                monitor_id
+                            );
+                        }
+
                         // Process through HLS if enabled
                         if config.enable_hls {
                             if let Some(hls) = &hls_manager {
                                 if let Err(e) = hls.process_packet(&packet).await {
                                     debug!("HLS process error for monitor {}: {}", monitor_id, e);
-                                    // Increment error count
                                     let mut sessions_guard = sessions.write().await;
                                     if let Some(session) = sessions_guard.get_mut(&monitor_id) {
                                         session.errors += 1;
@@ -235,9 +344,6 @@ impl LiveStreamCoordinator {
                                 }
                             }
                         }
-
-                        // TODO: Process through WebRTC if enabled
-                        // TODO: Process through MSE if enabled
 
                         // Update packet count
                         {
@@ -248,11 +354,23 @@ impl LiveStreamCoordinator {
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        warn!(
-                            "Processing task lagged {} packets for monitor {}",
-                            n, monitor_id
-                        );
-                        // Continue processing
+                        // Lagged means packets ARE flowing — we just missed some
+                        if !received_first_packet {
+                            received_first_packet = true;
+                            let mut sessions_guard = sessions.write().await;
+                            if let Some(session) = sessions_guard.get_mut(&monitor_id) {
+                                session.status = SessionStatus::Active;
+                            }
+                            info!(
+                                "Video packets flowing for monitor {} (lagged {}), session active",
+                                monitor_id, n
+                            );
+                        } else {
+                            warn!(
+                                "Processing task lagged {} packets for monitor {}",
+                                n, monitor_id
+                            );
+                        }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         info!(

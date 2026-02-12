@@ -1,8 +1,9 @@
 use std::collections::HashMap;
+use std::io::Read as _;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
-use tokio::fs::File;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
+use std::time::{Duration, Instant};
+use tokio::io::unix::AsyncFd;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
@@ -61,18 +62,31 @@ pub struct FifoPacket {
     pub codec: VideoCodec,
 }
 
+/// Maximum NAL accumulation buffer size (4 MB) before forced reset
+const MAX_NAL_BUF_SIZE: usize = 4 * 1024 * 1024;
+/// Read buffer size for FIFO reads
+const FIFO_READ_BUF_SIZE: usize = 32768;
+
 /// Reader for ZoneMinder's video FIFO
+///
+/// ZoneMinder writes raw Annex B H.264/H.265 byte streams to the FIFO
+/// (no framing headers). This reader accumulates bytes and extracts
+/// complete NAL units by scanning for start codes (00 00 00 01 / 00 00 01).
 pub struct ZmFifoReader {
     monitor_id: u32,
     video_path: PathBuf,
     audio_path: Option<PathBuf>,
-    video_reader: Option<BufReader<File>>,
+    video_reader: Option<AsyncFd<std::fs::File>>,
     codec: VideoCodec,
     config: ZoneMinderConfig,
     #[allow(dead_code)]
     broadcast_capacity: usize,
     /// Broadcast channel for distributing packets to multiple consumers
     tx: broadcast::Sender<FifoPacket>,
+    /// Accumulation buffer for raw Annex B byte stream
+    nal_buf: Vec<u8>,
+    /// Reader start time for generating monotonic timestamps
+    start_time: Instant,
 }
 
 impl ZmFifoReader {
@@ -177,6 +191,8 @@ impl ZmFifoReader {
             config,
             broadcast_capacity,
             tx,
+            nal_buf: Vec::with_capacity(FIFO_READ_BUF_SIZE * 2),
+            start_time: Instant::now(),
         }
     }
 
@@ -208,6 +224,13 @@ impl ZmFifoReader {
 
     /// Open the FIFO for reading
     /// Returns error if FIFO doesn't exist or can't be opened
+    ///
+    /// Uses `O_RDWR` to avoid two problems with `O_RDONLY` on named pipes:
+    /// 1. `O_RDONLY` blocks until a writer opens the pipe
+    /// 2. `O_RDONLY` causes EOF when the writer disconnects
+    ///
+    /// With `O_RDWR`, the process holds both ends, so open returns immediately
+    /// and reads block only until data is available (no spurious EOF).
     pub async fn open(&mut self) -> Result<(), FifoError> {
         if !self.fifo_exists() {
             return Err(FifoError::NotFound {
@@ -221,9 +244,23 @@ impl ZmFifoReader {
             self.video_path.display()
         );
 
-        // Open the video FIFO
-        let file = File::open(&self.video_path).await?;
-        self.video_reader = Some(BufReader::new(file));
+        // Open with O_RDWR | O_NONBLOCK:
+        // - O_RDWR: prevents blocking on open and spurious EOF when writer closes
+        // - O_NONBLOCK: enables non-blocking reads so tokio's AsyncFd can poll via epoll
+        let video_path = self.video_path.clone();
+        let std_file = tokio::task::spawn_blocking(move || {
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(libc::O_NONBLOCK)
+                .open(&video_path)
+        })
+        .await
+        .map_err(|e| FifoError::OpenError(std::io::Error::other(e)))?
+        .map_err(FifoError::OpenError)?;
+
+        let async_fd = AsyncFd::new(std_file).map_err(FifoError::OpenError)?;
+        self.video_reader = Some(async_fd);
 
         info!("Successfully opened FIFO for monitor {}", self.monitor_id);
         Ok(())
@@ -247,65 +284,78 @@ impl ZmFifoReader {
     }
 
     /// Internal packet reading logic
+    ///
+    /// Reads raw bytes from the FIFO using AsyncFd for epoll-based readiness
+    /// notification. This avoids blocking tokio's thread pool on FIFO reads
+    /// and ensures timeouts can cancel pending reads.
     async fn read_packet_internal(&mut self) -> Result<FifoPacket, FifoError> {
-        let reader = self.video_reader.as_mut().ok_or(FifoError::NotCapturing)?;
+        let async_fd = self.video_reader.as_ref().ok_or(FifoError::NotCapturing)?;
 
-        // Read the ASCII header line: "ZM <size> <pts>\n"
-        // ZoneMinder headers are typically < 100 bytes, but allow up to 1024 for safety
-        let mut header = String::new();
-        let bytes_read = reader.read_line(&mut header).await?;
+        loop {
+            // Try to extract a complete NAL unit from the accumulation buffer
+            if let Some(nal_data) = extract_next_nal(&mut self.nal_buf) {
+                // Detect codec if not yet known
+                if self.codec == VideoCodec::Unknown {
+                    self.codec = Self::detect_codec(&nal_data);
+                    if self.codec != VideoCodec::Unknown {
+                        info!(
+                            "Detected codec for monitor {}: {}",
+                            self.monitor_id,
+                            self.codec.as_str()
+                        );
+                    }
+                }
 
-        if bytes_read == 0 {
-            return Err(FifoError::Closed);
+                let is_keyframe = Self::is_keyframe(&nal_data, self.codec);
+                let timestamp_us = self.start_time.elapsed().as_micros() as i64;
+
+                debug!(
+                    "Read NAL for monitor {}: {} bytes, keyframe: {}, codec: {}",
+                    self.monitor_id,
+                    nal_data.len(),
+                    is_keyframe,
+                    self.codec.as_str()
+                );
+
+                return Ok(FifoPacket {
+                    monitor_id: self.monitor_id,
+                    timestamp_us,
+                    data: nal_data,
+                    is_keyframe,
+                    codec: self.codec,
+                });
+            }
+
+            // Need more data — wait for FIFO to become readable via epoll,
+            // then perform a non-blocking read. This is cancel-safe: if the
+            // timeout fires, the future is dropped without leaving a blocked
+            // thread in the pool.
+            let n = loop {
+                let mut guard = async_fd.readable().await?;
+                let mut buf = [0u8; FIFO_READ_BUF_SIZE];
+                match guard.try_io(|fd| fd.get_ref().read(&mut buf)) {
+                    Ok(Ok(0)) => return Err(FifoError::Closed),
+                    Ok(Ok(n)) => {
+                        self.nal_buf.extend_from_slice(&buf[..n]);
+                        break n;
+                    }
+                    Ok(Err(e)) => return Err(FifoError::OpenError(e)),
+                    Err(_would_block) => continue, // spurious wakeup, retry
+                }
+            };
+
+            debug!("Read {} bytes from FIFO for monitor {}", n, self.monitor_id);
+
+            // Prevent unbounded buffer growth (e.g., corrupt stream with no start codes)
+            if self.nal_buf.len() > MAX_NAL_BUF_SIZE {
+                warn!(
+                    "NAL buffer overflow ({} bytes) for monitor {}, resetting",
+                    self.nal_buf.len(),
+                    self.monitor_id
+                );
+                self.nal_buf.clear();
+            }
         }
-
-        // Sanity check: header should be reasonable size
-        if header.len() > 1024 {
-            return Err(FifoError::InvalidFormat);
-        }
-
-        // Parse "ZM <size> <pts>"
-        let parts: Vec<&str> = header.trim().split(' ').collect();
-        if parts.len() != 3 || parts[0] != "ZM" {
-            return Err(FifoError::InvalidFormat);
-        }
-
-        let length: u32 = parts[1].parse().map_err(|_| FifoError::InvalidFormat)?;
-        let timestamp_us: i64 = parts[2].parse().map_err(|_| FifoError::InvalidFormat)?;
-
-        // Read the raw packet data
-        let mut data = vec![0u8; length as usize];
-        reader.read_exact(&mut data).await?;
-
-        // Detect codec from NAL unit if not yet detected
-        if self.codec == VideoCodec::Unknown {
-            self.codec = Self::detect_codec(&data);
-            info!(
-                "Detected codec for monitor {}: {}",
-                self.monitor_id,
-                self.codec.as_str()
-            );
-        }
-
-        // Check if this is a keyframe
-        let is_keyframe = Self::is_keyframe(&data, self.codec);
-
-        debug!(
-            "Read packet for monitor {}: {} bytes, timestamp: {}us, keyframe: {}, codec: {}",
-            self.monitor_id,
-            data.len(),
-            timestamp_us,
-            is_keyframe,
-            self.codec.as_str()
-        );
-
-        Ok(FifoPacket {
-            monitor_id: self.monitor_id,
-            timestamp_us,
-            data,
-            is_keyframe,
-            codec: self.codec,
-        })
     }
 
     /// Subscribe to receive packets via broadcast channel
@@ -463,6 +513,64 @@ impl ZmFifoReader {
     /// Get the audio FIFO path (if configured)
     pub fn audio_path(&self) -> Option<&Path> {
         self.audio_path.as_deref()
+    }
+}
+
+/// Find an Annex B start code in `buf` starting at position `from`.
+/// Returns `(position, start_code_length)` where length is 3 or 4.
+fn find_start_code(buf: &[u8], from: usize) -> Option<(usize, usize)> {
+    if buf.len() < from + 3 {
+        return None;
+    }
+    let mut i = from;
+    while i + 2 < buf.len() {
+        if buf[i] == 0x00 && buf[i + 1] == 0x00 {
+            if buf[i + 2] == 0x01 {
+                // Check for 4-byte start code (00 00 00 01)
+                if i > 0 && buf[i - 1] == 0x00 {
+                    // Prefer reporting the 4-byte version (backtrack one byte)
+                    // but only if caller's `from` allows it
+                    if i > from {
+                        return Some((i - 1, 4));
+                    }
+                }
+                return Some((i, 3));
+            }
+            // Check 00 00 00 01 starting at i
+            if i + 3 < buf.len() && buf[i + 2] == 0x00 && buf[i + 3] == 0x01 {
+                return Some((i, 4));
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Extract the next complete NAL unit from `buf`.
+///
+/// Scans for two consecutive Annex B start codes. Returns the bytes from
+/// the first start code up to (but not including) the second. Bytes before
+/// the first start code are discarded (handles joining mid-stream).
+fn extract_next_nal(buf: &mut Vec<u8>) -> Option<Vec<u8>> {
+    // Find the first start code
+    let (first_pos, first_len) = find_start_code(buf, 0)?;
+
+    // Discard any bytes before the first start code (mid-stream garbage)
+    if first_pos > 0 {
+        buf.drain(..first_pos);
+        // Adjust: first start code is now at position 0
+        return extract_next_nal(buf);
+    }
+
+    // Find the second start code (marks end of first NAL unit)
+    let search_from = first_len;
+    if let Some((second_pos, _)) = find_start_code(buf, search_from) {
+        let nal = buf[..second_pos].to_vec();
+        buf.drain(..second_pos);
+        Some(nal)
+    } else {
+        // Only one start code found — need more data
+        None
     }
 }
 
@@ -629,16 +737,19 @@ mod tests {
 
     #[test]
     fn test_fifo_reader_creation() {
-        let config = ZoneMinderConfig::default();
+        // Use a non-existent base path to avoid environment-dependent codec detection
+        let config = ZoneMinderConfig {
+            fifo_base_path: "/tmp/zm_test_nonexistent".to_string(),
+            video_fifo_suffix: "/video_fifo_".to_string(),
+            ..ZoneMinderConfig::default()
+        };
         let reader = ZmFifoReader::new(1, config);
 
         assert_eq!(reader.monitor_id(), 1);
         assert_eq!(reader.codec(), VideoCodec::Unknown);
-        // Default path when file doesn't exist
-        assert_eq!(reader.video_path(), Path::new("/run/zm/video_fifo_1.h264"));
         assert_eq!(
-            reader.audio_path(),
-            Some(Path::new("/run/zm/audio_fifo_1.aac"))
+            reader.video_path(),
+            Path::new("/tmp/zm_test_nonexistent/video_fifo_1.h264")
         );
     }
 
@@ -675,44 +786,76 @@ mod tests {
     }
 
     #[test]
-    fn test_ascii_header_parsing() {
-        // Test valid header format: "ZM <size> <pts>"
-        let header = "ZM 4521 1704067200000000";
-        let parts: Vec<&str> = header.trim().split(' ').collect();
-
-        assert_eq!(parts.len(), 3);
-        assert_eq!(parts[0], "ZM");
-
-        let length: u32 = parts[1].parse().unwrap();
-        let timestamp_us: i64 = parts[2].parse().unwrap();
-
-        assert_eq!(length, 4521);
-        assert_eq!(timestamp_us, 1704067200000000);
+    fn test_find_start_code_4byte() {
+        let buf = [0x00, 0x00, 0x00, 0x01, 0x67, 0x42];
+        let result = find_start_code(&buf, 0);
+        assert_eq!(result, Some((0, 4)));
     }
 
     #[test]
-    fn test_ascii_header_parsing_negative_timestamp() {
-        // Test with negative timestamp (edge case)
-        let header = "ZM 100 -1000";
-        let parts: Vec<&str> = header.trim().split(' ').collect();
-
-        assert_eq!(parts.len(), 3);
-        assert_eq!(parts[0], "ZM");
-
-        let length: u32 = parts[1].parse().unwrap();
-        let timestamp_us: i64 = parts[2].parse().unwrap();
-
-        assert_eq!(length, 100);
-        assert_eq!(timestamp_us, -1000);
+    fn test_find_start_code_3byte() {
+        let buf = [0xFF, 0x00, 0x00, 0x01, 0x67, 0x42];
+        let result = find_start_code(&buf, 0);
+        assert_eq!(result, Some((1, 3)));
     }
 
     #[test]
-    fn test_ascii_header_invalid_format() {
-        // Test invalid header (missing magic)
-        let header = "XX 100 1000";
-        let parts: Vec<&str> = header.trim().split(' ').collect();
+    fn test_find_start_code_offset() {
+        // Start code at position 5
+        let buf = [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x00, 0x00, 0x00, 0x01, 0x67];
+        let result = find_start_code(&buf, 3);
+        assert_eq!(result, Some((5, 4)));
+    }
 
-        assert_eq!(parts.len(), 3);
-        assert_ne!(parts[0], "ZM");
+    #[test]
+    fn test_find_start_code_none() {
+        let buf = [0xAA, 0xBB, 0xCC, 0xDD];
+        assert_eq!(find_start_code(&buf, 0), None);
+    }
+
+    #[test]
+    fn test_extract_next_nal_single() {
+        // Two NAL units: SPS then PPS
+        let mut buf = vec![
+            0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1F, // NAL 1 (SPS)
+            0x00, 0x00, 0x00, 0x01, 0x68, 0xCE, 0x3C, 0x80, // NAL 2 (PPS)
+        ];
+        let nal = extract_next_nal(&mut buf).unwrap();
+        // First NAL: start code + SPS data
+        assert_eq!(nal, vec![0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1F]);
+        // Buffer should now start with second NAL
+        assert_eq!(buf[0..4], [0x00, 0x00, 0x00, 0x01]);
+        assert_eq!(buf[4], 0x68);
+    }
+
+    #[test]
+    fn test_extract_next_nal_discards_leading_garbage() {
+        // Garbage bytes before first start code (joining mid-stream)
+        let mut buf = vec![
+            0xAA, 0xBB, 0xCC, // garbage
+            0x00, 0x00, 0x00, 0x01, 0x67, 0x42, // NAL 1
+            0x00, 0x00, 0x00, 0x01, 0x68, 0xCE, // NAL 2
+        ];
+        let nal = extract_next_nal(&mut buf).unwrap();
+        assert_eq!(nal, vec![0x00, 0x00, 0x00, 0x01, 0x67, 0x42]);
+    }
+
+    #[test]
+    fn test_extract_next_nal_incomplete() {
+        // Only one start code — need more data
+        let mut buf = vec![0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1F];
+        assert!(extract_next_nal(&mut buf).is_none());
+        // Buffer should be preserved
+        assert_eq!(buf.len(), 8);
+    }
+
+    #[test]
+    fn test_extract_next_nal_3byte_start_codes() {
+        let mut buf = vec![
+            0x00, 0x00, 0x01, 0x67, 0x42, // NAL 1 (3-byte start code)
+            0x00, 0x00, 0x01, 0x68, 0xCE, // NAL 2
+        ];
+        let nal = extract_next_nal(&mut buf).unwrap();
+        assert_eq!(nal, vec![0x00, 0x00, 0x01, 0x67, 0x42]);
     }
 }

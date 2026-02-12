@@ -397,6 +397,49 @@ impl HlsStorage {
         }
     }
 
+    /// Clean stale segment files and init.mp4 from a monitor directory without removing the directory.
+    ///
+    /// Called at session start to prevent leftover files from a previous session
+    /// from misleading clients (e.g., a stale `init.mp4` with 0 packets processed).
+    pub async fn clean_monitor(&self, monitor_id: u32) -> Result<(), StorageError> {
+        let monitor_path = self.config.base_path.join(monitor_id.to_string());
+
+        if !monitor_path.exists() {
+            return Ok(());
+        }
+
+        let mut dir = fs::read_dir(&monitor_path)
+            .await
+            .map_err(|e| StorageError::IoError {
+                path: monitor_path.clone(),
+                source: e,
+            })?;
+
+        while let Some(entry) = dir.next_entry().await.map_err(|e| StorageError::IoError {
+            path: monitor_path.clone(),
+            source: e,
+        })? {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name == "init.mp4" || (name.starts_with("segment_") && name.ends_with(".m4s")) {
+                if let Err(e) = fs::remove_file(entry.path()).await {
+                    warn!("Failed to remove stale file {:?}: {}", entry.path(), e);
+                }
+            }
+        }
+
+        // Clear in-memory state for this monitor
+        let mut monitors = self.monitors.write().await;
+        if let Some(storage) = monitors.get_mut(&monitor_id) {
+            storage.init_segment = None;
+            storage.segments.clear();
+            storage.partial_segments.clear();
+        }
+
+        debug!("Cleaned stale HLS files for monitor {}", monitor_id);
+        Ok(())
+    }
+
     /// Remove all data for a monitor
     pub async fn remove_monitor(&self, monitor_id: u32) -> Result<(), StorageError> {
         let monitor_path = self.config.base_path.join(monitor_id.to_string());
@@ -601,6 +644,47 @@ mod tests {
         assert!(stats.has_init_segment);
         assert_eq!(stats.oldest_sequence, Some(0));
         assert_eq!(stats.newest_sequence, Some(2));
+    }
+
+    #[tokio::test]
+    async fn test_clean_monitor_removes_stale_files() {
+        let (storage, _temp) = create_test_storage().await;
+
+        // Create a session with init + segments
+        storage.store_init_segment(1, b"init").await.unwrap();
+        storage
+            .store_segment(1, 0, b"seg0", Duration::from_secs(4))
+            .await
+            .unwrap();
+        storage
+            .store_segment(1, 1, b"seg1", Duration::from_secs(4))
+            .await
+            .unwrap();
+
+        let monitor_path = storage.init_monitor(1).await.unwrap();
+        assert!(monitor_path.join("init.mp4").exists());
+        assert!(monitor_path.join("segment_00000.m4s").exists());
+        assert!(monitor_path.join("segment_00001.m4s").exists());
+
+        // Clean should remove files but keep directory
+        storage.clean_monitor(1).await.unwrap();
+        assert!(monitor_path.exists());
+        assert!(!monitor_path.join("init.mp4").exists());
+        assert!(!monitor_path.join("segment_00000.m4s").exists());
+        assert!(!monitor_path.join("segment_00001.m4s").exists());
+
+        // In-memory state should be cleared
+        assert!(storage.get_init_segment(1).await.is_none());
+        let segments = storage.list_segments(1).await;
+        assert!(segments.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_clean_monitor_nonexistent_is_ok() {
+        let (storage, _temp) = create_test_storage().await;
+
+        // Should not error for a monitor that was never initialized
+        storage.clean_monitor(999).await.unwrap();
     }
 
     #[tokio::test]

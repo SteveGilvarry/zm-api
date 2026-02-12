@@ -14,6 +14,7 @@
 //!                   Playlist Generator
 //! ```
 
+pub mod h264;
 pub mod playlist;
 pub mod segmenter;
 pub mod session;
