@@ -44,7 +44,6 @@ fn build_create_monitor_request(name: String) -> CreateMonitorRequest {
         r#type: MonitorType::Local,
         function: Function::Monitor,
         capturing: Capturing::None,
-        enabled: 1,
         decoding_enabled: 0,
         decoding: Decoding::None,
         rtsp2_web_enabled: 0,
@@ -265,8 +264,7 @@ async fn test_api_monitors_create_update_delete() {
 
     let updated_name = format!("{}updated_monitor", test_prefix());
     let update_body = serde_json::to_vec(&serde_json::json!({
-        "name": updated_name,
-        "enabled": 0
+        "name": updated_name
     }))
     .expect("serialize update body");
     let response = app
@@ -290,7 +288,6 @@ async fn test_api_monitors_create_update_delete() {
 
     let fetched = get_monitor(&app, created.id).await;
     assert_eq!(fetched.name, updated_name);
-    assert_eq!(fetched.enabled, 0);
 
     let response = app
         .oneshot(

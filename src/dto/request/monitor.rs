@@ -60,9 +60,6 @@ pub struct CreateMonitorRequest {
     pub capturing: Capturing,
 
     #[garde(range(min = 0, max = 1))]
-    pub enabled: u8,
-
-    #[garde(range(min = 0, max = 1))]
     pub decoding_enabled: u8,
 
     #[serde(rename = "decoding")]
@@ -458,9 +455,6 @@ pub struct UpdateMonitorRequest {
     #[serde(rename = "capturing")]
     #[garde(skip)]
     pub capturing: Option<Capturing>,
-
-    #[garde(range(min = 0, max = 1))]
-    pub enabled: Option<u8>,
 
     #[garde(range(min = 0, max = 1))]
     pub decoding_enabled: Option<u8>,

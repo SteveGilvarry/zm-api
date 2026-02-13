@@ -9,7 +9,7 @@ use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
 use rust_decimal::prelude::*;
-use sea_orm::ActiveValue::Set;
+use sea_orm::ActiveValue::{NotSet, Set};
 use tracing::info;
 use url::Url;
 
@@ -74,7 +74,7 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         r#type: Set(monitor_type),
         function: Set(function),
         capturing: Set(capturing),
-        enabled: Set(req.enabled),
+        enabled: NotSet,
         decoding_enabled: Set(req.decoding_enabled),
         decoding: Set(decoding),
         rtsp2_web_enabled: Set(req.rtsp2_web_enabled),
@@ -261,9 +261,6 @@ pub async fn update(
     }
     if let Some(capturing) = req.capturing {
         monitor.capturing = Set(capturing);
-    }
-    if let Some(enabled) = req.enabled {
-        monitor.enabled = Set(enabled);
     }
     if let Some(decoding_enabled) = req.decoding_enabled {
         monitor.decoding_enabled = Set(decoding_enabled);
@@ -656,22 +653,10 @@ pub async fn update_state(
             })
         })?;
 
-    let mut monitor: monitors::ActiveModel = monitor_model.clone().into();
-
-    // Determine the action and update DB state
+    // Validate the action
     let action = req.state.as_str();
     match action {
-        "start" => {
-            // Enable the monitor in DB
-            monitor.enabled = Set(1);
-        }
-        "stop" => {
-            // Disable the monitor in DB
-            monitor.enabled = Set(0);
-        }
-        "restart" => {
-            // No change to enabled state for restart
-        }
+        "start" | "stop" | "restart" => {}
         _ => {
             return Err(AppError::BadRequestError(format!(
                 "Invalid state: {}",
@@ -679,9 +664,6 @@ pub async fn update_state(
             )));
         }
     }
-
-    // Update the database first
-    let updated_monitor = repo::monitors::update(state.db(), monitor).await?;
 
     // Now control the daemons (if daemon manager is available)
     if let Some(dm) = &state.daemon_manager {
@@ -710,8 +692,8 @@ pub async fn update_state(
         tracing::debug!("Daemon manager not available, skipping daemon control");
     }
 
-    // Return the updated monitor
-    Ok(MonitorResponse::from(updated_monitor))
+    // Return the current monitor state
+    Ok(MonitorResponse::from(monitor_model))
 }
 
 /// Get streaming connection details for a monitor
