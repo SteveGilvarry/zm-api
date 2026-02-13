@@ -516,6 +516,57 @@ impl ZmFifoReader {
     }
 }
 
+/// Return the H.264 NAL unit type (bits 0-4 of first byte after start code).
+///
+/// Accepts both 3-byte (`00 00 01`) and 4-byte (`00 00 00 01`) start codes.
+/// Returns `None` if no start code is found.
+pub fn h264_nal_type(nal_data: &[u8]) -> Option<u8> {
+    let offset = if nal_data.starts_with(&[0, 0, 0, 1]) {
+        4
+    } else if nal_data.starts_with(&[0, 0, 1]) {
+        3
+    } else {
+        return None;
+    };
+    nal_data.get(offset).map(|b| b & 0x1F)
+}
+
+/// Extract `profile-level-id` from an H.264 SPS NAL unit.
+///
+/// The three bytes immediately after the NAL header in an SPS are
+/// `profile_idc`, `constraint_set_flags`, and `level_idc` — exactly the
+/// value needed for the SDP `profile-level-id` parameter.
+///
+/// Returns a 6-character hex string (e.g. `"4d0033"` for Main Profile Level 5.1).
+pub fn extract_profile_level_id(nal_data: &[u8]) -> Option<String> {
+    let offset = if nal_data.starts_with(&[0, 0, 0, 1]) {
+        4
+    } else if nal_data.starts_with(&[0, 0, 1]) {
+        3
+    } else {
+        return None;
+    };
+
+    // Need NAL header + profile_idc + constraint_flags + level_idc
+    if nal_data.len() < offset + 4 {
+        return None;
+    }
+
+    let nal_type = nal_data[offset] & 0x1F;
+    if nal_type != 7 {
+        return None; // Not an SPS
+    }
+
+    let profile_idc = nal_data[offset + 1];
+    let constraint_flags = nal_data[offset + 2];
+    let level_idc = nal_data[offset + 3];
+
+    Some(format!(
+        "{:02x}{:02x}{:02x}",
+        profile_idc, constraint_flags, level_idc
+    ))
+}
+
 /// Find an Annex B start code in `buf` starting at position `from`.
 /// Returns `(position, start_code_length)` where length is 3 or 4.
 fn find_start_code(buf: &[u8], from: usize) -> Option<(usize, usize)> {
@@ -857,5 +908,48 @@ mod tests {
         ];
         let nal = extract_next_nal(&mut buf).unwrap();
         assert_eq!(nal, vec![0x00, 0x00, 0x01, 0x67, 0x42]);
+    }
+
+    // --- Tests for public h264_nal_type ---
+
+    #[test]
+    fn test_h264_nal_type_4byte_start_code() {
+        assert_eq!(h264_nal_type(&[0, 0, 0, 1, 0x67]), Some(7)); // SPS
+        assert_eq!(h264_nal_type(&[0, 0, 0, 1, 0x68]), Some(8)); // PPS
+        assert_eq!(h264_nal_type(&[0, 0, 0, 1, 0x65]), Some(5)); // IDR
+        assert_eq!(h264_nal_type(&[0, 0, 0, 1, 0x41]), Some(1)); // non-IDR
+    }
+
+    #[test]
+    fn test_h264_nal_type_3byte_start_code() {
+        assert_eq!(h264_nal_type(&[0, 0, 1, 0x67]), Some(7));
+    }
+
+    #[test]
+    fn test_h264_nal_type_no_start_code() {
+        assert_eq!(h264_nal_type(&[0xFF, 0x67]), None);
+        assert_eq!(h264_nal_type(&[]), None);
+    }
+
+    // --- Tests for public extract_profile_level_id ---
+
+    #[test]
+    fn test_extract_profile_level_id_valid_sps() {
+        // Main Profile, Level 5.1
+        let sps = vec![0x00, 0x00, 0x00, 0x01, 0x67, 0x4D, 0x00, 0x33, 0xFF];
+        assert_eq!(extract_profile_level_id(&sps), Some("4d0033".to_string()));
+    }
+
+    #[test]
+    fn test_extract_profile_level_id_not_sps() {
+        // PPS (type 8) — should return None
+        let pps = vec![0x00, 0x00, 0x00, 0x01, 0x68, 0xCE, 0x3C, 0x80];
+        assert_eq!(extract_profile_level_id(&pps), None);
+    }
+
+    #[test]
+    fn test_extract_profile_level_id_too_short() {
+        let short = vec![0x00, 0x00, 0x00, 0x01, 0x67, 0x4D];
+        assert_eq!(extract_profile_level_id(&short), None);
     }
 }

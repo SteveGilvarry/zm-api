@@ -12,7 +12,9 @@ use tokio::sync::{broadcast, watch, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
-use super::fifo::{FifoError, FifoPacket, VideoCodec, ZmFifoReader};
+use super::fifo::{
+    extract_profile_level_id, h264_nal_type, FifoError, FifoPacket, VideoCodec, ZmFifoReader,
+};
 use crate::configure::streaming::ZoneMinderConfig;
 
 /// Default broadcast channel capacity for source packets
@@ -37,6 +39,26 @@ pub enum ReaderHealth {
     Stopped,
 }
 
+/// Cached keyframe data (SPS + PPS + IDR) for fast WebRTC startup.
+///
+/// When a reader is active, this is populated on each IDR arrival so that
+/// new WebRTC connections can skip codec detection and keyframe waits.
+#[derive(Debug, Clone)]
+pub struct CachedKeyframe {
+    /// Raw SPS NAL (with Annex B start code)
+    pub sps: Vec<u8>,
+    /// Raw PPS NAL (with Annex B start code)
+    pub pps: Vec<u8>,
+    /// SPS + PPS + IDR concatenated (Annex B), ready to inject as one AU
+    pub keyframe_au: Vec<u8>,
+    /// profile-level-id extracted from SPS (e.g. "4d0033")
+    pub profile_level_id: String,
+    /// Video codec (H264 for now)
+    pub codec: VideoCodec,
+    /// Timestamp in microseconds (from reader's monotonic clock)
+    pub timestamp_us: i64,
+}
+
 /// Represents an active monitor source with video and optional audio streams
 pub struct MonitorSource {
     monitor_id: u32,
@@ -54,6 +76,10 @@ pub struct MonitorSource {
     /// When the reader task exits, the sender is dropped and receivers get Err.
     reader_health_tx: watch::Sender<ReaderHealth>,
     reader_health_rx: watch::Receiver<ReaderHealth>,
+    /// Cached keyframe (SPS+PPS+IDR) for fast WebRTC startup.
+    /// Updated each time an IDR is seen by the reader task.
+    keyframe_cache_tx: watch::Sender<Option<CachedKeyframe>>,
+    keyframe_cache_rx: watch::Receiver<Option<CachedKeyframe>>,
 }
 
 impl MonitorSource {
@@ -67,6 +93,7 @@ impl MonitorSource {
             None
         };
         let (reader_health_tx, reader_health_rx) = watch::channel(ReaderHealth::Idle);
+        let (keyframe_cache_tx, keyframe_cache_rx) = watch::channel(None);
 
         Self {
             monitor_id,
@@ -77,6 +104,8 @@ impl MonitorSource {
             active: RwLock::new(false),
             reader_health_tx,
             reader_health_rx,
+            keyframe_cache_tx,
+            keyframe_cache_rx,
         }
     }
 
@@ -117,6 +146,20 @@ impl MonitorSource {
     /// interpret as `ReaderHealth::Stopped`.
     pub fn subscribe_reader_health(&self) -> watch::Receiver<ReaderHealth> {
         self.reader_health_rx.clone()
+    }
+
+    /// Get the current cached keyframe synchronously (non-blocking).
+    ///
+    /// Returns `None` if no keyframe has been seen yet by the reader task.
+    pub fn cached_keyframe(&self) -> Option<CachedKeyframe> {
+        self.keyframe_cache_rx.borrow().clone()
+    }
+
+    /// Subscribe to keyframe cache updates.
+    ///
+    /// Useful for waiting until the first keyframe is cached (cold start).
+    pub fn subscribe_keyframe_cache(&self) -> watch::Receiver<Option<CachedKeyframe>> {
+        self.keyframe_cache_rx.clone()
     }
 
     /// Get the number of video subscribers
@@ -323,6 +366,8 @@ impl SourceRouter {
         // aborted), this sender is dropped and subscribers see Err from changed().
         let health_tx = source.reader_health_tx.clone();
 
+        let keyframe_cache_tx = source.keyframe_cache_tx.clone();
+
         let handle = tokio::spawn(async move {
             info!("Starting FIFO reader task for monitor {}", monitor_id);
 
@@ -330,6 +375,15 @@ impl SourceRouter {
             loop {
                 let mut reader = ZmFifoReader::new(monitor_id, config.clone());
                 let _ = health_tx.send(ReaderHealth::Opening);
+
+                // Keyframe cache state — tracks SPS/PPS/profile across NALs so we
+                // can assemble a complete CachedKeyframe when an IDR arrives.
+                // Re-initialized on each reconnect (new SPS/PPS expected).
+                // The watch channel is NOT cleared — old cache is still usable
+                // during brief reconnects.
+                let mut pending_sps: Option<Vec<u8>> = None;
+                let mut pending_pps: Option<Vec<u8>> = None;
+                let mut pending_profile_level_id: Option<String> = None;
 
                 // Open the FIFO (with O_RDWR this won't block)
                 match reader.open().await {
@@ -368,6 +422,54 @@ impl SourceRouter {
                                         monitor_id,
                                         packet.codec.as_str()
                                     );
+                                }
+                            }
+
+                            // --- Keyframe cache: inspect H.264 NAL types ---
+                            if packet.codec == VideoCodec::H264 {
+                                if let Some(nal_type) = h264_nal_type(&packet.data) {
+                                    match nal_type {
+                                        7 => {
+                                            // SPS — cache it and extract profile-level-id
+                                            pending_sps = Some(packet.data.clone());
+                                            pending_profile_level_id =
+                                                extract_profile_level_id(&packet.data);
+                                        }
+                                        8 => {
+                                            // PPS — cache it
+                                            pending_pps = Some(packet.data.clone());
+                                        }
+                                        5 => {
+                                            // IDR — if we have SPS + PPS + profile, assemble cache
+                                            if let (Some(sps), Some(pps), Some(plid)) = (
+                                                &pending_sps,
+                                                &pending_pps,
+                                                &pending_profile_level_id,
+                                            ) {
+                                                let mut keyframe_au = Vec::with_capacity(
+                                                    sps.len() + pps.len() + packet.data.len(),
+                                                );
+                                                keyframe_au.extend_from_slice(sps);
+                                                keyframe_au.extend_from_slice(pps);
+                                                keyframe_au.extend_from_slice(&packet.data);
+
+                                                let cached = CachedKeyframe {
+                                                    sps: sps.clone(),
+                                                    pps: pps.clone(),
+                                                    keyframe_au,
+                                                    profile_level_id: plid.clone(),
+                                                    codec: VideoCodec::H264,
+                                                    timestamp_us: packet.timestamp_us,
+                                                };
+                                                let _ = keyframe_cache_tx.send(Some(cached));
+                                                debug!(
+                                                    "Updated keyframe cache for monitor {}",
+                                                    monitor_id
+                                                );
+                                            }
+                                        }
+                                        _ => {}
+                                    }
                                 }
                             }
 
@@ -594,5 +696,68 @@ mod tests {
         // This will return false for a non-existent monitor
         // since the FIFO won't exist
         assert!(!router.is_available(99999));
+    }
+
+    #[test]
+    fn test_monitor_source_cached_keyframe_initially_none() {
+        let source = MonitorSource::new(1, false);
+        assert!(source.cached_keyframe().is_none());
+    }
+
+    #[test]
+    fn test_cached_keyframe_populated_via_watch() {
+        let source = MonitorSource::new(1, false);
+
+        // Initially empty
+        assert!(source.cached_keyframe().is_none());
+
+        // Simulate the reader task populating the cache
+        let cached = CachedKeyframe {
+            sps: vec![0x00, 0x00, 0x00, 0x01, 0x67, 0x4D, 0x00, 0x33],
+            pps: vec![0x00, 0x00, 0x00, 0x01, 0x68, 0xCE, 0x3C, 0x80],
+            keyframe_au: vec![
+                0x00, 0x00, 0x00, 0x01, 0x67, 0x4D, 0x00, 0x33, // SPS
+                0x00, 0x00, 0x00, 0x01, 0x68, 0xCE, 0x3C, 0x80, // PPS
+                0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x84, 0x00, // IDR
+            ],
+            profile_level_id: "4d0033".to_string(),
+            codec: VideoCodec::H264,
+            timestamp_us: 12345,
+        };
+        let _ = source.keyframe_cache_tx.send(Some(cached));
+
+        // Now cached_keyframe() should return the data
+        let result = source.cached_keyframe();
+        assert!(result.is_some());
+        let ck = result.unwrap();
+        assert_eq!(ck.profile_level_id, "4d0033");
+        assert_eq!(ck.codec, VideoCodec::H264);
+        assert_eq!(ck.timestamp_us, 12345);
+        assert_eq!(ck.sps[4] & 0x1F, 7); // SPS NAL type
+        assert_eq!(ck.pps[4] & 0x1F, 8); // PPS NAL type
+    }
+
+    #[test]
+    fn test_subscribe_keyframe_cache_receives_updates() {
+        let source = MonitorSource::new(1, false);
+        let rx = source.subscribe_keyframe_cache();
+
+        // Initially None
+        assert!(rx.borrow().is_none());
+
+        // Send a cached keyframe
+        let cached = CachedKeyframe {
+            sps: vec![0x00, 0x00, 0x00, 0x01, 0x67, 0x4D, 0x00, 0x33],
+            pps: vec![0x00, 0x00, 0x00, 0x01, 0x68, 0xCE, 0x3C, 0x80],
+            keyframe_au: vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x88],
+            profile_level_id: "4d0033".to_string(),
+            codec: VideoCodec::H264,
+            timestamp_us: 0,
+        };
+        let _ = source.keyframe_cache_tx.send(Some(cached));
+
+        // Subscriber should see the update
+        assert!(rx.borrow().is_some());
+        assert_eq!(rx.borrow().as_ref().unwrap().profile_level_id, "4d0033");
     }
 }

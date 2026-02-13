@@ -32,64 +32,19 @@ use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSampl
 use webrtc::track::track_local::TrackLocal;
 use webrtc_media::Sample;
 
-use crate::streaming::source::{FifoPacket, VideoCodec};
+use crate::streaming::source::{h264_nal_type, FifoPacket, VideoCodec};
+
+// Re-export for consumers that imported from here
+pub use crate::streaming::source::extract_profile_level_id;
 
 // ============================================================================
 // Access Unit Assembler
 // ============================================================================
 
-/// H.264 NAL unit type (bits 0-4 of first byte after start code)
-fn h264_nal_type(nal_data: &[u8]) -> Option<u8> {
-    let offset = if nal_data.starts_with(&[0, 0, 0, 1]) {
-        4
-    } else if nal_data.starts_with(&[0, 0, 1]) {
-        3
-    } else {
-        return None;
-    };
-    nal_data.get(offset).map(|b| b & 0x1F)
-}
-
 /// Check if an H.264 NAL unit is a VCL (Video Coding Layer) unit — i.e. a
 /// coded slice that is part of a picture.  Types 1-5 are VCL.
 fn is_h264_vcl(nal_type: u8) -> bool {
     (1..=5).contains(&nal_type)
-}
-
-/// Extract `profile-level-id` from an H.264 SPS NAL unit.
-///
-/// The three bytes immediately after the NAL header in an SPS are
-/// `profile_idc`, `constraint_set_flags`, and `level_idc` — exactly the
-/// value needed for the SDP `profile-level-id` parameter.
-///
-/// Returns a 6-character hex string (e.g. `"4d0033"` for Main Profile Level 5.1).
-pub fn extract_profile_level_id(nal_data: &[u8]) -> Option<String> {
-    let offset = if nal_data.starts_with(&[0, 0, 0, 1]) {
-        4
-    } else if nal_data.starts_with(&[0, 0, 1]) {
-        3
-    } else {
-        return None;
-    };
-
-    // Need NAL header + profile_idc + constraint_flags + level_idc
-    if nal_data.len() < offset + 4 {
-        return None;
-    }
-
-    let nal_type = nal_data[offset] & 0x1F;
-    if nal_type != 7 {
-        return None; // Not an SPS
-    }
-
-    let profile_idc = nal_data[offset + 1];
-    let constraint_flags = nal_data[offset + 2];
-    let level_idc = nal_data[offset + 3];
-
-    Some(format!(
-        "{:02x}{:02x}{:02x}",
-        profile_idc, constraint_flags, level_idc
-    ))
 }
 
 /// Assembles individual NAL units into complete Access Units (frames).
@@ -219,6 +174,14 @@ impl AccessUnitAssembler {
             }
             None => None,
         }
+    }
+
+    /// Mark the assembler as having received a keyframe externally.
+    ///
+    /// Call this after injecting a cached keyframe (SPS+PPS+IDR) into the
+    /// WebRTC track so that subsequent P-frames are not dropped.
+    pub fn clear_needs_keyframe(&mut self) {
+        self.needs_keyframe = false;
     }
 
     /// Flush the current buffer as a complete access unit.
@@ -1009,5 +972,22 @@ mod tests {
         // No start code
         let no_start = vec![0x67, 0x4D, 0x00, 0x33];
         assert_eq!(extract_profile_level_id(&no_start), None);
+    }
+
+    #[test]
+    fn test_clear_needs_keyframe() {
+        let mut asm = AccessUnitAssembler::new();
+
+        // P-frames should be dropped before any keyframe
+        assert!(asm.push(&make_nal(0x41, &[0x01])).is_none()); // buffered
+        assert!(asm.push(&make_nal(0x41, &[0x02])).is_none()); // flush P1 → dropped
+
+        // Simulate external keyframe injection — clear needs_keyframe
+        asm.clear_needs_keyframe();
+
+        // Now P-frames should flow through (flushing the buffered P2)
+        let au = asm.push(&make_nal(0x41, &[0x03])); // flush P2
+        assert!(au.is_some());
+        assert!(!au.unwrap().is_keyframe);
     }
 }
