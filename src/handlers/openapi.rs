@@ -29,6 +29,7 @@ use crate::util::claim::UserClaims;
 
         // config
         crate::handlers::configs::get_config,
+        crate::handlers::configs::list_categories,
         crate::handlers::configs::list_configs,
         crate::handlers::configs::update_config,
 
@@ -357,7 +358,9 @@ use crate::util::claim::UserClaims;
             UserClaims,
 
             // config
+            crate::dto::request::config::ConfigQueryParams,
             crate::dto::request::config::UpdateConfigRequest,
+            crate::dto::response::config::CategoryCountResponse,
             crate::dto::response::config::ConfigResponse,
 
             // control presets

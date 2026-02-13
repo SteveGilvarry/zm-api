@@ -4,8 +4,8 @@ use axum::{
 };
 use tracing::info;
 
-use crate::dto::response::config::PaginatedConfigsResponse;
-use crate::dto::PaginationParams;
+use crate::dto::request::config::ConfigQueryParams;
+use crate::dto::response::config::{CategoryCountResponse, PaginatedConfigsResponse};
 use crate::dto::{request::config::UpdateConfigRequest, response::config::ConfigResponse};
 use crate::error::AppResult;
 use crate::server::state::AppState;
@@ -21,7 +21,9 @@ use crate::service;
     path = "/api/v3/configs",
     params(
         ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
-        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25),
+        ("category" = Option<String>, Query, description = "Exact match on Category column"),
+        ("search" = Option<String>, Query, description = "Substring match on Name column")
     ),
     responses(
         (status = 200, description = "Paginated list of config entries", body = PaginatedConfigsResponse),
@@ -33,11 +35,34 @@ use crate::service;
 )]
 pub async fn list_configs(
     State(state): State<AppState>,
-    Query(params): Query<PaginationParams>,
+    Query(params): Query<ConfigQueryParams>,
 ) -> AppResult<Json<PaginatedConfigsResponse>> {
     info!("Listing config entries with pagination");
-    let result = service::config::list_paginated(&state, &params).await?;
+    let result = service::config::list_filtered(&state, &params).await?;
     Ok(Json(PaginatedConfigsResponse::from(result)))
+}
+
+/// List distinct config categories with their entry counts.
+///
+/// - Requires a valid JWT.
+/// - Returns an array of category names with the number of config entries in each.
+#[utoipa::path(
+    get,
+    path = "/api/v3/configs/categories",
+    responses(
+        (status = 200, description = "List of categories with counts", body = Vec<CategoryCountResponse>),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError),
+        (status = 500, description = "Internal server error", body = crate::error::AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "Config"
+)]
+pub async fn list_categories(
+    State(state): State<AppState>,
+) -> AppResult<Json<Vec<CategoryCountResponse>>> {
+    info!("Listing config categories");
+    let categories = service::config::list_categories(&state).await?;
+    Ok(Json(categories))
 }
 
 /// Get a single configuration entry by its `name`.

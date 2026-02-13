@@ -41,3 +41,9 @@ impl From<PaginatedResponse<ConfigResponse>> for PaginatedConfigsResponse {
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct CategoryCountResponse {
+    pub category: String,
+    pub count: u64,
+}

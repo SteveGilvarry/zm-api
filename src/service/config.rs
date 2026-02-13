@@ -1,5 +1,5 @@
-use crate::dto::request::config::UpdateConfigRequest;
-use crate::dto::response::config::ConfigResponse;
+use crate::dto::request::config::{ConfigQueryParams, UpdateConfigRequest};
+use crate::dto::response::config::{CategoryCountResponse, ConfigResponse};
 use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult};
 use crate::repo;
@@ -36,6 +36,24 @@ pub async fn list_paginated(
     let (items, total) = repo::config::find_paginated(state.db(), params).await?;
     let responses: Vec<ConfigResponse> = items.iter().map(to_response).collect();
     Ok(PaginatedResponse::from_params(responses, total, params))
+}
+
+pub async fn list_filtered(
+    state: &AppState,
+    params: &ConfigQueryParams,
+) -> AppResult<PaginatedResponse<ConfigResponse>> {
+    let (items, total) = repo::config::find_filtered(state.db(), params).await?;
+    let responses: Vec<ConfigResponse> = items.iter().map(to_response).collect();
+    Ok(PaginatedResponse::new(
+        responses,
+        total,
+        params.page(),
+        params.page_size(),
+    ))
+}
+
+pub async fn list_categories(state: &AppState) -> AppResult<Vec<CategoryCountResponse>> {
+    repo::config::list_categories(state.db()).await
 }
 
 pub async fn get_by_name(state: &AppState, name: &str) -> AppResult<ConfigResponse> {
@@ -79,6 +97,7 @@ mod tests {
     use super::*;
     use crate::entity::config::Model as ConfigModel;
     use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
+    use std::collections::BTreeMap;
 
     fn mk_config(name: &str, value: &str, readonly: u8) -> ConfigModel {
         ConfigModel {
@@ -167,5 +186,74 @@ mod tests {
             .err()
             .unwrap();
         assert!(matches!(err, AppError::PermissionDeniedError(_)));
+    }
+
+    fn mk_config_cat(id: u16, name: &str, category: &str) -> ConfigModel {
+        ConfigModel {
+            id,
+            name: name.into(),
+            value: "v".into(),
+            r#type: "string".into(),
+            default_value: None,
+            hint: None,
+            pattern: None,
+            format: None,
+            prompt: None,
+            help: None,
+            category: category.into(),
+            readonly: 0,
+            private: 0,
+            system: 0,
+            requires: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_filtered_with_category() {
+        let items = vec![mk_config_cat(1, "ZM_OPT_X", "System")];
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results(vec![vec![BTreeMap::from([(
+                "num_items".to_string(),
+                sea_orm::Value::Int(Some(1)),
+            )])]])
+            .append_query_results::<ConfigModel, _, _>(vec![items])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+
+        let params = ConfigQueryParams {
+            category: Some("System".into()),
+            ..Default::default()
+        };
+        let result = list_filtered(&state, &params).await.unwrap();
+        assert_eq!(result.total, 1);
+        assert_eq!(result.items[0].category, "System");
+    }
+
+    #[tokio::test]
+    async fn test_list_categories_ok() {
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results(vec![vec![
+                BTreeMap::from([
+                    (
+                        "category".to_string(),
+                        sea_orm::Value::String(Some(Box::new("Network".to_string()))),
+                    ),
+                    ("count".to_string(), sea_orm::Value::BigInt(Some(5))),
+                ]),
+                BTreeMap::from([
+                    (
+                        "category".to_string(),
+                        sea_orm::Value::String(Some(Box::new("System".to_string()))),
+                    ),
+                    ("count".to_string(), sea_orm::Value::BigInt(Some(10))),
+                ]),
+            ]])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+
+        let cats = list_categories(&state).await.unwrap();
+        assert_eq!(cats.len(), 2);
+        assert_eq!(cats[0].category, "Network");
+        assert_eq!(cats[1].count, 10);
     }
 }
