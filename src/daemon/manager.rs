@@ -1076,7 +1076,7 @@ impl DaemonManager {
 
     /// Reconcile monitor daemon state with database.
     ///
-    /// Compares what should be running (enabled monitors in DB) with what is
+    /// Compares what should be running (capturing monitors in DB) with what is
     /// actually running (tracked daemons) and corrects any discrepancies.
     async fn reconcile_monitors(&self) -> AppResult<()> {
         let db = match &self.db {
@@ -1097,8 +1097,7 @@ impl DaemonManager {
 
         for monitor in &monitor_list {
             let monitor_id = monitor.id;
-            let should_run = monitor.enabled != 0
-                && !matches!(monitor.capturing, Capturing::None)
+            let should_run = !matches!(monitor.capturing, Capturing::None)
                 && !matches!(monitor.r#type, MonitorType::WebSite);
 
             // Check server_id filtering if configured
@@ -1118,7 +1117,7 @@ impl DaemonManager {
             if should_run && !is_running {
                 // Monitor should be running but isn't - start it
                 debug!(
-                    "Reconciliation: starting monitor {} (enabled but not running)",
+                    "Reconciliation: starting monitor {} (capturing but not running)",
                     monitor_id
                 );
                 match self.start_monitor(monitor_id).await {
@@ -1142,7 +1141,7 @@ impl DaemonManager {
             } else if !should_run && is_running {
                 // Monitor shouldn't be running but is - stop it
                 debug!(
-                    "Reconciliation: stopping monitor {} (disabled but running)",
+                    "Reconciliation: stopping monitor {} (not capturing but running)",
                     monitor_id
                 );
                 match self.stop_monitor(monitor_id).await {

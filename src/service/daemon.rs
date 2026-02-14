@@ -266,6 +266,15 @@ pub async fn apply_state(state: &AppState, state_name: &str) -> AppResult<Daemon
 
                 let enabled: u8 = parts[2].parse().unwrap_or(1);
 
+                // Map legacy enabled field to Capturing:
+                // enabled=0 → Capturing::None (disabled)
+                // enabled=1 → Capturing::Always (default active state)
+                let capturing = if enabled == 0 {
+                    Capturing::None
+                } else {
+                    Capturing::Always
+                };
+
                 // Update monitor in database
                 let monitor = monitors::Entity::find_by_id(monitor_id)
                     .one(state.db.as_ref())
@@ -274,12 +283,12 @@ pub async fn apply_state(state: &AppState, state_name: &str) -> AppResult<Daemon
                 if let Some(monitor) = monitor {
                     let mut active: monitors::ActiveModel = monitor.into();
                     active.function = Set(function.clone());
-                    active.enabled = Set(enabled);
+                    active.capturing = Set(capturing.clone());
                     active.update(state.db.as_ref()).await?;
                     updated_monitors += 1;
                     debug!(
-                        "Updated monitor {} (legacy): function={:?}, enabled={}",
-                        monitor_id, function, enabled
+                        "Updated monitor {} (legacy): function={:?}, capturing={:?}",
+                        monitor_id, function, capturing
                     );
                 }
             }
