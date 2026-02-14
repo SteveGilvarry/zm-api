@@ -2,12 +2,14 @@
 /target/
 Cargo.lock
 
-# IDE
+# IDE / Tools
 .idea/
 .vscode/
 .VSCodeCounter
 *.swp
 *.swo
+.claude/
+.playwright/
 
 # OS
 .DS_Store
