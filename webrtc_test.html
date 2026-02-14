@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebRTC Live Stream Test</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+    h1 { color: #00d4ff; margin-bottom: 20px; }
+    .controls { display: flex; gap: 10px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+    label { color: #aaa; }
+    input, select { background: #16213e; color: #e0e0e0; border: 1px solid #0f3460; padding: 6px 10px; border-radius: 4px; font-family: monospace; }
+    button { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-family: monospace; font-weight: bold; }
+    .btn-start { background: #00b894; color: #fff; }
+    .btn-start:hover { background: #00a885; }
+    .btn-stop { background: #e74c3c; color: #fff; }
+    .btn-stop:hover { background: #c0392b; }
+    .btn-clear { background: #636e72; color: #fff; }
+    .btn-clear:hover { background: #535c60; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .main { display: flex; gap: 20px; }
+    .video-container { flex: 0 0 auto; }
+    video { background: #000; border: 2px solid #0f3460; border-radius: 4px; display: block; }
+    .log-container { flex: 1; min-width: 300px; }
+    #log { background: #0a0a1a; border: 1px solid #0f3460; border-radius: 4px; padding: 10px; height: 500px; overflow-y: auto; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; }
+    .log-info { color: #74b9ff; }
+    .log-success { color: #00b894; }
+    .log-warn { color: #fdcb6e; }
+    .log-error { color: #e74c3c; }
+    .log-data { color: #a29bfe; }
+    .log-ws { color: #55efc4; }
+    .status { padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; }
+    .status-disconnected { background: #636e72; }
+    .status-connecting { background: #0984e3; }
+    .status-connected { background: #00b894; }
+    .status-streaming { background: #6c5ce7; }
+    .status-error { background: #e74c3c; }
+    .stats { margin-top: 10px; font-size: 12px; color: #aaa; }
+    .stats span { color: #00d4ff; }
+  </style>
+</head>
+<body>
+  <h1>WebRTC Live Stream Test</h1>
+
+  <div class="controls">
+    <label>Host:</label>
+    <input type="text" id="host" value="localhost:8080" size="20">
+    <label>Monitor:</label>
+    <input type="number" id="monitorId" value="2" min="1" style="width:60px">
+    <button class="btn-start" id="btnStart" onclick="startStream()">Start Stream</button>
+    <button class="btn-stop" id="btnStop" onclick="stopStream()" disabled>Stop</button>
+    <button class="btn-clear" onclick="clearLog()">Clear Log</button>
+    <span class="status status-disconnected" id="status">Disconnected</span>
+  </div>
+
+  <div class="main">
+    <div class="video-container">
+      <video id="video" width="640" height="480" autoplay muted playsinline></video>
+      <div class="stats">
+        Resolution: <span id="statRes">-</span> |
+        Frames: <span id="statFrames">-</span> |
+        Bitrate: <span id="statBitrate">-</span> |
+        Codec: <span id="statCodec">-</span>
+      </div>
+    </div>
+    <div class="log-container">
+      <div id="log"></div>
+    </div>
+  </div>
+
+  <script>
+    let ws = null;
+    let pc = null;
+    let sessionId = null;
+    let statsInterval = null;
+    let prevBytesReceived = 0;
+    let prevTimestamp = 0;
+
+    function log(msg, cls = 'log-info') {
+      const el = document.getElementById('log');
+      const time = new Date().toLocaleTimeString('en-GB', { hour12: false, fractionalSecondDigits: 3 });
+      const line = document.createElement('div');
+      line.className = cls;
+      line.textContent = `[${time}] ${msg}`;
+      el.appendChild(line);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function clearLog() {
+      document.getElementById('log').innerHTML = '';
+    }
+
+    function setStatus(text, cls) {
+      const el = document.getElementById('status');
+      el.textContent = text;
+      el.className = `status status-${cls}`;
+    }
+
+    async function startStream() {
+      const host = document.getElementById('host').value;
+      const monitorId = document.getElementById('monitorId').value;
+
+      document.getElementById('btnStart').disabled = true;
+      document.getElementById('btnStop').disabled = false;
+      setStatus('Starting...', 'connecting');
+
+      // Step 1: Start the live stream with WebRTC enabled
+      log(`Starting live stream for monitor ${monitorId}...`);
+      try {
+        const resp = await fetch(`http://${host}/api/v3/live/${monitorId}/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enable_hls: false, enable_webrtc: true, enable_mse: false })
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          // 409 = already running, that's fine
+          if (resp.status === 409) {
+            log(`Session already active for monitor ${monitorId}, connecting...`, 'log-warn');
+          } else {
+            throw new Error(`HTTP ${resp.status}: ${JSON.stringify(data)}`);
+          }
+        } else {
+          log(`Stream started: ${JSON.stringify(data)}`, 'log-success');
+        }
+      } catch (e) {
+        log(`Failed to start stream: ${e.message}`, 'log-error');
+        // Try connecting to WebSocket anyway (session might already exist)
+        log('Attempting WebSocket connection anyway...', 'log-warn');
+      }
+
+      // Step 2: Connect WebSocket for signaling
+      const wsUrl = `ws://${host}/api/v3/live/${monitorId}/webrtc/ws`;
+      log(`Connecting WebSocket: ${wsUrl}`);
+      setStatus('Connecting WS...', 'connecting');
+
+      try {
+        ws = new WebSocket(wsUrl);
+      } catch (e) {
+        log(`WebSocket creation failed: ${e.message}`, 'log-error');
+        setStatus('Error', 'error');
+        resetButtons();
+        return;
+      }
+
+      ws.onopen = () => {
+        log('WebSocket connected', 'log-success');
+        setStatus('WS Connected', 'connecting');
+      };
+
+      ws.onclose = (e) => {
+        log(`WebSocket closed: code=${e.code} reason=${e.reason}`, 'log-warn');
+        if (!document.getElementById('btnStart').disabled) return; // already stopped
+        setStatus('Disconnected', 'disconnected');
+      };
+
+      ws.onerror = (e) => {
+        log('WebSocket error', 'log-error');
+        setStatus('WS Error', 'error');
+      };
+
+      ws.onmessage = async (event) => {
+        let msg;
+        try {
+          msg = JSON.parse(event.data);
+        } catch (e) {
+          log(`Non-JSON message: ${event.data}`, 'log-warn');
+          return;
+        }
+
+        log(`WS recv: ${msg.type} ${msg.session_id ? '(session=' + msg.session_id.substring(0,8) + '...)' : ''}`, 'log-ws');
+
+        switch (msg.type) {
+          case 'offer':
+            sessionId = msg.session_id;
+            await handleOffer(msg);
+            break;
+          case 'ready':
+            log(`Stream READY for monitor ${msg.monitor_id}`, 'log-success');
+            setStatus('Streaming', 'streaming');
+            startStatsPolling();
+            break;
+          case 'icecandidate':
+            await handleRemoteIceCandidate(msg);
+            break;
+          case 'error':
+            log(`Server error: ${msg.message}`, 'log-error');
+            setStatus('Error', 'error');
+            break;
+          case 'pong':
+            break;
+          default:
+            log(`Unknown message type: ${msg.type}`, 'log-warn');
+        }
+      };
+    }
+
+    async function handleOffer(msg) {
+      log('Received SDP offer, creating peer connection...', 'log-info');
+
+      // Log SDP details
+      const sdpLines = msg.sdp.split('\r\n');
+      const codecLines = sdpLines.filter(l => l.startsWith('a=rtpmap:') || l.startsWith('a=fmtp:'));
+      codecLines.forEach(l => log(`  SDP: ${l}`, 'log-data'));
+
+      // Create RTCPeerConnection
+      pc = new RTCPeerConnection({
+        iceServers: [],  // No STUN/TURN needed for LAN
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require'
+      });
+
+      // Track ICE state changes
+      pc.oniceconnectionstatechange = () => {
+        log(`ICE state: ${pc.iceConnectionState}`, 'log-info');
+        if (pc.iceConnectionState === 'connected') {
+          setStatus('ICE Connected', 'connected');
+        } else if (pc.iceConnectionState === 'failed') {
+          log('ICE connection failed!', 'log-error');
+          setStatus('ICE Failed', 'error');
+        } else if (pc.iceConnectionState === 'disconnected') {
+          log('ICE disconnected', 'log-warn');
+          setStatus('Disconnected', 'disconnected');
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        log(`Connection state: ${pc.connectionState}`, 'log-info');
+      };
+
+      pc.onsignalingstatechange = () => {
+        log(`Signaling state: ${pc.signalingState}`, 'log-data');
+      };
+
+      // Handle ICE candidates
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          log(`Local ICE candidate: ${event.candidate.candidate.substring(0, 60)}...`, 'log-data');
+          ws.send(JSON.stringify({
+            type: 'icecandidate',
+            session_id: sessionId,
+            candidate: event.candidate.candidate,
+            sdpMid: event.candidate.sdpMid,
+            sdpMLineIndex: event.candidate.sdpMLineIndex
+          }));
+        } else {
+          log('ICE gathering complete', 'log-success');
+        }
+      };
+
+      pc.onicegatheringstatechange = () => {
+        log(`ICE gathering state: ${pc.iceGatheringState}`, 'log-data');
+      };
+
+      // Handle remote tracks
+      pc.ontrack = (event) => {
+        log(`Remote track received: kind=${event.track.kind} id=${event.track.id}`, 'log-success');
+        const video = document.getElementById('video');
+        if (event.streams && event.streams[0]) {
+          video.srcObject = event.streams[0];
+          log('Attached stream to video element', 'log-success');
+        } else {
+          // Create a new MediaStream if not provided
+          let stream = video.srcObject;
+          if (!stream) {
+            stream = new MediaStream();
+            video.srcObject = stream;
+          }
+          stream.addTrack(event.track);
+          log('Added track to video element', 'log-success');
+        }
+
+        event.track.onunmute = () => log(`Track unmuted: ${event.track.kind}`, 'log-success');
+        event.track.onmute = () => log(`Track muted: ${event.track.kind}`, 'log-warn');
+        event.track.onended = () => log(`Track ended: ${event.track.kind}`, 'log-warn');
+      };
+
+      // Set remote description (offer)
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription({
+          type: 'offer',
+          sdp: msg.sdp
+        }));
+        log('Remote description set (offer)', 'log-success');
+      } catch (e) {
+        log(`Failed to set remote description: ${e.message}`, 'log-error');
+        return;
+      }
+
+      // Create and send answer
+      try {
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        log('Local description set (answer)', 'log-success');
+
+        ws.send(JSON.stringify({
+          type: 'answer',
+          session_id: sessionId,
+          sdp: answer.sdp
+        }));
+        log('Sent SDP answer to server', 'log-success');
+
+        // Log answer SDP codec info
+        const answerLines = answer.sdp.split('\r\n');
+        const answerCodecs = answerLines.filter(l => l.startsWith('a=rtpmap:') || l.startsWith('a=fmtp:'));
+        answerCodecs.forEach(l => log(`  Answer SDP: ${l}`, 'log-data'));
+      } catch (e) {
+        log(`Failed to create answer: ${e.message}`, 'log-error');
+      }
+    }
+
+    async function handleRemoteIceCandidate(msg) {
+      if (!pc) return;
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate({
+          candidate: msg.candidate,
+          sdpMid: msg.sdpMid,
+          sdpMLineIndex: msg.sdpMLineIndex
+        }));
+        log(`Added remote ICE candidate`, 'log-data');
+      } catch (e) {
+        log(`Failed to add ICE candidate: ${e.message}`, 'log-error');
+      }
+    }
+
+    function startStatsPolling() {
+      if (statsInterval) clearInterval(statsInterval);
+      prevBytesReceived = 0;
+      prevTimestamp = 0;
+
+      statsInterval = setInterval(async () => {
+        if (!pc) return;
+        const stats = await pc.getStats();
+        stats.forEach(report => {
+          if (report.type === 'inbound-rtp' && report.kind === 'video') {
+            // Resolution
+            if (report.frameWidth && report.frameHeight) {
+              document.getElementById('statRes').textContent = `${report.frameWidth}x${report.frameHeight}`;
+            }
+            // Frames
+            if (report.framesReceived !== undefined) {
+              document.getElementById('statFrames').textContent = report.framesReceived;
+            }
+            // Bitrate
+            if (report.bytesReceived !== undefined && report.timestamp) {
+              if (prevTimestamp > 0) {
+                const dt = (report.timestamp - prevTimestamp) / 1000;
+                const dBytes = report.bytesReceived - prevBytesReceived;
+                const kbps = Math.round((dBytes * 8) / dt / 1000);
+                document.getElementById('statBitrate').textContent = `${kbps} kbps`;
+              }
+              prevBytesReceived = report.bytesReceived;
+              prevTimestamp = report.timestamp;
+            }
+            // Codec
+            if (report.codecId) {
+              stats.forEach(r => {
+                if (r.id === report.codecId && r.mimeType) {
+                  document.getElementById('statCodec').textContent = r.mimeType;
+                }
+              });
+            }
+          }
+        });
+      }, 1000);
+    }
+
+    async function stopStream() {
+      const host = document.getElementById('host').value;
+      const monitorId = document.getElementById('monitorId').value;
+
+      log('Stopping stream...', 'log-warn');
+
+      if (statsInterval) {
+        clearInterval(statsInterval);
+        statsInterval = null;
+      }
+
+      if (pc) {
+        pc.close();
+        pc = null;
+        log('Peer connection closed', 'log-info');
+      }
+
+      if (ws) {
+        ws.close();
+        ws = null;
+        log('WebSocket closed', 'log-info');
+      }
+
+      // Stop server-side session
+      try {
+        await fetch(`http://${host}/api/v3/live/${monitorId}/stop`, { method: 'DELETE' });
+        log('Server session stopped', 'log-success');
+      } catch (e) {
+        log(`Failed to stop server session: ${e.message}`, 'log-warn');
+      }
+
+      document.getElementById('video').srcObject = null;
+      sessionId = null;
+      setStatus('Disconnected', 'disconnected');
+      resetButtons();
+
+      // Reset stats
+      document.getElementById('statRes').textContent = '-';
+      document.getElementById('statFrames').textContent = '-';
+      document.getElementById('statBitrate').textContent = '-';
+      document.getElementById('statCodec').textContent = '-';
+    }
+
+    function resetButtons() {
+      document.getElementById('btnStart').disabled = false;
+      document.getElementById('btnStop').disabled = true;
+    }
+
+    // Keepalive ping
+    setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      }
+    }, 15000);
+  </script>
+</body>
+</html>
