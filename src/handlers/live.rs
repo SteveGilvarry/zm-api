@@ -1405,11 +1405,154 @@ mod tests {
         assert_eq!(parse_segment_sequence("invalid.m4s"), None);
     }
 
+    /// Plain numeric sequences with zero-padding are parsed to their integer value.
+    #[test]
+    fn parse_segment_sequence_valid_numbers() {
+        assert_eq!(parse_segment_sequence("segment_0.m4s"), Some(0));
+        assert_eq!(parse_segment_sequence("segment_00000.m4s"), Some(0));
+        assert_eq!(parse_segment_sequence("segment_42.m4s"), Some(42));
+        assert_eq!(parse_segment_sequence("segment_999999.m4s"), Some(999_999));
+        // Maximum u64 still parses.
+        assert_eq!(
+            parse_segment_sequence("segment_18446744073709551615.m4s"),
+            Some(u64::MAX)
+        );
+    }
+
+    /// The leading `.`-delimited token before the suffix is what gets parsed,
+    /// so a `segment_00001.0.m4s` style name yields the first component.
+    #[test]
+    fn parse_segment_sequence_accepts_dotted_part_suffix() {
+        assert_eq!(parse_segment_sequence("segment_7.0.m4s"), Some(7));
+        assert_eq!(parse_segment_sequence("segment_12.999.m4s"), Some(12));
+    }
+
+    /// Extra underscore-delimited tokens are allowed as long as `parts[0]` is
+    /// `segment` and `parts[1]` is numeric (`parts.len() >= 2`).
+    #[test]
+    fn parse_segment_sequence_accepts_extra_underscore_tokens() {
+        assert_eq!(parse_segment_sequence("segment_5_extra.m4s"), Some(5));
+        assert_eq!(parse_segment_sequence("segment_5_a_b_c.m4s"), Some(5));
+    }
+
+    /// Inputs that do not match the `segment_<num>.m4s` shape return `None`
+    /// rather than panicking.
+    #[test]
+    fn parse_segment_sequence_rejects_garbage() {
+        // Wrong / missing suffix.
+        assert_eq!(parse_segment_sequence("segment_00001"), None);
+        assert_eq!(parse_segment_sequence("segment_00001.ts"), None);
+        assert_eq!(parse_segment_sequence("segment_00001.mp4"), None);
+        // Wrong prefix.
+        assert_eq!(parse_segment_sequence("seg_00001.m4s"), None);
+        assert_eq!(parse_segment_sequence("init_00001.m4s"), None);
+        assert_eq!(parse_segment_sequence("Segment_00001.m4s"), None);
+        // No underscore -> only one part.
+        assert_eq!(parse_segment_sequence("segment.m4s"), None);
+        // Non-numeric sequence component.
+        assert_eq!(parse_segment_sequence("segment_abc.m4s"), None);
+        assert_eq!(parse_segment_sequence("segment_-1.m4s"), None);
+        assert_eq!(parse_segment_sequence("segment_1a.m4s"), None);
+        // Empty sequence component.
+        assert_eq!(parse_segment_sequence("segment_.m4s"), None);
+        // Overflows u64 -> parse fails gracefully.
+        assert_eq!(
+            parse_segment_sequence("segment_99999999999999999999999.m4s"),
+            None
+        );
+        // Empty / suffix-only input.
+        assert_eq!(parse_segment_sequence(""), None);
+        assert_eq!(parse_segment_sequence(".m4s"), None);
+        assert_eq!(parse_segment_sequence("..m4s"), None);
+    }
+
+    /// `default_true` underpins the `enable_hls` serde default.
+    #[test]
+    fn default_true_is_true() {
+        assert!(default_true());
+    }
+
     #[test]
     fn test_start_live_request_default() {
         let request = StartLiveRequest::default();
         assert!(request.enable_hls);
         assert!(!request.enable_webrtc);
         assert!(!request.enable_mse);
+    }
+
+    /// An empty JSON object applies the serde defaults: HLS on, others off.
+    #[test]
+    fn start_live_request_deserializes_empty_object() {
+        let request: StartLiveRequest = serde_json::from_str("{}").expect("deserialize");
+        assert!(request.enable_hls, "enable_hls defaults to true");
+        assert!(!request.enable_webrtc);
+        assert!(!request.enable_mse);
+    }
+
+    /// Explicit fields override the defaults.
+    #[test]
+    fn start_live_request_deserializes_explicit_fields() {
+        let request: StartLiveRequest = serde_json::from_str(
+            r#"{"enable_hls": false, "enable_webrtc": true, "enable_mse": true}"#,
+        )
+        .expect("deserialize");
+        assert!(!request.enable_hls);
+        assert!(request.enable_webrtc);
+        assert!(request.enable_mse);
+    }
+
+    /// The MSE WebSocket message enum round-trips through JSON, exercising the
+    /// `base64_serde` codec for the binary `data` payloads.
+    #[test]
+    fn mse_websocket_message_round_trips() {
+        let init = MseWebSocketMessage::Init {
+            monitor_id: 7,
+            codec: "avc1.640028".to_string(),
+            data: vec![0xDE, 0xAD, 0xBE, 0xEF],
+        };
+        let json = serde_json::to_string(&init).expect("serialize");
+        assert!(json.contains("\"type\":\"init\""));
+        match serde_json::from_str::<MseWebSocketMessage>(&json).expect("deserialize") {
+            MseWebSocketMessage::Init {
+                monitor_id, data, ..
+            } => {
+                assert_eq!(monitor_id, 7);
+                assert_eq!(data, vec![0xDE, 0xAD, 0xBE, 0xEF]);
+            }
+            other => panic!("expected Init, got {other:?}"),
+        }
+
+        // Ping is a unit variant tagged purely by `type`.
+        let ping = serde_json::to_string(&MseWebSocketMessage::Ping).expect("serialize");
+        assert_eq!(ping, r#"{"type":"ping"}"#);
+        assert!(matches!(
+            serde_json::from_str::<MseWebSocketMessage>(&ping).expect("deserialize"),
+            MseWebSocketMessage::Ping
+        ));
+    }
+
+    /// The WebRTC signaling enum round-trips, including the renamed ICE fields.
+    #[test]
+    fn webrtc_signaling_message_round_trips() {
+        let ice = WebRtcSignalingMessage::IceCandidate {
+            session_id: "sess-1".to_string(),
+            candidate: "candidate:0 1 UDP".to_string(),
+            sdp_mid: Some("0".to_string()),
+            sdp_mline_index: Some(0),
+        };
+        let json = serde_json::to_string(&ice).expect("serialize");
+        assert!(json.contains("\"sdpMid\""));
+        assert!(json.contains("\"sdpMLineIndex\""));
+        match serde_json::from_str::<WebRtcSignalingMessage>(&json).expect("deserialize") {
+            WebRtcSignalingMessage::IceCandidate {
+                session_id,
+                sdp_mline_index,
+                ..
+            } => {
+                assert_eq!(session_id, "sess-1");
+                assert_eq!(sdp_mline_index, Some(0));
+            }
+            other => panic!("expected IceCandidate, got {other:?}"),
+        }
     }
 }
