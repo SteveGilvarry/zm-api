@@ -25,7 +25,7 @@ async fn filters_get_not_found_maps_404() {
         .into_connection();
     let state = AppState::for_test_with_db(db);
     let app = zm_api::routes::filters::add_filter_routes(Router::new()).with_state(state);
-    let server = TestServer::new(app.into_make_service()).unwrap();
+    let server = TestServer::new(app.into_make_service());
     let res = server
         .get("/api/v3/filters/99")
         .add_header("Authorization", auth_header())

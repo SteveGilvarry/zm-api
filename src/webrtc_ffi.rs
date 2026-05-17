@@ -111,7 +111,7 @@ impl WebRTCLibrary {
 
         let mut lib = None;
         for path in &library_paths {
-            match unsafe { Library::new(path) } {
+            match unsafe { Library::new(*path) } {
                 Ok(library) => {
                     lib = Some(library);
                     tracing::info!("Successfully loaded WebRTC library from: {}", path);

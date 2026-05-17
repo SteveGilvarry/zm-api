@@ -1081,8 +1081,8 @@ async fn handle_webrtc_websocket(
                     Some(Ok(Message::Text(text))) => {
                         if let Ok(signaling_msg) = serde_json::from_str::<WebRtcSignalingMessage>(&text) {
                             match signaling_msg {
-                                WebRtcSignalingMessage::Answer { session_id: sid, sdp } => {
-                                    if sid == session_id {
+                                WebRtcSignalingMessage::Answer { session_id: sid, sdp }
+                                    if sid == session_id => {
                                         let answer = match webrtc::peer_connection::sdp::session_description::RTCSessionDescription::answer(sdp) {
                                             Ok(a) => a,
                                             Err(e) => {
@@ -1159,14 +1159,12 @@ async fn handle_webrtc_websocket(
                                             }
                                         }
                                     }
-                                }
-                                WebRtcSignalingMessage::IceCandidate { session_id: sid, candidate, sdp_mid, sdp_mline_index } => {
-                                    if sid == session_id {
+                                WebRtcSignalingMessage::IceCandidate { session_id: sid, candidate, sdp_mid, sdp_mline_index }
+                                    if sid == session_id => {
                                         if let Err(e) = webrtc_manager.add_ice_candidate(&session_id, &candidate, sdp_mid, sdp_mline_index).await {
                                             warn!("Failed to add ICE candidate: {}", e);
                                         }
                                     }
-                                }
                                 WebRtcSignalingMessage::Ping => {
                                     let pong = WebRtcSignalingMessage::Pong;
                                     if let Ok(json) = serde_json::to_string(&pong) {

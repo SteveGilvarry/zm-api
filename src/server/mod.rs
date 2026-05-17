@@ -47,7 +47,7 @@ async fn shutdown_signal() {
 
 /// Spawn a task that triggers `axum_server` graceful shutdown on a signal,
 /// bounding the drain with `timeout`.
-fn spawn_graceful_shutdown(handle: axum_server::Handle, timeout: Duration) {
+fn spawn_graceful_shutdown(handle: axum_server::Handle<SocketAddr>, timeout: Duration) {
     tokio::spawn(async move {
         shutdown_signal().await;
         handle.graceful_shutdown(Some(timeout));
