@@ -57,16 +57,18 @@ async fn list_models_returns_inserted_row() {
     let token = superuser_token();
     let id = insert_model(&app.db, "ModelList").await;
 
-    // NB: `ModelListQuery` flattens `PaginationParams`, and `#[serde(flatten)]`
-    // forces `serde_urlencoded` to treat every field as a string — so numeric
-    // query params (`page=1`) are rejected with a 400. The list endpoint is
-    // therefore only exercised with its bare (default-paginated) form; the
-    // fixture may not land on the first page, so we only assert the endpoint
-    // succeeds and counts the fixture row.
-    let resp = app.get("/api/v3/models", &token).await;
+    // `ModelListQuery` flattens `PaginationParams`; the handler uses
+    // `axum_extra`'s Query so numeric/flattened query params deserialize
+    // correctly. A large page size guarantees the fixture lands on the page.
+    let resp = app
+        .get("/api/v3/models?page=1&page_size=1000", &token)
+        .await;
     assert_status(&resp, StatusCode::OK);
     let body: PaginatedModelsResponse = resp.json();
-    assert!(body.total >= 1, "list total should count the fixture model");
+    assert!(
+        body.items.iter().any(|m| m.id == id),
+        "list should contain the fixture model"
+    );
 
     delete_model(&app.db, id).await;
 }

@@ -10,11 +10,24 @@ use axum::{
 };
 use serde::Deserialize;
 
+// NB: pagination fields are inlined rather than `#[serde(flatten)]`-ed in.
+// `#[serde(flatten)]` routes every value through a string-typed buffer, so
+// numeric query params (`?page=1`) fail to deserialize as `u64` — this is a
+// serde limitation that affects every query backend, not just `serde_urlencoded`.
 #[derive(Debug, Deserialize)]
 pub struct ModelListQuery {
     pub manufacturer_id: Option<u32>,
-    #[serde(flatten)]
-    pub pagination: PaginationParams,
+    pub page: Option<u64>,
+    pub page_size: Option<u64>,
+}
+
+impl ModelListQuery {
+    fn pagination(&self) -> PaginationParams {
+        PaginationParams {
+            page: self.page,
+            page_size: self.page_size,
+        }
+    }
 }
 
 /// List camera models with pagination; optionally filter by manufacturer id.
@@ -37,7 +50,7 @@ pub async fn list_models(
     Query(q): Query<ModelListQuery>,
 ) -> AppResult<Json<PaginatedModelsResponse>> {
     let result =
-        crate::service::models::list_paginated(&state, &q.pagination, q.manufacturer_id).await?;
+        crate::service::models::list_paginated(&state, &q.pagination(), q.manufacturer_id).await?;
     Ok(Json(PaginatedModelsResponse::from(result)))
 }
 

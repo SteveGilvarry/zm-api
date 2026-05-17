@@ -11,11 +11,24 @@ use axum::{
 };
 use serde::Deserialize;
 
+// NB: pagination fields are inlined rather than `#[serde(flatten)]`-ed in.
+// `#[serde(flatten)]` routes every value through a string-typed buffer, so
+// numeric query params (`?page=1`) fail to deserialize as `u64` — this is a
+// serde limitation that affects every query backend, not just `serde_urlencoded`.
 #[derive(Debug, Deserialize)]
 pub struct EventDataQuery {
     event_id: Option<u64>,
-    #[serde(flatten)]
-    pagination: PaginationParams,
+    page: Option<u64>,
+    page_size: Option<u64>,
+}
+
+impl EventDataQuery {
+    fn pagination(&self) -> PaginationParams {
+        PaginationParams {
+            page: self.page,
+            page_size: self.page_size,
+        }
+    }
 }
 
 /// List all event data with pagination.
@@ -38,7 +51,7 @@ pub async fn list_event_data(
 ) -> AppResult<Json<PaginatedEventDataResponse>> {
     let result = crate::service::event_data::list_paginated(
         &state,
-        &params.pagination,
+        &params.pagination(),
         params.event_id,
         &scope,
     )

@@ -46,18 +46,23 @@ async fn list_control_presets_returns_inserted_preset() {
         .expect("insert monitor");
     insert_preset(&app.db, monitor.id, 1, "PresetListLabel").await;
 
-    // NB: `ControlPresetQuery` flattens `PaginationParams`, and `#[serde(flatten)]`
-    // forces `serde_urlencoded` to treat every field as a string — so numeric
-    // query params (`page=1`, `monitor_id=1`) are rejected with a 400. The list
-    // endpoint is therefore only exercised with its bare (default-paginated)
-    // form, so the fixture preset may not land on the first page; we only
-    // assert the endpoint succeeds and returns a well-formed paginated body.
-    let resp = app.get("/api/v3/control_presets", &token).await;
+    // `ControlPresetQuery` flattens `PaginationParams`; the handler uses
+    // `axum_extra`'s Query so numeric/flattened query params deserialize
+    // correctly. A large page size guarantees the fixture lands on the page.
+    let resp = app
+        .get(
+            &format!(
+                "/api/v3/control_presets?monitor_id={}&page=1&page_size=1000",
+                monitor.id
+            ),
+            &token,
+        )
+        .await;
     assert_status(&resp, StatusCode::OK);
     let body: PaginatedControlPresetsResponse = resp.json();
     assert!(
-        body.total >= 1,
-        "list total should count the fixture preset"
+        body.items.iter().any(|p| p.monitor_id == monitor.id),
+        "list should contain the fixture preset"
     );
 
     delete_preset(&app.db, monitor.id, 1).await;

@@ -13,11 +13,24 @@ use axum::{
 };
 use serde::Deserialize;
 
+// NB: pagination fields are inlined rather than `#[serde(flatten)]`-ed in.
+// `#[serde(flatten)]` routes every value through a string-typed buffer, so
+// numeric query params (`?page=1`) fail to deserialize as `u64` — this is a
+// serde limitation that affects every query backend, not just `serde_urlencoded`.
 #[derive(Debug, Deserialize)]
 pub struct ControlPresetQuery {
     pub monitor_id: Option<u32>,
-    #[serde(flatten)]
-    pub pagination: PaginationParams,
+    pub page: Option<u64>,
+    pub page_size: Option<u64>,
+}
+
+impl ControlPresetQuery {
+    fn pagination(&self) -> PaginationParams {
+        PaginationParams {
+            page: self.page,
+            page_size: self.page_size,
+        }
+    }
 }
 
 /// List control presets with pagination; optionally filter by monitor id.
@@ -40,13 +53,14 @@ pub async fn list_control_presets(
     Query(q): Query<ControlPresetQuery>,
     scope: MonitorScope,
 ) -> AppResult<Json<PaginatedControlPresetsResponse>> {
+    let pagination = q.pagination();
     let result = if let Some(mid) = q.monitor_id {
         // For filtered results, get all matching and build paginated response
         let items = crate::service::control_presets::list_by_monitor(&state, mid, &scope).await?;
         let total = items.len() as u64;
-        crate::dto::PaginatedResponse::from_params(items, total, &q.pagination)
+        crate::dto::PaginatedResponse::from_params(items, total, &pagination)
     } else {
-        crate::service::control_presets::list_paginated(&state, &q.pagination, &scope).await?
+        crate::service::control_presets::list_paginated(&state, &pagination, &scope).await?
     };
     Ok(Json(PaginatedControlPresetsResponse::from(result)))
 }

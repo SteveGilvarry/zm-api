@@ -68,15 +68,21 @@ async fn list_event_data_returns_inserted_row() {
     let event_id = insert_event(&app.db, monitor.id, "EvtDataListEvt").await;
     let data_id = insert_event_data(&app.db, event_id, monitor.id).await;
 
-    // NB: `EventDataQuery` flattens `PaginationParams`, and `#[serde(flatten)]`
-    // forces `serde_urlencoded` to treat every field as a string — so numeric
-    // query params (`page=1`, `event_id=1`) are rejected with a 400. The list
-    // endpoint is therefore only exercised with its bare (default-paginated)
-    // form; we only assert it succeeds and returns a well-formed paginated body.
-    let resp = app.get("/api/v3/event-data", &token).await;
+    // `EventDataQuery` flattens `PaginationParams`; the handler uses
+    // `axum_extra`'s Query so numeric/flattened query params deserialize
+    // correctly. A large page size guarantees the fixture lands on the page.
+    let resp = app
+        .get(
+            &format!("/api/v3/event-data?event_id={event_id}&page=1&page_size=1000"),
+            &token,
+        )
+        .await;
     assert_status(&resp, StatusCode::OK);
     let body: PaginatedEventDataResponse = resp.json();
-    assert!(body.total >= 1, "list total should count the fixture row");
+    assert!(
+        body.items.iter().any(|d| d.id == data_id),
+        "list should contain the fixture row"
+    );
 
     delete_event_data_row(&app.db, data_id).await;
     delete_event(&app.db, event_id).await;
