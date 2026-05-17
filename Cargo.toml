@@ -2,6 +2,9 @@
 name = "zm_api"
 version = "3.0.0"
 edition = "2021"
+license = "AGPL-3.0-or-later"
+description = "A modern REST API for ZoneMinder"
+repository = "https://github.com/SteveGilvarry/zm-api"
 
 # Features
 [features]
@@ -148,7 +151,7 @@ conf-files = [
 
 [package.metadata.rpm]
 package = "zm_api"
-license = "UNLICENSED"
+license = "AGPL-3.0-or-later"
 
 [package.metadata.rpm.cargo]
 buildflags = ["--release"]

@@ -236,8 +236,19 @@ See [`CLAUDE.md`](CLAUDE.md) for the full development workflow and conventions.
 
 ## 📄 License
 
-Not yet licensed for public distribution (`UNLICENSED`). Add a `LICENSE` file before
-publishing or sharing externally.
+zm_api is **dual-licensed**:
+
+- 🆓 **Open source — [AGPL-3.0](LICENSE).** Free to use, modify, and self-host. If you
+  run a modified version as a network service, the AGPL requires you to publish your
+  changes.
+- 💼 **Commercial license.** For embedding zm_api in a closed-source product, or running a
+  modified version as a hosted service without the AGPL's source-sharing obligation, a
+  commercial license is available. Contact the maintainer to enquire.
+
+Contributions are accepted under a [Contributor License Agreement](CLA.md) so the project
+can be offered under both licenses — see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+> The `db/*.sql` schema files are from ZoneMinder and remain under its GPL-2.0 license.
 
 ---
 
