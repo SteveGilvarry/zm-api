@@ -198,6 +198,12 @@ fn parse_range_header(range_header: Option<&str>, file_size: u64) -> Option<(u64
         return None;
     }
 
+    // A zero-length file has no satisfiable byte range; bail before the
+    // `file_size - 1` arithmetic below, which would otherwise underflow.
+    if file_size == 0 {
+        return None;
+    }
+
     let range_spec = &range_str[6..];
     let parts: Vec<&str> = range_spec.split('-').collect();
 
@@ -616,13 +622,14 @@ mod tests {
         assert_eq!(parse_range_header(Some("bytes=-abc"), 1000), None);
     }
 
-    // NOTE: a known pre-existing bug — `parse_range_header` computes
-    // `file_size - 1` unconditionally, so calling it with `file_size == 0`
-    // panics with a subtract overflow. The handlers never invoke it with a
-    // zero-length file (an empty media file would 404 earlier), so this is
-    // not exercised in production, but it is worth flagging. A zero-length
-    // test case is intentionally omitted here to keep the suite green; fixing
-    // the helper to guard `file_size == 0` is out of scope for this change.
+    #[test]
+    fn parse_range_header_zero_length_file_is_unsatisfiable() {
+        // A zero-length file has no valid byte range; every form must yield
+        // `None` rather than panicking on the internal `file_size - 1`.
+        assert_eq!(parse_range_header(Some("bytes=0-"), 0), None);
+        assert_eq!(parse_range_header(Some("bytes=-100"), 0), None);
+        assert_eq!(parse_range_header(Some("bytes=0-0"), 0), None);
+    }
 
     // ------------------------------------------------------------------
     // generate_simple_playlist
