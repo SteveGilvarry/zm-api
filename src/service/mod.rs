@@ -10,6 +10,7 @@ pub mod events;
 pub mod events_tags;
 pub mod filters;
 pub mod frames;
+pub mod group_acl;
 pub mod groups;
 pub mod groups_monitors;
 pub mod groups_permissions;

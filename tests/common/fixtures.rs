@@ -10,6 +10,12 @@ use sea_orm::{
 use zm_api::entity::devices::{
     ActiveModel as DeviceActiveModel, Entity as DeviceEntity, Model as DeviceModel,
 };
+use zm_api::entity::groups::{
+    ActiveModel as GroupActiveModel, Entity as GroupEntity, Model as GroupModel,
+};
+use zm_api::entity::groups_permissions::{
+    ActiveModel as GroupPermActiveModel, Column as GroupPermColumn, Entity as GroupPermEntity,
+};
 use zm_api::entity::monitors::{ActiveModel as MonitorActiveModel, Model as MonitorModel};
 use zm_api::entity::monitors_permissions::{
     ActiveModel as MonitorPermActiveModel, Column as MonitorPermColumn, Entity as MonitorPermEntity,
@@ -132,6 +138,50 @@ pub async fn cleanup_monitor_permissions(
 ) -> Result<(), DbErr> {
     MonitorPermEntity::delete_many()
         .filter(MonitorPermColumn::UserId.eq(user_id))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+/// Insert a throwaway group and return the persisted model.
+pub async fn insert_group(db: &DatabaseConnection, label: &str) -> Result<GroupModel, DbErr> {
+    GroupActiveModel {
+        name: Set(unique_name(label)),
+        parent_id: Set(None),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+}
+
+/// Delete a single group row by id.
+pub async fn delete_group(db: &DatabaseConnection, group_id: u32) -> Result<(), DbErr> {
+    GroupEntity::delete_by_id(group_id).exec(db).await?;
+    Ok(())
+}
+
+/// Grant a user a row-level `Groups_Permissions` permission on a group.
+pub async fn grant_group_permission(
+    db: &DatabaseConnection,
+    group_id: u32,
+    user_id: u32,
+    permission: Permission,
+) -> Result<(), DbErr> {
+    GroupPermActiveModel {
+        group_id: Set(group_id),
+        user_id: Set(user_id),
+        permission: Set(permission),
+        ..Default::default()
+    }
+    .insert(db)
+    .await?;
+    Ok(())
+}
+
+/// Delete all `Groups_Permissions` rows for a (test) user.
+pub async fn cleanup_group_permissions(db: &DatabaseConnection, user_id: u32) -> Result<(), DbErr> {
+    GroupPermEntity::delete_many()
+        .filter(GroupPermColumn::UserId.eq(user_id))
         .exec(db)
         .await?;
     Ok(())

@@ -4,6 +4,7 @@ use crate::dto::response::GroupResponse;
 use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use crate::service::group_acl::GroupScope;
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -27,8 +28,9 @@ use serde::Deserialize;
 pub async fn list_groups(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
+    scope: GroupScope,
 ) -> AppResult<Json<PaginatedGroupsResponse>> {
-    let result = crate::service::groups::list_paginated(&state, &params).await?;
+    let result = crate::service::groups::list_paginated(&state, &params, &scope).await?;
     Ok(Json(PaginatedGroupsResponse::from(result)))
 }
 
@@ -46,8 +48,9 @@ pub async fn list_groups(
 pub async fn get_group(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    scope: GroupScope,
 ) -> AppResult<Json<GroupResponse>> {
-    let item = crate::service::groups::get_by_id(&state, id).await?;
+    let item = crate::service::groups::get_by_id(&state, id, &scope).await?;
     Ok(Json(item))
 }
 
@@ -71,9 +74,10 @@ pub struct UpdateGroupRequest {
 pub async fn update_group(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    scope: GroupScope,
     Json(req): Json<UpdateGroupRequest>,
 ) -> AppResult<Json<GroupResponse>> {
-    let item = crate::service::groups::update(&state, id, req.name).await?;
+    let item = crate::service::groups::update(&state, id, req.name, &scope).await?;
     Ok(Json(item))
 }
 
@@ -110,7 +114,8 @@ pub async fn create_group(
 pub async fn delete_group(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    scope: GroupScope,
 ) -> AppResult<axum::http::StatusCode> {
-    crate::service::groups::delete(&state, id).await?;
+    crate::service::groups::delete(&state, id, &scope).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
