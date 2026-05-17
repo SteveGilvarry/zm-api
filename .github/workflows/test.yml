@@ -230,7 +230,7 @@ jobs:
 
       # Measures unit + integration coverage. entity/ and migration/ are
       # excluded as generated code. `--fail-under-lines` is the regression
-      # floor: baseline is ~59% line coverage, so 57 leaves headroom —
+      # floor: baseline is ~62% line coverage, so 60 leaves headroom —
       # ratchet it up as new tests land.
       # `--ignore-run-fail`: the test job is the test gate; this job only
       # gates coverage, so a failing test here must not mask the number.
@@ -238,7 +238,7 @@ jobs:
         run: |
           cargo llvm-cov --all-features --ignore-run-fail \
             --ignore-filename-regex '/(entity|migration)/' \
-            --fail-under-lines 57 \
+            --fail-under-lines 60 \
             -- --include-ignored
         env:
           DATABASE_URL: mysql://zm_test_user:zm_test_pass@127.0.0.1:3307/zm_test
