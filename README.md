@@ -12,6 +12,7 @@ with live streaming, fine-grained access control, and OpenAPI docs baked in.*
 ![Rust](https://img.shields.io/badge/Rust-2021-orange?logo=rust&logoColor=white)
 ![Axum](https://img.shields.io/badge/Axum-0.8-blue)
 ![SeaORM](https://img.shields.io/badge/SeaORM-1.1-9cf)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 ![Status](https://img.shields.io/badge/status-active%20development-yellow)
 
 </div>
