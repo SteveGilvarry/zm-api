@@ -112,7 +112,7 @@ jobs:
         run: cargo test --all-features --verbose
 
       - name: Run integration tests
-        run: cargo test --test '*' -- --include-ignored
+        run: cargo test --no-fail-fast --test '*' -- --include-ignored
         env:
           DATABASE_URL: mysql://zm_test_user:zm_test_pass@127.0.0.1:3307/zm_test
 

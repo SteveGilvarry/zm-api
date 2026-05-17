@@ -6,7 +6,7 @@ mod common;
 use axum::body::{self, Body};
 use axum::http::{header, Request, StatusCode};
 use common::test_db::get_test_db;
-use common::test_db::{cleanup_by_prefix, test_prefix};
+use common::test_db::test_prefix;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use tower::ServiceExt;
 use zm_api::dto::response::{DeviceResponse, PaginatedDevicesResponse};
@@ -24,11 +24,16 @@ fn auth_header() -> String {
     format!("Bearer {}", token)
 }
 
-async fn create_device_db(db: &sea_orm::DatabaseConnection) -> Result<DeviceModel, sea_orm::DbErr> {
+/// Insert a device with a name unique to this test, so concurrent tests in
+/// this binary never collide on or clean up each other's fixture rows.
+async fn create_device_db(
+    db: &sea_orm::DatabaseConnection,
+    label: &str,
+) -> Result<DeviceModel, sea_orm::DbErr> {
     use zm_api::entity::devices::ActiveModel;
 
     let device = ActiveModel {
-        name: Set(format!("{}X10_Controller", test_prefix())),
+        name: Set(format!("{}{}", test_prefix(), label)),
         r#type: Set(DeviceType::X10),
         key_string: Set("A1".to_string()),
         ..Default::default()
@@ -37,12 +42,15 @@ async fn create_device_db(db: &sea_orm::DatabaseConnection) -> Result<DeviceMode
     device.insert(db).await
 }
 
-async fn cleanup_devices_db(db: &sea_orm::DatabaseConnection) -> Result<(), sea_orm::DbErr> {
+/// Delete a single device row by id. Per-id cleanup keeps the suite safe to
+/// run concurrently — a prefix-wide delete would wipe a sibling's fixture.
+async fn delete_device_db(
+    db: &sea_orm::DatabaseConnection,
+    device_id: u32,
+) -> Result<(), sea_orm::DbErr> {
     use zm_api::entity::devices::Entity as Device;
 
-    let _ = Device::find().one(db).await?;
-    cleanup_by_prefix(db, "Devices", "Name", &test_prefix()).await?;
-
+    Device::delete_by_id(device_id).exec(db).await?;
     Ok(())
 }
 
@@ -54,7 +62,7 @@ async fn test_api_devices_list() {
         .expect("Failed to connect to test database");
 
     // Setup: Create a test device
-    let device = create_device_db(&db)
+    let device = create_device_db(&db, "ListController")
         .await
         .expect("Failed to create test device");
 
@@ -64,7 +72,7 @@ async fn test_api_devices_list() {
 
     let response = app
         .oneshot(
-            Request::get("/api/v3/devices")
+            Request::get("/api/v3/devices?page=1&page_size=1000")
                 .header(header::AUTHORIZATION, auth_header())
                 .body(Body::empty())
                 .unwrap(),
@@ -73,7 +81,7 @@ async fn test_api_devices_list() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+    let bytes = body::to_bytes(response.into_body(), 256 * 1024)
         .await
         .unwrap();
     let body: PaginatedDevicesResponse = serde_json::from_slice(&bytes).unwrap();
@@ -85,7 +93,7 @@ async fn test_api_devices_list() {
     let cleanup_db = get_test_db()
         .await
         .expect("Failed to get cleanup connection");
-    cleanup_devices_db(&cleanup_db)
+    delete_device_db(&cleanup_db, device.id)
         .await
         .expect("Failed to cleanup");
 }
@@ -98,7 +106,7 @@ async fn test_api_devices_get() {
         .expect("Failed to connect to test database");
 
     // Setup: Create a test device
-    let device = create_device_db(&db)
+    let device = create_device_db(&db, "GetController")
         .await
         .expect("Failed to create test device");
 
@@ -123,14 +131,14 @@ async fn test_api_devices_get() {
     let body: DeviceResponse = serde_json::from_slice(&bytes).unwrap();
 
     assert_eq!(body.id, device.id);
-    assert_eq!(body.name, format!("{}X10_Controller", test_prefix()));
+    assert_eq!(body.name, device.name);
     assert_eq!(body.key_string, "A1");
 
     // Cleanup
     let cleanup_db = get_test_db()
         .await
         .expect("Failed to get cleanup connection");
-    cleanup_devices_db(&cleanup_db)
+    delete_device_db(&cleanup_db, device.id)
         .await
         .expect("Failed to cleanup");
 }
@@ -146,7 +154,7 @@ async fn test_api_devices_create_delete() {
     // Note: You'll need to implement the POST endpoint for this test
     // For now, we'll create directly and test delete
 
-    let device = create_device_db(&db)
+    let device = create_device_db(&db, "DeleteController")
         .await
         .expect("Failed to create test device");
     let device_id = device.id;
