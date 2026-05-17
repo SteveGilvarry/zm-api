@@ -235,7 +235,7 @@ jobs:
       # gates coverage, so a failing test here must not mask the number.
       - name: Run coverage
         run: |
-          cargo llvm-cov --all-features --no-fail-fast --ignore-run-fail \
+          cargo llvm-cov --all-features --ignore-run-fail \
             --ignore-filename-regex '/(entity|migration)/' \
             --fail-under-lines 45 \
             -- --include-ignored
