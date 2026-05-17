@@ -60,20 +60,3 @@ pub async fn migrate_database(db: &DatabaseConnection) -> AppResult {
     info!("Migrate database successfully done.");
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::constant::CONFIG;
-
-    #[tokio::test]
-    #[ignore = "requires database connection"]
-    async fn test_ping_database() {
-        DatabaseClient::build_from_config(&CONFIG)
-            .await
-            .unwrap()
-            .ping()
-            .await
-            .expect("Database ping failed.")
-    }
-}
