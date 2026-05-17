@@ -27,4 +27,7 @@ static/key/*.pem
 # Database
 zm_schema.sql
 *.sql
+# ...but the ZoneMinder source-split schema files must be tracked: the test-db
+# setup scripts resolve `source db/*.sql` directives from these.
+!db/*.sql
 .grepai/

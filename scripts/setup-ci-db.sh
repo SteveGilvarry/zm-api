@@ -46,11 +46,26 @@ process_schema() {
     fi
     
     log_debug "Processing schema file..."
-    sed -e 's/@ZM_DB_NAME@/'"$MYSQL_DATABASE"'/g' \
-        -e 's/@ZM_MYSQL_ENGINE@/InnoDB/g' \
-        -e 's/@PKGDATADIR@/./g' \
-        -e '/^source /d' \
-        "$SCHEMA_FILE" > "$output_file"
+    # Resolve `source @PKGDATADIR@/db/X.sql` directives by inlining the
+    # referenced file from the repo's db/ directory. ZoneMinder splits
+    # Object_Types / User_Preferences (and seed data) into separate files;
+    # the old `-e '/^source /d'` strip silently dropped those tables.
+    awk -v db_dir="$PROJECT_ROOT/db" '
+        /^source @PKGDATADIR@\/db\// {
+            f = $2; sub(/^@PKGDATADIR@\/db\//, "", f)
+            path = db_dir "/" f
+            n = 0
+            while ((getline line < path) > 0) { print line; n++ }
+            close(path)
+            if (n == 0) print "-- WARNING: unresolved source: " f > "/dev/stderr"
+            next
+        }
+        { print }
+    ' "$SCHEMA_FILE" \
+        | sed -e 's/@ZM_DB_NAME@/'"$MYSQL_DATABASE"'/g' \
+              -e 's/@ZM_MYSQL_ENGINE@/InnoDB/g' \
+              -e 's/@PKGDATADIR@/./g' \
+        > "$output_file"
     
     echo "$output_file"
 }
