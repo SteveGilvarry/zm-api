@@ -57,6 +57,16 @@ jobs:
       - name: Generate JWT keys
         run: bash scripts/generate-jwt-keys.sh
 
+      # ffmpeg-sys-next links the FFmpeg shared libraries via pkg-config.
+      # ubuntu-latest preinstalls only the ffmpeg binary, not the -dev
+      # packages, so the dev libraries must be installed explicitly.
+      - name: Install FFmpeg development libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libavutil-dev libavformat-dev libavfilter-dev \
+            libavdevice-dev libavcodec-dev libswscale-dev libswresample-dev
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -111,7 +121,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
+      # clippy compiles the crate, so ffmpeg-sys-next needs the dev libraries.
+      - name: Install FFmpeg development libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libavutil-dev libavformat-dev libavfilter-dev \
+            libavdevice-dev libavcodec-dev libswscale-dev libswresample-dev
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
