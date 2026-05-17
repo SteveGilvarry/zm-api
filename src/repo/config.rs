@@ -96,7 +96,9 @@ pub async fn list_categories(db: &DatabaseConnection) -> AppResult<Vec<CategoryC
 
     let rows = Config::find()
         .select_only()
-        .column(Column::Category)
+        // Alias to the lowercase name `CategoryCount` expects; the DB column is
+        // `Category`, and `FromQueryResult` matches the struct field verbatim.
+        .column_as(Column::Category, "category")
         .column_as(Expr::col(Column::Id).count(), "count")
         .group_by(Column::Category)
         .order_by_asc(Column::Category)
