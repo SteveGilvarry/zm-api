@@ -16,9 +16,13 @@ use zm_api::dto::response::{FilterResponse, SnapshotResponse, ZoneResponse};
 use zm_api::entity::monitors;
 
 fn auth_header() -> String {
-    let token = zm_api::service::token::generate_tokens("tester".to_string())
-        .expect("token")
-        .access_token;
+    let token = zm_api::service::token::generate_tokens(
+        "tester".to_string(),
+        1,
+        zm_api::util::authz::UserPermissions::superuser(),
+    )
+    .expect("token")
+    .access_token;
     format!("Bearer {}", token)
 }
 
@@ -248,35 +252,24 @@ async fn test_api_streaming_routes_require_auth() {
         .expect("Failed to connect to test database");
     let app = build_app(db);
 
-    let response = app
-        .clone()
-        .oneshot(
-            Request::get("/api/v3/streams/1")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-
-    let response = app
-        .clone()
-        .oneshot(
-            Request::get("/api/v3/mse/streams")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-
-    let response = app
-        .oneshot(
-            Request::get("/api/v3/webrtc/health")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    // The live-streaming routes that require authentication. The per-monitor
+    // route is guarded by `monitor_path_guard`; the global session/source
+    // routes carry `auth_middleware` directly. All must reject a tokenless
+    // request with 401 rather than serving or erroring.
+    for path in [
+        "/api/v3/live/1/stats",
+        "/api/v3/live/sessions",
+        "/api/v3/live/sources",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "{path} should require authentication"
+        );
+    }
 }

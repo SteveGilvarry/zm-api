@@ -12,6 +12,7 @@ use tower::ServiceExt;
 use zm_api::dto::request::{AlarmControlRequest, CreateMonitorRequest, UpdateStateRequest};
 use zm_api::dto::response::{
     EventResponse, FrameResponse, MonitorResponse, PaginatedEventsResponse,
+    PaginatedFramesResponse, PaginatedMonitorsResponse,
 };
 use zm_api::entity::sea_orm_active_enums::{
     Analysing, AnalysisImage, AnalysisSource, Capturing, Decoding, DefaultCodec, EventCloseMode,
@@ -21,9 +22,13 @@ use zm_api::entity::sea_orm_active_enums::{
 use zm_api::entity::{events, frames, monitors};
 
 fn auth_header() -> String {
-    let token = zm_api::service::token::generate_tokens("tester".to_string())
-        .expect("token")
-        .access_token;
+    let token = zm_api::service::token::generate_tokens(
+        "tester".to_string(),
+        1,
+        zm_api::util::authz::UserPermissions::superuser(),
+    )
+    .expect("token")
+    .access_token;
     format!("Bearer {}", token)
 }
 
@@ -387,8 +392,8 @@ async fn test_api_monitors_list_get() {
     let bytes = body::to_bytes(response.into_body(), 256 * 1024)
         .await
         .unwrap();
-    let body: Vec<MonitorResponse> = serde_json::from_slice(&bytes).unwrap();
-    assert!(body.iter().any(|m| m.id == monitor.id));
+    let body: PaginatedMonitorsResponse = serde_json::from_slice(&bytes).unwrap();
+    assert!(body.items.iter().any(|m| m.id == monitor.id));
 
     let response = app
         .oneshot(
@@ -507,8 +512,8 @@ async fn test_api_frames_list_get() {
     let bytes = body::to_bytes(response.into_body(), 64 * 1024)
         .await
         .unwrap();
-    let body: Vec<FrameResponse> = serde_json::from_slice(&bytes).unwrap();
-    assert!(body.iter().any(|f| f.id == frame.id));
+    let body: PaginatedFramesResponse = serde_json::from_slice(&bytes).unwrap();
+    assert!(body.items.iter().any(|f| f.id == frame.id));
 
     let response = app
         .oneshot(

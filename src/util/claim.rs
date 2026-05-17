@@ -20,6 +20,7 @@ use utoipa::ToSchema;
 
 use crate::constant::ACCESS_TOKEN_DECODE_KEY;
 use crate::error::{AppError, AppResult};
+use crate::util::authz::UserPermissions;
 
 pub static DECODE_HEADER: Lazy<Validation> = Lazy::new(|| Validation::new(Algorithm::RS256));
 pub static ENCODE_HEADER: Lazy<Header> = Lazy::new(|| Header::new(Algorithm::RS256));
@@ -32,15 +33,26 @@ pub struct UserClaims {
     pub exp: i64,
     // username
     pub user: String,
+    // numeric user id, used to resolve row-level monitor ACLs. Defaulted to 0
+    // for tokens issued before this field existed; a uid of 0 matches no
+    // permission row and therefore resolves to unrestricted (default-allow).
+    #[serde(default)]
+    pub uid: u32,
+    // per-feature permission snapshot (RBAC). Defaulted for backward
+    // compatibility with tokens issued before RBAC existed.
+    #[serde(default)]
+    pub perms: UserPermissions,
 }
 
 impl UserClaims {
-    pub fn new(duration: Duration, username: String) -> Self {
+    pub fn new(duration: Duration, username: String, user_id: u32, perms: UserPermissions) -> Self {
         let now = Utc::now().timestamp();
         Self {
             iat: now,
             exp: now + (duration.as_secs() as i64),
             user: username,
+            uid: user_id,
+            perms,
         }
     }
 
@@ -103,7 +115,12 @@ mod tests {
     fn test_user_claims() {
         let username: String = Faker.fake();
         let pair_key = RsaPairKey::new(2048).unwrap();
-        let claims = UserClaims::new(Duration::from_secs(100), username);
+        let claims = UserClaims::new(
+            Duration::from_secs(100),
+            username,
+            42,
+            UserPermissions::superuser(),
+        );
         // println!(
         //     "private key: {}",
         //     String::from_utf8(pair_key.private_key.clone()).unwrap()

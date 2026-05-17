@@ -7,21 +7,10 @@ use crate::error::ToAppResult;
 use crate::repo::users as user;
 use crate::server::state::AppState;
 use crate::service::token;
+use crate::util::authz::UserPermissions;
 use crate::util::claim::UserClaims;
 use crate::util::password;
 use tracing::info;
-
-pub fn generate_tokens(username: String) -> AppResult<TokenResponse> {
-    let access_token = UserClaims::new(EXPIRE_BEARER_TOKEN_SECS, username.to_string())
-        .encode(&ACCESS_TOKEN_ENCODE_KEY)?;
-    let refresh_token = UserClaims::new(EXPIRE_REFRESH_TOKEN_SECS, username.to_string())
-        .encode(&REFRESH_TOKEN_ENCODE_KEY)?;
-    Ok(TokenResponse::new(
-        access_token,
-        refresh_token,
-        EXPIRE_BEARER_TOKEN_SECS.as_secs(),
-    ))
-}
 
 pub async fn login(state: &AppState, req: LoginRequest) -> AppResult<TokenResponse> {
     info!("Login user request :{req:?}.");
@@ -29,7 +18,8 @@ pub async fn login(state: &AppState, req: LoginRequest) -> AppResult<TokenRespon
         .await?
         .to_result()?;
     password::verify(req.password.clone(), user.password.clone()).await?;
-    let resp = token::generate_tokens(user.username)?;
+    let perms = UserPermissions::from(&user);
+    let resp = token::generate_tokens(user.username, user.id, perms)?;
     Ok(resp)
 }
 
@@ -40,7 +30,10 @@ pub async fn refresh_token(state: &AppState, req: RefreshTokenRequest) -> AppRes
         .await?
         .to_result()?;
     info!("Set new session for user: {}", user.id);
-    let resp = token::generate_tokens(user.username)?;
+    // Re-read permissions from the user row so a refresh picks up any
+    // permission changes made since the previous token was issued.
+    let perms = UserPermissions::from(&user);
+    let resp = token::generate_tokens(user.username, user.id, perms)?;
     info!("Refresh token success: {user_claims:?}");
     Ok(resp)
 }

@@ -4,6 +4,7 @@ use crate::dto::response::ZoneResponse;
 use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use crate::service::monitor_acl::MonitorScope;
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -33,8 +34,10 @@ pub async fn list_by_monitor(
     Path(id): Path<u32>,
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
+    scope: MonitorScope,
 ) -> AppResult<Json<PaginatedZonesResponse>> {
-    let result = crate::service::zones::list_by_monitor_paginated(&state, id, &params).await?;
+    let result =
+        crate::service::zones::list_by_monitor_paginated(&state, id, &params, &scope).await?;
     Ok(Json(result))
 }
 
@@ -57,8 +60,9 @@ pub async fn list_by_monitor(
 pub async fn get(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<Json<ZoneResponse>> {
-    let zone = crate::service::zones::get_by_id(&state, id).await?;
+    let zone = crate::service::zones::get_by_id(&state, id, &scope).await?;
     Ok(Json(zone))
 }
 
@@ -87,9 +91,10 @@ pub struct UpdateZoneRequest {
 pub async fn update(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    scope: MonitorScope,
     Json(req): Json<UpdateZoneRequest>,
 ) -> AppResult<Json<ZoneResponse>> {
-    let updated = crate::service::zones::update(&state, id, req.name, req.polygon).await?;
+    let updated = crate::service::zones::update(&state, id, req.name, req.polygon, &scope).await?;
     Ok(Json(updated))
 }
 
@@ -110,9 +115,10 @@ pub async fn update(
 pub async fn create(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    scope: MonitorScope,
     Json(req): Json<CreateZoneRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<ZoneResponse>)> {
-    let zone = crate::service::zones::create(&state, id, req).await?;
+    let zone = crate::service::zones::create(&state, id, req, &scope).await?;
     Ok((axum::http::StatusCode::CREATED, Json(zone)))
 }
 
@@ -131,7 +137,8 @@ pub async fn create(
 pub async fn delete(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<axum::http::StatusCode> {
-    crate::service::zones::delete(&state, id).await?;
+    crate::service::zones::delete(&state, id, &scope).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

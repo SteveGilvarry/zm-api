@@ -180,21 +180,23 @@ impl HlsSegmenter {
         // A new frame starts when the timestamp changes. NALs with the same
         // timestamp belong to the same access unit (multi-slice frames).
         let mut result = None;
-        if let Some(ref pending) = self.pending_frame {
+        if let Some(pending) = self.pending_frame.take() {
             let is_new_frame = timestamp != pending.timestamp;
             if is_new_frame {
                 // Flush the pending frame to completed samples
-                let flushed = self.pending_frame.take().unwrap();
                 self.current_segment_samples.push(SegmentSample {
-                    nals: flushed.nals,
-                    timestamp: flushed.timestamp,
-                    is_keyframe: flushed.is_keyframe,
+                    nals: pending.nals,
+                    timestamp: pending.timestamp,
+                    is_keyframe: pending.is_keyframe,
                 });
 
                 // Check if we should finalize segment (on keyframe after target duration)
                 if is_keyframe && self.current_segment_samples.len() > 1 {
-                    let seg_start_us =
-                        self.segment_start_time.unwrap() * 1_000_000 / self.timescale as u64;
+                    // `segment_start_time` is set to `Some` above whenever it was
+                    // `None`, so it is always populated here; fall back to the
+                    // current timestamp (zero-length segment) rather than panic.
+                    let seg_start = self.segment_start_time.unwrap_or(timestamp);
+                    let seg_start_us = seg_start * 1_000_000 / self.timescale as u64;
                     let segment_duration = Duration::from_micros(timestamp_us - seg_start_us);
 
                     if segment_duration >= self.target_duration {
@@ -202,6 +204,9 @@ impl HlsSegmenter {
                         self.segment_start_time = Some(timestamp);
                     }
                 }
+            } else {
+                // Same access unit (multi-slice frame) — keep accumulating.
+                self.pending_frame = Some(pending);
             }
         }
 
@@ -709,8 +714,16 @@ impl HlsSegmenter {
 
     /// Build avc1 sample entry
     fn build_avc1(&self) -> Vec<u8> {
-        let sps = self.sps.as_ref().unwrap();
-        let pps = self.pps.as_ref().unwrap();
+        // Reached only via `generate_init_segment`, which returns early when
+        // either SPS or PPS is missing — so both are guaranteed present here.
+        let sps = self
+            .sps
+            .as_ref()
+            .expect("SPS present: generate_init_segment guards against None");
+        let pps = self
+            .pps
+            .as_ref()
+            .expect("PPS present: generate_init_segment guards against None");
 
         // Build avcC
         let mut avcc = BytesMut::with_capacity(128);
@@ -769,8 +782,16 @@ impl HlsSegmenter {
 
     /// Build hvc1 sample entry
     fn build_hvc1(&self) -> Vec<u8> {
-        let sps = self.sps.as_ref().unwrap();
-        let pps = self.pps.as_ref().unwrap();
+        // Reached only via `generate_init_segment`, which returns early when
+        // either SPS or PPS is missing — so both are guaranteed present here.
+        let sps = self
+            .sps
+            .as_ref()
+            .expect("SPS present: generate_init_segment guards against None");
+        let pps = self
+            .pps
+            .as_ref()
+            .expect("PPS present: generate_init_segment guards against None");
         let vps = self.vps.as_ref();
 
         // Build hvcC (simplified)

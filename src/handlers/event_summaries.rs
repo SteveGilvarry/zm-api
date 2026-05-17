@@ -10,6 +10,7 @@ use crate::{
     error::{AppResponseError, AppResult},
     server::state::AppState,
     service,
+    service::monitor_acl::MonitorScope,
 };
 
 /// Get event summaries for all monitors
@@ -34,14 +35,15 @@ use crate::{
         ("jwt" = [])
     )
 )]
-#[instrument(skip(state))]
+#[instrument(skip(state, scope))]
 pub async fn list_event_summaries(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
+    scope: MonitorScope,
 ) -> AppResult<Json<PaginatedEventSummariesResponse>> {
     info!("Listing event summaries for all monitors");
 
-    let result = service::event_summaries::list_paginated(&state, &params).await?;
+    let result = service::event_summaries::list_paginated(&state, &params, &scope).await?;
 
     Ok(Json(PaginatedEventSummariesResponse::from(result)))
 }
@@ -67,14 +69,15 @@ pub async fn list_event_summaries(
         ("jwt" = [])
     )
 )]
-#[instrument(skip(state))]
+#[instrument(skip(state, scope))]
 pub async fn get_event_summary(
     State(state): State<AppState>,
     Path(monitor_id): Path<u32>,
+    scope: MonitorScope,
 ) -> AppResult<Json<EventSummaryResponse>> {
     info!("Getting event summary for monitor {}", monitor_id);
 
-    let summary = service::event_summaries::get_by_monitor_id(&state, monitor_id).await?;
+    let summary = service::event_summaries::get_by_monitor_id(&state, monitor_id, &scope).await?;
 
     Ok(Json(summary))
 }

@@ -30,6 +30,16 @@ pub struct DatabaseConfig {
     pub host: String,
     #[serde(default = "default_max_connections")]
     pub max_connections: u32,
+    #[serde(default = "default_min_connections")]
+    pub min_connections: u32,
+    #[serde(default = "default_connect_timeout_secs")]
+    pub connect_timeout_secs: u64,
+    #[serde(default = "default_acquire_timeout_secs")]
+    pub acquire_timeout_secs: u64,
+    #[serde(default = "default_idle_timeout_secs")]
+    pub idle_timeout_secs: u64,
+    #[serde(default = "default_max_lifetime_secs")]
+    pub max_lifetime_secs: u64,
     #[serde(default = "default_database_name")]
     pub database_name: String,
 }
@@ -47,7 +57,22 @@ fn default_host() -> String {
     "localhost".to_string()
 }
 fn default_max_connections() -> u32 {
+    25
+}
+fn default_min_connections() -> u32 {
     5
+}
+fn default_connect_timeout_secs() -> u64 {
+    8
+}
+fn default_acquire_timeout_secs() -> u64 {
+    8
+}
+fn default_idle_timeout_secs() -> u64 {
+    300
+}
+fn default_max_lifetime_secs() -> u64 {
+    1800
 }
 fn default_database_name() -> String {
     "zm".to_string()
@@ -155,6 +180,11 @@ mod tests {
             port: 3307,
             database_name: "testdb".to_string(),
             max_connections: 10,
+            min_connections: default_min_connections(),
+            connect_timeout_secs: default_connect_timeout_secs(),
+            acquire_timeout_secs: default_acquire_timeout_secs(),
+            idle_timeout_secs: default_idle_timeout_secs(),
+            max_lifetime_secs: default_max_lifetime_secs(),
         };
 
         assert_eq!(
@@ -172,6 +202,11 @@ mod tests {
             port: 3306,
             database_name: "database_name".to_string(),
             max_connections: 5,
+            min_connections: default_min_connections(),
+            connect_timeout_secs: default_connect_timeout_secs(),
+            acquire_timeout_secs: default_acquire_timeout_secs(),
+            idle_timeout_secs: default_idle_timeout_secs(),
+            max_lifetime_secs: default_max_lifetime_secs(),
         };
 
         assert!(config.is_placeholder("username"));
@@ -189,5 +224,8 @@ mod tests {
         assert_eq!(default_database_name(), "zm");
         assert_eq!(default_port(), 3306);
         assert_eq!(default_host(), "localhost");
+        // A 30-minute connection lifetime, not the previous 8 seconds.
+        assert_eq!(default_max_lifetime_secs(), 1800);
+        assert!(default_min_connections() <= default_max_connections());
     }
 }

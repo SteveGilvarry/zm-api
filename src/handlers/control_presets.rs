@@ -6,6 +6,7 @@ use crate::dto::response::ControlPresetResponse;
 use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use crate::service::monitor_acl::MonitorScope;
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -37,14 +38,15 @@ pub struct ControlPresetQuery {
 pub async fn list_control_presets(
     State(state): State<AppState>,
     Query(q): Query<ControlPresetQuery>,
+    scope: MonitorScope,
 ) -> AppResult<Json<PaginatedControlPresetsResponse>> {
     let result = if let Some(mid) = q.monitor_id {
         // For filtered results, get all matching and build paginated response
-        let items = crate::service::control_presets::list_by_monitor(&state, mid).await?;
+        let items = crate::service::control_presets::list_by_monitor(&state, mid, &scope).await?;
         let total = items.len() as u64;
         crate::dto::PaginatedResponse::from_params(items, total, &q.pagination)
     } else {
-        crate::service::control_presets::list_paginated(&state, &q.pagination).await?
+        crate::service::control_presets::list_paginated(&state, &q.pagination, &scope).await?
     };
     Ok(Json(PaginatedControlPresetsResponse::from(result)))
 }
@@ -66,8 +68,10 @@ pub async fn list_control_presets(
 pub async fn get_control_preset(
     Path((monitor_id, preset)): Path<(u32, u32)>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<Json<ControlPresetResponse>> {
-    let item = crate::service::control_presets::get_by_id(&state, monitor_id, preset).await?;
+    let item =
+        crate::service::control_presets::get_by_id(&state, monitor_id, preset, &scope).await?;
     Ok(Json(item))
 }
 
@@ -84,9 +88,10 @@ pub async fn get_control_preset(
 )]
 pub async fn create_control_preset(
     State(state): State<AppState>,
+    scope: MonitorScope,
     Json(req): Json<CreateControlPresetRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<ControlPresetResponse>)> {
-    let item = crate::service::control_presets::create(&state, req).await?;
+    let item = crate::service::control_presets::create(&state, req, &scope).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
@@ -109,9 +114,11 @@ pub async fn create_control_preset(
 pub async fn update_control_preset(
     Path((monitor_id, preset)): Path<(u32, u32)>,
     State(state): State<AppState>,
+    scope: MonitorScope,
     Json(req): Json<UpdateControlPresetRequest>,
 ) -> AppResult<Json<ControlPresetResponse>> {
-    let item = crate::service::control_presets::update(&state, monitor_id, preset, req).await?;
+    let item =
+        crate::service::control_presets::update(&state, monitor_id, preset, req, &scope).await?;
     Ok(Json(item))
 }
 
@@ -133,7 +140,8 @@ pub async fn update_control_preset(
 pub async fn delete_control_preset(
     Path((monitor_id, preset)): Path<(u32, u32)>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<axum::http::StatusCode> {
-    crate::service::control_presets::delete(&state, monitor_id, preset).await?;
+    crate::service::control_presets::delete(&state, monitor_id, preset, &scope).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

@@ -9,15 +9,34 @@ use rust_decimal::Decimal;
 use sea_orm::*;
 use std::str::FromStr;
 
-pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<MonitorStatusModel>> {
-    Ok(MonitorStatuses::find().all(db).await?)
+/// Restrict a monitor-status query to a row-level ACL allowlist of monitors.
+fn scoped(
+    query: Select<MonitorStatuses>,
+    monitor_filter: Option<&[u32]>,
+) -> Select<MonitorStatuses> {
+    use crate::entity::monitor_status::Column;
+    match monitor_filter {
+        None => query,
+        Some(ids) => query.filter(Column::MonitorId.is_in(ids.iter().copied())),
+    }
+}
+
+pub async fn find_all(
+    db: &DatabaseConnection,
+    monitor_filter: Option<&[u32]>,
+) -> AppResult<Vec<MonitorStatusModel>> {
+    Ok(scoped(MonitorStatuses::find(), monitor_filter)
+        .all(db)
+        .await?)
 }
 
 pub async fn find_paginated(
     db: &DatabaseConnection,
     params: &PaginationParams,
+    monitor_filter: Option<&[u32]>,
 ) -> AppResult<(Vec<MonitorStatusModel>, u64)> {
-    let paginator = MonitorStatuses::find().paginate(db, params.page_size());
+    let paginator =
+        scoped(MonitorStatuses::find(), monitor_filter).paginate(db, params.page_size());
     let total = paginator.num_items().await?;
     let items = paginator
         .fetch_page(params.page().saturating_sub(1))

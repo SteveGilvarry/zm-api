@@ -29,7 +29,6 @@ futures-util = "0.3"
 garde = { version = "0.22", features = ["full"] }
 itertools = "0.14"
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
-lazy_static = "1"
 log = "0.4"
 memmap2 = "0.9"
 openssl = "0.10"
@@ -57,7 +56,16 @@ urlencoding = "2"
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
 uuid = { version = "1", features = ["v4"] }
-tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = [
+    "cors",
+    "trace",
+    "fs",
+    "compression-gzip",
+    "compression-br",
+    "set-header",
+] }
+tower_governor = "0.8"
 libloading = "0.8"
 mockall = "0.13"
 

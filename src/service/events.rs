@@ -11,19 +11,32 @@ use crate::{
         response::events_tags::TagSummary,
     },
     entity::events,
-    error::{AppError, AppResult},
+    error::{AppError, AppResult, Resource, ResourceType},
     repo::events as events_repo,
     server::state::AppState,
+    service::monitor_acl::MonitorScope,
+    util::authz::Level,
 };
 
 /// Default page size for paginated event listing
 const DEFAULT_PAGE_SIZE: u64 = 20;
+
+/// Not-found error for an event, used both when an event genuinely does not
+/// exist and when it belongs to a monitor outside the caller's ACL scope (so
+/// hidden monitors are not revealed).
+fn event_not_found(id: u32) -> AppError {
+    AppError::NotFoundError(Resource {
+        details: vec![("id".to_string(), id.to_string())],
+        resource_type: ResourceType::Message,
+    })
+}
 
 /// List events with full query parameters support
 #[instrument(skip(state))]
 pub async fn list(
     state: &AppState,
     params: &EventQueryParams,
+    scope: &MonitorScope,
 ) -> AppResult<PaginatedEventsResponse> {
     let page = params.page.unwrap_or(1);
     let page_size = params.page_size.unwrap_or(DEFAULT_PAGE_SIZE);
@@ -36,6 +49,7 @@ pub async fn list(
         sort_direction: params.direction.unwrap_or_default(),
         alarm_frames_min: params.alarm_frames_min,
         archived: params.archived,
+        monitor_filter: scope.visible_ids(Level::View),
     };
 
     let (events, total) =
@@ -74,6 +88,7 @@ pub async fn list_all(
     state: &AppState,
     page: Option<u64>,
     page_size: Option<u64>,
+    scope: &MonitorScope,
 ) -> AppResult<PaginatedEventsResponse> {
     list(
         state,
@@ -88,6 +103,7 @@ pub async fn list_all(
             alarm_frames_min: None,
             archived: None,
         },
+        scope,
     )
     .await
 }
@@ -101,6 +117,7 @@ pub async fn list_by_monitor(
     page_size: Option<u64>,
     start_time: Option<DateTime<Utc>>,
     end_time: Option<DateTime<Utc>>,
+    scope: &MonitorScope,
 ) -> AppResult<PaginatedEventsResponse> {
     use crate::dto::wrappers::DateTimeWrapper;
 
@@ -117,32 +134,48 @@ pub async fn list_by_monitor(
             alarm_frames_min: None,
             archived: None,
         },
+        scope,
     )
     .await
 }
 
 /// Get event by ID
 #[instrument(skip(state))]
-pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<EventResponse> {
+pub async fn get_by_id(
+    state: &AppState,
+    id: u32,
+    scope: &MonitorScope,
+) -> AppResult<EventResponse> {
     let (event, tags) = events_repo::find_by_id_with_tags(state, id as u64)
         .await?
-        .ok_or_else(|| {
-            AppError::NotFoundError(crate::error::Resource {
-                details: vec![("id".to_string(), id.to_string())],
-                resource_type: crate::error::ResourceType::Message,
-            })
-        })?;
+        .ok_or_else(|| event_not_found(id))?;
+    // Row-level ACL: hide events of monitors outside the caller's scope.
+    if !scope.allows(event.monitor_id, Level::View) {
+        return Err(event_not_found(id));
+    }
     let tag_summaries: Vec<TagSummary> = tags.iter().map(TagSummary::from).collect();
     Ok(EventResponse::with_tags(event, tag_summaries))
 }
 
 /// Create a new event
 #[instrument(skip(state))]
-pub async fn create(state: &AppState, event: EventCreateRequest) -> AppResult<EventResponse> {
+pub async fn create(
+    state: &AppState,
+    event: EventCreateRequest,
+    scope: &MonitorScope,
+) -> AppResult<EventResponse> {
+    // Row-level ACL: an event may only be created for a monitor the caller
+    // has write access to.
+    if !scope.allows(event.monitor_id, Level::Edit) {
+        return Err(AppError::NotFoundError(Resource {
+            details: vec![("monitor_id".to_string(), event.monitor_id.to_string())],
+            resource_type: ResourceType::Monitor,
+        }));
+    }
     // Convert EventCreateRequest to ActiveModel for database insertion
     let active_event = events::ActiveModel {
         monitor_id: Set(event.monitor_id),
-        storage_id: Set(event.storage_id),
+        storage_id: Set(Some(event.storage_id)),
         secondary_storage_id: Set(event.secondary_storage_id),
         name: Set(event.name),
         cause: Set(event.cause),
@@ -166,15 +199,15 @@ pub async fn update(
     state: &AppState,
     id: u32,
     event_update: EventUpdateRequest,
+    scope: &MonitorScope,
 ) -> AppResult<EventResponse> {
     let event = events_repo::find_by_id(state, id as u64)
         .await?
-        .ok_or_else(|| {
-            AppError::NotFoundError(crate::error::Resource {
-                details: vec![("id".to_string(), id.to_string())],
-                resource_type: crate::error::ResourceType::Message,
-            })
-        })?;
+        .ok_or_else(|| event_not_found(id))?;
+    // Row-level ACL: writing an event requires write access to its monitor.
+    if !scope.allows(event.monitor_id, Level::Edit) {
+        return Err(event_not_found(id));
+    }
     let mut active_event = events::ActiveModel::from(event);
 
     // Only update fields that are present in the request
@@ -224,15 +257,27 @@ pub async fn update(
 
 /// Delete an event
 #[instrument(skip(state))]
-pub async fn delete(state: &AppState, id: u32) -> AppResult<()> {
+pub async fn delete(state: &AppState, id: u32, scope: &MonitorScope) -> AppResult<()> {
+    // Fetch first so the event's monitor can be checked against the ACL.
+    let event = events_repo::find_by_id(state, id as u64)
+        .await?
+        .ok_or_else(|| event_not_found(id))?;
+    if !scope.allows(event.monitor_id, Level::Edit) {
+        return Err(event_not_found(id));
+    }
     events_repo::delete(state, id as u64).await?;
     Ok(())
 }
 
 /// Get event counts for the last n hours (grouped by hour)
 #[instrument(skip(state))]
-pub async fn get_event_counts(state: &AppState, hours: i64) -> AppResult<EventCountsResponse> {
-    let counts = events_repo::get_counts_by_hour(state, hours).await?;
+pub async fn get_event_counts(
+    state: &AppState,
+    hours: i64,
+    scope: &MonitorScope,
+) -> AppResult<EventCountsResponse> {
+    let filter = scope.visible_ids(Level::View);
+    let counts = events_repo::get_counts_by_hour(state, hours, filter.as_deref()).await?;
 
     let event_counts = counts
         .into_iter()
@@ -253,10 +298,12 @@ pub async fn get_event_counts(state: &AppState, hours: i64) -> AppResult<EventCo
 pub async fn get_event_counts_by_monitor(
     state: &AppState,
     hours: i64,
+    scope: &MonitorScope,
 ) -> AppResult<crate::dto::response::events::EventCountsByMonitorResponse> {
     use crate::dto::response::events::{EventCountsByMonitorResponse, MonitorEventCount};
 
-    let counts = events_repo::get_counts_by_monitor(state, hours).await?;
+    let filter = scope.visible_ids(Level::View);
+    let counts = events_repo::get_counts_by_monitor(state, hours, filter.as_deref()).await?;
 
     let monitor_counts = counts
         .into_iter()
@@ -282,7 +329,7 @@ mod tests {
         EventModel {
             id,
             monitor_id: 1,
-            storage_id: 1,
+            storage_id: Some(1),
             secondary_storage_id: None,
             name: name.into(),
             cause: None,
@@ -298,6 +345,7 @@ mod tests {
             tot_score: 0,
             avg_score: None,
             max_score: None,
+            max_score_frame_id: None,
             archived: 0,
             videoed: 0,
             uploaded: 0,
@@ -326,7 +374,13 @@ mod tests {
             .append_query_results::<EventTagModel, _, _>(vec![empty_event_tags])
             .into_connection();
         let state_ok = AppState::for_test_with_db(db_ok);
-        assert_eq!(get_by_id(&state_ok, 5).await.unwrap().id, 5);
+        assert_eq!(
+            get_by_id(&state_ok, 5, &MonitorScope::All)
+                .await
+                .unwrap()
+                .id,
+            5
+        );
 
         let empty: Vec<EventModel> = vec![];
         let db_none = MockDatabase::new(DatabaseBackend::MySql)
@@ -334,7 +388,10 @@ mod tests {
             .into_connection();
         let state_none = AppState::for_test_with_db(db_none);
         assert!(matches!(
-            get_by_id(&state_none, 1).await.err().unwrap(),
+            get_by_id(&state_none, 1, &MonitorScope::All)
+                .await
+                .err()
+                .unwrap(),
             AppError::NotFoundError(_)
         ));
     }
@@ -367,7 +424,9 @@ mod tests {
             notes: None,
             orientation: Orientation::Rotate0,
         };
-        let out = create(&state_create, req).await.unwrap();
+        let out = create(&state_create, req, &MonitorScope::All)
+            .await
+            .unwrap();
         assert_eq!(out.name, "name");
 
         // Update: first find_by_id returns a model; then exec + query returns updated
@@ -398,19 +457,21 @@ mod tests {
                 uploaded: None,
                 executed: None,
             },
+            &MonitorScope::All,
         )
         .await
         .unwrap();
         assert_eq!(out_upd.name, "new");
 
-        // Delete
+        // Delete — the service fetches the event first to ACL-check its monitor.
         let db_del = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<EventModel, _, _>(vec![vec![mk_event(7, "old")]])
             .append_exec_results(vec![MockExecResult {
                 last_insert_id: 0,
                 rows_affected: 1,
             }])
             .into_connection();
         let state_del = AppState::for_test_with_db(db_del);
-        assert!(delete(&state_del, 7).await.is_ok());
+        assert!(delete(&state_del, 7, &MonitorScope::All).await.is_ok());
     }
 }

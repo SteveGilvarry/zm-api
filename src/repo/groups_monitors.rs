@@ -13,8 +13,13 @@ pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<GroupMonitorMode
 pub async fn find_paginated(
     db: &DatabaseConnection,
     params: &PaginationParams,
+    monitor_filter: Option<&[u32]>,
 ) -> AppResult<(Vec<GroupMonitorModel>, u64)> {
-    let paginator = GroupsMonitors::find().paginate(db, params.page_size());
+    let mut query = GroupsMonitors::find();
+    if let Some(ids) = monitor_filter {
+        query = query.filter(Column::MonitorId.is_in(ids.iter().copied()));
+    }
+    let paginator = query.paginate(db, params.page_size());
     let total = paginator.num_items().await?;
     let items = paginator
         .fetch_page(params.page().saturating_sub(1))
@@ -42,6 +47,21 @@ pub async fn find_by_monitor_id(
 ) -> AppResult<Vec<GroupMonitorModel>> {
     Ok(GroupsMonitors::find()
         .filter(Column::MonitorId.eq(monitor_id))
+        .all(db)
+        .await?)
+}
+
+/// All group-monitor links for any of `group_ids`. Returns an empty vec
+/// without issuing a query when `group_ids` is empty.
+pub async fn find_by_group_ids(
+    db: &DatabaseConnection,
+    group_ids: &[u32],
+) -> AppResult<Vec<GroupMonitorModel>> {
+    if group_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(GroupsMonitors::find()
+        .filter(Column::GroupId.is_in(group_ids.iter().copied()))
         .all(db)
         .await?)
 }

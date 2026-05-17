@@ -88,6 +88,7 @@ mod tests {
             auto_video: 0,
             auto_upload: 0,
             auto_email: 0,
+            email_server: None,
             email_to: None,
             email_subject: None,
             email_body: None,

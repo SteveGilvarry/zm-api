@@ -4,6 +4,7 @@ use crate::dto::response::StatResponse;
 use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use crate::service::monitor_acl::MonitorScope;
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -26,8 +27,9 @@ use axum::{
 pub async fn list_stats(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
+    scope: MonitorScope,
 ) -> AppResult<Json<PaginatedStatsResponse>> {
-    let result = crate::service::stats::list_paginated(&state, &params).await?;
+    let result = crate::service::stats::list_paginated(&state, &params, &scope).await?;
     Ok(Json(PaginatedStatsResponse::from(result)))
 }
 
@@ -45,8 +47,9 @@ pub async fn list_stats(
 pub async fn get_stat(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<Json<StatResponse>> {
-    let item = crate::service::stats::get_by_id(&state, id).await?;
+    let item = crate::service::stats::get_by_id(&state, id, &scope).await?;
     Ok(Json(item))
 }
 
@@ -63,9 +66,10 @@ pub async fn get_stat(
 )]
 pub async fn create_stat(
     State(state): State<AppState>,
+    scope: MonitorScope,
     Json(req): Json<CreateStatRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<StatResponse>)> {
-    let item = crate::service::stats::create(&state, req).await?;
+    let item = crate::service::stats::create(&state, req, &scope).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
@@ -85,9 +89,10 @@ pub async fn create_stat(
 pub async fn update_stat(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    scope: MonitorScope,
     Json(req): Json<UpdateStatRequest>,
 ) -> AppResult<Json<StatResponse>> {
-    let item = crate::service::stats::update(&state, id, req).await?;
+    let item = crate::service::stats::update(&state, id, req, &scope).await?;
     Ok(Json(item))
 }
 
@@ -106,7 +111,8 @@ pub async fn update_stat(
 pub async fn delete_stat(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<axum::http::StatusCode> {
-    crate::service::stats::delete(&state, id).await?;
+    crate::service::stats::delete(&state, id, &scope).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

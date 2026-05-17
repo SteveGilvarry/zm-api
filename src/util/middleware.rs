@@ -102,7 +102,7 @@ pub async fn media_auth_middleware(
 }
 
 /// Extract Bearer token from Authorization header
-fn extract_token_from_header(request: &Request) -> Option<String> {
+pub(crate) fn extract_token_from_header(request: &Request) -> Option<String> {
     request
         .headers()
         .get("Authorization")
@@ -112,7 +112,7 @@ fn extract_token_from_header(request: &Request) -> Option<String> {
 }
 
 /// Extract token from query parameter
-fn extract_token_from_query(request: &Request) -> Option<String> {
+pub(crate) fn extract_token_from_query(request: &Request) -> Option<String> {
     request.uri().query().and_then(|query| {
         // Parse query string to find 'token' parameter
         query.split('&').find_map(|pair| {

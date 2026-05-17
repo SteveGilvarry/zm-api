@@ -4,6 +4,7 @@ use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use crate::service;
+use crate::service::monitor_acl::MonitorScope;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
@@ -39,12 +40,14 @@ pub struct FrameQueryParams {
 pub async fn list_frames(
     State(state): State<AppState>,
     Query(params): Query<FrameQueryParams>,
+    scope: MonitorScope,
 ) -> AppResult<Json<PaginatedFramesResponse>> {
     let pagination = PaginationParams {
         page: params.page,
         page_size: params.page_size,
     };
-    let result = service::frames::list_paginated(&state, params.event_id, &pagination).await?;
+    let result =
+        service::frames::list_paginated(&state, params.event_id, &pagination, &scope).await?;
     Ok(Json(PaginatedFramesResponse::from(result)))
 }
 
@@ -66,8 +69,9 @@ pub async fn list_frames(
 pub async fn get_frame(
     State(state): State<AppState>,
     Path(id): Path<u64>,
+    scope: MonitorScope,
 ) -> AppResult<Json<FrameResponse>> {
-    let frame = service::frames::get_by_id(&state, id).await?;
+    let frame = service::frames::get_by_id(&state, id, &scope).await?;
     Ok(Json(frame))
 }
 
@@ -86,9 +90,10 @@ pub async fn get_frame(
 )]
 pub async fn create_frame(
     State(state): State<AppState>,
+    scope: MonitorScope,
     Json(req): Json<CreateFrameRequest>,
 ) -> AppResult<(StatusCode, Json<FrameResponse>)> {
-    let frame = service::frames::create(&state, req).await?;
+    let frame = service::frames::create(&state, req, &scope).await?;
     Ok((StatusCode::CREATED, Json(frame)))
 }
 
@@ -111,9 +116,10 @@ pub async fn create_frame(
 pub async fn update_frame(
     State(state): State<AppState>,
     Path(id): Path<u64>,
+    scope: MonitorScope,
     Json(req): Json<UpdateFrameRequest>,
 ) -> AppResult<Json<FrameResponse>> {
-    let frame = service::frames::update(&state, id, req).await?;
+    let frame = service::frames::update(&state, id, req, &scope).await?;
     Ok(Json(frame))
 }
 
@@ -135,7 +141,8 @@ pub async fn update_frame(
 pub async fn delete_frame(
     State(state): State<AppState>,
     Path(id): Path<u64>,
+    scope: MonitorScope,
 ) -> AppResult<StatusCode> {
-    service::frames::delete(&state, id).await?;
+    service::frames::delete(&state, id, &scope).await?;
     Ok(StatusCode::NO_CONTENT)
 }

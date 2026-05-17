@@ -8,37 +8,62 @@ use crate::entity::monitors;
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
+use crate::service::monitor_acl::MonitorScope;
+use crate::util::authz::Level;
 use rust_decimal::prelude::*;
 use sea_orm::ActiveValue::{NotSet, Set};
 use tracing::info;
 use url::Url;
 
-pub async fn list_all(state: &AppState) -> AppResult<Vec<MonitorResponse>> {
+fn monitor_not_found(id: u32) -> AppError {
+    AppError::NotFoundError(Resource {
+        details: vec![("id".to_string(), id.to_string())],
+        resource_type: ResourceType::Monitor,
+    })
+}
+
+/// Reject access to a monitor outside the caller's row-level ACL scope.
+///
+/// Returns `NotFoundError` (404) rather than 403 so monitors the caller may
+/// not see are not revealed to exist.
+fn ensure_visible(scope: &MonitorScope, id: u32, required: Level) -> AppResult<()> {
+    if scope.allows(id, required) {
+        Ok(())
+    } else {
+        Err(monitor_not_found(id))
+    }
+}
+
+pub async fn list_all(state: &AppState, scope: &MonitorScope) -> AppResult<Vec<MonitorResponse>> {
     info!("Listing all monitors.");
-    let monitors = repo::monitors::find_all(state.db()).await?;
+    let filter = scope.visible_ids(Level::View);
+    let monitors = repo::monitors::find_all(state.db(), filter.as_deref()).await?;
     Ok(monitors.into_iter().map(MonitorResponse::from).collect())
 }
 
 pub async fn list_paginated(
     state: &AppState,
     params: &PaginationParams,
+    scope: &MonitorScope,
 ) -> AppResult<PaginatedResponse<MonitorResponse>> {
     info!("Listing monitors with pagination.");
-    let (items, total) = repo::monitors::find_paginated(state.db(), params).await?;
+    let filter = scope.visible_ids(Level::View);
+    let (items, total) =
+        repo::monitors::find_paginated(state.db(), params, filter.as_deref()).await?;
     let responses: Vec<MonitorResponse> = items.into_iter().map(MonitorResponse::from).collect();
     Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
-pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<MonitorResponse> {
+pub async fn get_by_id(
+    state: &AppState,
+    id: u32,
+    scope: &MonitorScope,
+) -> AppResult<MonitorResponse> {
     info!("Getting monitor by ID: {id}.");
+    ensure_visible(scope, id, Level::View)?;
     let monitor = repo::monitors::find_by_id(state.db(), id)
         .await?
-        .ok_or_else(|| {
-            AppError::NotFoundError(Resource {
-                details: vec![("id".to_string(), id.to_string())],
-                resource_type: ResourceType::File, // Use appropriate resource type
-            })
-        })?;
+        .ok_or_else(|| monitor_not_found(id))?;
     Ok(MonitorResponse::from(monitor))
 }
 
@@ -65,10 +90,10 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
     let monitor = monitors::ActiveModel {
         id: Set(0), // This will be auto-generated
         name: Set(req.name),
-        deleted: Set(req.deleted),
+        deleted: Set(req.deleted as i8),
         notes: Set(req.notes),
         server_id: Set(req.server_id),
-        storage_id: Set(req.storage_id),
+        storage_id: Set(Some(req.storage_id)),
         manufacturer_id: Set(req.manufacturer_id),
         model_id: Set(req.model_id),
         r#type: Set(monitor_type),
@@ -81,10 +106,10 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         rtsp2_web_type: Set(rtsp2_web_type),
         janus_enabled: Set(req.janus_enabled),
         janus_audio_enabled: Set(req.janus_audio_enabled),
-        janus_profile_override: Set(req.janus_profile_override),
+        janus_profile_override: Set(req.janus_profile_override.unwrap_or_default()),
         janus_use_rtsp_restream: Set(req.janus_use_rtsp_restream),
         janus_rtsp_user: Set(req.janus_rtsp_user),
-        janus_rtsp_session_timeout: Set(req.janus_rtsp_session_timeout),
+        janus_rtsp_session_timeout: Set(req.janus_rtsp_session_timeout.unwrap_or(0)),
         linked_monitors: Set(req.linked_monitors),
         triggers: Set(req.triggers),
         event_start_command: Set(req.event_start_command),
@@ -123,7 +148,7 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         decoder_hw_accel_device: Set(req.decoder_hw_accel_device),
         save_jpe_gs: Set(req.save_jpe_gs),
         video_writer: Set(req.video_writer),
-        output_codec: Set(req.output_codec),
+        output_codec: Set(req.output_codec.unwrap_or(0)),
         encoder: Set(req.encoder),
         output_container: Set(Some(output_container)),
         encoder_parameters: Set(req.encoder_parameters),
@@ -178,7 +203,7 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         return_delay: Set(req.return_delay),
         modect_during_ptz: Set(req.modect_during_ptz),
         default_rate: Set(req.default_rate),
-        default_scale: Set(req.default_scale),
+        default_scale: Set(req.default_scale.parse().unwrap_or(0)),
         default_codec: Set(default_codec),
         signal_check_points: Set(req.signal_check_points),
         signal_check_colour: Set(req.signal_check_colour),
@@ -198,12 +223,20 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         soap_wsa_compl: Set(req.soap_wsa_compl),
         importance: Set(importance),
         mqtt_enabled: Set(req.mqtt_enabled),
-        mqtt_subscriptions: Set(req.mqtt_subscriptions),
+        mqtt_subscriptions: Set(Some(req.mqtt_subscriptions)),
         startup_delay: Set(req.startup_delay),
         analysing: Set(analysing),
         analysis_source: Set(analysis_source),
         analysis_image: Set(analysis_image),
         recording: Set(recording),
+        // New schema columns not exposed by the request DTO — let the DB defaults apply.
+        default_player: NotSet,
+        rtsp2_web_stream: NotSet,
+        go2_rtc_enabled: NotSet,
+        output_codec_name: NotSet,
+        encoder_hw_accel_name: NotSet,
+        encoder_hw_accel_device: NotSet,
+        wall_clock_timestamps: NotSet,
     };
 
     // Use the repository to insert the new monitor
@@ -216,8 +249,10 @@ pub async fn update(
     state: &AppState,
     id: u32,
     req: UpdateMonitorRequest,
+    scope: &MonitorScope,
 ) -> AppResult<MonitorResponse> {
     info!("Updating monitor with ID: {id} and request: {req:?}.");
+    ensure_visible(scope, id, Level::Edit)?;
 
     // Fetch the monitor through the repository
     let monitor_model = repo::monitors::find_by_id(state.db(), id)
@@ -236,7 +271,7 @@ pub async fn update(
         monitor.name = Set(name);
     }
     if let Some(deleted) = req.deleted {
-        monitor.deleted = Set(deleted != 0);
+        monitor.deleted = Set(deleted);
     }
     if req.notes.is_some() {
         monitor.notes = Set(req.notes);
@@ -245,7 +280,7 @@ pub async fn update(
         monitor.server_id = Set(req.server_id);
     }
     if let Some(storage_id) = req.storage_id {
-        monitor.storage_id = Set(storage_id);
+        monitor.storage_id = Set(Some(storage_id));
     }
     if req.manufacturer_id.is_some() {
         monitor.manufacturer_id = Set(req.manufacturer_id);
@@ -280,8 +315,8 @@ pub async fn update(
     if let Some(janus_audio_enabled) = req.janus_audio_enabled {
         monitor.janus_audio_enabled = Set(janus_audio_enabled);
     }
-    if req.janus_profile_override.is_some() {
-        monitor.janus_profile_override = Set(req.janus_profile_override);
+    if let Some(janus_profile_override) = req.janus_profile_override {
+        monitor.janus_profile_override = Set(janus_profile_override);
     }
     if let Some(janus_use_rtsp_restream) = req.janus_use_rtsp_restream {
         monitor.janus_use_rtsp_restream = Set(janus_use_rtsp_restream);
@@ -289,8 +324,8 @@ pub async fn update(
     if req.janus_rtsp_user.is_some() {
         monitor.janus_rtsp_user = Set(req.janus_rtsp_user);
     }
-    if req.janus_rtsp_session_timeout.is_some() {
-        monitor.janus_rtsp_session_timeout = Set(req.janus_rtsp_session_timeout);
+    if let Some(janus_rtsp_session_timeout) = req.janus_rtsp_session_timeout {
+        monitor.janus_rtsp_session_timeout = Set(janus_rtsp_session_timeout);
     }
     if req.linked_monitors.is_some() {
         monitor.linked_monitors = Set(req.linked_monitors);
@@ -406,8 +441,8 @@ pub async fn update(
     if let Some(video_writer) = req.video_writer {
         monitor.video_writer = Set(video_writer);
     }
-    if req.output_codec.is_some() {
-        monitor.output_codec = Set(req.output_codec);
+    if let Some(output_codec) = req.output_codec {
+        monitor.output_codec = Set(output_codec);
     }
     if req.encoder.is_some() {
         monitor.encoder = Set(req.encoder);
@@ -552,7 +587,7 @@ pub async fn update(
         monitor.default_rate = Set(default_rate);
     }
     if let Some(default_scale) = req.default_scale {
-        monitor.default_scale = Set(default_scale);
+        monitor.default_scale = Set(default_scale.parse().unwrap_or(0));
     }
     if let Some(default_codec) = req.default_codec {
         monitor.default_codec = Set(default_codec);
@@ -600,7 +635,7 @@ pub async fn update(
         monitor.mqtt_enabled = Set(mqtt_enabled);
     }
     if let Some(mqtt_subscriptions) = req.mqtt_subscriptions {
-        monitor.mqtt_subscriptions = Set(mqtt_subscriptions);
+        monitor.mqtt_subscriptions = Set(Some(mqtt_subscriptions));
     }
     if let Some(startup_delay) = req.startup_delay {
         monitor.startup_delay = Set(startup_delay);
@@ -623,8 +658,9 @@ pub async fn update(
     Ok(MonitorResponse::from(updated_monitor))
 }
 
-pub async fn delete(state: &AppState, id: u32) -> AppResult<()> {
+pub async fn delete(state: &AppState, id: u32, scope: &MonitorScope) -> AppResult<()> {
     info!("Deleting monitor with ID: {id}.");
+    ensure_visible(scope, id, Level::Edit)?;
     let monitor = repo::monitors::find_by_id(state.db(), id)
         .await?
         .ok_or_else(|| {
@@ -640,8 +676,10 @@ pub async fn update_state(
     state: &AppState,
     id: u32,
     req: UpdateStateRequest,
+    scope: &MonitorScope,
 ) -> AppResult<MonitorResponse> {
     info!("Updating state of monitor with ID: {id} and request: {req:?}.");
+    ensure_visible(scope, id, Level::Edit)?;
 
     // Use repository to fetch the monitor
     let monitor_model = repo::monitors::find_by_id(state.db(), id)
@@ -786,10 +824,12 @@ pub async fn control_alarm(
     state: &AppState,
     id: u32,
     req: AlarmControlRequest,
+    scope: &MonitorScope,
 ) -> AppResult<MonitorResponse> {
     use crate::zm_shm::{self, MonitorShm};
 
     info!("Controlling alarm of monitor with ID: {id} and request: {req:?}.");
+    ensure_visible(scope, id, Level::Edit)?;
 
     // Use repository to fetch the monitor (validates it exists)
     let monitor_model = repo::monitors::find_by_id(state.db(), id)

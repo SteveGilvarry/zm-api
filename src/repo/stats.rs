@@ -4,15 +4,28 @@ use crate::entity::stats::{ActiveModel, Entity as Stats, Model as StatModel};
 use crate::error::AppResult;
 use sea_orm::*;
 
-pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<StatModel>> {
-    Ok(Stats::find().all(db).await?)
+/// Restrict a stats query to a row-level ACL allowlist of monitors.
+fn scoped(query: Select<Stats>, monitor_filter: Option<&[u32]>) -> Select<Stats> {
+    use crate::entity::stats::Column;
+    match monitor_filter {
+        None => query,
+        Some(ids) => query.filter(Column::MonitorId.is_in(ids.iter().copied())),
+    }
+}
+
+pub async fn find_all(
+    db: &DatabaseConnection,
+    monitor_filter: Option<&[u32]>,
+) -> AppResult<Vec<StatModel>> {
+    Ok(scoped(Stats::find(), monitor_filter).all(db).await?)
 }
 
 pub async fn find_paginated(
     db: &DatabaseConnection,
     params: &PaginationParams,
+    monitor_filter: Option<&[u32]>,
 ) -> AppResult<(Vec<StatModel>, u64)> {
-    let paginator = Stats::find().paginate(db, params.page_size());
+    let paginator = scoped(Stats::find(), monitor_filter).paginate(db, params.page_size());
     let total = paginator.num_items().await?;
     let items = paginator
         .fetch_page(params.page().saturating_sub(1))

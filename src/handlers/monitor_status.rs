@@ -4,6 +4,7 @@ use crate::dto::response::MonitorStatusResponse;
 use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use crate::service::monitor_acl::MonitorScope;
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -24,8 +25,9 @@ use axum::{
 pub async fn list_monitor_statuses(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
+    scope: MonitorScope,
 ) -> AppResult<Json<PaginatedMonitorStatusesResponse>> {
-    let result = crate::service::monitor_status::list_paginated(&state, &params).await?;
+    let result = crate::service::monitor_status::list_paginated(&state, &params, &scope).await?;
     Ok(Json(PaginatedMonitorStatusesResponse::from(result)))
 }
 
@@ -41,8 +43,10 @@ pub async fn list_monitor_statuses(
 pub async fn get_monitor_status(
     Path(monitor_id): Path<u32>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<Json<MonitorStatusResponse>> {
-    let item = crate::service::monitor_status::get_by_monitor_id(&state, monitor_id).await?;
+    let item =
+        crate::service::monitor_status::get_by_monitor_id(&state, monitor_id, &scope).await?;
     Ok(Json(item))
 }
 
@@ -59,8 +63,9 @@ pub async fn get_monitor_status(
 pub async fn update_monitor_status(
     Path(monitor_id): Path<u32>,
     State(state): State<AppState>,
+    scope: MonitorScope,
     Json(req): Json<UpdateMonitorStatusRequest>,
 ) -> AppResult<Json<MonitorStatusResponse>> {
-    let item = crate::service::monitor_status::update(&state, monitor_id, req).await?;
+    let item = crate::service::monitor_status::update(&state, monitor_id, req, &scope).await?;
     Ok(Json(item))
 }

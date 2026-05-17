@@ -8,15 +8,32 @@ use sea_orm::{
     QueryOrder, Set,
 };
 
+/// Subquery selecting event ids that belong to an allowlist of monitors.
+/// Used to row-level-ACL-filter frames, which link to monitors only via
+/// their parent event.
+fn events_for_monitors(ids: &[u32]) -> sea_orm::sea_query::SelectStatement {
+    use crate::entity::events;
+    use sea_orm::sea_query::Query;
+    Query::select()
+        .column(events::Column::Id)
+        .from(events::Entity)
+        .and_where(events::Column::MonitorId.is_in(ids.iter().copied()))
+        .to_owned()
+}
+
 /// Find all frames, optionally filtered by event_id
 pub async fn find_all(
     db: &DatabaseConnection,
     event_id: Option<u64>,
+    monitor_filter: Option<&[u32]>,
 ) -> AppResult<Vec<FrameModel>> {
     let mut query = FrameEntity::find();
 
     if let Some(eid) = event_id {
         query = query.filter(Column::EventId.eq(eid));
+    }
+    if let Some(ids) = monitor_filter {
+        query = query.filter(Column::EventId.in_subquery(events_for_monitors(ids)));
     }
 
     let frames = query.order_by_asc(Column::FrameId).all(db).await?;
@@ -28,11 +45,15 @@ pub async fn find_paginated(
     db: &DatabaseConnection,
     event_id: Option<u64>,
     params: &PaginationParams,
+    monitor_filter: Option<&[u32]>,
 ) -> AppResult<(Vec<FrameModel>, u64)> {
     let mut query = FrameEntity::find();
 
     if let Some(eid) = event_id {
         query = query.filter(Column::EventId.eq(eid));
+    }
+    if let Some(ids) = monitor_filter {
+        query = query.filter(Column::EventId.in_subquery(events_for_monitors(ids)));
     }
 
     let paginator = query

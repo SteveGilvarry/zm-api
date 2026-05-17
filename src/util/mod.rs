@@ -1,4 +1,5 @@
 pub mod assertion;
+pub mod authz;
 pub mod claim;
 pub mod dir;
 pub mod file;

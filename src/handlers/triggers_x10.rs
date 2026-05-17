@@ -4,6 +4,7 @@ use crate::dto::response::TriggerX10Response;
 use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use crate::service::monitor_acl::MonitorScope;
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -26,8 +27,9 @@ use axum::{
 pub async fn list_triggers_x10(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
+    scope: MonitorScope,
 ) -> AppResult<Json<PaginatedTriggersX10Response>> {
-    let result = crate::service::triggers_x10::list_paginated(&state, &params).await?;
+    let result = crate::service::triggers_x10::list_paginated(&state, &params, &scope).await?;
     Ok(Json(PaginatedTriggersX10Response::from(result)))
 }
 
@@ -45,8 +47,9 @@ pub async fn list_triggers_x10(
 pub async fn get_trigger_x10(
     Path(monitor_id): Path<u32>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<Json<TriggerX10Response>> {
-    let item = crate::service::triggers_x10::get_by_id(&state, monitor_id).await?;
+    let item = crate::service::triggers_x10::get_by_id(&state, monitor_id, &scope).await?;
     Ok(Json(item))
 }
 
@@ -64,9 +67,10 @@ pub async fn get_trigger_x10(
 )]
 pub async fn create_trigger_x10(
     State(state): State<AppState>,
+    scope: MonitorScope,
     Json(req): Json<CreateTriggerX10Request>,
 ) -> AppResult<(axum::http::StatusCode, Json<TriggerX10Response>)> {
-    let item = crate::service::triggers_x10::create(&state, req).await?;
+    let item = crate::service::triggers_x10::create(&state, req, &scope).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
@@ -86,9 +90,10 @@ pub async fn create_trigger_x10(
 pub async fn update_trigger_x10(
     Path(monitor_id): Path<u32>,
     State(state): State<AppState>,
+    scope: MonitorScope,
     Json(req): Json<UpdateTriggerX10Request>,
 ) -> AppResult<Json<TriggerX10Response>> {
-    let item = crate::service::triggers_x10::update(&state, monitor_id, req).await?;
+    let item = crate::service::triggers_x10::update(&state, monitor_id, req, &scope).await?;
     Ok(Json(item))
 }
 
@@ -107,7 +112,8 @@ pub async fn update_trigger_x10(
 pub async fn delete_trigger_x10(
     Path(monitor_id): Path<u32>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<axum::http::StatusCode> {
-    crate::service::triggers_x10::delete(&state, monitor_id).await?;
+    crate::service::triggers_x10::delete(&state, monitor_id, &scope).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

@@ -9,14 +9,18 @@ use common::test_db::get_test_db;
 use common::test_db::{cleanup_by_prefix, test_prefix};
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use tower::ServiceExt;
-use zm_api::dto::response::DeviceResponse;
+use zm_api::dto::response::{DeviceResponse, PaginatedDevicesResponse};
 use zm_api::entity::devices::Model as DeviceModel;
 use zm_api::entity::sea_orm_active_enums::DeviceType;
 
 fn auth_header() -> String {
-    let token = zm_api::service::token::generate_tokens("tester".to_string())
-        .expect("token")
-        .access_token;
+    let token = zm_api::service::token::generate_tokens(
+        "tester".to_string(),
+        1,
+        zm_api::util::authz::UserPermissions::superuser(),
+    )
+    .expect("token")
+    .access_token;
     format!("Bearer {}", token)
 }
 
@@ -72,10 +76,10 @@ async fn test_api_devices_list() {
     let bytes = body::to_bytes(response.into_body(), 64 * 1024)
         .await
         .unwrap();
-    let body: Vec<DeviceResponse> = serde_json::from_slice(&bytes).unwrap();
+    let body: PaginatedDevicesResponse = serde_json::from_slice(&bytes).unwrap();
 
     // Verify our test device is in the list
-    assert!(body.iter().any(|d| d.id == device.id));
+    assert!(body.items.iter().any(|d| d.id == device.id));
 
     // Note: Cleanup is done in a separate connection since we consumed db
     let cleanup_db = get_test_db()

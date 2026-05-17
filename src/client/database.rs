@@ -16,13 +16,14 @@ pub trait DatabaseClientExt: Sized {
 
 impl DatabaseClientExt for DatabaseClient {
     async fn build_from_config(config: &AppConfig) -> AppResult<Self> {
-        let mut opt = ConnectOptions::new(config.db.get_url());
-        opt.max_connections(100)
-            .min_connections(5)
-            .connect_timeout(Duration::from_secs(8))
-            .acquire_timeout(Duration::from_secs(8))
-            .idle_timeout(Duration::from_secs(8))
-            .max_lifetime(Duration::from_secs(8))
+        let db_cfg = &config.db;
+        let mut opt = ConnectOptions::new(db_cfg.get_url());
+        opt.max_connections(db_cfg.max_connections)
+            .min_connections(db_cfg.min_connections)
+            .connect_timeout(Duration::from_secs(db_cfg.connect_timeout_secs))
+            .acquire_timeout(Duration::from_secs(db_cfg.acquire_timeout_secs))
+            .idle_timeout(Duration::from_secs(db_cfg.idle_timeout_secs))
+            .max_lifetime(Duration::from_secs(db_cfg.max_lifetime_secs))
             .sqlx_logging(true)
             .sqlx_logging_level(log::LevelFilter::Info);
         let db = Database::connect(opt).await?;

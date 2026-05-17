@@ -14,14 +14,18 @@ use zm_api::dto::request::reports::CreateReportRequest;
 use zm_api::dto::request::tags::CreateTagRequest;
 use zm_api::dto::request::CreateStorageRequest;
 use zm_api::dto::response::{
-    ConfigResponse, LogResponse, ReportResponse, StorageResponse, TagResponse,
+    PaginatedConfigsResponse, PaginatedLogsResponse, ReportResponse, StorageResponse, TagResponse,
 };
 use zm_api::entity::logs;
 
 fn auth_header() -> String {
-    let token = zm_api::service::token::generate_tokens("tester".to_string())
-        .expect("token")
-        .access_token;
+    let token = zm_api::service::token::generate_tokens(
+        "tester".to_string(),
+        1,
+        zm_api::util::authz::UserPermissions::superuser(),
+    )
+    .expect("token")
+    .access_token;
     format!("Bearer {}", token)
 }
 
@@ -70,7 +74,7 @@ async fn test_api_configs_list_get_not_found() {
     let bytes = body::to_bytes(response.into_body(), 1024 * 1024)
         .await
         .unwrap();
-    let _body: Vec<ConfigResponse> = serde_json::from_slice(&bytes).unwrap();
+    let _body: PaginatedConfigsResponse = serde_json::from_slice(&bytes).unwrap();
 
     let response = app
         .oneshot(
@@ -178,8 +182,8 @@ async fn test_api_logs_list_get() {
     let bytes = body::to_bytes(response.into_body(), 64 * 1024)
         .await
         .unwrap();
-    let body: Vec<LogResponse> = serde_json::from_slice(&bytes).unwrap();
-    assert!(body.iter().any(|l| l.id == log.id));
+    let body: PaginatedLogsResponse = serde_json::from_slice(&bytes).unwrap();
+    assert!(body.items.iter().any(|l| l.id == log.id));
 
     let response = app
         .oneshot(

@@ -66,7 +66,10 @@ async fn get_event_video_path(state: &AppState, event_id: u64) -> AppResult<Path
     };
 
     // Look up storage path from database
-    let storage = repo::storage::find_by_id(state.db(), event.storage_id).await?;
+    let storage = match event.storage_id {
+        Some(storage_id) => repo::storage::find_by_id(state.db(), storage_id).await?,
+        None => None,
+    };
 
     let storage_path = match storage {
         Some(s) => s.path,
@@ -74,7 +77,7 @@ async fn get_event_video_path(state: &AppState, event_id: u64) -> AppResult<Path
             // Fall back to config if storage not found in DB
             warn!(
                 "Storage {} not found in database, using config default",
-                event.storage_id
+                event.storage_id.unwrap_or(0)
             );
             state.config.streaming.zoneminder.events_dir.clone()
         }
@@ -454,14 +457,17 @@ pub async fn get_event_thumbnail(
     let event = get_event_entity(&state, path.id).await?;
 
     // Look up storage path from database
-    let storage = repo::storage::find_by_id(state.db(), event.storage_id).await?;
+    let storage = match event.storage_id {
+        Some(storage_id) => repo::storage::find_by_id(state.db(), storage_id).await?,
+        None => None,
+    };
 
     let storage_path = match storage {
         Some(s) => s.path,
         None => {
             warn!(
                 "Storage {} not found in database, using config default",
-                event.storage_id
+                event.storage_id.unwrap_or(0)
             );
             state.config.streaming.zoneminder.events_dir.clone()
         }

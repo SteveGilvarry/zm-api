@@ -1,10 +1,14 @@
-use axum::{routing::get, Router};
+use axum::{middleware, routing::get, Router};
 
+use crate::util::middleware::auth_middleware;
 use crate::{handlers, server::state::AppState};
 
 /// Create event summaries router
 pub fn add_event_summaries_routes(router: Router<AppState>) -> Router<AppState> {
-    router.nest("/api/v3/event-summaries", routes())
+    router.nest(
+        "/api/v3/event-summaries",
+        routes().layer(middleware::from_fn(auth_middleware)),
+    )
 }
 
 pub fn routes() -> Router<AppState> {

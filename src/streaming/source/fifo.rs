@@ -686,7 +686,12 @@ impl FifoManager {
             self.readers.insert(monitor_id, reader);
         }
 
-        Ok(self.readers.get_mut(&monitor_id).unwrap())
+        // The reader is either pre-existing or was inserted just above, so the
+        // lookup cannot miss.
+        Ok(self
+            .readers
+            .get_mut(&monitor_id)
+            .expect("reader present: inserted above when absent"))
     }
 
     /// Subscribe to packets from a specific monitor

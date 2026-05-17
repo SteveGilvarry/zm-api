@@ -122,7 +122,7 @@ impl From<EventModel> for EventResponse {
         Self {
             id: model.id,
             monitor_id: model.monitor_id,
-            storage_id: model.storage_id,
+            storage_id: model.storage_id.unwrap_or(0),
             secondary_storage_id: model.secondary_storage_id,
             name: model.name,
             cause: model.cause,

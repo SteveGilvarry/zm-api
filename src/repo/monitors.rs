@@ -44,26 +44,47 @@ impl MonitorRepository {
     }
 }
 
-/// Find all monitors
+/// Restrict a `monitors` query to an allowlist of ids.
+///
+/// `monitor_filter` is `None` for unrestricted callers and `Some(ids)` for a
+/// row-level ACL allowlist (see [`crate::service::monitor_acl`]).
+fn scoped(
+    query: sea_orm::Select<entity::monitors::Entity>,
+    monitor_filter: Option<&[u32]>,
+) -> sea_orm::Select<entity::monitors::Entity> {
+    match monitor_filter {
+        None => query,
+        Some(ids) => query.filter(entity::monitors::Column::Id.is_in(ids.iter().copied())),
+    }
+}
+
+/// Find all monitors visible to the caller.
 #[tracing::instrument(skip_all)]
-pub async fn find_all<C>(conn: &C) -> AppResult<Vec<entity::monitors::Model>>
+pub async fn find_all<C>(
+    conn: &C,
+    monitor_filter: Option<&[u32]>,
+) -> AppResult<Vec<entity::monitors::Model>>
 where
     C: ConnectionTrait,
 {
-    let monitors = entity::monitors::Entity::find().all(conn).await?;
+    let monitors = scoped(entity::monitors::Entity::find(), monitor_filter)
+        .all(conn)
+        .await?;
     Ok(monitors)
 }
 
-/// Find monitors with pagination
+/// Find monitors with pagination, restricted to the caller's allowlist.
 #[tracing::instrument(skip_all)]
 pub async fn find_paginated<C>(
     conn: &C,
     params: &PaginationParams,
+    monitor_filter: Option<&[u32]>,
 ) -> AppResult<(Vec<entity::monitors::Model>, u64)>
 where
     C: ConnectionTrait,
 {
-    let paginator = entity::monitors::Entity::find().paginate(conn, params.page_size());
+    let paginator =
+        scoped(entity::monitors::Entity::find(), monitor_filter).paginate(conn, params.page_size());
     let total = paginator.num_items().await?;
     let items = paginator
         .fetch_page(params.page().saturating_sub(1))

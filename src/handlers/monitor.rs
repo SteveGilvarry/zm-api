@@ -12,6 +12,7 @@ use crate::error::AppResponseError;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use crate::service;
+use crate::service::monitor_acl::MonitorScope;
 
 /// List all monitors with pagination.
 ///
@@ -36,9 +37,10 @@ use crate::service;
 pub async fn list_monitors(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
+    scope: MonitorScope,
 ) -> AppResult<Json<PaginatedMonitorsResponse>> {
     info!("Listing all monitors with pagination.");
-    match service::monitor::list_paginated(&state, &params).await {
+    match service::monitor::list_paginated(&state, &params, &scope).await {
         Ok(result) => Ok(Json(PaginatedMonitorsResponse::from(result))),
         Err(e) => {
             warn!("Failed to list monitors: {e:?}.");
@@ -67,9 +69,10 @@ pub async fn list_monitors(
 pub async fn get_monitor(
     State(state): State<AppState>,
     Path(id): Path<u32>,
+    scope: MonitorScope,
 ) -> AppResult<Json<MonitorResponse>> {
     info!("Viewing monitor with ID: {id}.");
-    match service::monitor::get_by_id(&state, id).await {
+    match service::monitor::get_by_id(&state, id, &scope).await {
         Ok(monitor) => Ok(Json(monitor)),
         Err(e) => {
             warn!("Failed to view monitor: {e:?}.");
@@ -129,10 +132,11 @@ pub async fn create_monitor(
 pub async fn update_monitor(
     State(state): State<AppState>,
     Path(id): Path<u32>,
+    scope: MonitorScope,
     Json(req): Json<UpdateMonitorRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
     info!("Editing monitor with ID: {id} and request: {req:?}.");
-    match service::monitor::update(&state, id, req).await {
+    match service::monitor::update(&state, id, req, &scope).await {
         Ok(monitor) => Ok(Json(monitor)),
         Err(e) => {
             warn!("Failed to edit monitor: {e:?}.");
@@ -161,9 +165,10 @@ pub async fn update_monitor(
 pub async fn delete_monitor(
     State(state): State<AppState>,
     Path(id): Path<u32>,
+    scope: MonitorScope,
 ) -> AppResult<Json<()>> {
     info!("Deleting monitor with ID: {id}.");
-    match service::monitor::delete(&state, id).await {
+    match service::monitor::delete(&state, id, &scope).await {
         Ok(_) => Ok(Json(())),
         Err(e) => {
             warn!("Failed to delete monitor: {e:?}.");
@@ -194,10 +199,11 @@ pub async fn delete_monitor(
 pub async fn update_state(
     State(state): State<AppState>,
     Path(id): Path<u32>,
+    scope: MonitorScope,
     Json(req): Json<UpdateStateRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
     info!("Updating state of monitor with ID: {id} and request: {req:?}.");
-    match service::monitor::update_state(&state, id, req).await {
+    match service::monitor::update_state(&state, id, req, &scope).await {
         Ok(monitor) => Ok(Json(monitor)),
         Err(e) => {
             warn!("Failed to update state of monitor: {e:?}.");
@@ -228,10 +234,11 @@ pub async fn update_state(
 pub async fn alarm_control(
     State(state): State<AppState>,
     Path(id): Path<u32>,
+    scope: MonitorScope,
     Json(req): Json<AlarmControlRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
     info!("Controlling alarm of monitor with ID: {id} and request: {req:?}.");
-    match service::monitor::control_alarm(&state, id, req).await {
+    match service::monitor::control_alarm(&state, id, req, &scope).await {
         Ok(monitor) => Ok(Json(monitor)),
         Err(e) => {
             warn!("Failed to control alarm of monitor: {e:?}.");

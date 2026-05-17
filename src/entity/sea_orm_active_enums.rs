@@ -348,6 +348,24 @@ pub enum Permission {
     serde::Deserialize,
     ToSchema,
 )]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "RTSP2WebStream")]
+pub enum Rtsp2WebStream {
+    #[sea_orm(string_value = "Primary")]
+    Primary,
+    #[sea_orm(string_value = "Secondary")]
+    Secondary,
+}
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "RTSP2WebType")]
 pub enum Rtsp2WebType {
     #[sea_orm(string_value = "HLS")]

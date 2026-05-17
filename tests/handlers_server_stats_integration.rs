@@ -13,9 +13,13 @@ use zm_api::dto::request::stats::{CreateStatRequest, UpdateStatRequest};
 use zm_api::dto::response::{MessageResponse, ServerStatResponse, StatResponse, VersionResponse};
 
 fn auth_header() -> String {
-    let token = zm_api::service::token::generate_tokens("tester".to_string())
-        .expect("token")
-        .access_token;
+    let token = zm_api::service::token::generate_tokens(
+        "tester".to_string(),
+        1,
+        zm_api::util::authz::UserPermissions::superuser(),
+    )
+    .expect("token")
+    .access_token;
     format!("Bearer {}", token)
 }
 

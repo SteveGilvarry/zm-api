@@ -90,9 +90,8 @@ pub mod mock {
     use tracing::{debug, warn};
 
     // Mock state for testing
-    lazy_static::lazy_static! {
-        static ref MOCK_STATE: Arc<Mutex<MockMseState>> = Arc::new(Mutex::new(MockMseState::new()));
-    }
+    static MOCK_STATE: once_cell::sync::Lazy<Arc<Mutex<MockMseState>>> =
+        once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(MockMseState::new())));
 
     struct MockCamera {
         camera_id: u32,

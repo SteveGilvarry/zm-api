@@ -4,15 +4,28 @@ use crate::entity::triggers_x10::{ActiveModel, Entity as TriggersX10, Model as T
 use crate::error::AppResult;
 use sea_orm::*;
 
-pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<TriggerX10Model>> {
-    Ok(TriggersX10::find().all(db).await?)
+/// Restrict an X10-trigger query to a row-level ACL allowlist of monitors.
+fn scoped(query: Select<TriggersX10>, monitor_filter: Option<&[u32]>) -> Select<TriggersX10> {
+    use crate::entity::triggers_x10::Column;
+    match monitor_filter {
+        None => query,
+        Some(ids) => query.filter(Column::MonitorId.is_in(ids.iter().copied())),
+    }
+}
+
+pub async fn find_all(
+    db: &DatabaseConnection,
+    monitor_filter: Option<&[u32]>,
+) -> AppResult<Vec<TriggerX10Model>> {
+    Ok(scoped(TriggersX10::find(), monitor_filter).all(db).await?)
 }
 
 pub async fn find_paginated(
     db: &DatabaseConnection,
     params: &PaginationParams,
+    monitor_filter: Option<&[u32]>,
 ) -> AppResult<(Vec<TriggerX10Model>, u64)> {
-    let paginator = TriggersX10::find().paginate(db, params.page_size());
+    let paginator = scoped(TriggersX10::find(), monitor_filter).paginate(db, params.page_size());
     let total = paginator.num_items().await?;
     let items = paginator
         .fetch_page(params.page().saturating_sub(1))

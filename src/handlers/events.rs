@@ -18,6 +18,7 @@ use crate::{
     error::{AppError, AppResponseError, AppResult},
     server::state::AppState,
     service,
+    service::monitor_acl::MonitorScope,
 };
 
 /// Get a paginated list of events
@@ -47,14 +48,15 @@ use crate::{
         ("jwt" = [])
     )
 )]
-#[instrument(skip(state))]
+#[instrument(skip(state, scope))]
 pub async fn list_events(
     State(state): State<AppState>,
     Query(params): Query<EventQueryParams>,
+    scope: MonitorScope,
 ) -> AppResult<Json<PaginatedEventsResponse>> {
     info!("Listing events with params: {:?}", params);
 
-    let events = service::events::list(&state, &params).await?;
+    let events = service::events::list(&state, &params, &scope).await?;
 
     Ok(Json(events))
 }
@@ -78,12 +80,13 @@ pub async fn list_events(
         ("jwt" = [])
     )
 )]
-#[instrument(skip(state))]
+#[instrument(skip(state, scope))]
 pub async fn get_event(
     State(state): State<AppState>,
     Path(id): Path<u32>,
+    scope: MonitorScope,
 ) -> AppResult<Json<EventResponse>> {
-    let event = service::events::get_by_id(&state, id).await?;
+    let event = service::events::get_by_id(&state, id, &scope).await?;
 
     Ok(Json(event))
 }
@@ -105,14 +108,15 @@ pub async fn get_event(
         ("jwt" = [])
     )
 )]
-#[instrument(skip(state, event))]
+#[instrument(skip(state, event, scope))]
 pub async fn create_event(
     State(state): State<AppState>,
+    scope: MonitorScope,
     Json(event): Json<EventCreateRequest>,
 ) -> AppResult<(StatusCode, Json<EventResponse>)> {
     event.validate().map_err(AppError::InvalidInputError)?;
 
-    let new_event = service::events::create(&state, event).await?;
+    let new_event = service::events::create(&state, event, &scope).await?;
 
     Ok((StatusCode::CREATED, Json(new_event)))
 }
@@ -138,17 +142,18 @@ pub async fn create_event(
         ("jwt" = [])
     )
 )]
-#[instrument(skip(state, event_update))]
+#[instrument(skip(state, event_update, scope))]
 pub async fn update_event(
     State(state): State<AppState>,
     Path(id): Path<u32>,
+    scope: MonitorScope,
     Json(event_update): Json<EventUpdateRequest>,
 ) -> AppResult<Json<EventResponse>> {
     event_update
         .validate()
         .map_err(AppError::InvalidInputError)?;
 
-    let updated_event = service::events::update(&state, id, event_update).await?;
+    let updated_event = service::events::update(&state, id, event_update, &scope).await?;
 
     Ok(Json(updated_event))
 }
@@ -171,12 +176,13 @@ pub async fn update_event(
         ("jwt" = [])
     )
 )]
-#[instrument(skip(state))]
+#[instrument(skip(state, scope))]
 pub async fn delete_event(
     State(state): State<AppState>,
     Path(id): Path<u32>,
+    scope: MonitorScope,
 ) -> AppResult<StatusCode> {
-    service::events::delete(&state, id).await?;
+    service::events::delete(&state, id, &scope).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -200,12 +206,13 @@ pub async fn delete_event(
         ("jwt" = [])
     )
 )]
-#[instrument(skip(state))]
+#[instrument(skip(state, scope))]
 pub async fn get_event_counts(
     State(state): State<AppState>,
     Path(hours): Path<i64>,
+    scope: MonitorScope,
 ) -> AppResult<Json<EventCountsResponse>> {
-    let counts = service::events::get_event_counts(&state, hours).await?;
+    let counts = service::events::get_event_counts(&state, hours, &scope).await?;
 
     Ok(Json(counts))
 }
@@ -229,12 +236,13 @@ pub async fn get_event_counts(
         ("jwt" = [])
     )
 )]
-#[instrument(skip(state))]
+#[instrument(skip(state, scope))]
 pub async fn get_event_counts_by_monitor(
     State(state): State<AppState>,
     Path(hours): Path<i64>,
+    scope: MonitorScope,
 ) -> AppResult<Json<EventCountsByMonitorResponse>> {
-    let counts = service::events::get_event_counts_by_monitor(&state, hours).await?;
+    let counts = service::events::get_event_counts_by_monitor(&state, hours, &scope).await?;
 
     Ok(Json(counts))
 }

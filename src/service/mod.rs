@@ -17,6 +17,7 @@ pub mod logs;
 pub mod manufacturers;
 pub mod models;
 pub mod monitor;
+pub mod monitor_acl;
 pub mod monitor_presets;
 pub mod monitor_status;
 pub mod monitors_permissions;

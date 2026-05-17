@@ -8,15 +8,30 @@ use crate::entity::control_presets::{
 use crate::error::AppResult;
 use sea_orm::*;
 
-pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<ControlPresetModel>> {
-    Ok(ControlPresets::find().all(db).await?)
+/// Restrict a control-preset query to a row-level ACL allowlist of monitors.
+fn scoped(query: Select<ControlPresets>, monitor_filter: Option<&[u32]>) -> Select<ControlPresets> {
+    use crate::entity::control_presets::Column;
+    match monitor_filter {
+        None => query,
+        Some(ids) => query.filter(Column::MonitorId.is_in(ids.iter().copied())),
+    }
+}
+
+pub async fn find_all(
+    db: &DatabaseConnection,
+    monitor_filter: Option<&[u32]>,
+) -> AppResult<Vec<ControlPresetModel>> {
+    Ok(scoped(ControlPresets::find(), monitor_filter)
+        .all(db)
+        .await?)
 }
 
 pub async fn find_paginated(
     db: &DatabaseConnection,
     params: &PaginationParams,
+    monitor_filter: Option<&[u32]>,
 ) -> AppResult<(Vec<ControlPresetModel>, u64)> {
-    let paginator = ControlPresets::find().paginate(db, params.page_size());
+    let paginator = scoped(ControlPresets::find(), monitor_filter).paginate(db, params.page_size());
     let total = paginator.num_items().await?;
     let items = paginator
         .fetch_page(params.page().saturating_sub(1))

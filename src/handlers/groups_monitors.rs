@@ -4,6 +4,7 @@ use crate::dto::response::GroupMonitorResponse;
 use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use crate::service::monitor_acl::MonitorScope;
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -26,8 +27,9 @@ use axum::{
 pub async fn list_groups_monitors(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
+    scope: MonitorScope,
 ) -> AppResult<Json<PaginatedGroupMonitorsResponse>> {
-    let result = crate::service::groups_monitors::list_paginated(&state, &params).await?;
+    let result = crate::service::groups_monitors::list_paginated(&state, &params, &scope).await?;
     Ok(Json(PaginatedGroupMonitorsResponse::from(result)))
 }
 
@@ -43,8 +45,9 @@ pub async fn list_groups_monitors(
 pub async fn get_group_monitor(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<Json<GroupMonitorResponse>> {
-    let item = crate::service::groups_monitors::get_by_id(&state, id).await?;
+    let item = crate::service::groups_monitors::get_by_id(&state, id, &scope).await?;
     Ok(Json(item))
 }
 
@@ -59,9 +62,10 @@ pub async fn get_group_monitor(
 )]
 pub async fn create_group_monitor(
     State(state): State<AppState>,
+    scope: MonitorScope,
     Json(req): Json<CreateGroupMonitorRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<GroupMonitorResponse>)> {
-    let item = crate::service::groups_monitors::create(&state, req).await?;
+    let item = crate::service::groups_monitors::create(&state, req, &scope).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
@@ -77,7 +81,8 @@ pub async fn create_group_monitor(
 pub async fn delete_group_monitor(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<axum::http::StatusCode> {
-    crate::service::groups_monitors::delete(&state, id).await?;
+    crate::service::groups_monitors::delete(&state, id, &scope).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

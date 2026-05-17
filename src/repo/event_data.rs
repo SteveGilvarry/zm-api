@@ -10,11 +10,15 @@ use sea_orm::*;
 pub async fn find_all(
     db: &DatabaseConnection,
     event_id: Option<u64>,
+    monitor_filter: Option<&[u32]>,
 ) -> AppResult<Vec<EventDataModel>> {
     let mut query = EventData::find();
 
     if let Some(eid) = event_id {
         query = query.filter(Column::EventId.eq(eid));
+    }
+    if let Some(ids) = monitor_filter {
+        query = query.filter(Column::MonitorId.is_in(ids.iter().copied()));
     }
 
     Ok(query.all(db).await?)
@@ -24,11 +28,15 @@ pub async fn find_paginated(
     db: &DatabaseConnection,
     params: &PaginationParams,
     event_id: Option<u64>,
+    monitor_filter: Option<&[u32]>,
 ) -> AppResult<(Vec<EventDataModel>, u64)> {
     let mut query = EventData::find();
 
     if let Some(eid) = event_id {
         query = query.filter(Column::EventId.eq(eid));
+    }
+    if let Some(ids) = monitor_filter {
+        query = query.filter(Column::MonitorId.is_in(ids.iter().copied()));
     }
 
     let paginator = query.paginate(db, params.page_size());

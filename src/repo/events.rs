@@ -18,6 +18,9 @@ pub struct EventQueryOptions {
     pub sort_direction: SortDirection,
     pub alarm_frames_min: Option<u32>,
     pub archived: Option<bool>,
+    /// Row-level ACL allowlist of monitor ids. `None` is unrestricted;
+    /// `Some(ids)` limits results to events of those monitors.
+    pub monitor_filter: Option<Vec<u32>>,
 }
 
 /// Helper to get the column for sorting
@@ -87,6 +90,11 @@ pub async fn find_with_options(
         query = query.filter(events::Column::Archived.eq(if archived { 1u8 } else { 0u8 }));
     }
 
+    // Row-level ACL: restrict to the caller's permitted monitors.
+    if let Some(monitor_ids) = &options.monitor_filter {
+        query = query.filter(events::Column::MonitorId.is_in(monitor_ids.iter().copied()));
+    }
+
     // Apply sorting
     let sort_column = get_sort_column(options.sort_field);
     query = apply_sorting(query, sort_column, options.sort_direction);
@@ -151,6 +159,7 @@ pub async fn delete(state: &AppState, id: u64) -> Result<DeleteResult, DbErr> {
 pub async fn get_counts_by_monitor(
     state: &AppState,
     hours_back: i64,
+    monitor_filter: Option<&[u32]>,
 ) -> Result<Vec<(u32, u64)>, DbErr> {
     use sea_orm::sea_query::{Expr, Query};
     use sea_orm::{FromQueryResult, Statement};
@@ -168,13 +177,18 @@ pub async fn get_counts_by_monitor(
 
     // Raw SQL for better performance on complex aggregation
     let count_alias = Alias::new("count");
-    let sql = Query::select()
+    let mut select = Query::select();
+    select
         .column(events::Column::MonitorId)
         .expr_as(Expr::cust("COUNT(*)"), count_alias)
         .from(events::Entity)
         .and_where(Expr::col(events::Column::StartDateTime).gte(time_boundary_str))
-        .group_by_col(events::Column::MonitorId)
-        .to_string(MysqlQueryBuilder);
+        .group_by_col(events::Column::MonitorId);
+    // Row-level ACL: restrict the aggregation to permitted monitors.
+    if let Some(ids) = monitor_filter {
+        select.and_where(Expr::col(events::Column::MonitorId).is_in(ids.iter().copied()));
+    }
+    let sql = select.to_string(MysqlQueryBuilder);
 
     let stmt = Statement::from_sql_and_values(state.db().get_database_backend(), sql, vec![]);
 
@@ -193,6 +207,7 @@ pub async fn get_counts_by_monitor(
 pub async fn get_counts_by_hour(
     state: &AppState,
     hours_back: i64,
+    monitor_filter: Option<&[u32]>,
 ) -> Result<Vec<(chrono::NaiveDateTime, u64)>, DbErr> {
     use sea_orm::sea_query::{Expr, Query};
     use sea_orm::{FromQueryResult, Statement};
@@ -211,7 +226,8 @@ pub async fn get_counts_by_hour(
     // Raw SQL for better performance on complex aggregation with grouping by hour
     let hour_alias = Alias::new("hour");
     let count_alias = Alias::new("count");
-    let sql = Query::select()
+    let mut select = Query::select();
+    select
         .expr_as(
             Expr::cust("DATE_FORMAT(StartDateTime, '%Y-%m-%d %H:00:00')"),
             hour_alias.clone(),
@@ -220,8 +236,12 @@ pub async fn get_counts_by_hour(
         .from(events::Entity)
         .and_where(Expr::col(events::Column::StartDateTime).gte(time_boundary_str))
         .group_by_col(hour_alias.clone())
-        .order_by(hour_alias.clone(), Order::Asc)
-        .to_string(MysqlQueryBuilder);
+        .order_by(hour_alias.clone(), Order::Asc);
+    // Row-level ACL: restrict the aggregation to permitted monitors.
+    if let Some(ids) = monitor_filter {
+        select.and_where(Expr::col(events::Column::MonitorId).is_in(ids.iter().copied()));
+    }
+    let sql = select.to_string(MysqlQueryBuilder);
 
     let stmt = Statement::from_sql_and_values(state.db().get_database_backend(), sql, vec![]);
 

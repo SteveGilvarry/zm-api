@@ -4,6 +4,7 @@ use crate::dto::response::EventDataResponse;
 use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use crate::service::monitor_acl::MonitorScope;
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -33,10 +34,15 @@ pub struct EventDataQuery {
 pub async fn list_event_data(
     Query(params): Query<EventDataQuery>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<Json<PaginatedEventDataResponse>> {
-    let result =
-        crate::service::event_data::list_paginated(&state, &params.pagination, params.event_id)
-            .await?;
+    let result = crate::service::event_data::list_paginated(
+        &state,
+        &params.pagination,
+        params.event_id,
+        &scope,
+    )
+    .await?;
     Ok(Json(PaginatedEventDataResponse::from(result)))
 }
 
@@ -52,8 +58,9 @@ pub async fn list_event_data(
 pub async fn get_event_data(
     Path(id): Path<u64>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<Json<EventDataResponse>> {
-    let item = crate::service::event_data::get_by_id(&state, id).await?;
+    let item = crate::service::event_data::get_by_id(&state, id, &scope).await?;
     Ok(Json(item))
 }
 
@@ -68,9 +75,10 @@ pub async fn get_event_data(
 )]
 pub async fn create_event_data(
     State(state): State<AppState>,
+    scope: MonitorScope,
     Json(req): Json<CreateEventDataRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<EventDataResponse>)> {
-    let item = crate::service::event_data::create(&state, req).await?;
+    let item = crate::service::event_data::create(&state, req, &scope).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
@@ -87,9 +95,10 @@ pub async fn create_event_data(
 pub async fn update_event_data(
     Path(id): Path<u64>,
     State(state): State<AppState>,
+    scope: MonitorScope,
     Json(req): Json<UpdateEventDataRequest>,
 ) -> AppResult<Json<EventDataResponse>> {
-    let item = crate::service::event_data::update(&state, id, req).await?;
+    let item = crate::service::event_data::update(&state, id, req, &scope).await?;
     Ok(Json(item))
 }
 
@@ -105,7 +114,8 @@ pub async fn update_event_data(
 pub async fn delete_event_data(
     Path(id): Path<u64>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<axum::http::StatusCode> {
-    crate::service::event_data::delete(&state, id).await?;
+    crate::service::event_data::delete(&state, id, &scope).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
