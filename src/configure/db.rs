@@ -42,6 +42,13 @@ pub struct DatabaseConfig {
     pub max_lifetime_secs: u64,
     #[serde(default = "default_database_name")]
     pub database_name: String,
+    /// Log every SQL statement the ORM executes.
+    ///
+    /// Off by default: at scale this emits one log line per query, which is
+    /// both noise and measurable overhead on the request hot path. Enable it
+    /// only for local debugging.
+    #[serde(default = "default_sqlx_logging")]
+    pub sqlx_logging: bool,
 }
 
 fn default_username() -> String {
@@ -73,6 +80,9 @@ fn default_idle_timeout_secs() -> u64 {
 }
 fn default_max_lifetime_secs() -> u64 {
     1800
+}
+fn default_sqlx_logging() -> bool {
+    false
 }
 fn default_database_name() -> String {
     "zm".to_string()
@@ -185,6 +195,7 @@ mod tests {
             acquire_timeout_secs: default_acquire_timeout_secs(),
             idle_timeout_secs: default_idle_timeout_secs(),
             max_lifetime_secs: default_max_lifetime_secs(),
+            sqlx_logging: default_sqlx_logging(),
         };
 
         assert_eq!(
@@ -207,6 +218,7 @@ mod tests {
             acquire_timeout_secs: default_acquire_timeout_secs(),
             idle_timeout_secs: default_idle_timeout_secs(),
             max_lifetime_secs: default_max_lifetime_secs(),
+            sqlx_logging: default_sqlx_logging(),
         };
 
         assert!(config.is_placeholder("username"));

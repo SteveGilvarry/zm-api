@@ -41,6 +41,8 @@ connect_timeout_secs = 8
 acquire_timeout_secs = 8
 idle_timeout_secs = 300
 max_lifetime_secs = 1800
+# Log every SQL statement. Verbose; enable only for local debugging.
+sqlx_logging = false
 
 [sentry]
 # Sentry error reporting - disabled by default for privacy

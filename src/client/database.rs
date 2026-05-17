@@ -24,8 +24,10 @@ impl DatabaseClientExt for DatabaseClient {
             .acquire_timeout(Duration::from_secs(db_cfg.acquire_timeout_secs))
             .idle_timeout(Duration::from_secs(db_cfg.idle_timeout_secs))
             .max_lifetime(Duration::from_secs(db_cfg.max_lifetime_secs))
-            .sqlx_logging(true)
-            .sqlx_logging_level(log::LevelFilter::Info);
+            // Per-statement logging is off unless explicitly enabled — see the
+            // perf note on `DatabaseConfig::sqlx_logging`.
+            .sqlx_logging(db_cfg.sqlx_logging)
+            .sqlx_logging_level(log::LevelFilter::Debug);
         let db = Database::connect(opt).await?;
         Ok(db)
     }
