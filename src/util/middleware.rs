@@ -154,3 +154,69 @@ fn percent_decode(input: &str) -> Option<String> {
 
     Some(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+
+    fn request_with_header(value: &str) -> Request {
+        Request::builder()
+            .uri("/")
+            .header("Authorization", value)
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    fn request_with_uri(uri: &str) -> Request {
+        Request::builder().uri(uri).body(Body::empty()).unwrap()
+    }
+
+    #[test]
+    fn header_token_requires_bearer_prefix() {
+        assert_eq!(
+            extract_token_from_header(&request_with_header("Bearer abc123")),
+            Some("abc123".to_string())
+        );
+        // The `Bearer ` value is trimmed.
+        assert_eq!(
+            extract_token_from_header(&request_with_header("Bearer   spaced  ")),
+            Some("spaced".to_string())
+        );
+        // A non-Bearer scheme yields nothing.
+        assert_eq!(
+            extract_token_from_header(&request_with_header("Basic abc123")),
+            None
+        );
+        // A request with no Authorization header yields nothing.
+        assert_eq!(extract_token_from_header(&request_with_uri("/")), None);
+    }
+
+    #[test]
+    fn query_token_is_picked_out_of_the_query_string() {
+        assert_eq!(
+            extract_token_from_query(&request_with_uri("/stream?token=abc")),
+            Some("abc".to_string())
+        );
+        assert_eq!(
+            extract_token_from_query(&request_with_uri("/stream?foo=1&token=xyz&bar=2")),
+            Some("xyz".to_string())
+        );
+        assert_eq!(extract_token_from_query(&request_with_uri("/stream")), None);
+        assert_eq!(
+            extract_token_from_query(&request_with_uri("/stream?foo=1")),
+            None
+        );
+    }
+
+    #[test]
+    fn percent_decode_handles_escapes_plus_and_rejects_bad_input() {
+        assert_eq!(percent_decode("plain"), Some("plain".to_string()));
+        assert_eq!(percent_decode("a%20b"), Some("a b".to_string()));
+        assert_eq!(percent_decode("a+b"), Some("a b".to_string()));
+        // Incomplete escape sequence.
+        assert_eq!(percent_decode("a%2"), None);
+        // Invalid hex digits.
+        assert_eq!(percent_decode("a%zzb"), None);
+    }
+}

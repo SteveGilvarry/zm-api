@@ -32,3 +32,34 @@ macro_rules! continue_if_fail {
         }
     };
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ResultControlFlow;
+
+    #[test]
+    fn predicates_are_mutually_exclusive() {
+        let ok: ResultControlFlow<i32, &str> = ResultControlFlow::Ok(1);
+        assert!(ok.is_ok() && !ok.is_err() && !ok.is_break() && !ok.is_continue());
+
+        let err: ResultControlFlow<i32, &str> = ResultControlFlow::Err("boom");
+        assert!(err.is_err() && !err.is_ok() && !err.is_break() && !err.is_continue());
+
+        let brk: ResultControlFlow<i32, &str> = ResultControlFlow::Break;
+        assert!(brk.is_break() && !brk.is_ok() && !brk.is_err() && !brk.is_continue());
+
+        let cont: ResultControlFlow<i32, &str> = ResultControlFlow::Continue;
+        assert!(cont.is_continue() && !cont.is_ok() && !cont.is_err() && !cont.is_break());
+    }
+
+    #[test]
+    fn continue_if_fail_skips_err_and_keeps_ok() {
+        let inputs: Vec<Result<i32, &str>> = vec![Ok(1), Err("skip"), Ok(3)];
+        let mut collected = Vec::new();
+        for input in inputs {
+            let value = continue_if_fail!(input);
+            collected.push(value);
+        }
+        assert_eq!(collected, vec![1, 3]);
+    }
+}

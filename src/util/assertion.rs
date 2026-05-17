@@ -93,3 +93,30 @@ fn test_is_sort_assertion() {
     assert!(is_sorted(c, Direction::DESC));
     assert!(!is_sorted(d, Direction::DESC))
 }
+
+#[test]
+fn eq_is_multiset_equality_ignoring_order() {
+    assert!(eq(&[1, 2, 2, 3], &[3, 2, 1, 2]));
+    // Same set of values but different multiplicities — not equal.
+    assert!(!eq(&[1, 2, 2], &[1, 1, 2]));
+    assert!(!eq(&[1, 2, 3], &[1, 2]));
+    assert!(eq::<i32>(&[], &[]));
+}
+
+#[test]
+fn vecs_match_is_order_sensitive() {
+    assert!(vecs_match(&[1, 2, 3], &[1, 2, 3]));
+    assert!(!vecs_match(&[1, 2, 3], &[3, 2, 1]));
+    assert!(!vecs_match(&[1, 2], &[1, 2, 3]));
+}
+
+#[test]
+fn compare_datetime_matches_to_the_minute() {
+    let base: DateTime<Utc> = DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+    // 30 seconds apart — same minute, considered equal.
+    let same_minute = DateTime::from_timestamp(1_700_000_030, 0).unwrap();
+    // 120 seconds apart — different minute.
+    let next_minute = DateTime::from_timestamp(1_700_000_120, 0).unwrap();
+    assert!(compare_datetime(&base, &same_minute));
+    assert!(!compare_datetime(&base, &next_minute));
+}
