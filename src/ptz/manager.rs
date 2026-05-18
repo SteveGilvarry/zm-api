@@ -545,7 +545,7 @@ mod tests {
     use crate::entity::sea_orm_active_enums::{
         Analysing, AnalysisImage, AnalysisSource, Capturing, Decoding, DefaultCodec,
         EventCloseMode, Function, Importance, MonitorType, Orientation, Recording, RecordingSource,
-        Rtsp2WebStream, Rtsp2WebType,
+        Rtsp2WebType, StreamChannel,
     };
 
     fn test_monitor() -> MonitorModel {
@@ -567,7 +567,7 @@ mod tests {
             rtsp2_web_enabled: 0,
             rtsp2_web_type: Rtsp2WebType::Mse,
             default_player: None,
-            rtsp2_web_stream: Rtsp2WebStream::Primary,
+            stream_channel: StreamChannel::Restream,
             go2_rtc_enabled: 0,
             janus_enabled: 0,
             janus_audio_enabled: 0,
@@ -664,7 +664,7 @@ mod tests {
             return_delay: None,
             modect_during_ptz: 0,
             default_rate: 100,
-            default_scale: 100,
+            default_scale: "100".to_string(),
             default_codec: DefaultCodec::Auto,
             signal_check_points: 0,
             signal_check_colour: "#0000BE".to_string(),

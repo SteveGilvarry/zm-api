@@ -203,7 +203,7 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         return_delay: Set(req.return_delay),
         modect_during_ptz: Set(req.modect_during_ptz),
         default_rate: Set(req.default_rate),
-        default_scale: Set(req.default_scale.parse().unwrap_or(0)),
+        default_scale: Set(req.default_scale),
         default_codec: Set(default_codec),
         signal_check_points: Set(req.signal_check_points),
         signal_check_colour: Set(req.signal_check_colour),
@@ -231,7 +231,7 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         recording: Set(recording),
         // New schema columns not exposed by the request DTO — let the DB defaults apply.
         default_player: NotSet,
-        rtsp2_web_stream: NotSet,
+        stream_channel: NotSet,
         go2_rtc_enabled: NotSet,
         output_codec_name: NotSet,
         encoder_hw_accel_name: NotSet,
@@ -587,7 +587,7 @@ pub async fn update(
         monitor.default_rate = Set(default_rate);
     }
     if let Some(default_scale) = req.default_scale {
-        monitor.default_scale = Set(default_scale.parse().unwrap_or(0));
+        monitor.default_scale = Set(default_scale);
     }
     if let Some(default_codec) = req.default_codec {
         monitor.default_codec = Set(default_codec);

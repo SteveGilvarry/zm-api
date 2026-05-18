@@ -14,8 +14,8 @@ use super::sea_orm_active_enums::Orientation;
 use super::sea_orm_active_enums::OutputContainer;
 use super::sea_orm_active_enums::Recording;
 use super::sea_orm_active_enums::RecordingSource;
-use super::sea_orm_active_enums::Rtsp2WebStream;
 use super::sea_orm_active_enums::Rtsp2WebType;
+use super::sea_orm_active_enums::StreamChannel;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
@@ -63,8 +63,8 @@ pub struct Model {
     pub rtsp2_web_type: Rtsp2WebType,
     #[sea_orm(column_name = "DefaultPlayer")]
     pub default_player: Option<String>,
-    #[sea_orm(column_name = "RTSP2WebStream")]
-    pub rtsp2_web_stream: Rtsp2WebStream,
+    #[sea_orm(column_name = "StreamChannel")]
+    pub stream_channel: StreamChannel,
     #[sea_orm(column_name = "Go2RTCEnabled")]
     pub go2_rtc_enabled: i8,
     #[sea_orm(column_name = "JanusEnabled")]
@@ -286,7 +286,7 @@ pub struct Model {
     #[sea_orm(column_name = "DefaultRate")]
     pub default_rate: u16,
     #[sea_orm(column_name = "DefaultScale")]
-    pub default_scale: u16,
+    pub default_scale: String,
     #[sea_orm(column_name = "DefaultCodec")]
     pub default_codec: DefaultCodec,
     #[sea_orm(column_name = "SignalCheckPoints")]

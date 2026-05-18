@@ -348,12 +348,14 @@ pub enum Permission {
     serde::Deserialize,
     ToSchema,
 )]
-#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "RTSP2WebStream")]
-pub enum Rtsp2WebStream {
-    #[sea_orm(string_value = "Primary")]
-    Primary,
-    #[sea_orm(string_value = "Secondary")]
-    Secondary,
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "StreamChannel")]
+pub enum StreamChannel {
+    #[sea_orm(string_value = "Restream")]
+    Restream,
+    #[sea_orm(string_value = "CameraDirectPrimary")]
+    CameraDirectPrimary,
+    #[sea_orm(string_value = "CameraDirectSecondary")]
+    CameraDirectSecondary,
 }
 #[derive(
     Debug,
