@@ -104,6 +104,11 @@ pub struct HlsSegmenter {
     /// Whether we've received the first keyframe. Data before first keyframe is
     /// dropped because decoders cannot decode P-frames without a reference IDR.
     received_keyframe: bool,
+    /// First VCL NAL timestamp (microseconds). All subsequent timestamps are
+    /// normalized relative to this so that baseMediaDecodeTime in tfdt starts
+    /// near zero. This avoids problems with hls.js PTS normalization when
+    /// cameras have been running for many hours (large absolute timestamps).
+    base_timestamp_us: Option<u64>,
 }
 
 impl HlsSegmenter {
@@ -125,6 +130,7 @@ impl HlsSegmenter {
             segment_start_time: None,
             target_duration,
             received_keyframe: false,
+            base_timestamp_us: None,
         }
     }
 
@@ -168,6 +174,16 @@ impl HlsSegmenter {
             }
         }
 
+        // Normalize timestamps so the session starts near zero. Cameras that have
+        // been running for hours produce huge absolute timestamps (e.g. 12+ hours at
+        // 90kHz) which cause hls.js PTS normalization issues with v1 (64-bit) tfdt.
+        let timestamp_us = {
+            if self.base_timestamp_us.is_none() {
+                self.base_timestamp_us = Some(timestamp_us);
+            }
+            timestamp_us.saturating_sub(self.base_timestamp_us.unwrap())
+        };
+
         // Convert timestamp to timescale units
         let timestamp = (timestamp_us * self.timescale as u64) / 1_000_000;
 
@@ -200,7 +216,7 @@ impl HlsSegmenter {
                     let segment_duration = Duration::from_micros(timestamp_us - seg_start_us);
 
                     if segment_duration >= self.target_duration {
-                        result = self.finalize_segment();
+                        result = self.finalize_segment(timestamp);
                         self.segment_start_time = Some(timestamp);
                     }
                 }
@@ -888,8 +904,11 @@ impl HlsSegmenter {
         mvex.into_bytes()
     }
 
-    /// Finalize current segment and return it
-    fn finalize_segment(&mut self) -> Option<FMP4Segment> {
+    /// Finalize current segment and return it.
+    /// `next_start` is the decode timestamp of the next segment's first sample
+    /// (the keyframe that triggered this finalization). It's used to compute the
+    /// last sample's duration exactly, preventing timestamp overlap between segments.
+    fn finalize_segment(&mut self, next_start: u64) -> Option<FMP4Segment> {
         if self.current_segment_samples.is_empty() {
             return None;
         }
@@ -917,7 +936,7 @@ impl HlsSegmenter {
         // Build moof + mdat
         let mut builder = BoxBuilder::new();
 
-        let moof = self.build_moof(start_time, data_offset);
+        let moof = self.build_moof(start_time, data_offset, next_start);
         builder.write_box(b"moof", &moof);
 
         let mdat = self.build_mdat_data();
@@ -939,7 +958,7 @@ impl HlsSegmenter {
     }
 
     /// Build moof box
-    fn build_moof(&self, base_time: u64, data_offset: u32) -> Vec<u8> {
+    fn build_moof(&self, base_time: u64, data_offset: u32, next_start: u64) -> Vec<u8> {
         let mut moof = BoxBuilder::new();
 
         // mfhd
@@ -948,14 +967,14 @@ impl HlsSegmenter {
         moof.write_full_box(b"mfhd", 0, 0, &mfhd);
 
         // traf
-        let traf = self.build_traf(base_time, data_offset);
+        let traf = self.build_traf(base_time, data_offset, next_start);
         moof.write_box(b"traf", &traf);
 
         moof.into_bytes()
     }
 
     /// Build traf box
-    fn build_traf(&self, base_time: u64, data_offset: u32) -> Vec<u8> {
+    fn build_traf(&self, base_time: u64, data_offset: u32, next_start: u64) -> Vec<u8> {
         let mut traf = BoxBuilder::new();
 
         // tfhd
@@ -969,24 +988,40 @@ impl HlsSegmenter {
         traf.write_full_box(b"tfdt", 1, 0, &tfdt);
 
         // trun — flags 0x000701: data-offset + sample-duration + sample-size + sample-flags
-        let trun = self.build_trun(data_offset);
+        let trun = self.build_trun(data_offset, next_start);
         traf.write_full_box(b"trun", 0, 0x000701, &trun);
 
         traf.into_bytes()
     }
 
-    /// Build trun box data
-    fn build_trun(&self, data_offset: u32) -> Vec<u8> {
+    /// Build trun box data.
+    /// `next_start` is the decode timestamp of the next segment's first sample,
+    /// used to compute the last sample's duration for perfect segment contiguity.
+    fn build_trun(&self, data_offset: u32, next_start: u64) -> Vec<u8> {
+        let sample_count = self.current_segment_samples.len();
         let mut trun = BytesMut::with_capacity(256);
-        trun.put_u32(self.current_segment_samples.len() as u32); // sample_count
+        trun.put_u32(sample_count as u32); // sample_count
         trun.put_u32(data_offset); // data_offset (relative to moof start)
 
-        // Per-sample entries: duration + size + flags
-        let mut prev_ts = self.segment_start_time.unwrap_or(0);
-        for sample in &self.current_segment_samples {
-            let duration = sample.timestamp.saturating_sub(prev_ts).max(1);
-            prev_ts = sample.timestamp;
+        // Compute per-sample durations using forward-looking gaps: each sample's
+        // duration = gap to the next sample's DTS. The last sample's duration is
+        // computed from the next segment's start timestamp for perfect contiguity.
+        let mut durations: Vec<u64> = Vec::with_capacity(sample_count);
+        for i in 0..sample_count {
+            let next_ts = if i + 1 < sample_count {
+                self.current_segment_samples[i + 1].timestamp
+            } else {
+                // Last sample: use next segment's start time for exact contiguity
+                next_start
+            };
+            let dur = next_ts
+                .saturating_sub(self.current_segment_samples[i].timestamp)
+                .max(1);
+            durations.push(dur);
+        }
 
+        // Per-sample entries: duration + size + flags
+        for (i, sample) in self.current_segment_samples.iter().enumerate() {
             // Sample size = sum of all length-prefixed NALs in the access unit
             let sample_size: usize = sample
                 .nals
@@ -994,7 +1029,7 @@ impl HlsSegmenter {
                 .map(|nal| 4 + nal.len() - self.nal_start_code_len(nal))
                 .sum();
 
-            trun.put_u32(duration as u32); // sample_duration
+            trun.put_u32(durations[i] as u32); // sample_duration
             trun.put_u32(sample_size as u32); // sample_size
             if sample.is_keyframe {
                 trun.put_u32(0x02000000); // sample_flags (sync)
@@ -1068,6 +1103,11 @@ impl HlsSegmenter {
         }
 
         mdat.to_vec()
+    }
+
+    /// Get the stored SPS data (without start code)
+    pub fn sps(&self) -> Option<&[u8]> {
+        self.sps.as_deref()
     }
 
     /// Get current sequence number
@@ -1586,6 +1626,157 @@ mod tests {
             }
         }
         None
+    }
+
+    /// Verify that two consecutive segments have non-overlapping timestamps.
+    /// This is critical for MSE compatibility: if segment N's declared end time
+    /// exceeds segment N+1's baseMediaDecodeTime, browsers reject the append
+    /// with bufferAppendError.
+    #[test]
+    fn test_consecutive_segments_no_timestamp_overlap() {
+        let mut segmenter = HlsSegmenter::new(1, Duration::from_secs(2));
+        segmenter.set_codec(VideoCodec::H264);
+
+        // Feed SPS + PPS
+        let sps = vec![0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1E, 0xAB, 0x40];
+        let pps = vec![0x00, 0x00, 0x00, 0x01, 0x68, 0xCE, 0x3C, 0x80];
+        segmenter.process_nal(&sps, 0, false);
+        segmenter.process_nal(&pps, 1000, false);
+
+        // Generate THREE keyframes separated by 2+ seconds of P-frames (target_dur=2s).
+        // Variable frame intervals simulate real cameras (~30fps with jitter).
+        let mut segments = Vec::new();
+        let frame_intervals_us = [33333, 33334, 33333, 33400, 33200, 33333];
+        let mut ts = 100_000u64;
+
+        for seg_idx in 0..3 {
+            // Keyframe starts each segment
+            let idr = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x80, seg_idx + 1];
+            if let Some(seg) = segmenter.process_nal(&idr, ts, true) {
+                segments.push(seg);
+            }
+            ts += frame_intervals_us[0];
+
+            // ~70 P-frames = ~2.3 seconds at 30fps (exceeds 2s target)
+            for i in 0..70 {
+                let p = vec![0x00, 0x00, 0x00, 0x01, 0x41, 0x9A, (i & 0xFF) as u8];
+                let interval = frame_intervals_us[(i + 1) % frame_intervals_us.len()];
+                if let Some(seg) = segmenter.process_nal(&p, ts, false) {
+                    segments.push(seg);
+                }
+                ts += interval;
+            }
+        }
+
+        assert!(
+            segments.len() >= 2,
+            "Should produce at least 2 segments, got {}",
+            segments.len()
+        );
+
+        // Parse each segment's baseMediaDecodeTime and total duration from the binary
+        for i in 0..segments.len() - 1 {
+            let seg_a = &segments[i].data;
+            let seg_b = &segments[i + 1].data;
+
+            let (bdt_a, total_dur_a) = parse_segment_timing(seg_a);
+            let (bdt_b, _) = parse_segment_timing(seg_b);
+
+            let end_a = bdt_a + total_dur_a;
+
+            assert!(
+                end_a <= bdt_b,
+                "Segment {} end ({}) must not exceed segment {} start ({}): overlap of {} ticks",
+                i,
+                end_a,
+                i + 1,
+                bdt_b,
+                end_a.saturating_sub(bdt_b)
+            );
+        }
+    }
+
+    /// Verify that large absolute timestamps (e.g. 12+ hours of camera uptime)
+    /// are normalized to start near zero in the fMP4 output. This prevents
+    /// hls.js PTS normalization issues with v1 (64-bit) tfdt.
+    #[test]
+    fn test_large_timestamps_normalized() {
+        let mut segmenter = HlsSegmenter::new(1, Duration::from_secs(2));
+        segmenter.set_codec(VideoCodec::H264);
+
+        // Feed SPS + PPS
+        let sps = vec![0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1E, 0xAB, 0x40];
+        let pps = vec![0x00, 0x00, 0x00, 0x01, 0x68, 0xCE, 0x3C, 0x80];
+        segmenter.process_nal(&sps, 0, false);
+        segmenter.process_nal(&pps, 1000, false);
+
+        // Simulate 12 hours of camera uptime: ~43200 seconds = 43_200_000_000 microseconds
+        let base_us = 43_200_000_000u64;
+
+        let mut segments = Vec::new();
+        let mut ts = base_us;
+
+        for seg_idx in 0..3 {
+            let idr = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x80, seg_idx + 1];
+            if let Some(seg) = segmenter.process_nal(&idr, ts, true) {
+                segments.push(seg);
+            }
+            ts += 33_333;
+
+            for i in 0..70 {
+                let p = vec![0x00, 0x00, 0x00, 0x01, 0x41, 0x9A, (i & 0xFF) as u8];
+                if let Some(seg) = segmenter.process_nal(&p, ts, false) {
+                    segments.push(seg);
+                }
+                ts += 33_333;
+            }
+        }
+
+        assert!(segments.len() >= 2, "Should produce segments");
+
+        // First segment's baseMediaDecodeTime should be near 0, NOT 43200 seconds
+        let (bdt_0, _) = parse_segment_timing(&segments[0].data);
+        let bdt_0_secs = bdt_0 as f64 / 90000.0;
+        assert!(
+            bdt_0_secs < 1.0,
+            "First segment baseMediaDecodeTime should be near 0, got {:.3}s (raw: {})",
+            bdt_0_secs,
+            bdt_0
+        );
+
+        // Segments should still be contiguous
+        for i in 0..segments.len() - 1 {
+            let (bdt_a, dur_a) = parse_segment_timing(&segments[i].data);
+            let (bdt_b, _) = parse_segment_timing(&segments[i + 1].data);
+            assert!(
+                bdt_a + dur_a <= bdt_b,
+                "Segments {} and {} should not overlap",
+                i,
+                i + 1
+            );
+        }
+    }
+
+    /// Parse baseMediaDecodeTime and total sample duration from a raw fMP4 segment.
+    fn parse_segment_timing(data: &[u8]) -> (u64, u64) {
+        // tfdt is at absolute offset 48 in the segment (8+16+8+16)
+        // tfdt v1: baseMediaDecodeTime is u64 at offset 48+12 = 60
+        let bdt = u64::from_be_bytes([
+            data[60], data[61], data[62], data[63], data[64], data[65], data[66], data[67],
+        ]);
+
+        // trun starts at absolute offset 68, sample_count at 68+12=80
+        let sample_count = u32::from_be_bytes([data[80], data[81], data[82], data[83]]) as usize;
+
+        // Sample entries at 68+20=88, each 12 bytes: dur(4)+size(4)+flags(4)
+        let mut total_dur = 0u64;
+        for i in 0..sample_count {
+            let off = 88 + i * 12;
+            let dur = u32::from_be_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]);
+            total_dur += dur as u64;
+        }
+
+        (bdt, total_dur)
     }
 
     /// Helper: find box data by type in nested ISO BMFF structure.

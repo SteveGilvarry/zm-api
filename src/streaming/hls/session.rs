@@ -91,10 +91,14 @@ impl HlsSession {
         self.segment_count += 1;
         self.bytes_written += segment.data.len() as u64;
 
+        // Update target duration before adding segment (HLS spec compliance)
+        let duration_secs = segment.duration.as_secs_f64();
+        self.playlist.update_target_duration(duration_secs);
+
         // Add to playlist
         let segment_ref = SegmentRef {
             sequence: segment.sequence,
-            duration: segment.duration.as_secs_f64(),
+            duration: duration_secs,
             uri: format!("segment_{:05}.m4s", segment.sequence),
             is_independent: segment.is_keyframe,
             parts: vec![],
@@ -108,9 +112,21 @@ impl HlsSession {
         let _ = self.segment_tx.send(segment.sequence);
     }
 
-    /// Generate init segment if ready
+    /// Generate init segment if ready.
+    /// Also extracts the codec profile-level-id from SPS for the master playlist.
     pub fn generate_init_segment(&mut self) -> Option<InitSegment> {
-        self.segmenter.generate_init_segment()
+        let init = self.segmenter.generate_init_segment()?;
+
+        // Extract profile-level-id from SPS and update master playlist codec
+        if let Some(sps) = self.segmenter.sps() {
+            // SPS bytes (without start code): [nal_type, profile_idc, constraint_flags, level_idc, ...]
+            if sps.len() >= 4 {
+                let profile_level_id = format!("{:02x}{:02x}{:02x}", sps[1], sps[2], sps[3]);
+                self.playlist_generator.codec = Some(format!("avc1.{profile_level_id}"));
+            }
+        }
+
+        Some(init)
     }
 
     /// Get cached init segment
@@ -492,7 +508,7 @@ mod tests {
         let playlist = session.generate_playlist();
         assert!(playlist.contains("#EXTM3U"));
         assert!(playlist.contains("#EXT-X-TARGETDURATION:2"));
-        assert!(playlist.contains("URI=\"/api/v3/live/1/hls/init.mp4\""));
+        assert!(playlist.contains("URI=\"init.mp4\""));
     }
 
     #[tokio::test]

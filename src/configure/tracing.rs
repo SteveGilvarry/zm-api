@@ -62,7 +62,7 @@ pub fn init() -> AppResult<WorkerGuard> {
     let (file_appender, file_appender_guard) = tracing_appender::non_blocking(file_appender);
     init_subscriber(create_subscriber(
         "zm_api",
-        EnvFilter::from_default_env(),
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         file_appender,
     ))?;
     Ok(file_appender_guard)

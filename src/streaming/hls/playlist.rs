@@ -106,6 +106,8 @@ pub struct MediaPlaylist {
     pub segments: Vec<SegmentRef>,
     pub init_segment_uri: Option<String>,
     pub is_live: bool,
+    /// Emit `#EXT-X-INDEPENDENT-SEGMENTS` once in the header
+    pub has_independent_segments: bool,
     /// LL-HLS: part target duration
     pub part_target_duration: Option<f64>,
     /// LL-HLS: server control parameters
@@ -129,6 +131,7 @@ impl Default for MediaPlaylist {
             segments: Vec::new(),
             init_segment_uri: None,
             is_live: true,
+            has_independent_segments: true,
             part_target_duration: None,
             server_control: None,
         }
@@ -155,6 +158,15 @@ impl MediaPlaylist {
                 can_skip_until: Some(target_duration as f64 * 6.0),
             }),
             ..Default::default()
+        }
+    }
+
+    /// Update target duration to be >= ceil(segment_duration).
+    /// Per HLS spec, `EXT-X-TARGETDURATION` must be >= the EXTINF of every segment.
+    pub fn update_target_duration(&mut self, segment_duration_secs: f64) {
+        let needed = segment_duration_secs.ceil() as u32;
+        if needed > self.target_duration {
+            self.target_duration = needed;
         }
     }
 
@@ -222,6 +234,11 @@ impl MediaPlaylist {
             writeln!(output, "#EXT-X-SERVER-CONTROL:{}", control).unwrap();
         }
 
+        // Independent segments tag (once, in header)
+        if self.has_independent_segments {
+            writeln!(output, "#EXT-X-INDEPENDENT-SEGMENTS").unwrap();
+        }
+
         // Initialization segment (fMP4)
         if let Some(ref init_uri) = self.init_segment_uri {
             writeln!(output, "#EXT-X-MAP:URI=\"{}\"", init_uri).unwrap();
@@ -239,9 +256,6 @@ impl MediaPlaylist {
             }
 
             // Full segment
-            if segment.is_independent {
-                writeln!(output, "#EXT-X-INDEPENDENT-SEGMENTS").unwrap();
-            }
             writeln!(output, "#EXTINF:{:.3},", segment.duration).unwrap();
             writeln!(output, "{}", segment.uri).unwrap();
         }
@@ -263,6 +277,8 @@ pub struct PlaylistGenerator {
     pub playlist_size: usize,
     pub ll_hls_enabled: bool,
     pub part_target_duration: f64,
+    /// Codec string for the master playlist (e.g. "avc1.4d001f")
+    pub codec: Option<String>,
 }
 
 impl PlaylistGenerator {
@@ -280,6 +296,7 @@ impl PlaylistGenerator {
             playlist_size,
             ll_hls_enabled: false,
             part_target_duration: 0.3,
+            codec: None,
         }
     }
 
@@ -294,12 +311,17 @@ impl PlaylistGenerator {
     pub fn generate_master_playlist(&self) -> MasterPlaylist {
         let mut master = MasterPlaylist::new(&self.base_url);
 
+        let codecs = self
+            .codec
+            .clone()
+            .unwrap_or_else(|| "avc1.42e01e".to_string());
+
         // Add default passthrough variant
         master.add_variant(QualityVariant {
             name: "live".to_string(),
             bandwidth: 5_000_000,
             resolution: None, // Will be detected from stream
-            codecs: Some("avc1.42e01e".to_string()),
+            codecs: Some(codecs),
             frame_rate: None,
         });
 
@@ -314,7 +336,7 @@ impl PlaylistGenerator {
             MediaPlaylist::new(self.target_duration)
         };
 
-        playlist.set_init_segment(&format!("{}/init.mp4", self.base_url));
+        playlist.set_init_segment("init.mp4");
 
         playlist
     }
@@ -456,9 +478,77 @@ mod tests {
 
         let media = generator.generate_media_playlist();
         assert_eq!(media.target_duration, 4);
+        assert_eq!(media.init_segment_uri.as_deref(), Some("init.mp4"));
+    }
+
+    #[test]
+    fn test_update_target_duration() {
+        let mut playlist = MediaPlaylist::new(2);
+        assert_eq!(playlist.target_duration, 2);
+
+        // Duration within target — no change
+        playlist.update_target_duration(1.5);
+        assert_eq!(playlist.target_duration, 2);
+
+        // Duration exceeds target — bumps to ceil
+        playlist.update_target_duration(4.9);
+        assert_eq!(playlist.target_duration, 5);
+
+        // Smaller duration afterwards — stays at max
+        playlist.update_target_duration(3.0);
+        assert_eq!(playlist.target_duration, 5);
+    }
+
+    #[test]
+    fn test_independent_segments_in_header() {
+        let mut playlist = MediaPlaylist::new(4);
+        playlist.set_init_segment("init.mp4");
+
+        playlist.add_segment(SegmentRef {
+            sequence: 0,
+            duration: 4.0,
+            uri: "segment_00000.m4s".to_string(),
+            is_independent: true,
+            parts: vec![],
+        });
+
+        playlist.add_segment(SegmentRef {
+            sequence: 1,
+            duration: 4.0,
+            uri: "segment_00001.m4s".to_string(),
+            is_independent: true,
+            parts: vec![],
+        });
+
+        let content = playlist.generate();
+
+        // Tag appears exactly once, in the header (before EXT-X-MAP)
         assert_eq!(
-            media.init_segment_uri.as_deref(),
-            Some("/api/v3/live/1/hls/init.mp4")
+            content.matches("#EXT-X-INDEPENDENT-SEGMENTS").count(),
+            1,
+            "should appear exactly once"
         );
+        let tag_pos = content.find("#EXT-X-INDEPENDENT-SEGMENTS").unwrap();
+        let map_pos = content.find("#EXT-X-MAP").unwrap();
+        assert!(
+            tag_pos < map_pos,
+            "independent segments tag should be in the header"
+        );
+    }
+
+    #[test]
+    fn test_generator_dynamic_codec() {
+        let mut generator = PlaylistGenerator::new(1, "/api/v3/live/1/hls", 4, 6);
+
+        // Default codec
+        let master = generator.generate_master_playlist();
+        assert!(master.generate().contains("avc1.42e01e"));
+
+        // Set dynamic codec from SPS
+        generator.codec = Some("avc1.4d001f".to_string());
+        let master = generator.generate_master_playlist();
+        let content = master.generate();
+        assert!(content.contains("avc1.4d001f"));
+        assert!(!content.contains("avc1.42e01e"));
     }
 }
