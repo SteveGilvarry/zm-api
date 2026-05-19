@@ -608,6 +608,23 @@ pub fn h264_nal_type(nal_data: &[u8]) -> Option<u8> {
     nal_data.get(offset).map(|b| b & 0x1F)
 }
 
+/// Extract the NAL unit type from an H.265/HEVC NAL unit.
+///
+/// HEVC uses a two-byte NAL header; the 6-bit `nal_unit_type` occupies bits
+/// 1–6 of the first byte (`(byte >> 1) & 0x3F`). Returns `None` when the NAL
+/// has no recognizable Annex B start code or is too short. Parameter-set
+/// types: VPS = 32, SPS = 33, PPS = 34.
+pub fn h265_nal_type(nal_data: &[u8]) -> Option<u8> {
+    let offset = if nal_data.starts_with(&[0, 0, 0, 1]) {
+        4
+    } else if nal_data.starts_with(&[0, 0, 1]) {
+        3
+    } else {
+        return None;
+    };
+    nal_data.get(offset).map(|b| (b >> 1) & 0x3F)
+}
+
 /// Returns `true` if a VCL NAL unit begins a new primary coded picture.
 ///
 /// Access-unit assembly groups every slice of one coded picture together, and
@@ -1037,6 +1054,29 @@ mod tests {
         // H.265 non-IRAP frame (type 1) - not keyframe
         let h265_non_irap = vec![0x00, 0x00, 0x00, 0x01, 0x02, 0x01, 0xD0, 0x00];
         assert!(!ZmFifoReader::is_keyframe(&h265_non_irap, VideoCodec::H265));
+    }
+
+    #[test]
+    fn test_h265_nal_type() {
+        // The HEVC NAL type is bits 1–6 of the first header byte. VPS = 32
+        // (0x40), SPS = 33 (0x42), PPS = 34 (0x44).
+        assert_eq!(
+            h265_nal_type(&[0x00, 0x00, 0x00, 0x01, 0x40, 0x01]),
+            Some(32)
+        );
+        assert_eq!(
+            h265_nal_type(&[0x00, 0x00, 0x00, 0x01, 0x42, 0x01]),
+            Some(33)
+        );
+        assert_eq!(
+            h265_nal_type(&[0x00, 0x00, 0x00, 0x01, 0x44, 0x01]),
+            Some(34)
+        );
+        // IDR_W_RADL = 19 (0x26), with a 3-byte start code.
+        assert_eq!(h265_nal_type(&[0x00, 0x00, 0x01, 0x26, 0x01]), Some(19));
+        // No start code, and too-short input, both yield None.
+        assert_eq!(h265_nal_type(&[0x40, 0x01]), None);
+        assert_eq!(h265_nal_type(&[0x00, 0x00, 0x00, 0x01]), None);
     }
 
     #[test]
