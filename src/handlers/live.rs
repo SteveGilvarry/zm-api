@@ -1058,6 +1058,13 @@ async fn handle_webrtc_websocket(
     // Subscribe to video packets for streaming
     let mut video_rx = source.subscribe_video();
 
+    // Watch the FIFO reader's health. If the reader task exits, the watch
+    // sender is dropped and `changed()` returns Err — the broadcast channel
+    // would then never yield another packet (and never close, since the
+    // MonitorSource keeps the Sender alive), so the session must end rather
+    // than hang silently.
+    let mut reader_health_rx = source.subscribe_reader_health();
+
     // Assembles individual NAL units into complete access units (frames)
     // so the H264 payloader assigns one RTP timestamp per picture.
     let mut au_assembler = AccessUnitAssembler::new();
@@ -1295,6 +1302,36 @@ async fn handle_webrtc_websocket(
                     }
                     Err(broadcast::error::RecvError::Closed) => {
                         info!("Video source closed for WebRTC session {}", session_id);
+                        break;
+                    }
+                }
+            }
+
+            // Reader health: detect a dead FIFO reader so the session ends
+            // instead of waiting forever on a broadcast channel that never
+            // closes. A `Reconnecting` transition is transient (the reader
+            // retries on its own) and is only logged; `Err` means the reader
+            // task is gone for good.
+            result = reader_health_rx.changed() => {
+                match result {
+                    Ok(()) => {
+                        let health = *reader_health_rx.borrow_and_update();
+                        debug!(
+                            "WebRTC session {} reader health for monitor {}: {:?}",
+                            session_id, monitor_id, health
+                        );
+                    }
+                    Err(_) => {
+                        error!(
+                            "FIFO reader task exited for monitor {}, ending WebRTC session {}",
+                            monitor_id, session_id
+                        );
+                        let error_msg = WebRtcSignalingMessage::Error {
+                            message: "Video source stopped".to_string(),
+                        };
+                        if let Ok(json) = serde_json::to_string(&error_msg) {
+                            let _ = ws_sender.send(Message::Text(json.into())).await;
+                        }
                         break;
                     }
                 }

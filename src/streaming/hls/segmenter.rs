@@ -7,7 +7,7 @@ use bytes::{BufMut, BytesMut};
 use std::time::Duration;
 
 use super::h264;
-use crate::streaming::source::fifo::VideoCodec;
+use crate::streaming::source::fifo::{slice_starts_picture, VideoCodec};
 
 /// fMP4 initialization segment containing ftyp and moov boxes
 #[derive(Debug, Clone)]
@@ -192,12 +192,18 @@ impl HlsSegmenter {
             self.segment_start_time = Some(timestamp);
         }
 
-        // Access unit aggregation: flush pending frame when a new frame begins.
-        // A new frame starts when the timestamp changes. NALs with the same
-        // timestamp belong to the same access unit (multi-slice frames).
+        // Access unit aggregation: flush the pending frame when this NAL is
+        // the first slice of a new coded picture. Grouping keys off the slice
+        // header (`first_mb_in_slice == 0`), NOT the timestamp: a 4K picture
+        // has many slices, and they can reach the segmenter spread across
+        // ZoneMinder framed packets that each carry their own `pts`. Keying
+        // off the timestamp would split one picture into several torn samples
+        // (or, when every packet shares one `pts`, never flush at all and
+        // produce zero segments). Continuation slices (`first_mb_in_slice > 0`)
+        // belong to the picture already being assembled.
         let mut result = None;
         if let Some(pending) = self.pending_frame.take() {
-            let is_new_frame = timestamp != pending.timestamp;
+            let is_new_frame = slice_starts_picture(nal_data, self.codec);
             if is_new_frame {
                 // Flush the pending frame to completed samples
                 self.current_segment_samples.push(SegmentSample {
@@ -1457,9 +1463,13 @@ mod tests {
         segmenter.process_nal(&sps, 0, false);
         segmenter.process_nal(&pps, 1000, false);
 
-        // Feed two IDR slices with same timestamp (multi-slice frame)
+        // Feed two IDR slices of one multi-slice frame. The first slice starts
+        // the picture (`first_mb_in_slice == 0` → slice-header byte MSB set);
+        // the second is a continuation slice (`first_mb_in_slice > 0` → MSB
+        // clear). They share a timestamp here, but grouping no longer depends
+        // on that — see `test_4k_multi_slice_grouped_regardless_of_timestamp`.
         let idr_slice1 = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x80, 0x40];
-        let idr_slice2 = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x80, 0x41];
+        let idr_slice2 = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x08, 0x80, 0x41];
         segmenter.process_nal(&idr_slice1, 100_000, true);
         segmenter.process_nal(&idr_slice2, 100_000, true);
 
@@ -1500,9 +1510,10 @@ mod tests {
         segmenter.process_nal(&sps, 0, false);
         segmenter.process_nal(&pps, 1000, false);
 
-        // Feed multi-slice keyframe (2 slices, same timestamp)
+        // Feed a multi-slice keyframe: a picture-starting slice (0xAA → MSB
+        // set) followed by a continuation slice (0x0C → MSB clear).
         let idr1 = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0xAA, 0xBB];
-        let idr2 = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0xCC, 0xDD];
+        let idr2 = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x0C, 0xDD];
         segmenter.process_nal(&idr1, 100_000, true);
         segmenter.process_nal(&idr2, 100_000, true);
 
@@ -1555,7 +1566,7 @@ mod tests {
         ]);
         assert_eq!(nal2_len, 3, "Second NAL should be 3 bytes");
         assert_eq!(data[nal2_start + 4], 0x65);
-        assert_eq!(data[nal2_start + 5], 0xCC);
+        assert_eq!(data[nal2_start + 5], 0x0C);
         assert_eq!(data[nal2_start + 6], 0xDD);
 
         // Verify trun sample_count: should be 11 (1 IDR + 10 P-frames), not 12
@@ -1586,6 +1597,106 @@ mod tests {
         // Verify mdat total size is consistent
         let expected_mdat_data: usize = 14 + 10 * 7; // IDR(14) + 10 P-frames(4+3 each)
         assert_eq!(mdat_size, 8 + expected_mdat_data);
+    }
+
+    /// Build an H.264 slice NAL whose slice header opens with the given
+    /// `first_mb_in_slice`, Exp-Golomb (`ue(v)`) encoded exactly as a real
+    /// encoder would. Used to exercise multi-slice 4K access units, whose
+    /// later slices carry large macroblock indices.
+    fn slice_nal(nal_type: u8, first_mb_in_slice: u32) -> Vec<u8> {
+        // ue(v): `leading_zeros` zero bits, then the significant bits of
+        // `first_mb_in_slice + 1` (which is at least 1, so always non-empty).
+        let code = first_mb_in_slice as u64 + 1;
+        let significant = 64 - code.leading_zeros();
+        let leading_zeros = significant - 1;
+        let mut bits: Vec<bool> = Vec::new();
+        bits.extend(std::iter::repeat_n(false, leading_zeros as usize));
+        for i in (0..significant).rev() {
+            bits.push((code >> i) & 1 == 1);
+        }
+        // Pad to a byte boundary; padding never touches the first byte the
+        // picture-start detector inspects.
+        while !bits.len().is_multiple_of(8) {
+            bits.push(false);
+        }
+        let mut nal = vec![0x00, 0x00, 0x00, 0x01, nal_type];
+        for chunk in bits.chunks(8) {
+            let mut byte = 0u8;
+            for (i, &bit) in chunk.iter().enumerate() {
+                if bit {
+                    byte |= 1 << (7 - i);
+                }
+            }
+            nal.push(byte);
+        }
+        nal
+    }
+
+    /// Regression test for the 4K HLS failure: a 4K picture has many slices,
+    /// and they can reach the segmenter spread across ZoneMinder framed
+    /// packets carrying *different* `pts` values. The segmenter must group
+    /// them into one access unit by slice-start detection, never by timestamp.
+    #[test]
+    fn test_4k_multi_slice_grouped_regardless_of_timestamp() {
+        let mut segmenter = HlsSegmenter::new(1, Duration::from_secs(2));
+        segmenter.set_codec(VideoCodec::H264);
+
+        // Real 4K SPS + PPS.
+        let mut sps = vec![0x00, 0x00, 0x00, 0x01];
+        sps.extend_from_slice(&real_sps_4k());
+        let pps = vec![0x00, 0x00, 0x00, 0x01, 0x68, 0xEB, 0xE3, 0xCB, 0x22];
+        segmenter.process_nal(&sps, 0, false);
+        segmenter.process_nal(&pps, 0, false);
+
+        // A 3840×2160 frame is 240×135 = 32400 macroblocks. Model a 24-slice
+        // keyframe: slice 0 starts at macroblock 0, the rest at 1350-MB steps.
+        const SLICES: u32 = 24;
+        let first_slice = slice_nal(0x65, 0);
+        segmenter.process_nal(&first_slice, 100_000, true);
+        for s in 1..SLICES {
+            let continuation = slice_nal(0x65, s * 1350);
+            // Deliberately give each continuation slice a DIFFERENT timestamp:
+            // the old timestamp-based grouping would tear the picture apart.
+            segmenter.process_nal(&continuation, 100_000 + s as u64, true);
+        }
+
+        // All 24 slices belong to one in-progress access unit.
+        assert_eq!(
+            segmenter.total_pending_samples(),
+            1,
+            "a 24-slice 4K keyframe must assemble as ONE sample"
+        );
+        assert_eq!(
+            segmenter.pending_frame.as_ref().unwrap().nals.len(),
+            SLICES as usize,
+            "the pending frame must hold every slice of the picture"
+        );
+
+        // The next picture's first slice flushes the keyframe as one sample.
+        segmenter.process_nal(&slice_nal(0x41, 0), 400_000, false);
+        assert_eq!(
+            segmenter.current_segment_samples[0].nals.len(),
+            SLICES as usize,
+            "the completed keyframe sample must keep all 24 slices"
+        );
+        assert!(segmenter.current_segment_samples[0].is_keyframe);
+
+        // Drive multi-slice P-frame pictures past the 2s target, then a second
+        // keyframe — the segmenter must actually finalize a media segment.
+        for p in 1..=10u64 {
+            let ts = 400_000 + p * 300_000;
+            segmenter.process_nal(&slice_nal(0x41, 0), ts, false);
+            segmenter.process_nal(&slice_nal(0x41, 1350), ts + 1, false);
+            segmenter.process_nal(&slice_nal(0x41, 2700), ts + 2, false);
+        }
+        // The second keyframe's *first* slice closes the segment (it begins a
+        // new picture after the target duration has elapsed).
+        let kf2_ts = 400_000 + 11 * 300_000;
+        let segment = segmenter.process_nal(&slice_nal(0x65, 0), kf2_ts, true);
+        segmenter.process_nal(&slice_nal(0x65, 1350), kf2_ts + 1, true);
+
+        let seg = segment.expect("a segment must be produced for the 4K stream");
+        assert!(seg.is_keyframe);
     }
 
     /// Helper: find tkhd box in init segment and extract width/height (16.16 fixed-point).

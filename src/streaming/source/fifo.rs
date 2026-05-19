@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::Read as _;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::io::unix::AsyncFd;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
@@ -62,16 +62,32 @@ pub struct FifoPacket {
     pub codec: VideoCodec,
 }
 
-/// Maximum NAL accumulation buffer size (4 MB) before forced reset
-const MAX_NAL_BUF_SIZE: usize = 4 * 1024 * 1024;
+/// Largest single packet payload accepted from a `ZM` framing header.
+/// A header claiming more than this is treated as corrupt / a false match.
+///
+/// ZoneMinder frames a whole access unit — every slice of one coded picture —
+/// into a single `ZM` packet, so this ceiling must comfortably exceed the
+/// biggest keyframe a supported camera emits. A 4K (3840×2160) IDR at a high
+/// bitrate is several megabytes; the previous 4 MiB ceiling silently rejected
+/// those keyframes as "corrupt", resyncing into the middle of their payload
+/// and destroying the stream for every consumer. 16 MiB covers 4K with
+/// headroom while still rejecting the absurd sizes a corrupt/false header
+/// produces.
+const MAX_NAL_BUF_SIZE: usize = 16 * 1024 * 1024;
 /// Read buffer size for FIFO reads
 const FIFO_READ_BUF_SIZE: usize = 32768;
 
 /// Reader for ZoneMinder's video FIFO
 ///
-/// ZoneMinder writes raw Annex B H.264/H.265 byte streams to the FIFO
-/// (no framing headers). This reader accumulates bytes and extracts
-/// complete NAL units by scanning for start codes (00 00 00 01 / 00 00 01).
+/// ZoneMinder's `Fifo` does not write a raw Annex B stream — it frames every
+/// captured packet with the ASCII line `ZM <byte_count> <pts>\n` followed by
+/// exactly `<byte_count>` bytes of Annex B elementary stream (`zm_fifo.cpp`).
+///
+/// This reader parses that framing: `<pts>` becomes the packet timestamp and
+/// NAL extraction is bounded to a single packet's payload, so the `ZM …\n`
+/// header bytes can never leak into a NAL unit. Every NAL split from one
+/// packet shares that packet's timestamp, which is exactly the access-unit
+/// grouping the segmenter and RTP packetizer require for multi-slice frames.
 pub struct ZmFifoReader {
     monitor_id: u32,
     video_path: PathBuf,
@@ -83,10 +99,19 @@ pub struct ZmFifoReader {
     broadcast_capacity: usize,
     /// Broadcast channel for distributing packets to multiple consumers
     tx: broadcast::Sender<FifoPacket>,
-    /// Accumulation buffer for raw Annex B byte stream
+    /// Accumulation buffer for bytes read from the FIFO, still carrying
+    /// ZoneMinder `ZM <size> <pts>\n` framing.
     nal_buf: Vec<u8>,
-    /// Reader start time for generating monotonic timestamps
-    start_time: Instant,
+    /// NAL units split from the current ZM packet, awaiting emission. Every
+    /// NAL in this queue shares `current_pts_us`.
+    ready_nals: VecDeque<Vec<u8>>,
+    /// Normalized timestamp (microseconds) of the packet that produced the
+    /// NALs currently queued in `ready_nals`.
+    current_pts_us: i64,
+    /// The first ZM `pts` ever observed, subtracted from every later pts so
+    /// the session starts near zero (cameras running for hours emit huge
+    /// absolute PTS values). `None` until the first packet is parsed.
+    base_pts_us: Option<i64>,
 }
 
 impl ZmFifoReader {
@@ -192,7 +217,9 @@ impl ZmFifoReader {
             broadcast_capacity,
             tx,
             nal_buf: Vec::with_capacity(FIFO_READ_BUF_SIZE * 2),
-            start_time: Instant::now(),
+            ready_nals: VecDeque::new(),
+            current_pts_us: 0,
+            base_pts_us: None,
         }
     }
 
@@ -285,16 +312,21 @@ impl ZmFifoReader {
 
     /// Internal packet reading logic
     ///
-    /// Reads raw bytes from the FIFO using AsyncFd for epoll-based readiness
-    /// notification. This avoids blocking tokio's thread pool on FIFO reads
-    /// and ensures timeouts can cancel pending reads.
+    /// Parses ZoneMinder's `ZM <size> <pts>\n` framing out of the FIFO byte
+    /// stream, then yields one NAL unit per call. Every NAL split from the
+    /// same framed packet is returned with that packet's `pts`, so multi-slice
+    /// access units stay grouped downstream.
+    ///
+    /// Reads use `AsyncFd` for epoll-based readiness notification, which
+    /// avoids blocking tokio's thread pool and lets timeouts cancel pending
+    /// reads (the future is simply dropped).
     async fn read_packet_internal(&mut self) -> Result<FifoPacket, FifoError> {
         let async_fd = self.video_reader.as_ref().ok_or(FifoError::NotCapturing)?;
 
         loop {
-            // Try to extract a complete NAL unit from the accumulation buffer
-            if let Some(nal_data) = extract_next_nal(&mut self.nal_buf) {
-                // Detect codec if not yet known
+            // 1. Emit a NAL already split from the current ZM packet. Every
+            //    NAL of one packet carries that packet's timestamp.
+            if let Some(nal_data) = self.ready_nals.pop_front() {
                 if self.codec == VideoCodec::Unknown {
                     self.codec = Self::detect_codec(&nal_data);
                     if self.codec != VideoCodec::Unknown {
@@ -307,7 +339,6 @@ impl ZmFifoReader {
                 }
 
                 let is_keyframe = Self::is_keyframe(&nal_data, self.codec);
-                let timestamp_us = self.start_time.elapsed().as_micros() as i64;
 
                 debug!(
                     "Read NAL for monitor {}: {} bytes, keyframe: {}, codec: {}",
@@ -319,17 +350,60 @@ impl ZmFifoReader {
 
                 return Ok(FifoPacket {
                     monitor_id: self.monitor_id,
-                    timestamp_us,
+                    timestamp_us: self.current_pts_us,
                     data: nal_data,
                     is_keyframe,
                     codec: self.codec,
                 });
             }
 
-            // Need more data — wait for FIFO to become readable via epoll,
-            // then perform a non-blocking read. This is cancel-safe: if the
-            // timeout fires, the future is dropped without leaving a blocked
-            // thread in the pool.
+            // 2. Parse the next `ZM <size> <pts>\n` framed packet from the
+            //    accumulation buffer and split its payload into NAL units.
+            match parse_zm_frame(&self.nal_buf) {
+                ZmFrame::Complete {
+                    header_len,
+                    payload_size,
+                    pts,
+                } => {
+                    let total = header_len + payload_size;
+                    if self.nal_buf.len() >= total {
+                        // A real packet is immediately followed by the next
+                        // `ZM` header. If the byte after the payload is not
+                        // 'Z', this "header" was a false match inside payload
+                        // data — skip it and resync.
+                        if self.nal_buf.len() > total && self.nal_buf[total] != b'Z' {
+                            resync_zm(&mut self.nal_buf);
+                            continue;
+                        }
+
+                        let body = self.nal_buf[header_len..total].to_vec();
+                        self.nal_buf.drain(..total);
+
+                        // Normalize so the session starts near zero.
+                        let base = *self.base_pts_us.get_or_insert(pts);
+                        self.current_pts_us = pts.saturating_sub(base);
+                        self.ready_nals = split_annexb_nals(body).into();
+                        continue;
+                    }
+                    // Header parsed, payload still arriving — read more below.
+                }
+                ZmFrame::Incomplete => {
+                    // A valid but truncated header — read more below.
+                }
+                ZmFrame::Invalid => {
+                    // Not at a packet boundary (FIFO opened mid-stream, or
+                    // corruption). Skip to the next `ZM ` marker and retry; if
+                    // none is present yet, fall through to read more.
+                    if resync_zm(&mut self.nal_buf) {
+                        continue;
+                    }
+                }
+            }
+
+            // 3. Need more data — wait for FIFO to become readable via epoll,
+            //    then perform a non-blocking read. This is cancel-safe: if the
+            //    timeout fires, the future is dropped without leaving a blocked
+            //    thread in the pool.
             let n = loop {
                 let mut guard = async_fd.readable().await?;
                 let mut buf = [0u8; FIFO_READ_BUF_SIZE];
@@ -346,14 +420,17 @@ impl ZmFifoReader {
 
             debug!("Read {} bytes from FIFO for monitor {}", n, self.monitor_id);
 
-            // Prevent unbounded buffer growth (e.g., corrupt stream with no start codes)
-            if self.nal_buf.len() > MAX_NAL_BUF_SIZE {
+            // Prevent unbounded buffer growth (corrupt stream with no usable
+            // `ZM` markers). The limit is twice the largest accepted packet so
+            // a legitimate near-maximum packet still has room to finish.
+            if self.nal_buf.len() > MAX_NAL_BUF_SIZE * 2 {
                 warn!(
-                    "NAL buffer overflow ({} bytes) for monitor {}, resetting",
+                    "FIFO buffer overflow ({} bytes) for monitor {}, resetting",
                     self.nal_buf.len(),
                     self.monitor_id
                 );
                 self.nal_buf.clear();
+                self.ready_nals.clear();
             }
         }
     }
@@ -531,6 +608,52 @@ pub fn h264_nal_type(nal_data: &[u8]) -> Option<u8> {
     nal_data.get(offset).map(|b| b & 0x1F)
 }
 
+/// Returns `true` if a VCL NAL unit begins a new primary coded picture.
+///
+/// Access-unit assembly groups every slice of one coded picture together, and
+/// the picture's *first* slice is the only reliable boundary marker. This
+/// inspects the first bit of the slice (segment) header, which both codecs
+/// define as a picture-start marker:
+///
+/// * **H.264** — the slice header opens with `first_mb_in_slice`, an unsigned
+///   Exp-Golomb (`ue(v)`) value. The first slice of a picture has
+///   `first_mb_in_slice == 0`, which encodes as the single bit `1` — the MSB
+///   of the first slice-header byte is set. Every continuation slice has
+///   `first_mb_in_slice > 0`; an Exp-Golomb value greater than zero always
+///   begins with a `0` bit, so its MSB is clear. This holds for the very
+///   large macroblock indices a 4K picture's later slices carry (e.g. slice
+///   24 of a 3840×2160 frame starts well past macroblock 8000). Emulation-
+///   prevention bytes (`0x03`) are only ever inserted as the third byte of a
+///   `00 00` run, so they can never displace the first slice-header byte.
+///
+/// * **H.265/HEVC** — the two-byte NAL header is followed by the slice segment
+///   header, which opens with the one-bit `first_slice_segment_in_pic_flag`.
+///   A set MSB on that byte marks the first slice of the picture.
+///
+/// Callers are expected to pass VCL NALs only. When the NAL has no
+/// recognizable start code, or is too short to inspect, the answer is the
+/// conservative `true`: starting a fresh access unit is safer than merging
+/// two distinct pictures into one.
+pub fn slice_starts_picture(nal_data: &[u8], codec: VideoCodec) -> bool {
+    let start_code_len = if nal_data.starts_with(&[0, 0, 0, 1]) {
+        4
+    } else if nal_data.starts_with(&[0, 0, 1]) {
+        3
+    } else {
+        return true;
+    };
+    // The slice (segment) header begins immediately after the NAL header:
+    // one byte for H.264, two bytes for H.265.
+    let nal_header_len = match codec {
+        VideoCodec::H265 => 2,
+        VideoCodec::H264 | VideoCodec::Unknown => 1,
+    };
+    match nal_data.get(start_code_len + nal_header_len) {
+        Some(&first_slice_header_byte) => first_slice_header_byte & 0x80 != 0,
+        None => true,
+    }
+}
+
 /// Extract `profile-level-id` from an H.264 SPS NAL unit.
 ///
 /// The three bytes immediately after the NAL header in an SPS are
@@ -622,6 +745,141 @@ fn extract_next_nal(buf: &mut Vec<u8>) -> Option<Vec<u8>> {
     } else {
         // Only one start code found — need more data
         None
+    }
+}
+
+/// Split one ZM packet's Annex B payload into its constituent NAL units.
+///
+/// Unlike [`extract_next_nal`], the payload is a complete, bounded packet, so
+/// the final NAL — which has no trailing start code — is also returned. Each
+/// returned NAL keeps its leading start code.
+fn split_annexb_nals(mut body: Vec<u8>) -> Vec<Vec<u8>> {
+    let mut nals = Vec::new();
+    while let Some(nal) = extract_next_nal(&mut body) {
+        nals.push(nal);
+    }
+    // `extract_next_nal` returns `None` only once a single start code remains,
+    // having already drained any leading garbage — so whatever is left begins
+    // at a start code and is the packet's last NAL.
+    if find_start_code(&body, 0).is_some() {
+        nals.push(body);
+    }
+    nals
+}
+
+/// Outcome of parsing a ZoneMinder `ZM <size> <pts>\n` framing header at the
+/// start of a buffer.
+#[derive(Debug, PartialEq, Eq)]
+enum ZmFrame {
+    /// A complete header was parsed. `header_len` is its byte length;
+    /// `payload_size` bytes of Annex B data follow it.
+    Complete {
+        header_len: usize,
+        payload_size: usize,
+        pts: i64,
+    },
+    /// The buffer holds a valid header prefix but is truncated — read more.
+    Incomplete,
+    /// The buffer does not begin with a usable header — caller must resync.
+    Invalid,
+}
+
+/// Parse a ZoneMinder FIFO framing header at the start of `buf`.
+///
+/// ZoneMinder's `Fifo` writes each packet as the ASCII line
+/// `ZM <byte_count> <pts>\n` immediately followed by `<byte_count>` raw bytes
+/// of Annex B elementary stream (`zm_fifo.cpp`).
+fn parse_zm_frame(buf: &[u8]) -> ZmFrame {
+    const PREFIX: &[u8] = b"ZM ";
+
+    if buf.len() < PREFIX.len() {
+        // Too short to classify: still potentially a header if the bytes so
+        // far match the prefix, otherwise definitely not one.
+        return if PREFIX.starts_with(buf) {
+            ZmFrame::Incomplete
+        } else {
+            ZmFrame::Invalid
+        };
+    }
+    if &buf[..PREFIX.len()] != PREFIX {
+        return ZmFrame::Invalid;
+    }
+    let mut i = PREFIX.len();
+
+    // payload size: one or more ASCII digits, then a single space
+    let size_start = i;
+    while i < buf.len() && buf[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == buf.len() {
+        return ZmFrame::Incomplete; // digits may continue past the buffer end
+    }
+    if i == size_start || buf[i] != b' ' {
+        return ZmFrame::Invalid;
+    }
+    let payload_size: usize = match std::str::from_utf8(&buf[size_start..i])
+        .ok()
+        .and_then(|s| s.parse().ok())
+    {
+        Some(n) => n,
+        None => return ZmFrame::Invalid,
+    };
+    i += 1; // consume the space
+
+    // pts: an optional '-' followed by one or more ASCII digits, then '\n'
+    let pts_start = i;
+    if i < buf.len() && buf[i] == b'-' {
+        i += 1;
+    }
+    let pts_digits_start = i;
+    while i < buf.len() && buf[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == buf.len() {
+        return ZmFrame::Incomplete;
+    }
+    if i == pts_digits_start || buf[i] != b'\n' {
+        return ZmFrame::Invalid;
+    }
+    let pts: i64 = match std::str::from_utf8(&buf[pts_start..i])
+        .ok()
+        .and_then(|s| s.parse().ok())
+    {
+        Some(n) => n,
+        None => return ZmFrame::Invalid,
+    };
+    i += 1; // consume the newline
+
+    // Reject absurd sizes: a corrupt header, or a `ZM ` sequence that happened
+    // to appear inside payload data.
+    if payload_size == 0 || payload_size > MAX_NAL_BUF_SIZE {
+        return ZmFrame::Invalid;
+    }
+
+    ZmFrame::Complete {
+        header_len: i,
+        payload_size,
+        pts,
+    }
+}
+
+/// Drop bytes until the start of the next `ZM ` framing header.
+///
+/// The search starts past index 0, so a header that itself failed to parse is
+/// skipped to the *next* candidate. Returns `true` if a candidate was found
+/// and the buffer advanced to it (the caller should retry parsing). Returns
+/// `false` if none was found; the buffer is trimmed to its last two bytes so a
+/// `ZM` prefix split across two FIFO reads is preserved.
+fn resync_zm(buf: &mut Vec<u8>) -> bool {
+    if let Some(p) = buf.windows(3).skip(1).position(|w| w == b"ZM ") {
+        buf.drain(..p + 1); // `+1` compensates for the skipped first window
+        true
+    } else {
+        if buf.len() > 2 {
+            let keep_from = buf.len() - 2;
+            buf.drain(..keep_from);
+        }
+        false
     }
 }
 
@@ -779,6 +1037,257 @@ mod tests {
         // H.265 non-IRAP frame (type 1) - not keyframe
         let h265_non_irap = vec![0x00, 0x00, 0x00, 0x01, 0x02, 0x01, 0xD0, 0x00];
         assert!(!ZmFifoReader::is_keyframe(&h265_non_irap, VideoCodec::H265));
+    }
+
+    #[test]
+    fn test_parse_zm_frame_complete() {
+        let header = b"ZM 12345 96096000\n";
+        let mut buf = header.to_vec();
+        buf.extend_from_slice(&[0x00, 0x00, 0x00, 0x01, 0x67]); // start of payload
+        match parse_zm_frame(&buf) {
+            ZmFrame::Complete {
+                header_len,
+                payload_size,
+                pts,
+            } => {
+                assert_eq!(header_len, header.len());
+                assert_eq!(payload_size, 12345);
+                assert_eq!(pts, 96_096_000);
+            }
+            other => panic!("expected Complete, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_zm_frame_negative_pts() {
+        match parse_zm_frame(b"ZM 50 -42\npayload") {
+            ZmFrame::Complete {
+                payload_size, pts, ..
+            } => {
+                assert_eq!(payload_size, 50);
+                assert_eq!(pts, -42);
+            }
+            other => panic!("expected Complete, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_zm_frame_incomplete() {
+        // Empty, partial prefix, and full prefix are all still potential headers.
+        assert_eq!(parse_zm_frame(b""), ZmFrame::Incomplete);
+        assert_eq!(parse_zm_frame(b"Z"), ZmFrame::Incomplete);
+        assert_eq!(parse_zm_frame(b"ZM "), ZmFrame::Incomplete);
+        // Truncated mid size digits.
+        assert_eq!(parse_zm_frame(b"ZM 123"), ZmFrame::Incomplete);
+        // Truncated mid pts digits (no newline yet).
+        assert_eq!(parse_zm_frame(b"ZM 100 960"), ZmFrame::Incomplete);
+    }
+
+    #[test]
+    fn test_parse_zm_frame_invalid() {
+        // No `ZM ` prefix at all.
+        assert_eq!(parse_zm_frame(b"XY 100 200\n"), ZmFrame::Invalid);
+        // Raw Annex B bytes (FIFO opened mid-stream).
+        assert_eq!(
+            parse_zm_frame(&[0x00, 0x00, 0x00, 0x01, 0x67]),
+            ZmFrame::Invalid
+        );
+        // Prefix present but the size field is not digits.
+        assert_eq!(parse_zm_frame(b"ZM x100 200\n"), ZmFrame::Invalid);
+        // Wrong separator between size and pts.
+        assert_eq!(parse_zm_frame(b"ZM 100x200\n"), ZmFrame::Invalid);
+        // A zero-length payload is rejected.
+        assert_eq!(parse_zm_frame(b"ZM 0 200\n"), ZmFrame::Invalid);
+        // A payload larger than the accepted maximum is rejected.
+        let huge = format!("ZM {} 200\n", MAX_NAL_BUF_SIZE + 1);
+        assert_eq!(parse_zm_frame(huge.as_bytes()), ZmFrame::Invalid);
+    }
+
+    #[test]
+    fn test_resync_zm_finds_next_header() {
+        let mut buf = b"trailing payload bytesZM 100 200\nrest".to_vec();
+        assert!(resync_zm(&mut buf));
+        assert!(buf.starts_with(b"ZM 100 200\n"));
+    }
+
+    #[test]
+    fn test_resync_zm_skips_header_at_index_zero() {
+        // A header at index 0 that failed to parse must be skipped to the next.
+        let mut buf = b"ZM bogusZM 7 9\nx".to_vec();
+        assert!(resync_zm(&mut buf));
+        assert!(buf.starts_with(b"ZM 7 9\n"));
+    }
+
+    #[test]
+    fn test_resync_zm_no_header_trims_tail() {
+        let mut buf = b"no marker present at all".to_vec();
+        assert!(!resync_zm(&mut buf));
+        // Tail is preserved in case a `ZM` prefix is split across reads.
+        assert!(buf.len() <= 2);
+    }
+
+    #[test]
+    fn test_split_annexb_nals_multi() {
+        // Three NALs back to back; the last one has no trailing start code.
+        let body = vec![
+            0x00, 0x00, 0x00, 0x01, 0x67, 0xAA, // SPS
+            0x00, 0x00, 0x00, 0x01, 0x68, 0xBB, // PPS
+            0x00, 0x00, 0x00, 0x01, 0x65, 0xCC, 0xDD, // IDR slice
+        ];
+        let nals = split_annexb_nals(body);
+        assert_eq!(nals.len(), 3);
+        assert_eq!(nals[0], vec![0x00, 0x00, 0x00, 0x01, 0x67, 0xAA]);
+        assert_eq!(nals[1], vec![0x00, 0x00, 0x00, 0x01, 0x68, 0xBB]);
+        assert_eq!(nals[2], vec![0x00, 0x00, 0x00, 0x01, 0x65, 0xCC, 0xDD]);
+    }
+
+    #[test]
+    fn test_split_annexb_nals_single_and_empty() {
+        let single = split_annexb_nals(vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x11]);
+        assert_eq!(single, vec![vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x11]]);
+
+        assert!(split_annexb_nals(vec![0x11, 0x22, 0x33]).is_empty());
+        assert!(split_annexb_nals(Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn test_zm_framing_recovers_multi_slice_picture_cleanly() {
+        // One ZM packet carrying a 3-slice access unit, framed exactly as
+        // ZoneMinder writes it, with a real `ZM` header for the next packet
+        // appended so the framing boundary is exercised.
+        let body = [
+            0x00, 0x00, 0x00, 0x01, 0x65, 0x88, // slice 0
+            0x00, 0x00, 0x00, 0x01, 0x65, 0x10, // slice 1
+            0x00, 0x00, 0x00, 0x01, 0x65, 0x10, // slice 2
+        ];
+        let mut buf = format!("ZM {} 500000\n", body.len()).into_bytes();
+        buf.extend_from_slice(&body);
+        buf.extend_from_slice(b"ZM 4 600000\n"); // next packet's header
+
+        let ZmFrame::Complete {
+            header_len,
+            payload_size,
+            pts,
+        } = parse_zm_frame(&buf)
+        else {
+            panic!("expected Complete");
+        };
+        assert_eq!(pts, 500_000);
+        assert_eq!(buf[header_len + payload_size], b'Z'); // next header follows
+
+        let nals = split_annexb_nals(buf[header_len..header_len + payload_size].to_vec());
+        // All three slices are recovered, and none carries the `ZM` header
+        // bytes that previously leaked into NAL payloads.
+        assert_eq!(nals.len(), 3);
+        for nal in &nals {
+            assert!(
+                !nal.windows(2).any(|w| w == b"ZM"),
+                "NAL must not contain framing-header bytes"
+            );
+        }
+    }
+
+    /// Encode `first_mb_in_slice` as an H.264 `ue(v)` and return the byte that
+    /// immediately follows the NAL header — the byte `slice_starts_picture`
+    /// inspects.
+    fn first_slice_header_byte(first_mb_in_slice: u32) -> u8 {
+        let code = first_mb_in_slice as u64 + 1;
+        let significant = 64 - code.leading_zeros();
+        let leading_zeros = significant - 1;
+        let mut byte = 0u8;
+        let mut bit_pos = 0u32; // 0 = MSB
+        for _ in 0..leading_zeros {
+            bit_pos += 1; // a zero bit; nothing to set
+            if bit_pos >= 8 {
+                return byte;
+            }
+        }
+        for i in (0..significant).rev() {
+            if (code >> i) & 1 == 1 && bit_pos < 8 {
+                byte |= 1 << (7 - bit_pos);
+            }
+            bit_pos += 1;
+            if bit_pos >= 8 {
+                break;
+            }
+        }
+        byte
+    }
+
+    #[test]
+    fn test_slice_starts_picture_h264_first_slice() {
+        // first_mb_in_slice == 0 → ue(v) is the single bit `1` → MSB set.
+        let first = first_slice_header_byte(0);
+        assert_eq!(first, 0x80);
+        let nal = vec![0x00, 0x00, 0x00, 0x01, 0x65, first, 0x40];
+        assert!(slice_starts_picture(&nal, VideoCodec::H264));
+        // Also the 3-byte start-code form.
+        let nal3 = vec![0x00, 0x00, 0x01, 0x41, first, 0x40];
+        assert!(slice_starts_picture(&nal3, VideoCodec::H264));
+    }
+
+    #[test]
+    fn test_slice_starts_picture_h264_continuation_slices() {
+        // Every continuation slice of a multi-slice picture has
+        // first_mb_in_slice > 0, so its first slice-header byte has the MSB
+        // clear — including the large macroblock indices a 4K picture emits.
+        for first_mb in [1u32, 5, 99, 240, 8160, 16200, 32000] {
+            let byte = first_slice_header_byte(first_mb);
+            assert_eq!(
+                byte & 0x80,
+                0,
+                "first_mb_in_slice={first_mb} must encode with the MSB clear"
+            );
+            let nal = vec![0x00, 0x00, 0x00, 0x01, 0x65, byte, 0xAA, 0xBB];
+            assert!(
+                !slice_starts_picture(&nal, VideoCodec::H264),
+                "first_mb_in_slice={first_mb} must read as a continuation slice"
+            );
+        }
+    }
+
+    #[test]
+    fn test_slice_starts_picture_h264_emulation_prevention_unaffected() {
+        // A continuation slice whose header begins `00 00 03 …` (an inserted
+        // emulation-prevention byte). The detector inspects only the first
+        // slice-header byte (0x00), so the 0x03 cannot shift its decision.
+        let nal = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x00, 0x00, 0x03, 0x12];
+        assert!(!slice_starts_picture(&nal, VideoCodec::H264));
+    }
+
+    #[test]
+    fn test_slice_starts_picture_h265() {
+        // H.265 has a 2-byte NAL header; the slice segment header opens with
+        // `first_slice_segment_in_pic_flag`.
+        // NAL header bytes 0x26,0x01 = IDR_W_RADL.
+        let starts = vec![0x00, 0x00, 0x00, 0x01, 0x26, 0x01, 0x80, 0x40];
+        assert!(slice_starts_picture(&starts, VideoCodec::H265));
+        let continuation = vec![0x00, 0x00, 0x00, 0x01, 0x26, 0x01, 0x40, 0x40];
+        assert!(!slice_starts_picture(&continuation, VideoCodec::H265));
+    }
+
+    #[test]
+    fn test_slice_starts_picture_conservative_defaults() {
+        // No start code → cannot locate the slice header → treat as a new AU.
+        assert!(slice_starts_picture(&[0x65, 0x80], VideoCodec::H264));
+        // Start code present but nothing after the NAL header → new AU.
+        assert!(slice_starts_picture(
+            &[0x00, 0x00, 0x00, 0x01, 0x65],
+            VideoCodec::H264
+        ));
+    }
+
+    #[test]
+    fn test_parse_zm_frame_accepts_4k_keyframe() {
+        // A 5 MiB 4K IDR access unit: rejected by the old 4 MiB ceiling,
+        // accepted now. `parse_zm_frame` only needs the header present.
+        let payload = 5 * 1024 * 1024;
+        assert!(payload <= MAX_NAL_BUF_SIZE);
+        let header = format!("ZM {payload} 96096000\n");
+        match parse_zm_frame(header.as_bytes()) {
+            ZmFrame::Complete { payload_size, .. } => assert_eq!(payload_size, payload),
+            other => panic!("expected Complete for a 4K-sized packet, got {other:?}"),
+        }
     }
 
     #[test]

@@ -329,14 +329,19 @@ impl SourceRouter {
     /// This will create a MonitorSource if one doesn't exist, and optionally
     /// start the background reader task if auto_start is enabled.
     pub async fn get_source(&self, monitor_id: u32) -> Result<Arc<MonitorSource>, RouterError> {
-        // Check if already active
-        if let Some(source) = self.active_sources.get(&monitor_id) {
-            return Ok(source.clone());
-        }
+        // Reuse an existing source, or create one. Either way we must still
+        // ensure its reader task is running below: a source can outlive its
+        // reader (`stop_reader` aborts the task but leaves the source in
+        // `active_sources`), and a subscriber to a source whose reader is
+        // dead hangs forever on the broadcast channel — it never closes
+        // while the `MonitorSource` holds the `Sender`.
+        let source = match self.active_sources.get(&monitor_id) {
+            Some(source) => source.clone(),
+            None => self.create_source(monitor_id).await?,
+        };
 
-        let source = self.create_source(monitor_id).await?;
-
-        // Start the reader if auto_start is enabled
+        // Start the reader if auto_start is enabled. `start_reader` is
+        // idempotent — a no-op when a reader task is already alive.
         if self.config.auto_start {
             self.start_reader(monitor_id).await?;
         }
@@ -352,10 +357,20 @@ impl SourceRouter {
             .ok_or(RouterError::SourceNotAvailable(monitor_id))?
             .clone();
 
-        // Check if already active
-        if *source.active.read().await {
-            debug!("Reader already active for monitor {}", monitor_id);
-            return Ok(());
+        // Skip only when a reader task is still alive. The `active` flag is
+        // not a reliable "running" signal: it is false during normal
+        // reconnect cycles, and it stays false on a source whose reader was
+        // aborted by `stop_reader`. Keying off the `JoinHandle` instead means
+        // a dead/aborted/panicked reader is correctly restarted, while a live
+        // one (even mid-reconnect) is never duplicated.
+        {
+            let handle_guard = source.reader_handle.read().await;
+            if let Some(handle) = handle_guard.as_ref() {
+                if !handle.is_finished() {
+                    debug!("Reader already running for monitor {}", monitor_id);
+                    return Ok(());
+                }
+            }
         }
 
         // Create and start the reader task
@@ -759,5 +774,75 @@ mod tests {
         // Subscriber should see the update
         assert!(rx.borrow().is_some());
         assert_eq!(rx.borrow().as_ref().unwrap().profile_level_id, "4d0033");
+    }
+
+    /// Poll `is_active()` until it reaches `want`, or panic after ~2s.
+    async fn await_active(router: &SourceRouter, monitor_id: u32, want: bool) {
+        for _ in 0..200 {
+            if let Some(source) = router.get_existing_source(monitor_id) {
+                if source.is_active().await == want {
+                    return;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("monitor {monitor_id} reader never reached active={want}");
+    }
+
+    /// Regression test: a source can outlive its reader task. `stop_reader`
+    /// aborts the reader but leaves the `MonitorSource` registered, so a
+    /// later `get_source` must restart the reader instead of handing back a
+    /// source whose broadcast channel has no producer (subscribers of such a
+    /// source hang forever — the channel never closes while the `Sender`
+    /// lives). This is the bug that froze WebRTC after the first keyframe.
+    #[tokio::test]
+    async fn test_get_source_restarts_dead_reader() {
+        use std::process::Command;
+
+        // A real FIFO in a temp dir, addressed via the "old custom format"
+        // (suffix not starting with `/video_fifo_`) so the path is ours.
+        let dir = std::env::temp_dir().join(format!("zm_router_test_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fifo_path = dir.join("7.fifo");
+        let _ = std::fs::remove_file(&fifo_path);
+        let status = Command::new("mkfifo")
+            .arg(&fifo_path)
+            .status()
+            .expect("mkfifo should be available");
+        assert!(status.success(), "mkfifo failed");
+
+        let config = ZoneMinderConfig {
+            fifo_base_path: dir.to_string_lossy().into_owned(),
+            video_fifo_suffix: ".fifo".to_string(),
+            ..ZoneMinderConfig::default()
+        };
+        let router = SourceRouter::from_zoneminder_config(config);
+
+        // First acquisition creates the source and starts the reader.
+        router
+            .get_source(7)
+            .await
+            .expect("first get_source should succeed");
+        await_active(&router, 7, true).await;
+
+        // Simulate a session ending: the reader is aborted but the source
+        // stays registered in `active_sources`.
+        router
+            .stop_reader(7)
+            .await
+            .expect("stop_reader should succeed");
+        await_active(&router, 7, false).await;
+
+        // Re-acquiring the existing source must bring the reader back to
+        // life — not hand back a source with a dead broadcast channel.
+        router
+            .get_source(7)
+            .await
+            .expect("second get_source should succeed");
+        await_active(&router, 7, true).await;
+
+        let _ = router.stop_reader(7).await;
+        let _ = std::fs::remove_file(&fifo_path);
+        let _ = std::fs::remove_dir(&dir);
     }
 }

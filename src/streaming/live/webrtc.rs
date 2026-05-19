@@ -32,7 +32,7 @@ use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSampl
 use webrtc::track::track_local::TrackLocal;
 use webrtc_media::Sample;
 
-use crate::streaming::source::{h264_nal_type, FifoPacket, VideoCodec};
+use crate::streaming::source::{h264_nal_type, slice_starts_picture, FifoPacket, VideoCodec};
 
 // Re-export for consumers that imported from here
 pub use crate::streaming::source::extract_profile_level_id;
@@ -54,8 +54,11 @@ fn is_h264_vcl(nal_type: u8) -> bool {
 /// but each `write_sample()` call gets a distinct RTP timestamp. For
 /// correct decoding, all NALs belonging to the same picture must share
 /// one timestamp. This assembler buffers non-VCL NALs (SPS, PPS, SEI)
-/// and emits a complete AU when it sees a VCL NAL that starts a new
-/// picture (any IDR, or a non-IDR whose `first_mb_in_slice` is 0).
+/// and emits a complete AU when it sees the first VCL NAL of the *next*
+/// picture — a slice whose `first_mb_in_slice` is 0. Continuation slices
+/// of a multi-slice picture (`first_mb_in_slice > 0`) are kept in the same
+/// AU so the RTP packetizer assigns the whole frame one timestamp and a
+/// single trailing marker bit.
 pub struct AccessUnitAssembler {
     /// Buffered Annex B data for the current access unit being assembled
     buf: Vec<u8>,
@@ -117,29 +120,39 @@ impl AccessUnitAssembler {
         }
 
         let vcl = is_h264_vcl(nal_type);
-        let is_parameter_set = nal_type == 7 || nal_type == 8;
+        // SPS (7), PPS (8) and AUD (9) all delimit the start of a new access
+        // unit. Flush any buffered VCL data when one arrives so it begins a
+        // fresh AU — SPS/PPS group with the following keyframe, not with the
+        // preceding slice.
+        let starts_new_au = nal_type == 7 || nal_type == 8 || nal_type == 9;
 
-        // SPS/PPS should be grouped with the following keyframe, not with
-        // the preceding slice.  Flush any buffered VCL data when a parameter
-        // set arrives so SPS+PPS start a fresh AU.
-        if is_parameter_set && self.has_vcl {
+        if starts_new_au && self.has_vcl {
             let au = self.flush();
             self.buf.extend_from_slice(&packet.data);
             return self.filter_needs_keyframe(au);
         }
 
         if vcl && self.has_vcl {
-            // A new VCL NAL while we already have one buffered means the
-            // previous AU is complete. Flush it and start a new one.
-            let au = self.flush();
+            // A VCL NAL only completes the current access unit when it begins
+            // a new primary coded picture (`first_mb_in_slice == 0`). The
+            // remaining slices of a multi-slice picture — 4K cameras emit
+            // several slice NALs per frame — carry `first_mb_in_slice > 0` and
+            // belong to the SAME access unit. They must be appended, not split
+            // off, so the H264 RTP packetizer keeps every slice of the picture
+            // under one RTP timestamp with a single trailing marker bit.
+            if slice_starts_picture(&packet.data, packet.codec) {
+                let au = self.flush();
 
-            // Start new AU with this NAL
-            self.buf.extend_from_slice(&packet.data);
-            self.has_vcl = true;
-            self.timestamp_us = packet.timestamp_us;
-            self.is_keyframe = packet.is_keyframe;
+                // Start a new AU with this slice.
+                self.buf.extend_from_slice(&packet.data);
+                self.has_vcl = true;
+                self.timestamp_us = packet.timestamp_us;
+                self.is_keyframe = packet.is_keyframe;
 
-            return self.filter_needs_keyframe(au);
+                return self.filter_needs_keyframe(au);
+            }
+            // Continuation slice of the current picture — fall through to
+            // append it to the access unit already being assembled.
         }
 
         // Append to current AU
@@ -361,6 +374,34 @@ pub struct WebRtcLiveManager {
     monitor_sessions: DashMap<u32, Vec<String>>,
 }
 
+/// The H.264 `profile-level-id` values to advertise in the SDP offer.
+///
+/// These are **not** the camera's native profile. The server is a pure
+/// pass-through — it forwards the camera's real H.264 NAL units unchanged —
+/// and in practice every WebRTC decoder (Safari's VideoToolbox, Chromium's
+/// decoder) decodes whatever NAL units actually arrive regardless of the
+/// negotiated `profile-level-id`. So the offer advertises only the profiles
+/// every browser is guaranteed to accept:
+///
+/// * `42e01f` — Constrained Baseline, Level 3.1. The universal baseline; every
+///   WebRTC implementation accepts it.
+/// * `640c1f` — Constrained High, Level 3.1.
+///
+/// Safari accepts *only* these two. It rejects Main (`4d…`) outright, and
+/// plain non-constrained High (`6400…`) is not the same as Constrained High
+/// (`640c…`). Advertising the camera's native Main/High profile therefore
+/// made Safari answer with a rejected `m=video 0` line, after which the server
+/// errored "codec is not supported by remote" and dropped the connection.
+///
+/// `level-asymmetry-allowed=1` (set in the fmtp line) lets the bytes the
+/// server actually sends stay at the camera's real level — 5.1 for 4K — even
+/// though the negotiated level is the conservative 3.1. Profile is not subject
+/// to level asymmetry, which is exactly why the offered *profiles* must be
+/// ones the decoder accepts; it then decodes the real Main/High bitstream.
+fn h264_offer_profile_level_ids() -> Vec<String> {
+    vec!["42e01f".to_string(), "640c1f".to_string()]
+}
+
 impl WebRtcLiveManager {
     /// Create a new WebRTC live manager
     pub fn new(config: WebRtcLiveConfig) -> Self {
@@ -404,44 +445,60 @@ impl WebRtcLiveManager {
         // Create media engine with codec support
         let mut media_engine = MediaEngine::default();
 
-        let codec_capability = match codec {
+        // Build the codec capabilities to advertise. For H.264 the offer
+        // advertises browser-universal pass-through profiles, *not* the
+        // camera's native one — see `h264_offer_profile_level_ids`.
+        let codec_capabilities: Vec<RTCRtpCodecCapability> = match codec {
             VideoCodec::H264 => {
-                // Use the detected profile from the SPS NAL, or default to
-                // Main Profile Level 5.1 which covers most IP cameras.
-                let plid = profile_level_id.unwrap_or("4d0033");
-                RTCRtpCodecCapability {
-                    mime_type: "video/H264".to_string(),
-                    clock_rate: 90000,
-                    channels: 0,
-                    sdp_fmtp_line: format!(
-                        "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id={}",
-                        plid
-                    ),
-                    rtcp_feedback: vec![],
-                }
+                debug!(
+                    "Monitor {monitor_id}: camera H.264 profile {}; advertising \
+                     pass-through profiles 42e01f/640c1f for browser compatibility",
+                    profile_level_id.unwrap_or("unknown")
+                );
+                h264_offer_profile_level_ids()
+                    .into_iter()
+                    .map(|variant| RTCRtpCodecCapability {
+                        mime_type: "video/H264".to_string(),
+                        clock_rate: 90000,
+                        channels: 0,
+                        sdp_fmtp_line: format!(
+                            "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id={variant}"
+                        ),
+                        rtcp_feedback: vec![],
+                    })
+                    .collect()
             }
-            VideoCodec::H265 => RTCRtpCodecCapability {
+            VideoCodec::H265 => vec![RTCRtpCodecCapability {
                 mime_type: "video/H265".to_string(),
                 clock_rate: 90000,
                 channels: 0,
                 sdp_fmtp_line: String::new(),
                 rtcp_feedback: vec![],
-            },
+            }],
             VideoCodec::Unknown => {
                 return Err(WebRtcLiveError::UnsupportedCodec("Unknown".to_string()));
             }
         };
 
-        media_engine
-            .register_codec(
-                webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecParameters {
-                    capability: codec_capability.clone(),
-                    payload_type: 96,
-                    ..Default::default()
-                },
-                webrtc::rtp_transceiver::rtp_codec::RTPCodecType::Video,
-            )
-            .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
+        // The pass-through track binds by mime type, so any advertised
+        // capability works; use the first. Negotiation settles on one of the
+        // offered profiles, but the bytes we send are always the camera's
+        // real bitstream — the decoder handles it regardless of profile.
+        let codec_capability = codec_capabilities[0].clone();
+
+        // Payload types 96+ are the dynamic range; one per advertised codec.
+        for (i, capability) in codec_capabilities.into_iter().enumerate() {
+            media_engine
+                .register_codec(
+                    webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecParameters {
+                        capability,
+                        payload_type: 96 + i as u8,
+                        ..Default::default()
+                    },
+                    webrtc::rtp_transceiver::rtp_codec::RTPCodecType::Video,
+                )
+                .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
+        }
 
         // Register default interceptors (RTCP feedback, NACK, etc.)
         let mut registry = Registry::new();
@@ -789,9 +846,18 @@ mod tests {
 
     // --- AccessUnitAssembler tests ---
 
+    /// Build a single-NAL `FifoPacket`. For VCL slice NAL types a slice-header
+    /// byte with `first_mb_in_slice == 0` (MSB set) is inserted right after the
+    /// NAL header, so the packet reads as the *start* of a coded picture. Use
+    /// `make_continuation_slice` for slices that continue a multi-slice picture.
     fn make_nal(nal_type: u8, extra: &[u8]) -> FifoPacket {
-        let is_keyframe = (nal_type & 0x1F) == 5; // IDR
+        let raw = nal_type & 0x1F;
+        let is_keyframe = raw == 5; // IDR
         let mut data = vec![0x00, 0x00, 0x00, 0x01, nal_type];
+        if (1..=5).contains(&raw) {
+            // first_mb_in_slice = 0 → Exp-Golomb single `1` bit (MSB set).
+            data.push(0x80);
+        }
         data.extend_from_slice(extra);
         FifoPacket {
             monitor_id: 1,
@@ -800,6 +866,90 @@ mod tests {
             is_keyframe,
             codec: VideoCodec::H264,
         }
+    }
+
+    /// Build a continuation slice of a multi-slice picture: a VCL NAL whose
+    /// `first_mb_in_slice` is greater than 0 (MSB of the slice header clear).
+    fn make_continuation_slice(nal_type: u8) -> FifoPacket {
+        let raw = nal_type & 0x1F;
+        let is_keyframe = raw == 5;
+        // 0x00 slice-header byte → leading Exp-Golomb bit clear → MB index > 0.
+        let data = vec![0x00, 0x00, 0x00, 0x01, nal_type, 0x00, 0xAA];
+        FifoPacket {
+            monitor_id: 1,
+            timestamp_us: 0,
+            data,
+            is_keyframe,
+            codec: VideoCodec::H264,
+        }
+    }
+
+    /// Build a slice NAL whose slice header opens with `first_mb_in_slice`,
+    /// Exp-Golomb (`ue(v)`) encoded as a real encoder would — so continuation
+    /// slices carry the large macroblock indices a 4K picture produces.
+    fn make_slice(nal_type: u8, first_mb_in_slice: u32) -> FifoPacket {
+        let code = first_mb_in_slice as u64 + 1;
+        let significant = 64 - code.leading_zeros();
+        let leading_zeros = significant - 1;
+        let mut bits: Vec<bool> = Vec::new();
+        bits.extend(std::iter::repeat_n(false, leading_zeros as usize));
+        for i in (0..significant).rev() {
+            bits.push((code >> i) & 1 == 1);
+        }
+        while !bits.len().is_multiple_of(8) {
+            bits.push(false);
+        }
+        let mut data = vec![0x00, 0x00, 0x00, 0x01, nal_type];
+        for chunk in bits.chunks(8) {
+            let mut byte = 0u8;
+            for (i, &bit) in chunk.iter().enumerate() {
+                if bit {
+                    byte |= 1 << (7 - i);
+                }
+            }
+            data.push(byte);
+        }
+        FifoPacket {
+            monitor_id: 1,
+            timestamp_us: 0,
+            data,
+            is_keyframe: (nal_type & 0x1F) == 5,
+            codec: VideoCodec::H264,
+        }
+    }
+
+    #[test]
+    fn test_au_assembler_4k_many_slices_single_au() {
+        // A 3840×2160 picture is 240×135 = 32400 macroblocks. Real 4K cameras
+        // split it into many slices; only the first has first_mb_in_slice == 0.
+        // Every continuation slice must stay in the SAME access unit so the
+        // RTP packetizer gives the whole picture one timestamp + marker bit.
+        const SLICES: u32 = 24;
+        let mut asm = AccessUnitAssembler::new();
+
+        asm.push(&make_nal(0x67, &[0x64, 0x00, 0x33])); // SPS
+        asm.push(&make_nal(0x68, &[0xCE, 0x3C, 0x80])); // PPS
+
+        // First IDR slice starts the picture; the rest continue it.
+        assert!(asm.push(&make_slice(0x65, 0)).is_none());
+        for s in 1..SLICES {
+            assert!(
+                asm.push(&make_slice(0x65, s * 1350)).is_none(),
+                "continuation slice {s} must not flush the access unit"
+            );
+        }
+
+        // The next picture's first slice flushes the 24-slice keyframe AU.
+        let au = asm
+            .push(&make_slice(0x41, 0))
+            .expect("multi-slice keyframe AU expected");
+        assert!(au.is_keyframe);
+        // SPS + PPS + 24 IDR slices = 26 NAL start codes, all in one AU.
+        let starts = au.data.windows(4).filter(|w| w == &[0, 0, 0, 1]).count();
+        assert_eq!(
+            starts, 26,
+            "the whole 4K picture must emit as a single access unit"
+        );
     }
 
     #[test]
@@ -919,6 +1069,73 @@ mod tests {
     }
 
     #[test]
+    fn test_au_assembler_multi_slice_keyframe_single_au() {
+        // A 4K keyframe split across three slice NALs must emit as ONE AU so
+        // the RTP packetizer gives the whole picture one timestamp + marker.
+        let mut asm = AccessUnitAssembler::new();
+
+        asm.push(&make_nal(0x67, &[0x4d, 0x00, 0x33])); // SPS
+        asm.push(&make_nal(0x68, &[0xCE, 0x3C, 0x80])); // PPS
+                                                        // First IDR slice (first_mb_in_slice == 0) starts the picture.
+        assert!(asm.push(&make_nal(0x65, &[0x88])).is_none());
+        // Two continuation IDR slices of the SAME picture — must NOT flush.
+        assert!(asm.push(&make_continuation_slice(0x65)).is_none());
+        assert!(asm.push(&make_continuation_slice(0x65)).is_none());
+
+        // The next picture's first slice flushes the multi-slice keyframe AU.
+        let au = asm.push(&make_nal(0x41, &[0x9A])).expect("AU expected");
+        assert!(au.is_keyframe);
+        // AU must contain SPS + PPS + 3 IDR slices = 5 NAL start codes.
+        let starts = au.data.windows(4).filter(|w| w == &[0, 0, 0, 1]).count();
+        assert_eq!(starts, 5, "multi-slice keyframe AU must hold all 5 NALs");
+    }
+
+    #[test]
+    fn test_au_assembler_multi_slice_p_frame_single_au() {
+        let mut asm = AccessUnitAssembler::new();
+
+        // Prime with a keyframe to clear needs_keyframe.
+        asm.push(&make_nal(0x65, &[0x88]));
+        let au = asm.push(&make_nal(0x41, &[0x01])).expect("keyframe AU");
+        assert!(au.is_keyframe);
+
+        // The P slice just pushed is the current AU; add two continuation
+        // slices of the same multi-slice P-frame.
+        assert!(asm.push(&make_continuation_slice(0x41)).is_none());
+        assert!(asm.push(&make_continuation_slice(0x41)).is_none());
+
+        // The next picture's first slice flushes the 3-slice P-frame as one AU.
+        let au = asm.push(&make_nal(0x41, &[0x02])).expect("P-frame AU");
+        assert!(!au.is_keyframe);
+        let starts = au.data.windows(4).filter(|w| w == &[0, 0, 0, 1]).count();
+        assert_eq!(starts, 3, "multi-slice P-frame AU must hold all 3 slices");
+    }
+
+    #[test]
+    fn test_au_assembler_multi_slice_keyframe_flag_from_first_slice() {
+        // An AU is a keyframe when its first slice is an IDR slice, even when
+        // later continuation slices are present.
+        let mut asm = AccessUnitAssembler::new();
+        asm.push(&make_nal(0x67, &[0x4d, 0x00, 0x33]));
+        asm.push(&make_nal(0x68, &[0xCE]));
+        asm.push(&make_nal(0x65, &[0x88])); // first IDR slice
+        asm.push(&make_continuation_slice(0x65)); // continuation IDR slice
+        let au = asm.push(&make_nal(0x41, &[0x9A])).expect("AU");
+        assert!(au.is_keyframe);
+    }
+
+    #[test]
+    fn test_au_assembler_aud_delimits_access_unit() {
+        // An Access Unit Delimiter (NAL type 9) flushes the buffered picture.
+        let mut asm = AccessUnitAssembler::new();
+        asm.push(&make_nal(0x65, &[0x88])); // IDR slice buffered
+        let au = asm
+            .push(&make_nal(0x09, &[0xF0]))
+            .expect("AUD flushes keyframe AU");
+        assert!(au.is_keyframe);
+    }
+
+    #[test]
     fn test_au_assembler_empty_packet_ignored() {
         let mut asm = AccessUnitAssembler::new();
         let empty = FifoPacket {
@@ -972,6 +1189,32 @@ mod tests {
         // No start code
         let no_start = vec![0x67, 0x4D, 0x00, 0x33];
         assert_eq!(extract_profile_level_id(&no_start), None);
+    }
+
+    #[test]
+    fn test_h264_offer_profile_level_ids() {
+        // The offer advertises browser-universal pass-through profiles,
+        // independent of the camera's native profile. Safari accepts only
+        // Constrained Baseline (42e01f) and Constrained High (640c1f); both
+        // are advertised so Safari can answer instead of rejecting the
+        // m-line. Chrome accepts them too.
+        assert_eq!(
+            h264_offer_profile_level_ids(),
+            vec!["42e01f".to_string(), "640c1f".to_string()]
+        );
+
+        // Constrained Baseline must always be offered — it is the one profile
+        // every WebRTC implementation is guaranteed to support.
+        assert!(h264_offer_profile_level_ids().contains(&"42e01f".to_string()));
+
+        // The advertised levels are the conservative 3.1 (`…1f`); the real
+        // 4K bitstream stays at its native level via level-asymmetry-allowed.
+        for plid in h264_offer_profile_level_ids() {
+            assert!(
+                plid.ends_with("1f"),
+                "offered profile must advertise level 3.1: {plid}"
+            );
+        }
     }
 
     #[test]

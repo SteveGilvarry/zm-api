@@ -3,8 +3,8 @@ pub mod router;
 
 // Re-export fifo types (excluding AudioCodec which is also defined in router)
 pub use fifo::{
-    extract_profile_level_id, h264_nal_type, FifoError, FifoManager, FifoPacket, VideoCodec,
-    ZmFifoReader,
+    extract_profile_level_id, h264_nal_type, slice_starts_picture, FifoError, FifoManager,
+    FifoPacket, VideoCodec, ZmFifoReader,
 };
 
 // Re-export router types
