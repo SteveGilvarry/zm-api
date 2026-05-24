@@ -61,7 +61,7 @@ public_refresh_key = "static/key/public_refresh_rsa_key.pem"
 [http]
 timeout = 10
 
-# Streaming configuration for RTSP/WebRTC/HLS/MSE
+# Streaming configuration for RTSP/WebRTC/HLS
 [streaming]
 enabled = true
 default_protocol = "auto"
@@ -104,13 +104,7 @@ partial_segment_ms = 200
 
 [streaming.hls.storage]
 path = "/tmp/hls"
-retention_minutes = 60
-
-[streaming.mse]
-enabled = true
-mode = "native"
-max_buffer_segments = 20
-segment_duration_ms = 1000
+retention_minutes = 10
 
 [streaming.rtsp_proxy]
 enabled = false

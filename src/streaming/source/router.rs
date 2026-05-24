@@ -1,7 +1,7 @@
 //! Source Router for unified streaming source management
 //!
 //! Provides a unified abstraction over FIFO readers that serves all output protocols
-//! (WebRTC, HLS, MSE). Manages lazy initialization of monitor sources and handles
+//! (WebRTC, HLS). Manages lazy initialization of monitor sources and handles
 //! both video and audio streams.
 
 use std::sync::Arc;

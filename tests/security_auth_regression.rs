@@ -64,3 +64,19 @@ async fn event_summaries_routes_require_auth() {
         StatusCode::UNAUTHORIZED
     );
 }
+
+#[tokio::test]
+async fn frames_routes_require_auth() {
+    // Regression: the frames routes were nested under `/frames` instead of
+    // `/api/v3/frames`, so a spec-conformant request to `/api/v3/frames` hit
+    // no route at all (HTTP 500 "No matched path found") rather than the
+    // authenticated handler. A 401 here proves the route is wired correctly.
+    assert_eq!(
+        status_of("GET", "/api/v3/frames").await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        status_of("GET", "/api/v3/frames/1").await,
+        StatusCode::UNAUTHORIZED
+    );
+}

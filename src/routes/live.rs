@@ -1,6 +1,6 @@
 //! Live streaming routes
 //!
-//! Provides unified routes for live streaming via HLS, WebRTC, and MSE.
+//! Provides unified routes for live streaming via HLS and WebRTC.
 
 use axum::{
     routing::{delete, get, post},
@@ -23,9 +23,6 @@ pub fn routes() -> Router<AppState> {
         .route("/hls/live.m3u8", get(live::get_live_media_playlist))
         .route("/hls/init.mp4", get(live::get_live_init_segment))
         .route("/hls/{segment}", get(live::get_live_segment))
-        // MSE endpoints (WebSocket fMP4 streaming)
-        .route("/mse/ws", get(live::mse_websocket_handler))
-        .route("/mse/init.mp4", get(live::get_mse_init_segment))
         // WebRTC endpoints (WebSocket signaling)
         .route("/webrtc/ws", get(live::webrtc_websocket_handler))
 }

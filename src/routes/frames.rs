@@ -8,7 +8,7 @@ use axum::Router;
 pub fn add_frames_routes(router: Router<AppState>) -> Router<AppState> {
     let state = router.clone();
     router.nest(
-        "/frames",
+        "/api/v3/frames",
         Router::new()
             .route("/", get(handlers::frames::list_frames))
             .route("/", post(handlers::frames::create_frame))

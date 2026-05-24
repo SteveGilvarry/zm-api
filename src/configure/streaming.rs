@@ -10,7 +10,6 @@ pub struct StreamingConfig {
     pub go2rtc: Go2RtcConfig,
     pub webrtc: WebRtcConfig,
     pub hls: HlsConfig,
-    pub mse: MseConfig,
     pub rtsp_proxy: RtspProxyConfig,
 }
 
@@ -24,7 +23,6 @@ impl Default for StreamingConfig {
             go2rtc: Go2RtcConfig::default(),
             webrtc: WebRtcConfig::default(),
             hls: HlsConfig::default(),
-            mse: MseConfig::default(),
             rtsp_proxy: RtspProxyConfig::default(),
         }
     }
@@ -37,7 +35,6 @@ pub enum StreamingProtocol {
     Auto,
     Webrtc,
     Hls,
-    Mse,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -193,27 +190,7 @@ impl Default for HlsStorageConfig {
     fn default() -> Self {
         Self {
             path: "/tmp/hls".to_string(),
-            retention_minutes: 60,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct MseConfig {
-    pub enabled: bool,
-    pub mode: String, // "native" | "plugin"
-    pub max_buffer_segments: u32,
-    pub segment_duration_ms: u32,
-}
-
-impl Default for MseConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            mode: "native".to_string(),
-            max_buffer_segments: 20,
-            segment_duration_ms: 1000,
+            retention_minutes: 10,
         }
     }
 }

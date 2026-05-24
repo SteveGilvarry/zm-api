@@ -1,7 +1,7 @@
 //! Live streaming coordinator
 //!
 //! Manages the lifecycle of live streaming sessions, coordinating between
-//! the source router and output protocols (HLS, WebRTC, MSE).
+//! the source router and output protocols (HLS, WebRTC).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -36,7 +36,6 @@ pub struct LiveSessionStats {
     pub uptime_seconds: f64,
     pub hls_enabled: bool,
     pub webrtc_enabled: bool,
-    pub mse_enabled: bool,
 }
 
 /// Configuration for which protocols to enable
@@ -44,7 +43,6 @@ pub struct LiveSessionStats {
 pub struct LiveStreamConfig {
     pub enable_hls: bool,
     pub enable_webrtc: bool,
-    pub enable_mse: bool,
 }
 
 impl Default for LiveStreamConfig {
@@ -52,7 +50,6 @@ impl Default for LiveStreamConfig {
         Self {
             enable_hls: true,
             enable_webrtc: false, // Not implemented yet
-            enable_mse: false,    // Not implemented yet
         }
     }
 }
@@ -90,7 +87,6 @@ impl LiveSession {
             uptime_seconds: self.started_at.elapsed().as_secs_f64(),
             hls_enabled: self.config.enable_hls,
             webrtc_enabled: self.config.enable_webrtc,
-            mse_enabled: self.config.enable_mse,
         }
     }
 }
@@ -469,7 +465,6 @@ mod tests {
         let config = LiveStreamConfig::default();
         assert!(config.enable_hls);
         assert!(!config.enable_webrtc);
-        assert!(!config.enable_mse);
     }
 
     #[test]
@@ -507,7 +502,6 @@ mod tests {
         let config = LiveStreamConfig {
             enable_hls: true,
             enable_webrtc: false,
-            enable_mse: false,
         };
 
         let result = coordinator.start_session(1, config).await;

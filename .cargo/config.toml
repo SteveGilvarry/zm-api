@@ -1,0 +1,16 @@
+# Local build settings tuned for memory-constrained dev hosts.
+#
+# This box (16 GiB RAM, 4 GiB swap, 4 cores) runs ZoneMinder + zm_api
+# in parallel with cargo. systemd-oomd was killing the entire tmux
+# scope whenever `cargo test` linked several test binaries at once.
+# The caps below trade wall-time for a much lower memory ceiling.
+
+[build]
+# Cap rustc / linker concurrency. Defaults to one job per CPU (4),
+# and each parallel link of a debug binary can peak above 1 GiB.
+jobs = 2
+
+[env]
+# libtest reads RUST_TEST_THREADS to set per-binary in-test parallelism;
+# this halves the simultaneous test-process count at runtime.
+RUST_TEST_THREADS = "2"

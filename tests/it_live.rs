@@ -12,8 +12,8 @@
 //! on that contract: auth gating yields `401`, and a cleared request never
 //! yields `200` for a stream-less monitor.
 //!
-//! The `/mse/ws` and `/webrtc/ws` WebSocket-upgrade routes are intentionally
-//! not covered — `oneshot` cannot drive a protocol upgrade.
+//! The `/webrtc/ws` WebSocket-upgrade route is intentionally not covered —
+//! `oneshot` cannot drive a protocol upgrade.
 //!
 //! Requires the test database — run with:
 //!   APP_PROFILE=test-db cargo test --test it_live -- --include-ignored
@@ -53,7 +53,6 @@ async fn live_endpoints_reject_unauthenticated_access() {
         format!("/api/v3/live/{MISSING_MONITOR_ID}/hls/live.m3u8"),
         format!("/api/v3/live/{MISSING_MONITOR_ID}/hls/init.mp4"),
         format!("/api/v3/live/{MISSING_MONITOR_ID}/hls/segment_00001.m4s"),
-        format!("/api/v3/live/{MISSING_MONITOR_ID}/mse/init.mp4"),
     ];
     for path in &per_monitor {
         let resp = app.request(Method::GET, path).send().await;
@@ -144,7 +143,6 @@ async fn hls_and_stats_for_streamless_monitor_error() {
         format!("/api/v3/live/{}/hls/live.m3u8", monitor.id),
         format!("/api/v3/live/{}/hls/init.mp4", monitor.id),
         format!("/api/v3/live/{}/hls/segment_00001.m4s", monitor.id),
-        format!("/api/v3/live/{}/mse/init.mp4", monitor.id),
     ];
     for path in &paths {
         let resp = app.get(path, &token).await;
@@ -199,7 +197,6 @@ async fn hls_and_stats_for_unknown_monitor_error() {
         format!("/api/v3/live/{MISSING_MONITOR_ID}/hls/master.m3u8"),
         format!("/api/v3/live/{MISSING_MONITOR_ID}/hls/live.m3u8"),
         format!("/api/v3/live/{MISSING_MONITOR_ID}/hls/init.mp4"),
-        format!("/api/v3/live/{MISSING_MONITOR_ID}/mse/init.mp4"),
     ];
     for path in &paths {
         let resp = app.get(path, &token).await;

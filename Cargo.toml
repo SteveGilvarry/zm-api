@@ -165,3 +165,15 @@ zm_api = { path = "/usr/bin/zm_api" }
 "packaging/systemd/zm_api.env" = { path = "/etc/zm_api/zm_api.env", mode = "644", config = true }
 "packaging/systemd/zm_api.service" = { path = "/usr/lib/systemd/system/zm_api.service", mode = "644" }
 "static" = { path = "/usr/share/zm_api/static", mode = "755" }
+
+# Full DWARF debug info triples the linker's peak memory and pushes this dev
+# box (16 GiB / 4 GiB swap, with ZoneMinder + zm_api already resident) into
+# systemd-oomd's kill range — `cargo test` was reliably killing the tmux
+# scope. Line tables alone still give file/line numbers in panics and
+# backtraces; the variable/type info dropped here is rarely used outside an
+# attached debugger.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.test]
+debug = "line-tables-only"

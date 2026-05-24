@@ -145,8 +145,6 @@ use crate::util::claim::UserClaims;
         crate::handlers::live::get_live_segment,
         crate::handlers::live::get_live_sources,
         crate::handlers::live::get_monitor_snapshot,
-        crate::handlers::live::mse_websocket_handler,
-        crate::handlers::live::get_mse_init_segment,
         crate::handlers::live::webrtc_websocket_handler,
 
         // logs
@@ -447,7 +445,6 @@ use crate::util::claim::UserClaims;
             crate::handlers::live::StartLiveResponse,
             crate::handlers::live::LiveStatsResponse,
             crate::handlers::live::LiveProtocolStatus,
-            crate::handlers::live::MseSessionInfoResponse,
 
             // logs
             crate::dto::request::logs::LogQueryParams,
@@ -622,7 +619,7 @@ use crate::util::claim::UserClaims;
         (name = "Groups", description = "Group management endpoints"),
         (name = "Groups Monitors", description = "Group-monitor associations"),
         (name = "Groups Permissions", description = "Group permission management"),
-        (name = "Live Streaming", description = "Live video streaming (HLS, WebRTC, MSE)"),
+        (name = "Live Streaming", description = "Live video streaming (HLS, WebRTC)"),
         (name = "Logs", description = "Log endpoints"),
         (name = "Manufacturers", description = "Camera manufacturers"),
         (name = "Models", description = "Camera models"),

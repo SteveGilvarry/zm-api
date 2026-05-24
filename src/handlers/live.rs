@@ -1,7 +1,7 @@
 //! Live streaming HTTP handlers
 //!
-//! Provides unified endpoints for live streaming via various protocols
-//! (HLS, WebRTC, MSE) using the FIFO-based source router.
+//! Provides unified endpoints for live streaming via HLS and WebRTC,
+//! both backed by the FIFO-based source router.
 
 use axum::{
     body::Body,
@@ -22,7 +22,6 @@ use tracing::{debug, error, info, warn};
 
 use crate::error::{AppError, AppResponseError, AppResult};
 use crate::server::state::AppState;
-use crate::streaming::live::mse::{MseLiveConfig, MseLiveManager};
 use crate::streaming::live::webrtc::{
     extract_profile_level_id, AccessUnitAssembler, AssembledAccessUnit, WebRtcLiveConfig,
     WebRtcLiveManager,
@@ -43,9 +42,6 @@ pub struct StartLiveRequest {
     /// Enable WebRTC output
     #[serde(default)]
     pub enable_webrtc: bool,
-    /// Enable MSE output
-    #[serde(default)]
-    pub enable_mse: bool,
 }
 
 fn default_true() -> bool {
@@ -57,7 +53,6 @@ impl Default for StartLiveRequest {
         Self {
             enable_hls: true,
             enable_webrtc: false,
-            enable_mse: false,
         }
     }
 }
@@ -69,7 +64,6 @@ pub struct StartLiveResponse {
     pub status: String,
     pub hls_playlist: Option<String>,
     pub webrtc_signaling: Option<String>,
-    pub mse_websocket: Option<String>,
 }
 
 /// Response for live stream statistics
@@ -88,7 +82,6 @@ pub struct LiveStatsResponse {
 pub struct LiveProtocolStatus {
     pub hls: bool,
     pub webrtc: bool,
-    pub mse: bool,
 }
 
 /// Query parameters for HLS media playlist (LL-HLS support)
@@ -143,7 +136,6 @@ pub async fn start_live_stream(
     let config = LiveStreamConfig {
         enable_hls: request.enable_hls,
         enable_webrtc: request.enable_webrtc,
-        enable_mse: request.enable_mse,
     };
 
     coordinator
@@ -178,11 +170,6 @@ pub async fn start_live_stream(
         },
         webrtc_signaling: if config.enable_webrtc {
             Some(format!("{}/webrtc/ws", base_url))
-        } else {
-            None
-        },
-        mse_websocket: if config.enable_mse {
-            Some(format!("{}/mse/ws", base_url))
         } else {
             None
         },
@@ -279,7 +266,6 @@ pub async fn get_live_stats(
         protocols: LiveProtocolStatus {
             hls: stats.hls_enabled,
             webrtc: stats.webrtc_enabled,
-            mse: stats.mse_enabled,
         },
     }))
 }
@@ -521,330 +507,6 @@ fn parse_segment_sequence(filename: &str) -> Option<u64> {
     } else {
         None
     }
-}
-
-// ============================================================================
-// MSE Endpoints (WebSocket fMP4 streaming)
-// ============================================================================
-
-/// WebSocket message types for MSE streaming
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum MseWebSocketMessage {
-    /// Init segment (sent first)
-    Init {
-        monitor_id: u32,
-        codec: String,
-        #[serde(with = "base64_serde")]
-        data: Vec<u8>,
-    },
-    /// Media segment
-    Segment {
-        monitor_id: u32,
-        sequence: u64,
-        duration_ms: u32,
-        is_keyframe: bool,
-        timestamp_us: u64,
-        #[serde(with = "base64_serde")]
-        data: Vec<u8>,
-    },
-    /// Ping message (keepalive)
-    Ping,
-    /// Pong response
-    Pong,
-    /// Error message
-    Error { message: String },
-    /// Info about the stream
-    Info {
-        monitor_id: u32,
-        session_id: String,
-        codec: String,
-    },
-}
-
-mod base64_serde {
-    use base64::engine::general_purpose::STANDARD;
-    use base64::Engine;
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&STANDARD.encode(bytes))
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        STANDARD.decode(s).map_err(serde::de::Error::custom)
-    }
-}
-
-/// MSE session info response
-#[derive(Debug, Serialize, utoipa::ToSchema)]
-pub struct MseSessionInfoResponse {
-    pub session_id: String,
-    pub monitor_id: u32,
-    pub websocket_url: String,
-    pub init_url: String,
-}
-
-/// WebSocket handler for MSE live streaming
-#[utoipa::path(
-    get,
-    path = "/api/v3/live/{monitor_id}/mse/ws",
-    operation_id = "mseWebSocketStream",
-    tag = "Live Streaming",
-    params(
-        ("monitor_id" = u32, Path, description = "Monitor/Camera ID")
-    ),
-    responses(
-        (status = 101, description = "WebSocket connection upgraded for MSE streaming"),
-        (status = 404, description = "Monitor not found", body = AppResponseError),
-        (status = 503, description = "Service unavailable", body = AppResponseError)
-    )
-)]
-pub async fn mse_websocket_handler(
-    State(state): State<AppState>,
-    Path(monitor_id): Path<u32>,
-    ws: WebSocketUpgrade,
-) -> Result<Response, AppError> {
-    info!(
-        "MSE WebSocket connection request for monitor {}",
-        monitor_id
-    );
-
-    // Check if source router is available
-    let source_router = state.source_router.as_ref().ok_or_else(|| {
-        AppError::ServiceUnavailableError("Live streaming not configured".to_string())
-    })?;
-
-    // Check if the source is available
-    if !source_router.is_available(monitor_id) {
-        return Err(AppError::NotFoundError(crate::error::Resource {
-            resource_type: crate::error::ResourceType::Monitor,
-            details: vec![
-                ("monitor_id".to_string(), monitor_id.to_string()),
-                ("reason".to_string(), "FIFO not available".to_string()),
-            ],
-        }));
-    }
-
-    let router = Arc::clone(source_router);
-
-    Ok(ws.on_upgrade(move |socket| handle_mse_websocket(router, monitor_id, socket)))
-}
-
-async fn handle_mse_websocket(
-    source_router: Arc<crate::streaming::source::SourceRouter>,
-    monitor_id: u32,
-    socket: WebSocket,
-) {
-    info!("MSE WebSocket connected for monitor {}", monitor_id);
-
-    // Create MSE manager for this session
-    let mse_manager = MseLiveManager::new(MseLiveConfig::default());
-
-    // Create session
-    let session = match mse_manager.create_session(monitor_id) {
-        Ok(s) => s,
-        Err(e) => {
-            error!(
-                "Failed to create MSE session for monitor {}: {}",
-                monitor_id, e
-            );
-            return;
-        }
-    };
-
-    let session_id = session.id.to_string();
-    info!(
-        "Created MSE session {} for monitor {}",
-        session_id, monitor_id
-    );
-
-    // Get source and subscribe to video packets
-    let source = match source_router.get_source(monitor_id).await {
-        Ok(s) => s,
-        Err(e) => {
-            error!("Failed to get source for monitor {}: {}", monitor_id, e);
-            return;
-        }
-    };
-
-    let mut video_rx = source.subscribe_video();
-    let mut segment_rx = session.subscribe();
-
-    let (mut ws_sender, mut ws_receiver) = socket.split();
-
-    // Send session info
-    let info_msg = MseWebSocketMessage::Info {
-        monitor_id,
-        session_id: session_id.clone(),
-        codec: source.codec().await.as_str().to_string(),
-    };
-    if let Ok(json) = serde_json::to_string(&info_msg) {
-        if ws_sender.send(Message::Text(json.into())).await.is_err() {
-            error!("Failed to send session info");
-            return;
-        }
-    }
-
-    // Track if init segment has been sent
-    let mut init_sent = false;
-
-    // Main event loop
-    loop {
-        tokio::select! {
-            // Handle incoming video packets from source
-            result = video_rx.recv() => {
-                match result {
-                    Ok(packet) => {
-                        // Process packet through MSE session
-                        session.process_packet(&packet).await;
-                    }
-                    Err(broadcast::error::RecvError::Lagged(n)) => {
-                        warn!("MSE session lagged {} packets for monitor {}", n, monitor_id);
-                    }
-                    Err(broadcast::error::RecvError::Closed) => {
-                        info!("Video source closed for monitor {}", monitor_id);
-                        break;
-                    }
-                }
-            }
-
-            // Handle outgoing segments to WebSocket
-            result = segment_rx.recv() => {
-                match result {
-                    Ok(segment) => {
-                        // Send init segment first if not sent
-                        if !init_sent {
-                            if let Some(init) = session.get_init_segment().await {
-                                let init_msg = MseWebSocketMessage::Init {
-                                    monitor_id,
-                                    codec: source.codec().await.as_str().to_string(),
-                                    data: init.data,
-                                };
-                                if let Ok(json) = serde_json::to_string(&init_msg) {
-                                    if ws_sender.send(Message::Text(json.into())).await.is_err() {
-                                        break;
-                                    }
-                                    init_sent = true;
-                                    debug!("Sent init segment for monitor {}", monitor_id);
-                                }
-                            }
-                        }
-
-                        // Send segment
-                        let segment_msg = MseWebSocketMessage::Segment {
-                            monitor_id,
-                            sequence: segment.sequence,
-                            duration_ms: segment.duration_ms,
-                            is_keyframe: segment.is_keyframe,
-                            timestamp_us: segment.timestamp_us,
-                            data: segment.data,
-                        };
-                        if let Ok(json) = serde_json::to_string(&segment_msg) {
-                            if ws_sender.send(Message::Text(json.into())).await.is_err() {
-                                warn!("Failed to send segment to WebSocket for monitor {}", monitor_id);
-                                break;
-                            }
-                        }
-                    }
-                    Err(broadcast::error::RecvError::Lagged(n)) => {
-                        warn!("MSE WebSocket client lagged {} segments for monitor {}", n, monitor_id);
-                    }
-                    Err(broadcast::error::RecvError::Closed) => {
-                        info!("Segment channel closed for monitor {}", monitor_id);
-                        break;
-                    }
-                }
-            }
-
-            // Handle incoming WebSocket messages
-            msg = ws_receiver.next() => {
-                match msg {
-                    Some(Ok(Message::Text(text))) => {
-                        // Handle ping/pong
-                        if let Ok(MseWebSocketMessage::Ping) = serde_json::from_str::<MseWebSocketMessage>(&text) {
-                            let pong = MseWebSocketMessage::Pong;
-                            if let Ok(json) = serde_json::to_string(&pong) {
-                                let _ = ws_sender.send(Message::Text(json.into())).await;
-                            }
-                        }
-                    }
-                    Some(Ok(Message::Ping(data))) => {
-                        let _ = ws_sender.send(Message::Pong(data)).await;
-                    }
-                    Some(Ok(Message::Close(_))) => {
-                        info!("MSE WebSocket client disconnected for monitor {}", monitor_id);
-                        break;
-                    }
-                    Some(Err(e)) => {
-                        error!("MSE WebSocket error for monitor {}: {}", monitor_id, e);
-                        break;
-                    }
-                    None => break,
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    // Cleanup
-    let _ = mse_manager.remove_session(&session_id);
-    info!("MSE WebSocket handler finished for monitor {}", monitor_id);
-}
-
-/// Get MSE init segment for a monitor
-#[utoipa::path(
-    get,
-    path = "/api/v3/live/{monitor_id}/mse/init.mp4",
-    operation_id = "getMseInitSegment",
-    tag = "Live Streaming",
-    params(
-        ("monitor_id" = u32, Path, description = "Monitor/Camera ID")
-    ),
-    responses(
-        (status = 200, description = "MSE init segment", content_type = "video/mp4"),
-        (status = 404, description = "Init segment not ready", body = AppResponseError),
-        (status = 503, description = "Service unavailable", body = AppResponseError)
-    )
-)]
-pub async fn get_mse_init_segment(
-    State(state): State<AppState>,
-    Path(monitor_id): Path<u32>,
-) -> Result<Response, AppError> {
-    debug!("Serving MSE init segment for monitor {}", monitor_id);
-
-    // For now, use the HLS init segment since they're the same format
-    let hls_manager = state
-        .hls_session_manager
-        .as_ref()
-        .ok_or_else(|| AppError::ServiceUnavailableError("Streaming not configured".to_string()))?;
-
-    let data = hls_manager
-        .get_init_segment(monitor_id)
-        .await
-        .map_err(|_| {
-            AppError::NotFoundError(crate::error::Resource {
-                resource_type: crate::error::ResourceType::Monitor,
-                details: vec![
-                    ("monitor_id".to_string(), monitor_id.to_string()),
-                    ("segment".to_string(), "init.mp4".to_string()),
-                ],
-            })
-        })?;
-
-    Ok(Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "video/mp4")
-        .header(header::CACHE_CONTROL, "no-cache")
-        .body(Body::from(data))
-        .unwrap())
 }
 
 // ============================================================================
@@ -1514,58 +1176,24 @@ mod tests {
         let request = StartLiveRequest::default();
         assert!(request.enable_hls);
         assert!(!request.enable_webrtc);
-        assert!(!request.enable_mse);
     }
 
-    /// An empty JSON object applies the serde defaults: HLS on, others off.
+    /// An empty JSON object applies the serde defaults: HLS on, WebRTC off.
     #[test]
     fn start_live_request_deserializes_empty_object() {
         let request: StartLiveRequest = serde_json::from_str("{}").expect("deserialize");
         assert!(request.enable_hls, "enable_hls defaults to true");
         assert!(!request.enable_webrtc);
-        assert!(!request.enable_mse);
     }
 
     /// Explicit fields override the defaults.
     #[test]
     fn start_live_request_deserializes_explicit_fields() {
-        let request: StartLiveRequest = serde_json::from_str(
-            r#"{"enable_hls": false, "enable_webrtc": true, "enable_mse": true}"#,
-        )
-        .expect("deserialize");
+        let request: StartLiveRequest =
+            serde_json::from_str(r#"{"enable_hls": false, "enable_webrtc": true}"#)
+                .expect("deserialize");
         assert!(!request.enable_hls);
         assert!(request.enable_webrtc);
-        assert!(request.enable_mse);
-    }
-
-    /// The MSE WebSocket message enum round-trips through JSON, exercising the
-    /// `base64_serde` codec for the binary `data` payloads.
-    #[test]
-    fn mse_websocket_message_round_trips() {
-        let init = MseWebSocketMessage::Init {
-            monitor_id: 7,
-            codec: "avc1.640028".to_string(),
-            data: vec![0xDE, 0xAD, 0xBE, 0xEF],
-        };
-        let json = serde_json::to_string(&init).expect("serialize");
-        assert!(json.contains("\"type\":\"init\""));
-        match serde_json::from_str::<MseWebSocketMessage>(&json).expect("deserialize") {
-            MseWebSocketMessage::Init {
-                monitor_id, data, ..
-            } => {
-                assert_eq!(monitor_id, 7);
-                assert_eq!(data, vec![0xDE, 0xAD, 0xBE, 0xEF]);
-            }
-            other => panic!("expected Init, got {other:?}"),
-        }
-
-        // Ping is a unit variant tagged purely by `type`.
-        let ping = serde_json::to_string(&MseWebSocketMessage::Ping).expect("serialize");
-        assert_eq!(ping, r#"{"type":"ping"}"#);
-        assert!(matches!(
-            serde_json::from_str::<MseWebSocketMessage>(&ping).expect("deserialize"),
-            MseWebSocketMessage::Ping
-        ));
     }
 
     /// The WebRTC signaling enum round-trips, including the renamed ICE fields.

@@ -48,6 +48,36 @@ pub struct EventVideoInfo {
 // Helpers
 // ============================================================================
 
+/// True iff `name` is safe to join onto the event directory: a single,
+/// non-traversing filename. `Events.default_video` is DB-controlled, and a
+/// malformed value like `"../../../etc/passwd"` would otherwise escape the
+/// event directory via `PathBuf::join`.
+fn is_safe_event_filename(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains('\0')
+}
+
+/// Pick the filename to look for under the event directory. Falls back to the
+/// canonical `{event_id}-video.mp4` name if `default_video` is empty or fails
+/// the safety check above.
+fn select_video_filename(event_id: u64, default_video: &str) -> String {
+    if default_video.is_empty() {
+        return format!("{}-video.mp4", event_id);
+    }
+    if is_safe_event_filename(default_video) {
+        return default_video.to_string();
+    }
+    warn!(
+        "Refusing unsafe default_video for event {}: {:?}; using default name",
+        event_id, default_video
+    );
+    format!("{}-video.mp4", event_id)
+}
+
 /// Get the video file path for an event
 ///
 /// ZoneMinder supports multiple storage schemes:
@@ -58,12 +88,9 @@ async fn get_event_video_path(state: &AppState, event_id: u64) -> AppResult<Path
     // Get event from database (using repo to get raw entity)
     let event = get_event_entity(state, event_id).await?;
 
-    // Get the video filename from the event (e.g., "467-video.h264.mp4")
-    let video_filename = if event.default_video.is_empty() {
-        format!("{}-video.mp4", event_id)
-    } else {
-        event.default_video.clone()
-    };
+    // Get the video filename from the event (e.g., "467-video.h264.mp4"),
+    // rejecting traversal attempts in the DB-supplied default_video field.
+    let video_filename = select_video_filename(event_id, &event.default_video);
 
     // Look up storage path from database
     let storage = match event.storage_id {
@@ -511,6 +538,44 @@ pub async fn get_event_thumbnail(
         }
     }
 
+    // No pre-rendered snapshot on disk — fall back to extracting a frame from
+    // the event's MP4. This is the case for in-flight events or recordings
+    // where ZoneMinder hasn't materialised a snapshot.jpg yet.
+    let video_candidates = [
+        select_video_filename(path.id, &event.default_video),
+        format!("{}-video.mp4", path.id),
+        format!("{}-video.h264.mp4", path.id),
+        format!("{}.mp4", path.id),
+    ];
+    let mut tried_videos: Vec<PathBuf> = Vec::with_capacity(video_candidates.len());
+
+    for name in &video_candidates {
+        let video_path = event_dir.join(name);
+        if tokio::fs::metadata(&video_path).await.is_err() {
+            tried_videos.push(video_path);
+            continue;
+        }
+        debug!("Extracting thumbnail from MP4: {:?}", video_path);
+        match crate::streaming::snapshot::extract_mp4_thumbnail(video_path.clone(), 320).await {
+            Ok(jpeg) => {
+                return Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::CONTENT_TYPE, "image/jpeg")
+                    .header(header::CACHE_CONTROL, "max-age=86400")
+                    .body(Body::from(jpeg))
+                    .unwrap());
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to extract thumbnail from {:?} for event {}: {}",
+                    video_path, path.id, e
+                );
+                tried_videos.push(video_path);
+                continue;
+            }
+        }
+    }
+
     warn!(
         "Thumbnail not found for event {}. Tried directory: {:?}",
         path.id, event_dir
@@ -709,6 +774,54 @@ mod tests {
     fn build_event_directory_path_medium_falls_back_to_shallow_without_start_time() {
         let path = build_event_directory_path("/events", 7, 467, None, &Scheme::Medium);
         assert_eq!(path, PathBuf::from("/events/7/467"));
+    }
+
+    #[test]
+    fn is_safe_event_filename_accepts_normal_video_names() {
+        assert!(is_safe_event_filename("467-video.mp4"));
+        assert!(is_safe_event_filename("467-video.h264.mp4"));
+        assert!(is_safe_event_filename("snapshot.jpg"));
+        assert!(is_safe_event_filename("a"));
+    }
+
+    #[test]
+    fn is_safe_event_filename_rejects_traversal_and_separators() {
+        // Path components that would escape the event directory
+        assert!(!is_safe_event_filename(""));
+        assert!(!is_safe_event_filename("."));
+        assert!(!is_safe_event_filename(".."));
+        assert!(!is_safe_event_filename("../etc/passwd"));
+        assert!(!is_safe_event_filename("../../etc/passwd"));
+        assert!(!is_safe_event_filename("/etc/passwd"));
+        assert!(!is_safe_event_filename("subdir/file.mp4"));
+        assert!(!is_safe_event_filename("foo\\bar"));
+        assert!(!is_safe_event_filename("foo\0bar"));
+    }
+
+    #[test]
+    fn select_video_filename_uses_default_when_empty() {
+        assert_eq!(select_video_filename(42, ""), "42-video.mp4");
+    }
+
+    #[test]
+    fn select_video_filename_passes_through_safe_names() {
+        assert_eq!(
+            select_video_filename(42, "42-video.h264.mp4"),
+            "42-video.h264.mp4"
+        );
+    }
+
+    #[test]
+    fn select_video_filename_falls_back_on_unsafe_input() {
+        // Path traversal in default_video must NOT be honored.
+        assert_eq!(
+            select_video_filename(42, "../../../etc/passwd"),
+            "42-video.mp4"
+        );
+        assert_eq!(
+            select_video_filename(42, "subdir/escape.mp4"),
+            "42-video.mp4"
+        );
     }
 
     #[test]

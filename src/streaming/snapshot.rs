@@ -5,6 +5,7 @@
 //! `ffmpeg-next`). Per-monitor caching minimizes overhead for repeated
 //! requests.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -42,6 +43,9 @@ pub enum SnapshotError {
 
     #[error("Router error: {0}")]
     RouterError(#[from] RouterError),
+
+    #[error("MP4 file not readable: {0}")]
+    Mp4OpenFailed(String),
 }
 
 /// A cached JPEG snapshot
@@ -292,6 +296,163 @@ impl SnapshotService {
 
         Ok(jpeg_data)
     }
+}
+
+/// Extract the first decodable video frame from an MP4 and encode it as JPEG.
+///
+/// Async wrapper around the blocking libav pipeline; runs on a blocking thread
+/// so the executor isn't tied up while the decoder works. `max_width` clamps
+/// the output JPEG's width (aspect ratio preserved); a frame already smaller
+/// than `max_width` is passed through at its native size.
+pub async fn extract_mp4_thumbnail(
+    path: PathBuf,
+    max_width: u32,
+) -> Result<Vec<u8>, SnapshotError> {
+    tokio::task::spawn_blocking(move || extract_mp4_thumbnail_blocking(&path, max_width))
+        .await
+        .map_err(|e| SnapshotError::DecodeFailed(format!("Task join error: {}", e)))?
+}
+
+/// Blocking MP4 → JPEG keyframe extraction via libavformat + libavcodec.
+///
+/// Opens the container, picks the best video stream, builds a decoder from its
+/// codec parameters, feeds packets until the first frame comes out, then scales
+/// to `max_width` (preserving aspect) and MJPEG-encodes the result. This is
+/// significantly cheaper than spawning the ffmpeg binary because libav* is
+/// already loaded into the process — no fork, no per-call RSS spike, no moov
+/// re-parse for every request.
+fn extract_mp4_thumbnail_blocking(path: &Path, max_width: u32) -> Result<Vec<u8>, SnapshotError> {
+    use ffmpeg_next as ffmpeg;
+
+    let mut ictx = ffmpeg::format::input(&path)
+        .map_err(|e| SnapshotError::Mp4OpenFailed(format!("Failed to open {:?}: {}", path, e)))?;
+
+    let video_stream = ictx
+        .streams()
+        .best(ffmpeg::media::Type::Video)
+        .ok_or_else(|| SnapshotError::DecodeFailed("No video stream in MP4".into()))?;
+    let stream_index = video_stream.index();
+
+    let decoder_ctx = ffmpeg::codec::context::Context::from_parameters(video_stream.parameters())
+        .map_err(|e| {
+        SnapshotError::DecodeFailed(format!("Failed to build decoder context: {}", e))
+    })?;
+    let mut decoder = decoder_ctx
+        .decoder()
+        .video()
+        .map_err(|e| SnapshotError::DecodeFailed(format!("Failed to init video decoder: {}", e)))?;
+
+    // Feed packets until the decoder yields a frame. For ZoneMinder MP4s the
+    // first video packet is an IDR, so this usually returns after one
+    // send_packet/receive_frame round-trip — but bounded just in case.
+    let mut decoded = ffmpeg::frame::Video::empty();
+    let mut got_frame = false;
+    let mut packets_consumed = 0usize;
+    const MAX_PACKETS: usize = 16;
+
+    for (pkt_stream, packet) in ictx.packets() {
+        if pkt_stream.index() != stream_index {
+            continue;
+        }
+        decoder
+            .send_packet(&packet)
+            .map_err(|e| SnapshotError::DecodeFailed(format!("send_packet failed: {}", e)))?;
+        if decoder.receive_frame(&mut decoded).is_ok() {
+            got_frame = true;
+            break;
+        }
+        packets_consumed += 1;
+        if packets_consumed >= MAX_PACKETS {
+            break;
+        }
+    }
+
+    if !got_frame {
+        // Flush — some decoders need EOF before the very first frame surfaces.
+        decoder
+            .send_eof()
+            .map_err(|e| SnapshotError::DecodeFailed(format!("send_eof failed: {}", e)))?;
+        decoder
+            .receive_frame(&mut decoded)
+            .map_err(|e| SnapshotError::DecodeFailed(format!("No frame decoded: {}", e)))?;
+    }
+
+    if decoded.width() == 0 || decoded.height() == 0 {
+        return Err(SnapshotError::DecodeFailed(
+            "Decoded frame has zero dimensions".into(),
+        ));
+    }
+
+    let src_w = decoded.width();
+    let src_h = decoded.height();
+    let (dst_w, dst_h) = if src_w <= max_width {
+        (src_w, src_h)
+    } else {
+        let scaled_h = ((src_h as u64) * (max_width as u64) / (src_w as u64)) as u32;
+        // libswscale needs even dimensions for YUV420-family targets.
+        (max_width & !1, scaled_h.max(2) & !1)
+    };
+
+    let target_format = ffmpeg::format::Pixel::YUVJ420P;
+    let mut scaler = ffmpeg::software::scaling::Context::get(
+        decoded.format(),
+        src_w,
+        src_h,
+        target_format,
+        dst_w,
+        dst_h,
+        ffmpeg::software::scaling::Flags::BILINEAR,
+    )
+    .map_err(|e| SnapshotError::EncodeFailed(format!("Scaler init failed: {}", e)))?;
+
+    let mut yuv_frame = ffmpeg::frame::Video::empty();
+    scaler
+        .run(&decoded, &mut yuv_frame)
+        .map_err(|e| SnapshotError::EncodeFailed(format!("Scaler run failed: {}", e)))?;
+
+    let encoder_codec = ffmpeg::codec::encoder::find(ffmpeg::codec::Id::MJPEG)
+        .ok_or_else(|| SnapshotError::EncodeFailed("MJPEG encoder not found".into()))?;
+
+    let mut encoder_ctx = ffmpeg::codec::Context::new_with_codec(encoder_codec)
+        .encoder()
+        .video()
+        .map_err(|e| SnapshotError::EncodeFailed(format!("Failed to init encoder: {}", e)))?;
+
+    encoder_ctx.set_width(dst_w);
+    encoder_ctx.set_height(dst_h);
+    encoder_ctx.set_format(target_format);
+    encoder_ctx.set_time_base(ffmpeg::Rational(1, 25));
+    encoder_ctx.set_quality(JPEG_QUALITY as usize);
+
+    let mut encoder = encoder_ctx
+        .open()
+        .map_err(|e| SnapshotError::EncodeFailed(format!("Failed to open MJPEG encoder: {}", e)))?;
+
+    yuv_frame.set_pts(Some(0));
+    encoder
+        .send_frame(&yuv_frame)
+        .map_err(|e| SnapshotError::EncodeFailed(format!("send_frame failed: {}", e)))?;
+    encoder
+        .send_eof()
+        .map_err(|e| SnapshotError::EncodeFailed(format!("encoder send_eof failed: {}", e)))?;
+
+    let mut encoded_packet = ffmpeg::Packet::empty();
+    encoder
+        .receive_packet(&mut encoded_packet)
+        .map_err(|e| SnapshotError::EncodeFailed(format!("No JPEG packet received: {}", e)))?;
+
+    let jpeg = encoded_packet
+        .data()
+        .ok_or_else(|| SnapshotError::EncodeFailed("Encoded packet has no data".into()))?
+        .to_vec();
+
+    if jpeg.is_empty() {
+        return Err(SnapshotError::EncodeFailed(
+            "MJPEG encoder produced empty output".into(),
+        ));
+    }
+
+    Ok(jpeg)
 }
 
 /// A codec parameter-set NAL unit.
@@ -694,6 +855,90 @@ mod tests {
         // After TTL, cache miss triggers capture which will fail (no FIFO)
         let result = service.get_snapshot(1).await;
         assert!(result.is_err());
+    }
+
+    /// Build a small MP4 fixture by shelling out to the system `ffmpeg`
+    /// binary. Returns `None` when the binary is missing — the test using
+    /// this helper then skips, matching the pattern of the encoder tests.
+    fn generate_test_mp4(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+        let out = dir.join("thumbnail-fixture.mp4");
+        let status = std::process::Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=1:size=320x240:rate=5",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+            ])
+            .arg(&out)
+            .status()
+            .ok()?;
+        if status.success() && out.exists() {
+            Some(out)
+        } else {
+            None
+        }
+    }
+
+    #[tokio::test]
+    async fn test_extract_mp4_thumbnail_returns_jpeg() {
+        ffmpeg_next::init().ok();
+
+        let tmp = match tempfile::tempdir() {
+            Ok(t) => t,
+            Err(_) => return,
+        };
+        let mp4 = match generate_test_mp4(tmp.path()) {
+            Some(p) => p,
+            None => {
+                eprintln!("Skipping test: ffmpeg binary not available to build fixture");
+                return;
+            }
+        };
+
+        let jpeg = extract_mp4_thumbnail(mp4, 160)
+            .await
+            .expect("thumbnail extraction must succeed for valid MP4");
+
+        assert!(jpeg.len() > 4, "JPEG should have content");
+        assert_eq!(
+            &jpeg[..2],
+            &[0xFF, 0xD8],
+            "Output must begin with the JPEG SOI marker"
+        );
+        // EOI marker is the last two bytes of a well-formed JPEG.
+        assert_eq!(
+            &jpeg[jpeg.len() - 2..],
+            &[0xFF, 0xD9],
+            "Output must end with the JPEG EOI marker"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_extract_mp4_thumbnail_missing_file() {
+        ffmpeg_next::init().ok();
+
+        let err = extract_mp4_thumbnail(
+            std::path::PathBuf::from("/nonexistent/path/does-not-exist.mp4"),
+            160,
+        )
+        .await
+        .expect_err("Should fail when MP4 cannot be opened");
+
+        assert!(
+            matches!(err, SnapshotError::Mp4OpenFailed(_)),
+            "Expected Mp4OpenFailed, got: {:?}",
+            err
+        );
     }
 
     #[tokio::test]

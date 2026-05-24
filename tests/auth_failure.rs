@@ -59,7 +59,7 @@ fn protected_routes() -> Vec<ProtectedRoute> {
         route(Method::GET, "/api/v3/event-data"),
         route(Method::GET, "/api/v3/event-summaries"),
         route(Method::GET, "/api/v3/events-tags"),
-        route(Method::GET, "/frames"),
+        route(Method::GET, "/api/v3/frames"),
         route(Method::GET, "/api/v3/filters"),
         route(Method::GET, "/api/v3/tags"),
         route(Method::GET, "/api/v3/object-types"),

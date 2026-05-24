@@ -1740,7 +1740,7 @@ mod tests {
     }
 
     /// Verify that two consecutive segments have non-overlapping timestamps.
-    /// This is critical for MSE compatibility: if segment N's declared end time
+    /// This is critical for fMP4 playback: if segment N's declared end time
     /// exceeds segment N+1's baseMediaDecodeTime, browsers reject the append
     /// with bufferAppendError.
     #[test]
