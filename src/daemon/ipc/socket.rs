@@ -61,11 +61,15 @@ impl DaemonSocketServer {
         let listener = UnixListener::bind(&self.socket_path)?;
         info!("Daemon socket server listening on {:?}", self.socket_path);
 
-        // Set socket permissions (world-readable/writable for compatibility)
+        // Restrict the socket to the owning user + group (typically www-data).
+        // Anything writing this socket can spawn daemon processes, so leaving
+        // it world-writable would let any local user trigger an exec via the
+        // legacy zmdc protocol. Legitimate ZM clients (web UI under Apache,
+        // zmpkg.pl, zmsystemctl.pl) all run as www-data and keep access.
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o777);
+            let perms = std::fs::Permissions::from_mode(0o660);
             std::fs::set_permissions(&self.socket_path, perms)?;
         }
 

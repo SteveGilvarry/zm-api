@@ -19,7 +19,7 @@ use crate::daemon::ipc::{DaemonResponse, ProcessStatus, SystemStats, SystemStatu
 use crate::daemon::process::{ManagedProcess, ProcessState};
 use crate::daemon::stats;
 use crate::entity::sea_orm_active_enums::{Capturing, Function, MonitorType, Status};
-use crate::entity::{monitors, servers};
+use crate::entity::{filters, monitors, servers};
 use crate::error::AppResult;
 
 /// Internal command for the daemon manager.
@@ -133,6 +133,22 @@ impl DaemonManager {
 
         // Parse the daemon command
         let (command, daemon_args) = parse_daemon_command(id, args);
+
+        // Security boundary: reject anything that isn't a known ZM daemon
+        // shape before we resolve a path and exec. Without this, an absolute
+        // path in `id` would bypass `resolve_daemon_path` (PathBuf::join
+        // replaces the base on absolute input) and run arbitrary commands.
+        if let Err(reason) = validate_daemon_spec(&command, &daemon_args) {
+            warn!(
+                "Rejected daemon spawn for id={:?} args={:?}: {}",
+                id, args, reason
+            );
+            return Ok(DaemonResponse::error(format!(
+                "Invalid daemon spec: {}",
+                reason
+            )));
+        }
+
         let full_path = self.config.resolve_daemon_path(&command);
 
         info!("Starting daemon: {} {:?}", full_path.display(), daemon_args);
@@ -160,6 +176,9 @@ impl DaemonManager {
             ManagedProcess::new(id, id, &command, daemon_args.clone(), true, monitor_id)
         });
 
+        // Always sync args so existing entries (e.g. previously corrupted by
+        // restart arg duplication) heal back to the canonical exec list.
+        process.args = daemon_args.clone();
         process.set_child(child);
 
         // Update PID map
@@ -345,39 +364,42 @@ impl DaemonManager {
 
     /// Restart a daemon process.
     ///
-    /// If `provided_args` is non-empty, those args are used. Otherwise, we try
-    /// to use the args from the existing process entry, falling back to parsing
-    /// args from the daemon ID string (e.g., "zmc -m 1").
+    /// SIGTERM is sent and we wait for the child to actually exit (escalating
+    /// to SIGKILL after `shutdown_timeout`) before spawning the replacement;
+    /// otherwise the new spawn overwrites the manager's record while the old
+    /// process keeps running, leaking it as an orphan.
+    ///
+    /// If `provided_args` is non-empty, those args are used. Otherwise, we
+    /// derive the "extras" (args not already encoded in `id`) from the existing
+    /// process entry so they don't get duplicated when `start_daemon` re-parses
+    /// `id` and concatenates.
     pub async fn restart_daemon(
         &self,
         id: &str,
         provided_args: &[String],
     ) -> AppResult<DaemonResponse> {
-        // Determine which args to use
         let args = if !provided_args.is_empty() {
-            // Use provided args (from socket command or API call)
             provided_args.to_vec()
         } else {
-            // Try to get args from existing process entry
             let processes = self.processes.read().await;
             processes
                 .get(id)
-                .map(|p| p.args.clone())
+                .map(|p| extra_args_from_id(id, &p.args))
                 .unwrap_or_default()
         };
 
-        // Stop if running
-        {
+        // Stop the running process and wait for it to actually exit.
+        let needs_stop = {
             let processes = self.processes.read().await;
-            if let Some(process) = processes.get(id) {
-                if process.is_running() {
-                    drop(processes);
-                    self.stop_daemon(id).await?;
-                }
-            }
+            processes.get(id).is_some_and(|p| p.is_running())
+        };
+
+        if needs_stop {
+            self.stop_daemon(id).await?;
+            self.wait_for_stop(id).await;
         }
 
-        // Re-enable auto-restart
+        // Re-enable auto-restart for the fresh spawn (stop_daemon disabled it).
         {
             let mut processes = self.processes.write().await;
             if let Some(process) = processes.get_mut(id) {
@@ -386,6 +408,54 @@ impl DaemonManager {
         }
 
         self.start_daemon(id, &args).await
+    }
+
+    /// Wait for a daemon to exit after `stop_daemon` sent SIGTERM, escalating
+    /// to SIGKILL once `shutdown_timeout` elapses. Mirrors the wait loop in
+    /// `shutdown_all` but scoped to a single daemon. Returns once the process
+    /// is no longer in `Stopping` state (whether it exited, was killed, or was
+    /// never present).
+    async fn wait_for_stop(&self, id: &str) {
+        let timeout = self.config.shutdown_timeout();
+        let tick = std::time::Duration::from_millis(100);
+        let start = std::time::Instant::now();
+        let mut escalated = false;
+
+        loop {
+            // Drive try_wait() ourselves so we don't have to wait for the
+            // health-check loop's longer interval (default 10s).
+            self.check_daemons().await;
+
+            let still_stopping = {
+                let processes = self.processes.read().await;
+                processes
+                    .get(id)
+                    .is_some_and(|p| p.state == ProcessState::Stopping)
+            };
+
+            if !still_stopping {
+                return;
+            }
+
+            if !escalated && start.elapsed() >= timeout {
+                warn!(
+                    "Daemon {} has not stopped after {:?}, escalating to SIGKILL",
+                    id, timeout
+                );
+                self.check_terminating_processes().await;
+                escalated = true;
+            }
+
+            if start.elapsed() >= timeout * 2 {
+                warn!(
+                    "Daemon {} still in Stopping state after SIGKILL escalation; giving up wait",
+                    id
+                );
+                return;
+            }
+
+            tokio::time::sleep(tick).await;
+        }
     }
 
     /// Send SIGHUP to reload daemon configuration.
@@ -636,9 +706,10 @@ impl DaemonManager {
     /// 4. For Local type monitors: start `zmc -d <device>`
     /// 5. For other types: start `zmc -m <id>`
     /// 6. Start zma for monitors requiring motion detection (Modect/Mocord)
-    /// 7. Start zmcontrol.pl for controllable monitors
-    /// 8. Start zmtrack.pl for monitors with motion tracking enabled
-    /// 9. Start singleton daemons (zmfilter.pl, zmstats.pl, etc.)
+    /// 7. Start zmcontrol.pl + zmtrack.pl for controllable monitors (gated on `ZM_OPT_CONTROL`)
+    /// 8. Start one `zmfilter.pl --filter_id=<id> --daemon` per Background=1 filter
+    /// 9. Start singleton daemons, each gated by the matching `ZM_*` Config key
+    ///    and (in multi-server mode) the corresponding `Servers` column.
     pub async fn start_all_daemons(self: &Arc<Self>) -> AppResult<DaemonResponse> {
         let db = match &self.db {
             Some(db) => db.clone(),
@@ -662,6 +733,10 @@ impl DaemonManager {
             warn!("Failed to ensure state sanity: {}", e);
             // Continue anyway - this is not fatal
         }
+
+        // Resolve all upstream-equivalent gates (Config keys + per-server overrides)
+        // up front so each daemon decision is a cheap field lookup.
+        let gates = self.load_startup_gates(db.as_ref()).await;
 
         let mut started = 0;
         let mut failed = 0;
@@ -778,8 +853,9 @@ impl DaemonManager {
                 }
             }
 
-            // Start zmcontrol.pl for controllable monitors (PTZ control)
-            if monitor.controllable != 0 {
+            // PTZ control + motion tracking - both gated on ZM_OPT_CONTROL and
+            // a controllable monitor (matches zmpkg.pl:222-233 nesting).
+            if gates.zm_opt_control && monitor.controllable != 0 {
                 let daemon_id = format!("zmcontrol.pl --id {}", monitor_id);
                 match self.start_daemon(&daemon_id, &[]).await {
                     Ok(resp) if resp.success => {
@@ -804,50 +880,145 @@ impl DaemonManager {
                         );
                     }
                 }
-            }
 
-            // Start zmtrack.pl for monitors with motion tracking
-            if monitor.track_motion != 0 && needs_analysis {
-                let daemon_id = format!("zmtrack.pl -m {}", monitor_id);
-                match self.start_daemon(&daemon_id, &[]).await {
-                    Ok(resp) if resp.success => {
-                        started += 1;
-                        info!("Started zmtrack.pl for monitor {}", monitor_id);
-                    }
-                    Ok(resp) => {
-                        if !resp.message.contains("already running")
-                            && !resp.message.contains("not found")
-                        {
-                            warn!(
-                                "Could not start zmtrack.pl for monitor {}: {}",
-                                monitor_id, resp.message
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        // zmtrack.pl may not be installed - just warn
+                if monitor.track_motion != 0 {
+                    if !needs_analysis {
                         warn!(
-                            "Could not start zmtrack.pl for monitor {}: {}",
-                            monitor_id, e
+                            "Monitor {} is set to track motion but motion detection is not enabled",
+                            monitor_id
                         );
+                    } else {
+                        let daemon_id = format!("zmtrack.pl -m {}", monitor_id);
+                        match self.start_daemon(&daemon_id, &[]).await {
+                            Ok(resp) if resp.success => {
+                                started += 1;
+                                info!("Started zmtrack.pl for monitor {}", monitor_id);
+                            }
+                            Ok(resp) => {
+                                if !resp.message.contains("already running")
+                                    && !resp.message.contains("not found")
+                                {
+                                    warn!(
+                                        "Could not start zmtrack.pl for monitor {}: {}",
+                                        monitor_id, resp.message
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                // zmtrack.pl may not be installed - just warn
+                                warn!(
+                                    "Could not start zmtrack.pl for monitor {}: {}",
+                                    monitor_id, e
+                                );
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // Start singleton daemons in priority order
+        // Per-filter zmfilter.pl processes (mirrors zmpkg.pl: one --daemon
+        // process per Background=1 filter, pinned with --filter_id).
+        match filters::Entity::find()
+            .filter(filters::Column::Background.eq(1u8))
+            .all(db.as_ref())
+            .await
+        {
+            Ok(bg_filters) => {
+                info!("Found {} background filters to run", bg_filters.len());
+                for f in bg_filters {
+                    let daemon_id = format!("zmfilter.pl --filter_id={}", f.id);
+                    let args = vec!["--daemon".to_string()];
+                    match self.start_daemon(&daemon_id, &args).await {
+                        Ok(resp) if resp.success => {
+                            started += 1;
+                            info!("Started zmfilter for filter {} ({})", f.id, f.name);
+                        }
+                        Ok(resp) => {
+                            if !resp.message.contains("already running") {
+                                warn!(
+                                    "Could not start zmfilter for filter {}: {}",
+                                    f.id, resp.message
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Error starting zmfilter for filter {}: {}", f.id, e);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Could not query background filters: {}", e);
+            }
+        }
+
+        // Start singleton daemons in priority order, gated to match zmpkg.pl.
         let mut singletons: Vec<_> = DaemonDefinition::singletons()
             .filter(|d| d.requires_db)
             .collect();
         singletons.sort_by_key(|d| d.priority);
 
         for daemon in singletons {
+            // Per-daemon gating that mirrors zmpkg.pl. Each `continue` includes
+            // a debug log so operators can see why a daemon was skipped.
+            match daemon.name {
+                // zmfilter is started per-filter above; skip the global instance.
+                "zmfilter" => continue,
+                "zmaudit" => {
+                    if !gates.zm_run_audit {
+                        debug!("Skipping zmaudit.pl: ZM_RUN_AUDIT is disabled");
+                        continue;
+                    }
+                    if !gates.server_zmaudit {
+                        debug!("Skipping zmaudit.pl: disabled for this server");
+                        continue;
+                    }
+                }
+                "zmtrigger" => {
+                    if !gates.zm_opt_triggers {
+                        debug!("Skipping zmtrigger.pl: ZM_OPT_TRIGGERS is disabled");
+                        continue;
+                    }
+                    if !gates.server_zmtrigger {
+                        debug!("Skipping zmtrigger.pl: disabled for this server");
+                        continue;
+                    }
+                }
+                "zmtelemetry" => {
+                    if !gates.zm_telemetry_data {
+                        debug!("Skipping zmtelemetry.pl: ZM_TELEMETRY_DATA is disabled");
+                        continue;
+                    }
+                }
+                "zmeventnotification" => {
+                    if !gates.zm_opt_use_eventnotification {
+                        debug!(
+                            "Skipping zmeventnotification.pl: ZM_OPT_USE_EVENTNOTIFICATION is disabled"
+                        );
+                        continue;
+                    }
+                    if !gates.server_zmeventnotification {
+                        debug!("Skipping zmeventnotification.pl: disabled for this server");
+                        continue;
+                    }
+                }
+                "zmstats" => {
+                    if !gates.server_zmstats {
+                        debug!("Skipping zmstats.pl: disabled for this server");
+                        continue;
+                    }
+                }
+                _ => {}
+            }
+
             debug!(
                 "Starting singleton daemon: {} (priority {})",
                 daemon.name, daemon.priority
             );
 
-            match self.start_daemon(daemon.command, &[]).await {
+            let args: Vec<String> = daemon.default_args.iter().map(|s| s.to_string()).collect();
+            match self.start_daemon(daemon.command, &args).await {
                 Ok(resp) if resp.success => {
                     started += 1;
                     info!("Started {}", daemon.name);
@@ -880,6 +1051,63 @@ impl DaemonManager {
             Ok(DaemonResponse::error(message))
         } else {
             Ok(DaemonResponse::ok(message))
+        }
+    }
+
+    /// Resolve the upstream-equivalent startup gates from `Config` and the
+    /// per-server `Servers` row (in multi-server mode).
+    async fn load_startup_gates(&self, db: &DatabaseConnection) -> StartupGates {
+        let (
+            zm_opt_control,
+            zm_opt_triggers,
+            zm_opt_use_eventnotification,
+            zm_telemetry_data,
+            zm_run_audit,
+        ) = tokio::join!(
+            read_bool_config(db, "ZM_OPT_CONTROL"),
+            read_bool_config(db, "ZM_OPT_TRIGGERS"),
+            read_bool_config(db, "ZM_OPT_USE_EVENTNOTIFICATION"),
+            read_bool_config(db, "ZM_TELEMETRY_DATA"),
+            read_bool_config(db, "ZM_RUN_AUDIT"),
+        );
+
+        let (server_zmstats, server_zmaudit, server_zmtrigger, server_zmeventnotification) =
+            match self.server_id {
+                Some(id) => match servers::Entity::find_by_id(id).one(db).await {
+                    Ok(Some(s)) => (
+                        s.zmstats != 0,
+                        s.zmaudit != 0,
+                        s.zmtrigger != 0,
+                        s.zmeventnotification != 0,
+                    ),
+                    Ok(None) => {
+                        warn!(
+                            "Server id {} not found in DB; treating per-server daemon flags as enabled",
+                            id
+                        );
+                        (true, true, true, true)
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to load Server row for id {}: {} (treating per-server daemon flags as enabled)",
+                            id, e
+                        );
+                        (true, true, true, true)
+                    }
+                },
+                None => (true, true, true, true),
+            };
+
+        StartupGates {
+            zm_opt_control,
+            zm_opt_triggers,
+            zm_opt_use_eventnotification,
+            zm_telemetry_data,
+            zm_run_audit,
+            server_zmstats,
+            server_zmaudit,
+            server_zmtrigger,
+            server_zmeventnotification,
         }
     }
 
@@ -1276,9 +1504,12 @@ impl DaemonManager {
                     }
                 }
 
-                // Check for pending restarts
+                // Check for pending restarts. Pass only the "extras" — the
+                // id-parts will be reconstructed by start_daemon, so passing
+                // process.args directly would double them up.
                 if process.state == ProcessState::Restarting && process.backoff_elapsed() {
-                    to_restart.push((id.clone(), process.args.clone()));
+                    let extras = extra_args_from_id(id, &process.args);
+                    to_restart.push((id.clone(), extras));
                 }
             }
         }
@@ -1546,6 +1777,81 @@ impl DaemonManager {
     }
 }
 
+/// Whitelist validator for daemon spawn requests.
+///
+/// `start_daemon` (and therefore every restart path) routes through this
+/// before exec. The HTTP `/api/v3/daemons/{id}/...` endpoints and the
+/// `/run/zm/zmdc.sock` IPC handler both forward untrusted strings into
+/// `start_daemon`; without this check, `PathBuf::join` with an absolute path
+/// (e.g. `"/bin/bash"`) would replace the daemon base and run anything.
+///
+/// Mirrors `zmdc.pl`'s hardcoded daemon-name regex (line 131-138) plus
+/// `zmpkg.pl`'s `^/dev/[\w/.\-]+$` device path check (line 214).
+fn validate_daemon_spec(command: &str, args: &[String]) -> Result<(), String> {
+    use regex::Regex;
+    use std::sync::OnceLock;
+
+    static DEVICE_RE: OnceLock<Regex> = OnceLock::new();
+    let device_re = DEVICE_RE.get_or_init(|| Regex::new(r"^/dev/[\w/.\-]+$").unwrap());
+    static FILTER_ID_RE: OnceLock<Regex> = OnceLock::new();
+    let filter_id_re = FILTER_ID_RE.get_or_init(|| Regex::new(r"^--filter_id=\d+$").unwrap());
+
+    let int_arg = |s: &String| s.parse::<u32>().is_ok();
+
+    let result: Result<(), String> = match command {
+        // Singletons that take no arguments.
+        "zmstats.pl" | "zmtelemetry.pl" | "zmtrigger.pl" | "zmeventnotification.pl" => {
+            if args.is_empty() {
+                Ok(())
+            } else {
+                Err(format!("{} takes no arguments", command))
+            }
+        }
+        // zmfilter: global `--daemon`, or per-filter `--filter_id=N --daemon`.
+        "zmfilter.pl" => match args {
+            [a] if a == "--daemon" => Ok(()),
+            [a, b] if filter_id_re.is_match(a) && b == "--daemon" => Ok(()),
+            _ => Err(format!("zmfilter.pl args invalid: {:?}", args)),
+        },
+        // zmaudit: -c / --continuous (upstream's two spellings of the same flag).
+        "zmaudit.pl" => match args {
+            [a] if a == "-c" || a == "--continuous" => Ok(()),
+            _ => Err(format!("zmaudit.pl args invalid: {:?}", args)),
+        },
+        // zmc: -m <monitor_id> or -d /dev/<safe-path>. The regex matches
+        // upstream's `/^\/dev\/[\w\/.\-]+$/` but we additionally reject `..`
+        // so the path can't traverse out of /dev.
+        "zmc" => match args {
+            [m, id] if m == "-m" && int_arg(id) => Ok(()),
+            [d, path] if d == "-d" && device_re.is_match(path) && !path.contains("..") => Ok(()),
+            _ => Err(format!("zmc args invalid: {:?}", args)),
+        },
+        "zma" => match args {
+            [m, id] if m == "-m" && int_arg(id) => Ok(()),
+            _ => Err(format!("zma args invalid: {:?}", args)),
+        },
+        "zmcontrol.pl" => match args {
+            [k, id] if k == "--id" && int_arg(id) => Ok(()),
+            _ => Err(format!("zmcontrol.pl args invalid: {:?}", args)),
+        },
+        "zmtrack.pl" => match args {
+            [m, id] if m == "-m" && int_arg(id) => Ok(()),
+            _ => Err(format!("zmtrack.pl args invalid: {:?}", args)),
+        },
+        _ => Err(format!("unknown daemon: {:?}", command)),
+    };
+    result
+}
+
+/// Compute the "extras" — args present on a `ManagedProcess` that are NOT
+/// already encoded in the daemon id. `parse_daemon_command` will re-derive
+/// the id-parts on the next spawn and concatenate, so we have to subtract
+/// them on the way back in or they get duplicated each restart.
+fn extra_args_from_id(id: &str, full_args: &[String]) -> Vec<String> {
+    let id_arg_count = id.split_whitespace().count().saturating_sub(1);
+    full_args.iter().skip(id_arg_count).cloned().collect()
+}
+
 /// Parse a daemon command string into command and args.
 fn parse_daemon_command(id: &str, extra_args: &[String]) -> (String, Vec<String>) {
     let parts: Vec<&str> = id.split_whitespace().collect();
@@ -1558,6 +1864,50 @@ fn parse_daemon_command(id: &str, extra_args: &[String]) -> (String, Vec<String>
     args.extend(extra_args.iter().cloned());
 
     (command, args)
+}
+
+/// Interpret a ZoneMinder Config `Value` as a boolean.
+///
+/// ZoneMinder stores booleans as text in the `Config` table, mostly as `"1"`/`"0"`
+/// but human edits and older rows can produce `"yes"`/`"no"` or `"true"`/`"false"`.
+fn parse_zm_bool(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+/// Read a `ZM_*` config key and interpret it as a boolean.
+///
+/// Returns false on missing key, parse failure, or DB error — matching upstream
+/// Perl truthiness: `if ($Config{KEY})` treats undef/0/empty as false.
+async fn read_bool_config(db: &DatabaseConnection, key: &str) -> bool {
+    match crate::repo::config::get_config_value(db, key).await {
+        Ok(Some(v)) => parse_zm_bool(&v),
+        Ok(None) => false,
+        Err(e) => {
+            warn!("Could not read {}: {} (defaulting to off)", key, e);
+            false
+        }
+    }
+}
+
+/// Snapshot of upstream-equivalent startup gates pulled from `Config` and
+/// (when multi-server) the current `Servers` row.
+///
+/// `server_*` fields default to `true` when not in multi-server mode, so
+/// single-server installs ignore the per-server columns entirely — matching
+/// `zmpkg.pl`'s `if ($Server and exists $$Server{x} and !$$Server{x})` check.
+struct StartupGates {
+    zm_opt_control: bool,
+    zm_opt_triggers: bool,
+    zm_opt_use_eventnotification: bool,
+    zm_telemetry_data: bool,
+    zm_run_audit: bool,
+    server_zmstats: bool,
+    server_zmaudit: bool,
+    server_zmtrigger: bool,
+    server_zmeventnotification: bool,
 }
 
 /// Extract monitor ID from daemon arguments.
@@ -1672,6 +2022,117 @@ mod tests {
         let (cmd, args) = parse_daemon_command("zmc", &["-m".to_string(), "5".to_string()]);
         assert_eq!(cmd, "zmc");
         assert_eq!(args, vec!["-m", "5"]);
+    }
+
+    fn args(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_validate_daemon_spec_accepts_known_shapes() {
+        // Singletons
+        assert!(validate_daemon_spec("zmstats.pl", &[]).is_ok());
+        assert!(validate_daemon_spec("zmtelemetry.pl", &[]).is_ok());
+        assert!(validate_daemon_spec("zmtrigger.pl", &[]).is_ok());
+        assert!(validate_daemon_spec("zmeventnotification.pl", &[]).is_ok());
+
+        // zmfilter both shapes
+        assert!(validate_daemon_spec("zmfilter.pl", &args(&["--daemon"])).is_ok());
+        assert!(validate_daemon_spec("zmfilter.pl", &args(&["--filter_id=7", "--daemon"])).is_ok());
+
+        // zmaudit both spellings
+        assert!(validate_daemon_spec("zmaudit.pl", &args(&["-c"])).is_ok());
+        assert!(validate_daemon_spec("zmaudit.pl", &args(&["--continuous"])).is_ok());
+
+        // Per-monitor
+        assert!(validate_daemon_spec("zmc", &args(&["-m", "3"])).is_ok());
+        assert!(validate_daemon_spec("zmc", &args(&["-d", "/dev/video0"])).is_ok());
+        assert!(validate_daemon_spec("zma", &args(&["-m", "3"])).is_ok());
+        assert!(validate_daemon_spec("zmcontrol.pl", &args(&["--id", "3"])).is_ok());
+        assert!(validate_daemon_spec("zmtrack.pl", &args(&["-m", "3"])).is_ok());
+    }
+
+    #[test]
+    fn test_validate_daemon_spec_rejects_injection_attempts() {
+        // Absolute paths are the main attack vector against PathBuf::join
+        assert!(validate_daemon_spec("/bin/bash", &args(&["-c", "id"])).is_err());
+        assert!(validate_daemon_spec("/usr/bin/rm", &args(&["-rf", "/"])).is_err());
+
+        // Common system tools that aren't ZM daemons
+        assert!(validate_daemon_spec("rm", &args(&["-rf", "/home"])).is_err());
+        assert!(validate_daemon_spec("sh", &args(&["-c", "echo pwned"])).is_err());
+        assert!(validate_daemon_spec("python3", &[]).is_err());
+
+        // Known daemon, wrong args
+        assert!(validate_daemon_spec("zmc", &args(&["-x", "5"])).is_err());
+        assert!(validate_daemon_spec("zmc", &args(&["-m", "not_a_number"])).is_err());
+        assert!(validate_daemon_spec("zmc", &args(&["-m"])).is_err());
+        assert!(validate_daemon_spec("zmstats.pl", &args(&["extra"])).is_err());
+
+        // Bogus device paths (upstream regex blocks anything outside /dev/...)
+        assert!(validate_daemon_spec("zmc", &args(&["-d", "/etc/passwd"])).is_err());
+        assert!(validate_daemon_spec("zmc", &args(&["-d", "/dev/../etc/passwd"])).is_err());
+        assert!(validate_daemon_spec("zmc", &args(&["-d", "/dev/video0; rm -rf /"])).is_err());
+
+        // Filter id must be a number
+        assert!(
+            validate_daemon_spec("zmfilter.pl", &args(&["--filter_id=evil", "--daemon"])).is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_start_daemon_rejects_invalid_id() {
+        // End-to-end: start_daemon refuses arbitrary executables. We use an
+        // ID that would otherwise resolve and (potentially) spawn.
+        let config = DaemonConfig::default();
+        let manager = DaemonManager::new(config, None);
+        let resp = manager
+            .start_daemon("/bin/sh -c whoami", &[])
+            .await
+            .unwrap();
+        assert!(!resp.success, "expected start_daemon to reject /bin/sh");
+        assert!(
+            resp.message.contains("Invalid daemon spec"),
+            "got: {}",
+            resp.message
+        );
+    }
+
+    #[test]
+    fn test_extra_args_from_id() {
+        // Plain command id, args are all extras
+        assert_eq!(
+            extra_args_from_id("zmfilter.pl", &["--daemon".to_string()]),
+            vec!["--daemon".to_string()]
+        );
+
+        // id encodes the args; nothing extra
+        let args = vec!["-m".to_string(), "2".to_string()];
+        assert!(extra_args_from_id("zmc -m 2", &args).is_empty());
+
+        // id encodes some, plus an extra
+        let args = vec!["--filter_id=5".to_string(), "--daemon".to_string()];
+        assert_eq!(
+            extra_args_from_id("zmfilter.pl --filter_id=5", &args),
+            vec!["--daemon".to_string()]
+        );
+
+        // Empty inputs
+        assert!(extra_args_from_id("", &[]).is_empty());
+        assert!(extra_args_from_id("zmc -m 2", &[]).is_empty());
+    }
+
+    #[test]
+    fn test_parse_zm_bool() {
+        // Truthy values ZoneMinder may write
+        for v in ["1", "true", "TRUE", "yes", "Yes", "on", "ON", " 1 "] {
+            assert!(parse_zm_bool(v), "expected `{v}` to be true");
+        }
+        // Falsy / unrecognized values default to false (matches the
+        // conservative "off if unsure" behavior of the auto-start gate)
+        for v in ["0", "false", "no", "off", "", "garbage", "2"] {
+            assert!(!parse_zm_bool(v), "expected `{v}` to be false");
+        }
     }
 
     #[test]

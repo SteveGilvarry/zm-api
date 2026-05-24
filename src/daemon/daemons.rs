@@ -7,6 +7,10 @@ pub struct DaemonDefinition {
     pub name: &'static str,
     /// Command to execute
     pub command: &'static str,
+    /// Default arguments passed on first spawn. Required for Perl helpers
+    /// that exit immediately unless told to run as a long-lived daemon
+    /// (e.g. `zmfilter.pl --daemon`, `zmaudit.pl --continuous`).
+    pub default_args: &'static [&'static str],
     /// Description of what the daemon does
     pub description: &'static str,
     /// Whether this daemon should auto-restart on failure
@@ -24,6 +28,9 @@ pub const ZM_DAEMONS: &[DaemonDefinition] = &[
     DaemonDefinition {
         name: "zmfilter",
         command: "zmfilter.pl",
+        // Without --daemon, zmfilter.pl runs filters once and exits, causing the
+        // supervisor to respawn it in a tight loop.
+        default_args: &["--daemon"],
         description: "Event filter daemon - handles event filtering and deletion",
         auto_restart: true,
         singleton: true,
@@ -33,6 +40,8 @@ pub const ZM_DAEMONS: &[DaemonDefinition] = &[
     DaemonDefinition {
         name: "zmaudit",
         command: "zmaudit.pl",
+        // Without --continuous, zmaudit.pl runs a single audit pass and exits.
+        default_args: &["--continuous"],
         description: "Audit daemon - verifies event filesystem consistency",
         auto_restart: true,
         singleton: true,
@@ -42,6 +51,7 @@ pub const ZM_DAEMONS: &[DaemonDefinition] = &[
     DaemonDefinition {
         name: "zmtrigger",
         command: "zmtrigger.pl",
+        default_args: &[],
         description: "Trigger daemon - handles external alarm triggers",
         auto_restart: true,
         singleton: true,
@@ -51,6 +61,7 @@ pub const ZM_DAEMONS: &[DaemonDefinition] = &[
     DaemonDefinition {
         name: "zmcontrol",
         command: "zmcontrol.pl",
+        default_args: &[],
         description: "PTZ control daemon - handles camera pan/tilt/zoom",
         auto_restart: true,
         singleton: false, // One per controllable monitor
@@ -60,6 +71,7 @@ pub const ZM_DAEMONS: &[DaemonDefinition] = &[
     DaemonDefinition {
         name: "zmtrack",
         command: "zmtrack.pl",
+        default_args: &[],
         description: "Tracking daemon - handles motion tracking",
         auto_restart: true,
         singleton: false, // One per tracking monitor
@@ -72,6 +84,7 @@ pub const ZM_DAEMONS: &[DaemonDefinition] = &[
     DaemonDefinition {
         name: "zmstats",
         command: "zmstats.pl",
+        default_args: &[],
         description: "Stats daemon - collects system statistics",
         auto_restart: true,
         singleton: true,
@@ -81,6 +94,7 @@ pub const ZM_DAEMONS: &[DaemonDefinition] = &[
     DaemonDefinition {
         name: "zmtelemetry",
         command: "zmtelemetry.pl",
+        default_args: &[],
         description: "Telemetry daemon - sends anonymous usage stats",
         auto_restart: true,
         singleton: true,
@@ -90,6 +104,7 @@ pub const ZM_DAEMONS: &[DaemonDefinition] = &[
     DaemonDefinition {
         name: "zmeventnotification",
         command: "zmeventnotification.pl",
+        default_args: &[],
         description: "Event notification daemon - sends push notifications",
         auto_restart: true,
         singleton: true,
@@ -99,6 +114,7 @@ pub const ZM_DAEMONS: &[DaemonDefinition] = &[
     DaemonDefinition {
         name: "zmc",
         command: "zmc",
+        default_args: &[],
         description: "Capture daemon - captures video from cameras",
         auto_restart: true,
         singleton: false, // One per monitor (or device)
@@ -108,6 +124,7 @@ pub const ZM_DAEMONS: &[DaemonDefinition] = &[
     DaemonDefinition {
         name: "zma",
         command: "zma",
+        default_args: &[],
         description: "Analysis daemon - analyzes video for motion",
         auto_restart: true,
         singleton: false, // One per monitor
@@ -172,6 +189,18 @@ mod tests {
         assert!(singletons.iter().all(|d| d.singleton));
         assert!(singletons.iter().any(|d| d.name == "zmfilter"));
         assert!(singletons.iter().any(|d| d.name == "zmstats"));
+    }
+
+    /// zmfilter.pl and zmaudit.pl exit immediately unless invoked with their
+    /// daemon-mode flags, which causes the supervisor to respawn them in a
+    /// tight loop. Lock the flags in so the regression can't sneak back.
+    #[test]
+    fn test_perl_singletons_have_daemon_flags() {
+        let zmfilter = DaemonDefinition::find_by_name("zmfilter").unwrap();
+        assert_eq!(zmfilter.default_args, &["--daemon"]);
+
+        let zmaudit = DaemonDefinition::find_by_name("zmaudit").unwrap();
+        assert_eq!(zmaudit.default_args, &["--continuous"]);
     }
 
     #[test]

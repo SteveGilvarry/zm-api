@@ -85,8 +85,14 @@ impl From<PtzFocusRequest> for FocusParams {
 /// Request for preset operations
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema, Validate)]
 pub struct PtzPresetRequest {
-    /// Optional name for the preset (when setting)
+    /// Optional name for the preset (when setting). The character set is
+    /// restricted to keep names safe to log, store, and pass downstream as
+    /// a single argv element to zmcontrol.pl: NUL truncates C strings,
+    /// newlines enable log injection, and slashes have no business in a
+    /// preset label. Any printable, non-control, non-slash character is OK,
+    /// including Unicode letters (so non-Latin names still work).
     #[garde(length(max = 64))]
+    #[garde(pattern(r"^[^\x00-\x1F\x7F/\\]*$"))]
     #[serde(default)]
     pub name: Option<String>,
 }
@@ -140,4 +146,63 @@ pub struct PtzGenericCommandRequest {
     #[garde(skip)]
     #[serde(default)]
     pub params: Option<serde_json::Value>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn preset(name: Option<&str>) -> PtzPresetRequest {
+        PtzPresetRequest {
+            name: name.map(|s| s.to_string()),
+        }
+    }
+
+    #[test]
+    fn preset_name_accepts_normal_labels() {
+        // Common preset names from real-world setups.
+        for n in [
+            "Front Door",
+            "Driveway North",
+            "Garden #3",
+            "Position 1.5",
+            "屋外カメラ",
+            "Cam-01_west",
+            "",
+        ] {
+            assert!(
+                preset(Some(n)).validate().is_ok(),
+                "expected {:?} to pass",
+                n
+            );
+        }
+        // None is always fine
+        assert!(preset(None).validate().is_ok());
+    }
+
+    #[test]
+    fn preset_name_rejects_control_chars_and_separators() {
+        // Newlines/CR enable log injection
+        assert!(preset(Some("Front\nDoor")).validate().is_err());
+        assert!(preset(Some("Front\rDoor")).validate().is_err());
+        // Tab is a control char (some logging stacks split on it)
+        assert!(preset(Some("Front\tDoor")).validate().is_err());
+        // NUL truncates C strings downstream
+        assert!(preset(Some("Front\0Door")).validate().is_err());
+        // DEL is a control char
+        assert!(preset(Some("Front\x7FDoor")).validate().is_err());
+        // Path separators don't belong in a label
+        assert!(preset(Some("Front/Door")).validate().is_err());
+        assert!(preset(Some("Front\\Door")).validate().is_err());
+        // Path traversal attempt (uses both / and ..)
+        assert!(preset(Some("../../etc/passwd")).validate().is_err());
+    }
+
+    #[test]
+    fn preset_name_enforces_length_limit() {
+        let too_long = "a".repeat(65);
+        assert!(preset(Some(&too_long)).validate().is_err());
+        let just_right = "a".repeat(64);
+        assert!(preset(Some(&just_right)).validate().is_ok());
+    }
 }
