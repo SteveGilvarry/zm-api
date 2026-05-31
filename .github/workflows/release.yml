@@ -128,8 +128,18 @@ jobs:
         run: |
           useradd -m builder
           cp -r packaging/arch /tmp/build
+          # Build from the checked-out source instead of downloading the tag
+          # tarball: pre-stage the archive makepkg expects (matching the
+          # PKGBUILD's source filename and extracted dir), so it builds on
+          # dispatch/branch runs too — not only published tags.
+          pkgver=$(sed -n 's/^pkgver=//p' /tmp/build/PKGBUILD | head -1)
+          pkgtag=$(sed -n 's/^_pkgtag=//p' /tmp/build/PKGBUILD | head -1)
+          git archive --format=tar.gz --prefix="zm-api-${pkgtag#v}/" \
+            -o "/tmp/build/zm_api-${pkgver}.tar.gz" HEAD
           chown -R builder:builder /tmp/build
           # makepkg refuses root; runuser (util-linux) avoids needing sudo.
+          # -d skips dep checks (deps pre-installed above); the staged tarball
+          # plus sha256sums=SKIP means makepkg uses it rather than downloading.
           runuser -u builder -- bash -c 'cd /tmp/build && makepkg -d --noconfirm'
           mkdir -p out && cp /tmp/build/*.pkg.tar.zst out/
           ls -l out
