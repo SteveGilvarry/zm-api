@@ -12,6 +12,9 @@ ignore = [
     # in zm_api. Exploitation requires timing many RSA private-key operations;
     # mitigated by a local/TLS database connection. Revisit when sqlx drops rsa.
     "RUSTSEC-2023-0071",
+    # atomic-polyfill unmaintained. Deep transitive build-dep only
+    # (garde -> phonenumber -> postcard -> heapless), no safe upgrade available.
+    "RUSTSEC-2023-0089",
 ]
 
 [bans]
