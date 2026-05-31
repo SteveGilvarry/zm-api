@@ -41,9 +41,8 @@ and searchable. Monitor state & alarm control. Per-monitor snapshots straight fr
 stream.
 
 ### 🎬 Live Streaming
-Three delivery paths from one API:
+Two delivery paths from one API:
 - **HLS** — fragmented-MP4 playlists for any HTML5 `<video>` element.
-- **MSE** — low-latency fMP4 pushed over a WebSocket.
 - **WebRTC** — native peer connection with ICE/SDP signaling.
 
 Plus recorded-event playback (video, byte-range seeking, thumbnails).
@@ -92,7 +91,7 @@ flowchart TD
     Services --> Repos["🗃️ Repositories — SeaORM queries"]
     Repos --> DB[("🛢️ MariaDB / MySQL<br/>ZoneMinder schema")]
 
-    Handlers -.live & playback.-> Streaming["🎬 HLS · MSE · WebRTC"]
+    Handlers -.live & playback.-> Streaming["🎬 HLS · WebRTC"]
     Streaming -.-> Cameras[("📷 ZoneMinder capture daemons")]
 ```
 
@@ -117,7 +116,7 @@ flowchart TD
 | **ORM** | [SeaORM](https://www.sea-ql.org/SeaORM/) 1.1 (MySQL/MariaDB) |
 | **API docs** | [utoipa](https://github.com/juhaku/utoipa) + Swagger UI |
 | **Auth** | JSON Web Tokens (`jsonwebtoken`) |
-| **Streaming** | `webrtc`, fMP4/MSE, HLS, `retina` (RTSP) |
+| **Streaming** | `webrtc`, fMP4, HLS, `retina` (RTSP) |
 | **Media** | FFmpeg (`ffmpeg-next`) for H.264 → JPEG |
 
 ---
@@ -157,6 +156,25 @@ Once running, open the interactive docs:
 |---|---|
 | 🧭 **Swagger UI** | `http://<host>:<port>/swagger-ui` |
 | 📄 **OpenAPI spec** | `http://<host>:<port>/api-docs/openapi.json` |
+
+### Install as a service (packages)
+
+Packages install zm_api as a systemd service in **passive mode** — it serves the REST API
+alongside a running ZoneMinder without touching its daemons, so it's safe on an existing box.
+
+```bash
+sudo dpkg -i zm-api_*.deb        # Debian / Ubuntu / Raspberry Pi OS
+sudo dnf install zm_api-*.rpm    # Fedora / RHEL / Rocky / Alma  (zypper on openSUSE)
+```
+
+To have zm_api take over ZoneMinder daemon supervision (stops & disables `zoneminder.service`):
+
+```bash
+sudo zm_api-takeover             # --revert hands control back to ZoneMinder
+```
+
+Build packages with `./scripts/package.sh [deb|rpm|arch|all]`. Full distro matrix, config, and
+TLS setup: [`docs/deployment.md`](docs/deployment.md).
 
 ---
 
@@ -208,7 +226,7 @@ src/
 ├── repo/        Database query layer
 ├── entity/      SeaORM entities (generated from the ZM schema)
 ├── dto/         Request/response DTOs
-├── streaming/   HLS / MSE / WebRTC pipelines
+├── streaming/   HLS / WebRTC pipelines
 ├── ptz/         PTZ control drivers
 ├── daemon/      ZoneMinder daemon supervision
 ├── configure/   Config loading
