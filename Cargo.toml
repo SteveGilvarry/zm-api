@@ -131,17 +131,24 @@ tower = "0.5"
 tempfile = "3"
 
 [package.metadata.deb]
-maintainer = "zm_api <admin@localhost>"
-depends = "$auto"
+maintainer = "Steve Gilvarry <SteveGilvarry@users.noreply.github.com>"
+# openssl: JWT key generation in the post-install script. passwd: useradd/usermod.
+depends = "$auto, openssl, passwd"
 section = "net"
 priority = "optional"
+maintainer-scripts = "packaging/debian"
 assets = [
   ["target/release/zm_api", "usr/bin/zm_api", "755"],
+  ["packaging/zm_api-takeover.sh", "usr/bin/zm_api-takeover", "755"],
+  ["packaging/setup-instance.sh", "usr/share/zm_api/setup-instance.sh", "755"],
   ["settings/base.toml", "etc/zm_api/base.toml", "644"],
   ["settings/prod.toml", "etc/zm_api/prod.toml", "644"],
   ["packaging/systemd/zm_api.env", "etc/zm_api/zm_api.env", "644"],
   ["packaging/systemd/zm_api.service", "lib/systemd/system/zm_api.service", "644"],
-  ["static", "usr/share/zm_api/static", "755"],
+  # NOTE: do not ship `static/` wholesale — it holds the dev JWT keys
+  # (static/key/*.pem). Packaged installs generate their own keys in
+  # /var/lib/zm_api/keys. If real web assets are added later, ship a scoped
+  # glob such as ["static/images/**/*", "usr/share/zm_api/static/images/", "644"].
 ]
 conf-files = [
   "/etc/zm_api/base.toml",
@@ -164,7 +171,10 @@ zm_api = { path = "/usr/bin/zm_api" }
 "settings/prod.toml" = { path = "/etc/zm_api/prod.toml", mode = "644", config = true }
 "packaging/systemd/zm_api.env" = { path = "/etc/zm_api/zm_api.env", mode = "644", config = true }
 "packaging/systemd/zm_api.service" = { path = "/usr/lib/systemd/system/zm_api.service", mode = "644" }
-"static" = { path = "/usr/share/zm_api/static", mode = "755" }
+"packaging/zm_api-takeover.sh" = { path = "/usr/bin/zm_api-takeover", mode = "755" }
+"packaging/setup-instance.sh" = { path = "/usr/share/zm_api/setup-instance.sh", mode = "755" }
+# `static/` is intentionally NOT shipped — it holds dev JWT keys; packaged
+# installs generate their own in /var/lib/zm_api/keys.
 
 # Full DWARF debug info triples the linker's peak memory and pushes this dev
 # box (16 GiB / 4 GiB swap, with ZoneMinder + zm_api already resident) into

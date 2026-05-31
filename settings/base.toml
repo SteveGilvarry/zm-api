@@ -116,7 +116,10 @@ transport = "auto"
 
 # Daemon controller configuration (replaces zmdc.pl/zmpkg.pl)
 [daemon]
-enabled = true
+# Passive by default: run as a REST API alongside stock ZoneMinder without
+# touching its daemons. Flip to true (and disable zoneminder.service) only when
+# you want zm_api to take over daemon supervision. See packaging/zm_api-takeover.sh.
+enabled = false
 socket_path = "/run/zm"
 socket_name = "zmdc.sock"
 # On Ubuntu/Debian, both binaries and scripts are in /usr/bin

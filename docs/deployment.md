@@ -16,25 +16,58 @@
 - Generate per-install JWT keys with `scripts/generate-jwt-keys.sh /var/lib/zm_api/keys`
   (or `JWT_KEY_DIR=/var/lib/zm_api/keys`).
 
-## Recommended deployment flow
-1. Create config in `/etc/zm_api` (start from `settings/base.toml` + `settings/prod.toml`).
-2. Generate keys in `/var/lib/zm_api/keys` and update `secret.*_key` paths.
-3. Install the package (Deb or RPM) and enable the systemd unit.
-4. Configure TLS/ACME if needed (see `docs/tls.md`).
-5. Validate health with `/swagger-ui` and run a smoke test against `/api-docs/openapi.json`.
+## Passive vs. active (daemon control)
+zm_api ships **passive** by default (`daemon.enabled = false`): it serves only the
+REST API and does not create the daemon manager, bind `/run/zm/zmdc.sock`, or run
+`kill_orphan_daemons()`. This makes it safe to install **alongside a running stock
+ZoneMinder** — the package never fights the existing `zmdc.pl`/`zmc`/`zmfilter`
+processes.
 
-## Packaging layout (Deb/RPM)
-- Binary: `/usr/bin/zm_api`
+When you are ready to let zm_api supervise the ZoneMinder daemons itself:
+
+```bash
+sudo zm_api-takeover          # stops+disables zoneminder.service, flips the flag, restarts zm_api
+sudo zm_api-takeover --revert # hand control back to ZoneMinder
+```
+
+Equivalent manual steps: `systemctl disable --now zoneminder`, set
+`APP_DAEMON__ENABLED=true` in `/etc/zm_api/zm_api.env`, `systemctl restart zm_api`.
+
+## Recommended deployment flow
+1. Install the package (see matrix below). It creates the `zoneminder` user (if
+   absent), provisions `/var/lib/zm_api/keys` with generated JWT keys, installs
+   the unit, and starts zm_api in **passive** mode.
+2. Confirm DB connectivity — zm_api falls back to `/etc/zm/zm.conf` when the
+   `[db]` placeholders are unchanged; otherwise set `APP_DB__*` in `zm_api.env`.
+3. Configure TLS/ACME if needed (see `docs/tls.md`).
+4. Validate health with `/swagger-ui` and a smoke test against `/api-docs/openapi.json`.
+5. When ready, run `sudo zm_api-takeover` to assume daemon supervision.
+
+JWT keys are generated automatically on install by `setup-instance.sh`. For a
+manual/source install, run `scripts/generate-jwt-keys.sh /var/lib/zm_api/keys`
+and point `secret.*_key` (or `APP_SECRET__*`) at that directory.
+
+## Packaging layout
+- Binary: `/usr/bin/zm_api`; takeover helper: `/usr/bin/zm_api-takeover`
 - Config: `/etc/zm_api/base.toml`, `/etc/zm_api/prod.toml`, `/etc/zm_api/zm_api.env`
-- Static assets: `/usr/share/zm_api/static`
-- Systemd unit: `/lib/systemd/system/zm_api.service` (Deb) or `/usr/lib/systemd/system/zm_api.service` (RPM)
+- State (JWT keys): `/var/lib/zm_api/keys` (generated per-install; never packaged)
+- Setup helper: `/usr/share/zm_api/setup-instance.sh`
+- Systemd unit: `/lib/systemd/system/zm_api.service` (Deb) or `/usr/lib/systemd/system/zm_api.service` (RPM/Arch)
+
+## Distro matrix
+| Family | Definition | Build / publish |
+| --- | --- | --- |
+| Debian/Ubuntu (`.deb`) | `Cargo.toml [package.metadata.deb]` + `packaging/debian/{postinst,prerm,postrm}` | `cargo deb` / `./scripts/package.sh deb` |
+| Fedora/RHEL/Rocky/Alma (`.rpm`) | `packaging/rpm/zm_api.spec` | `rpmbuild` / COPR / `./scripts/package.sh rpm` |
+| openSUSE (`.rpm`) | same spec (has `%if 0%{?suse_version}` branches) | OBS / `rpmbuild` |
+| Arch (`PKGBUILD`) | `packaging/arch/PKGBUILD` + `zm_api.install` | `makepkg` / AUR |
 
 ## Building packages
-- Install tooling: `cargo install cargo-deb cargo-rpm`
-- Build both: `./scripts/package.sh`
-- Deb only: `./scripts/package.sh deb`
-- RPM only: `./scripts/package.sh rpm`
-- Update `Cargo.toml` package metadata (maintainer/license) before release.
+- Debian/Ubuntu: `cargo install cargo-deb` then `./scripts/package.sh deb`.
+- RPM (Fedora/EL/openSUSE): build on the target family (or COPR/OBS) with
+  `./scripts/package.sh rpm`, which tarballs `HEAD` and runs `rpmbuild` on the spec.
+- Arch: `./scripts/package.sh arch` (runs `makepkg`) on an Arch host.
+- Update `Cargo.toml` / spec / PKGBUILD version before a release.
 
 ## Testing and release checklist
 - `cargo fmt --all -- --check`

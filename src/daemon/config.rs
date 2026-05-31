@@ -7,7 +7,13 @@ use std::time::Duration;
 /// Configuration for the daemon controller service.
 #[derive(Debug, Deserialize, Clone)]
 pub struct DaemonConfig {
-    /// Whether the daemon controller is enabled
+    /// Whether the daemon controller is enabled.
+    ///
+    /// Defaults to `false` ("passive" mode): zm_api runs as a REST API only and
+    /// does not create the daemon manager, bind the `zmdc.sock` socket, or run
+    /// `kill_orphan_daemons()` — so it coexists safely with a running stock
+    /// ZoneMinder install. Set to `true` ("active"/takeover mode) only after
+    /// disabling `zoneminder.service`, so zm_api can supervise the ZM daemons.
     #[serde(default = "default_enabled")]
     pub enabled: bool,
 
@@ -132,7 +138,9 @@ impl DaemonConfig {
 }
 
 fn default_enabled() -> bool {
-    true
+    // Passive by default: never seize daemon control from a running ZoneMinder
+    // on a fresh install. Operators opt into takeover explicitly.
+    false
 }
 
 fn default_socket_path() -> PathBuf {
@@ -195,7 +203,9 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = DaemonConfig::default();
-        assert!(config.enabled);
+        // Passive by default — daemon control is opt-in so we never collide
+        // with a running stock ZoneMinder on a fresh install.
+        assert!(!config.enabled);
         assert_eq!(config.socket_path, PathBuf::from("/run/zm"));
         assert_eq!(config.socket_name, "zmdc.sock");
         assert_eq!(config.min_backoff_seconds, 5);

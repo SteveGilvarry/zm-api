@@ -1,0 +1,38 @@
+# Maintainer: Steve Gilvarry <SteveGilvarry@users.noreply.github.com>
+pkgname=zm_api
+pkgver=3.0.0
+pkgrel=1
+pkgdesc="ZoneMinder REST API and daemon supervisor"
+arch=('x86_64' 'aarch64')
+url="https://github.com/SteveGilvarry/zm-api"
+license=('AGPL-3.0-or-later')
+depends=('openssl' 'systemd-libs')
+makedepends=('cargo')
+install="${pkgname}.install"
+backup=(
+  "etc/${pkgname}/base.toml"
+  "etc/${pkgname}/prod.toml"
+  "etc/${pkgname}/zm_api.env"
+)
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "zm-api-${pkgver}"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo build --release --locked
+}
+
+package() {
+  cd "zm-api-${pkgver}"
+  install -Dm755 "target/release/${pkgname}"          "${pkgdir}/usr/bin/${pkgname}"
+  install -Dm755 packaging/zm_api-takeover.sh          "${pkgdir}/usr/bin/${pkgname}-takeover"
+  install -Dm755 packaging/setup-instance.sh           "${pkgdir}/usr/share/${pkgname}/setup-instance.sh"
+  install -Dm644 settings/base.toml                    "${pkgdir}/etc/${pkgname}/base.toml"
+  install -Dm644 settings/prod.toml                    "${pkgdir}/etc/${pkgname}/prod.toml"
+  install -Dm644 packaging/systemd/zm_api.env          "${pkgdir}/etc/${pkgname}/zm_api.env"
+  install -Dm644 packaging/systemd/zm_api.service      "${pkgdir}/usr/lib/systemd/system/${pkgname}.service"
+  install -Dm644 LICENSE                               "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+  # static/ is not packaged — it holds dev JWT keys; per-install keys are
+  # generated into /var/lib/zm_api/keys by setup-instance.sh.
+}

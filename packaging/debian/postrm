@@ -1,0 +1,23 @@
+#!/bin/sh
+# Debian postrm for zm_api.
+set -e
+
+case "$1" in
+  remove)
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload || true
+    fi
+    ;;
+  purge)
+    # Remove generated state (JWT keys) and logs. The shared `zoneminder`
+    # user/group is intentionally left in place — it may belong to ZoneMinder.
+    rm -rf /var/lib/zm_api /var/log/zm_api
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload || true
+    fi
+    ;;
+  upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+    ;;
+esac
+
+exit 0

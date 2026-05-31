@@ -1,0 +1,16 @@
+#!/bin/sh
+# Debian prerm for zm_api.
+set -e
+
+case "$1" in
+  remove|deconfigure)
+    if [ -d /run/systemd/system ]; then
+      systemctl stop zm_api.service || true
+      systemctl disable zm_api.service || true
+    fi
+    ;;
+  upgrade|failed-upgrade)
+    ;;
+esac
+
+exit 0

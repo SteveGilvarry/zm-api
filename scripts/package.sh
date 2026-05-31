@@ -3,37 +3,71 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: ./scripts/package.sh [deb|rpm|all]
+Usage: ./scripts/package.sh [deb|rpm|arch|all]
 
-Builds Debian and/or RPM packages using cargo-deb and cargo-rpm.
+Builds distribution packages for zm_api.
+
+  deb   Debian/Ubuntu .deb via cargo-deb (built here when tooling is present).
+  rpm   Fedora/RHEL/openSUSE .rpm from packaging/rpm/zm_api.spec via rpmbuild.
+  arch  Arch PKGBUILD via makepkg.
+  all   deb plus whatever rpm/arch tooling is available.
+
+All packages ship in PASSIVE mode (REST API only). Use `zm_api-takeover` on the
+target host to hand ZoneMinder daemon supervision to zm_api.
 EOF
 }
 
 target="${1:-all}"
+case "$target" in
+  -h|--help) usage; exit 0 ;;
+  deb|rpm|arch|all) ;;
+  *) echo "Unknown target: $target" >&2; usage >&2; exit 1 ;;
+esac
 
-if [[ "$target" == "-h" || "$target" == "--help" ]]; then
-  usage
-  exit 0
-fi
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VERSION="$(grep -m1 '^version' "$ROOT/Cargo.toml" | sed -E 's/.*"([^"]+)".*/\1/')"
 
-if [[ "$target" != "deb" && "$target" != "rpm" && "$target" != "all" ]]; then
-  echo "Unknown target: $target" >&2
-  usage >&2
-  exit 1
-fi
-
-if [[ "$target" == "deb" || "$target" == "all" ]]; then
+build_deb() {
   if ! command -v cargo-deb >/dev/null 2>&1; then
     echo "cargo-deb is required: cargo install cargo-deb" >&2
-    exit 1
+    return 1
   fi
-  cargo deb
-fi
+  (cd "$ROOT" && cargo deb)
+}
 
-if [[ "$target" == "rpm" || "$target" == "all" ]]; then
-  if ! command -v cargo-rpm >/dev/null 2>&1; then
-    echo "cargo-rpm is required: cargo install cargo-rpm" >&2
-    exit 1
+build_rpm() {
+  if ! command -v rpmbuild >/dev/null 2>&1; then
+    echo "rpmbuild not found. Build on a Fedora/EL/openSUSE host, or submit" >&2
+    echo "packaging/rpm/zm_api.spec to COPR (Fedora) / OBS (openSUSE)." >&2
+    return 1
   fi
-  cargo rpm build
-fi
+  local topdir tarball
+  topdir="$(rpm --eval %_topdir)"
+  mkdir -p "$topdir/SOURCES"
+  tarball="$topdir/SOURCES/zm_api-${VERSION}.tar.gz"
+  echo "Creating source tarball $tarball"
+  (cd "$ROOT" && git archive --format=tar.gz --prefix="zm_api-${VERSION}/" -o "$tarball" HEAD)
+  rpmbuild -bb "$ROOT/packaging/rpm/zm_api.spec"
+}
+
+build_arch() {
+  if ! command -v makepkg >/dev/null 2>&1; then
+    echo "makepkg not found. Build on an Arch host with packaging/arch/PKGBUILD," >&2
+    echo "or publish it to the AUR." >&2
+    return 1
+  fi
+  (cd "$ROOT/packaging/arch" && makepkg -f)
+}
+
+rc=0
+case "$target" in
+  deb)  build_deb  || rc=$? ;;
+  rpm)  build_rpm  || rc=$? ;;
+  arch) build_arch || rc=$? ;;
+  all)
+    build_deb  || rc=$?
+    build_rpm  || true   # optional: only when rpm tooling is present
+    build_arch || true   # optional: only when arch tooling is present
+    ;;
+esac
+exit "$rc"

@@ -1,0 +1,26 @@
+#!/bin/sh
+# Debian postinst for zm_api. Ships in passive mode — installing alongside a
+# running ZoneMinder is safe; daemon control stays off until `zm_api-takeover`.
+set -e
+
+case "$1" in
+  configure)
+    # User, dirs, and JWT keys (idempotent; never overwrites existing keys).
+    [ -x /usr/share/zm_api/setup-instance.sh ] && /usr/share/zm_api/setup-instance.sh || true
+
+    if [ -d /run/systemd/system ]; then
+      systemctl daemon-reload || true
+      # Enable + start in passive (REST-only) mode. A start failure here is
+      # non-fatal (e.g. DB not yet configured); the unit will retry.
+      systemctl enable zm_api.service || true
+      systemctl start zm_api.service || true
+    fi
+
+    echo "zm_api installed in passive mode (REST API only)."
+    echo "To have zm_api take over ZoneMinder daemon supervision: sudo zm_api-takeover"
+    ;;
+  abort-upgrade|abort-remove|abort-deconfigure)
+    ;;
+esac
+
+exit 0
