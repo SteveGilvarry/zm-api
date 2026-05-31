@@ -516,7 +516,7 @@ async fn test_api_frames_list_get() {
     let response = app
         .clone()
         .oneshot(
-            Request::get(&format!("/frames?event_id={}", event.id))
+            Request::get(&format!("/api/v3/frames?event_id={}", event.id))
                 .header(header::AUTHORIZATION, auth_header())
                 .body(Body::empty())
                 .unwrap(),
@@ -533,7 +533,7 @@ async fn test_api_frames_list_get() {
 
     let response = app
         .oneshot(
-            Request::get(&format!("/frames/{}", frame.id))
+            Request::get(&format!("/api/v3/frames/{}", frame.id))
                 .header(header::AUTHORIZATION, auth_header())
                 .body(Body::empty())
                 .unwrap(),
@@ -594,10 +594,16 @@ async fn test_api_events_counts_by_monitor_groups_correctly() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    let status = response.status();
     let bytes = body::to_bytes(response.into_body(), 64 * 1024)
         .await
         .unwrap();
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "body: {}",
+        String::from_utf8_lossy(&bytes)
+    );
     let body: EventCountsByMonitorResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body.hours, 24);
     let count_a = body
