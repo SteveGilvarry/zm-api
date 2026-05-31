@@ -85,6 +85,7 @@ jobs:
         run: |
           ${{ matrix.install }} \
             git tar gzip rpm-build rust cargo gcc systemd-rpm-macros \
+            clang clang-devel \
             'pkgconfig(openssl)' \
             'pkgconfig(libavcodec)' 'pkgconfig(libavformat)' \
             'pkgconfig(libavutil)' 'pkgconfig(libavfilter)' \

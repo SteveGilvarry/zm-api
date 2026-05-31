@@ -4,8 +4,8 @@
 
 Name:           zm_api
 Version:        3.0.0
-# Pre-release ordering: 0.<n>.<prerel> sorts before the stable "1%{?dist}".
-# For the stable 3.0.0, set this back to "1%{?dist}".
+# Pre-release ordering: 0.N.prerel sorts before the stable release.
+# For the stable 3.0.0, set Release back to 1 (plus the dist tag).
 Release:        0.1.alpha1%{?dist}
 Summary:        ZoneMinder REST API and daemon supervisor
 
@@ -17,6 +17,8 @@ BuildRequires:  cargo
 BuildRequires:  rust
 BuildRequires:  gcc
 BuildRequires:  systemd-rpm-macros
+# libclang for bindgen (clang-sys), pulled in via the FFmpeg bindings build.
+BuildRequires:  clang-devel
 # FFmpeg + OpenSSL development libraries, requested via pkg-config virtual
 # provides so the right package resolves on each distro (Fedora's *-free-devel,
 # openSUSE's libav*-devel / Packman, etc.). ffmpeg-sys-next links these.
@@ -90,6 +92,6 @@ fi
 %config(noreplace) %{_sysconfdir}/%{name}/zm_api.env
 
 %changelog
-* Sat May 31 2026 Steve Gilvarry <SteveGilvarry@users.noreply.github.com> - 3.0.0-0.1.alpha1
+* Sun May 31 2026 Steve Gilvarry <SteveGilvarry@users.noreply.github.com> - 3.0.0-0.1.alpha1
 - First Rust release (3.0.0-alpha.1). Passive by default; zm_api-takeover for
   daemon control. Initial RPM packaging.
