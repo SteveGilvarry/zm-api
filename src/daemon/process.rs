@@ -128,12 +128,17 @@ impl ManagedProcess {
     }
 
     /// Set the child process handle and update state to Running.
+    ///
+    /// Note: this deliberately does NOT reset `restart_count`. A successful
+    /// `exec` does not prove the daemon will stay up — a process that flaps
+    /// (execs then exits within seconds) must keep escalating its backoff.
+    /// The crash history is only forgiven once the process has stayed Running
+    /// for `restart_stable_after` (see [`Self::reset_backoff_if_stable`]).
     pub fn set_child(&mut self, child: Child) {
         self.pid = child.id();
         self.child = Some(child);
         self.set_state(ProcessState::Running);
         self.started_at = Some(Instant::now());
-        self.restart_count = 0;
     }
 
     /// Take ownership of the child process handle.
@@ -231,6 +236,25 @@ impl ManagedProcess {
     pub fn reset_backoff(&mut self, min_backoff: Duration) {
         self.restart_count = 0;
         self.current_backoff = min_backoff;
+    }
+
+    /// Forgive the crash backoff once a (re)started process has proven stable.
+    ///
+    /// Called from the health-check loop for processes that are still Running.
+    /// We only clear `restart_count`/`current_backoff` once the process has
+    /// outlived `max_delay` (mirroring zmdc.pl's `ZM_MAX_RESTART_DELAY`); before
+    /// that a flapping daemon must keep escalating its backoff rather than
+    /// respawning every `min_backoff`. `set_child` deliberately does not reset
+    /// the counter, so without this a successful `exec` alone would never be
+    /// distinguished from a process that actually stays up.
+    pub fn reset_backoff_if_stable(&mut self, max_delay: Duration, min_backoff: Duration) {
+        if self.state == ProcessState::Running && self.restart_count > 0 {
+            if let Some(start) = self.started_at {
+                if crate::daemon::backoff::should_reset_backoff(start.elapsed(), max_delay) {
+                    self.reset_backoff(min_backoff);
+                }
+            }
+        }
     }
 
     /// Read CPU time from /proc/[pid]/stat.
@@ -414,5 +438,48 @@ mod tests {
         assert_eq!(ProcessState::Stopped.to_string(), "stopped");
         assert_eq!(ProcessState::Running.to_string(), "running");
         assert_eq!(ProcessState::Failed.to_string(), "failed");
+    }
+
+    /// Regression: attaching a fresh child after a crash must NOT forget the
+    /// crash history. A daemon that execs successfully but exits seconds later
+    /// has to keep escalating its backoff; if `set_child` reset `restart_count`
+    /// every time, a flapping daemon would respawn every `min_backoff` forever
+    /// instead of backing off.
+    #[tokio::test]
+    async fn test_set_child_preserves_backoff_until_stable() {
+        let min = Duration::from_secs(5);
+        let max = Duration::from_secs(900);
+        let mut process = ManagedProcess::new("test", "test", "test", vec![], true, None);
+
+        process.prepare_restart(min, max);
+        process.prepare_restart(min, max);
+        assert_eq!(process.restart_count, 2);
+
+        let child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 30")
+            .spawn()
+            .expect("spawn test child");
+        process.set_child(child);
+
+        // A brand-new, not-yet-stable process keeps its crash count.
+        assert_eq!(
+            process.restart_count, 2,
+            "set_child must not clear the crash count before the process is stable"
+        );
+
+        // Not stable yet (uptime well below the threshold): no reset.
+        process.reset_backoff_if_stable(Duration::from_secs(60), min);
+        assert_eq!(process.restart_count, 2);
+
+        // Once it has proven stable (zero-uptime threshold => stable now), the
+        // crash history is cleared and backoff returns to the minimum.
+        process.reset_backoff_if_stable(Duration::from_secs(0), min);
+        assert_eq!(process.restart_count, 0);
+        assert_eq!(process.current_backoff, min);
+
+        if let Some(mut child) = process.take_child() {
+            let _ = child.kill().await;
+        }
     }
 }

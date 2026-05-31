@@ -1458,50 +1458,67 @@ impl DaemonManager {
             let mut processes = self.processes.write().await;
 
             for (id, process) in processes.iter_mut() {
-                // Check if the process has exited
-                if let Some(child) = process.child_mut() {
-                    match child.try_wait() {
-                        Ok(Some(status)) => {
-                            // Process exited
-                            let was_stopping = process.state == ProcessState::Stopping;
+                // Poll for exit, then drop the child borrow before mutating the
+                // process below. `try_wait()` is non-consuming and, once a
+                // child has exited, tokio caches the status and returns it on
+                // every subsequent call — so we MUST take the handle when we
+                // first observe the exit, or each cycle would re-detect the
+                // same dead child, re-run prepare_restart (resetting the
+                // backoff clock) and never actually restart it.
+                let wait_result = process.child_mut().map(|child| child.try_wait());
 
-                            if was_stopping {
-                                info!("Daemon {} gracefully stopped with status: {:?}", id, status);
-                            } else {
-                                info!("Daemon {} exited with status: {:?}", id, status);
-                            }
+                match wait_result {
+                    Some(Ok(Some(status))) => {
+                        // Process exited — drop the dead handle so try_wait()
+                        // can't re-fire on the cached status next cycle.
+                        let _ = process.take_child();
 
-                            // Collect PID for removal (will remove after releasing lock)
-                            if let Some(pid) = process.pid {
-                                pids_to_remove.push(pid);
-                            }
+                        let was_stopping = process.state == ProcessState::Stopping;
 
-                            // Clear term_sent_at since process has exited
-                            process.term_sent_at = None;
-
-                            // If the process was being stopped (Stopping state) or
-                            // auto_restart is disabled, just mark it stopped
-                            if was_stopping || !process.auto_restart {
-                                process.set_state(ProcessState::Stopped);
-                            } else {
-                                // Prepare for restart with backoff
-                                process.prepare_restart(
-                                    self.config.min_backoff(),
-                                    self.config.max_backoff(),
-                                );
-                                debug!(
-                                    "Daemon {} will restart in {:?}",
-                                    id, process.current_backoff
-                                );
-                            }
+                        if was_stopping {
+                            info!("Daemon {} gracefully stopped with status: {:?}", id, status);
+                        } else {
+                            info!("Daemon {} exited with status: {:?}", id, status);
                         }
-                        Ok(None) => {
-                            // Process still running
+
+                        // Collect PID for removal (will remove after releasing lock)
+                        if let Some(pid) = process.pid {
+                            pids_to_remove.push(pid);
                         }
-                        Err(e) => {
-                            warn!("Error checking daemon {} status: {}", id, e);
+
+                        // Clear term_sent_at since process has exited
+                        process.term_sent_at = None;
+
+                        // If the process was being stopped (Stopping state) or
+                        // auto_restart is disabled, just mark it stopped
+                        if was_stopping || !process.auto_restart {
+                            process.set_state(ProcessState::Stopped);
+                        } else {
+                            // Prepare for restart with backoff
+                            process.prepare_restart(
+                                self.config.min_backoff(),
+                                self.config.max_backoff(),
+                            );
+                            debug!(
+                                "Daemon {} will restart in {:?}",
+                                id, process.current_backoff
+                            );
                         }
                     }
+                    Some(Ok(None)) => {
+                        // Still running — once it has outlived the max backoff
+                        // delay it counts as stable, so forgive its crash
+                        // history and let a future restart start fresh instead
+                        // of inheriting an old escalation.
+                        process.reset_backoff_if_stable(
+                            self.config.max_backoff(),
+                            self.config.min_backoff(),
+                        );
+                    }
+                    Some(Err(e)) => {
+                        warn!("Error checking daemon {} status: {}", id, e);
+                    }
+                    None => {}
                 }
 
                 // Check for pending restarts. Pass only the "extras" — the
@@ -2203,5 +2220,51 @@ mod tests {
 
         let ids = manager.list_daemon_ids().await;
         assert_eq!(ids, vec!["test"]);
+    }
+
+    /// Regression: a daemon that exits once must be handled exactly once.
+    ///
+    /// The dead `Child` handle used to be left in place after exit detection.
+    /// tokio's `try_wait()` caches the exit status and returns it on every
+    /// subsequent call, so each health-check cycle re-entered the exit branch,
+    /// re-ran `prepare_restart` (which resets the backoff clock via
+    /// `set_state`) and therefore never let the backoff elapse — the daemon
+    /// stayed dead while the log filled with a phantom "exited" line every
+    /// interval. This is what stopped `zmfilter.pl` (PurgeWhenFull) from ever
+    /// being restarted and let the disk fill.
+    #[tokio::test]
+    async fn test_exited_daemon_handled_once_not_re_detected_each_cycle() {
+        let config = DaemonConfig::default();
+        let manager = DaemonManager::new(config, None);
+
+        // A real child process that has already exited and been reaped.
+        let mut child = Command::new("sh")
+            .arg("-c")
+            .arg("exit 0")
+            .spawn()
+            .expect("spawn test child");
+        let _ = child.wait().await;
+
+        let mut process = ManagedProcess::new("test-daemon", "Test", "test", vec![], true, None);
+        process.set_child(child);
+        manager.register_daemon(process).await;
+
+        // Several cycles. The default min backoff (5s) has not elapsed, so no
+        // real restart is attempted within the test window.
+        manager.check_daemons().await;
+        manager.check_daemons().await;
+        manager.check_daemons().await;
+
+        let processes = manager.processes.read().await;
+        let process = processes.get("test-daemon").expect("process present");
+        assert_eq!(
+            process.restart_count, 1,
+            "exit must be handled once, not re-detected every cycle"
+        );
+        assert_eq!(process.state, ProcessState::Restarting);
+        assert!(
+            !process.has_child(),
+            "dead child handle must be cleared so try_wait() cannot re-fire"
+        );
     }
 }
