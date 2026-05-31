@@ -162,25 +162,17 @@ pub async fn get_counts_by_monitor(
     monitor_filter: Option<&[u32]>,
 ) -> Result<Vec<(u32, u64)>, DbErr> {
     use sea_orm::sea_query::{Expr, Query};
-    use sea_orm::{FromQueryResult, Statement};
-
-    #[derive(FromQueryResult)]
-    struct CountResult {
-        monitor_id: u32,
-        count: i64,
-    }
+    use sea_orm::Statement;
 
     // Calculate time boundary
     let now = chrono::Utc::now();
     let time_boundary = now - chrono::Duration::hours(hours_back);
     let time_boundary_str = time_boundary.format("%Y-%m-%d %H:%M:%S").to_string();
 
-    // Raw SQL for better performance on complex aggregation
-    let count_alias = Alias::new("count");
     let mut select = Query::select();
     select
-        .column(events::Column::MonitorId)
-        .expr_as(Expr::cust("COUNT(*)"), count_alias)
+        .expr(Expr::col(events::Column::MonitorId))
+        .expr(Expr::cust("COUNT(*)"))
         .from(events::Entity)
         .and_where(Expr::col(events::Column::StartDateTime).gte(time_boundary_str))
         .group_by_col(events::Column::MonitorId);
@@ -192,13 +184,16 @@ pub async fn get_counts_by_monitor(
 
     let stmt = Statement::from_sql_and_values(state.db().get_database_backend(), sql, vec![]);
 
-    let results = CountResult::find_by_statement(stmt).all(state.db()).await?;
-
-    let counts = results
-        .into_iter()
-        .map(|r| (r.monitor_id, r.count as u64))
-        .collect();
-
+    // Decode by index, not column name: MariaDB does not expose the SELECT
+    // alias in result metadata the way MySQL 8 does, so by-name decode failed
+    // with "no column found for name: monitor_id".
+    let rows = state.db().query_all(stmt).await?;
+    let mut counts = Vec::with_capacity(rows.len());
+    for row in rows {
+        let monitor_id: u32 = row.try_get_by_index(0)?;
+        let count: i64 = row.try_get_by_index(1)?;
+        counts.push((monitor_id, count as u64));
+    }
     Ok(counts)
 }
 
