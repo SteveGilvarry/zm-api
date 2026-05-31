@@ -18,7 +18,7 @@ ignore = [
 # The dependency tree currently carries some duplicate versions via
 # transitive crates; surface them as warnings rather than hard failures.
 multiple-versions = "warn"
-wildcard-dependencies = "warn"
+wildcards = "warn"
 
 [licenses]
 version = 2

@@ -28,7 +28,7 @@ pub struct CreateMonitorPresetRequest {
     pub control_device: Option<String>,
     pub control_address: Option<String>,
     pub default_rate: Option<u16>,
-    pub default_scale: Option<u16>,
+    pub default_scale: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
@@ -56,5 +56,5 @@ pub struct UpdateMonitorPresetRequest {
     pub control_device: Option<String>,
     pub control_address: Option<String>,
     pub default_rate: Option<u16>,
-    pub default_scale: Option<u16>,
+    pub default_scale: Option<String>,
 }
