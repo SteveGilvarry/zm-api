@@ -41,12 +41,15 @@ build_rpm() {
     echo "packaging/rpm/zm_api.spec to COPR (Fedora) / OBS (openSUSE)." >&2
     return 1
   fi
-  local topdir tarball
+  # The spec's %autosetup uses the upstream Version (no pre-release suffix), so
+  # the tarball name/prefix must match that, not Cargo's full "3.0.0-alpha.1".
+  local topdir tarball upstream
+  upstream="${VERSION%%-*}"
   topdir="$(rpm --eval %_topdir)"
   mkdir -p "$topdir/SOURCES"
-  tarball="$topdir/SOURCES/zm_api-${VERSION}.tar.gz"
+  tarball="$topdir/SOURCES/zm_api-${upstream}.tar.gz"
   echo "Creating source tarball $tarball"
-  (cd "$ROOT" && git archive --format=tar.gz --prefix="zm_api-${VERSION}/" -o "$tarball" HEAD)
+  (cd "$ROOT" && git archive --format=tar.gz --prefix="zm_api-${upstream}/" -o "$tarball" HEAD)
   rpmbuild -bb "$ROOT/packaging/rpm/zm_api.spec"
 }
 

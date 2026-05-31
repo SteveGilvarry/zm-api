@@ -1,6 +1,9 @@
 # Maintainer: Steve Gilvarry <SteveGilvarry@users.noreply.github.com>
 pkgname=zm_api
-pkgver=3.0.0
+# pkgver cannot contain '-'; pacman 6.1+ treats '~' as a pre-release that sorts
+# before the final 3.0.0. The actual git tag is the SemVer string in _pkgtag.
+pkgver=3.0.0~alpha1
+_pkgtag=v3.0.0-alpha.1
 pkgrel=1
 pkgdesc="ZoneMinder REST API and daemon supervisor"
 arch=('x86_64' 'aarch64')
@@ -14,17 +17,19 @@ backup=(
   "etc/${pkgname}/prod.toml"
   "etc/${pkgname}/zm_api.env"
 )
-source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/v${pkgver}.tar.gz")
+# GitHub names the extracted dir after the tag with any leading 'v' stripped.
+_srcdir="zm-api-${_pkgtag#v}"
+source=("${pkgname}-${pkgver}.tar.gz::${url}/archive/refs/tags/${_pkgtag}.tar.gz")
 sha256sums=('SKIP')
 
 build() {
-  cd "zm-api-${pkgver}"
+  cd "${_srcdir}"
   export RUSTUP_TOOLCHAIN=stable
   cargo build --release --locked
 }
 
 package() {
-  cd "zm-api-${pkgver}"
+  cd "${_srcdir}"
   install -Dm755 "target/release/${pkgname}"          "${pkgdir}/usr/bin/${pkgname}"
   install -Dm755 packaging/zm_api-takeover.sh          "${pkgdir}/usr/bin/${pkgname}-takeover"
   install -Dm755 packaging/setup-instance.sh           "${pkgdir}/usr/share/${pkgname}/setup-instance.sh"

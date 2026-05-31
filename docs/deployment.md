@@ -69,6 +69,28 @@ and point `secret.*_key` (or `APP_SECRET__*`) at that directory.
 - Arch: `./scripts/package.sh arch` (runs `makepkg`) on an Arch host.
 - Update `Cargo.toml` / spec / PKGBUILD version before a release.
 
+## Versioning and releases
+This is the first Rust version; it keeps the `v3` major from ZoneMinder's API
+lineage and uses SemVer pre-releases while it stabilises:
+
+`3.0.0-alpha.N` → `3.0.0-beta.N` → `3.0.0-rc.N` → `3.0.0`
+
+- **Source of truth:** `Cargo.toml` `version` (currently `3.0.0-alpha.1`).
+- **Cutting a release:** push a matching tag, e.g. `git tag v3.0.0-alpha.1 && git
+  push origin v3.0.0-alpha.1`. The `Release` workflow builds every package and,
+  for tags, publishes a GitHub Release — automatically flagged **pre-release**
+  when the tag contains a hyphen.
+- **Dry run without publishing:** trigger the workflow via *Actions → Release →
+  Run workflow* (`workflow_dispatch`); it builds and uploads artifacts but does
+  not create a Release.
+- **Per-distro pre-release ordering** (so the eventual stable upgrades cleanly):
+  - Debian: cargo-deb maps `-alpha.1` → `~alpha.1` automatically.
+  - RPM (`packaging/rpm/zm_api.spec`): `Release: 0.1.alpha1%{?dist}` (set back to
+    `1%{?dist}` for stable).
+  - Arch (`packaging/arch/PKGBUILD`): `pkgver=3.0.0~alpha1`, git tag in `_pkgtag`.
+- **Bumping the version** touches four spots, kept in sync by hand: `Cargo.toml`,
+  the spec `Version`/`Release` + changelog, and the PKGBUILD `pkgver`/`_pkgtag`.
+
 ## Testing and release checklist
 - `cargo fmt --all -- --check`
 - `cargo clippy --all-targets --all-features -- -D warnings`

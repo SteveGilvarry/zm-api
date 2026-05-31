@@ -1,6 +1,10 @@
 [package]
 name = "zm_api"
-version = "3.0.0"
+# Pre-release: first Rust version, carrying the v3 lineage from ZoneMinder's API
+# history. cargo-deb maps the `-alpha.1` suffix to a Debian `~alpha.1` so it
+# sorts before the eventual 3.0.0. See packaging/rpm/zm_api.spec and
+# packaging/arch/PKGBUILD for the rpm/Arch equivalents, and docs/deployment.md.
+version = "3.0.0-alpha.1"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 description = "A modern REST API for ZoneMinder"

@@ -1,0 +1,165 @@
+name: Release
+
+# Builds distribution packages for all supported ZoneMinder families and, on a
+# version tag, publishes them to a GitHub Release. Push a tag like `v3.0.0`
+# (must match the version in Cargo.toml / spec / PKGBUILD), or run manually via
+# workflow_dispatch to build artifacts without publishing.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Debian/Ubuntu/Raspberry Pi OS — the flagship, built natively per arch.
+  deb:
+    name: deb (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, runner: ubuntu-24.04 }
+          - { arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FFmpeg/OpenSSL dev libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev \
+            libavutil-dev libavformat-dev libavfilter-dev \
+            libavdevice-dev libavcodec-dev libswscale-dev libswresample-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb --locked
+
+      - name: Build .deb
+        run: cargo deb
+
+      - name: Sanity-check package (no private keys, lists files)
+        run: |
+          deb=$(ls target/debian/*.deb | head -1)
+          if dpkg-deb -c "$deb" | grep -qE '\.pem($|[^a-z])'; then
+            echo "ERROR: package contains .pem key material" >&2
+            dpkg-deb -c "$deb" | grep '\.pem' >&2
+            exit 1
+          fi
+          dpkg-deb -c "$deb"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: target/debian/*.deb
+          if-no-files-found: error
+
+  # Fedora/RHEL/Rocky/Alma and openSUSE, built from packaging/rpm/zm_api.spec.
+  # Deps are requested via pkgconfig() capabilities so each distro resolves its
+  # own FFmpeg/OpenSSL -devel packages (Fedora's *-free-devel, openSUSE's, ...).
+  rpm:
+    name: rpm (${{ matrix.distro }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: fedora
+            image: fedora:41
+            install: dnf -y install
+          - distro: opensuse
+            image: opensuse/tumbleweed:latest
+            install: zypper --non-interactive install
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    steps:
+      # Install git (for checkout) + the build toolchain before checkout runs.
+      - name: Install toolchain and build dependencies
+        run: |
+          ${{ matrix.install }} \
+            git tar gzip rpm-build rust cargo gcc systemd-rpm-macros \
+            'pkgconfig(openssl)' \
+            'pkgconfig(libavcodec)' 'pkgconfig(libavformat)' \
+            'pkgconfig(libavutil)' 'pkgconfig(libavfilter)' \
+            'pkgconfig(libavdevice)' 'pkgconfig(libswscale)' \
+            'pkgconfig(libswresample)'
+
+      - uses: actions/checkout@v4
+
+      - name: Mark workspace as a safe git directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Build RPM
+        run: bash scripts/package.sh rpm
+
+      - name: Collect RPMs
+        run: |
+          mkdir -p out
+          find "$(rpm --eval %_topdir)/RPMS" -name '*.rpm' -exec cp {} out/ \;
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-${{ matrix.distro }}
+          path: out/*.rpm
+          if-no-files-found: error
+
+  # Arch Linux via packaging/arch/PKGBUILD. makepkg refuses to run as root, so
+  # we build as a dedicated user with build deps pre-installed (makepkg -d).
+  arch:
+    name: arch
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install build dependencies
+        run: pacman -Syu --noconfirm base-devel git rust ffmpeg openssl
+
+      - uses: actions/checkout@v4
+
+      - name: Build package
+        run: |
+          useradd -m builder
+          cp -r packaging/arch /tmp/build
+          chown -R builder:builder /tmp/build
+          # makepkg refuses root; runuser (util-linux) avoids needing sudo.
+          runuser -u builder -- bash -c 'cd /tmp/build && makepkg -d --noconfirm'
+          mkdir -p out && cp /tmp/build/*.pkg.tar.zst out/
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-pkg
+          path: out/*.pkg.tar.zst
+          if-no-files-found: error
+
+  # Attach every artifact that built to the GitHub Release. Runs on tags only;
+  # `always()` so a single distro failure still publishes the rest.
+  release:
+    name: Publish release
+    needs: [deb, rpm, arch]
+    if: always() && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lR artifacts || true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+          # Any SemVer pre-release tag (contains a hyphen, e.g. v3.0.0-alpha.1)
+          # is published as a GitHub pre-release.
+          prerelease: ${{ contains(github.ref_name, '-') }}

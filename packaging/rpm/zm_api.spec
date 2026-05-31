@@ -4,7 +4,9 @@
 
 Name:           zm_api
 Version:        3.0.0
-Release:        1%{?dist}
+# Pre-release ordering: 0.<n>.<prerel> sorts before the stable "1%{?dist}".
+# For the stable 3.0.0, set this back to "1%{?dist}".
+Release:        0.1.alpha1%{?dist}
 Summary:        ZoneMinder REST API and daemon supervisor
 
 License:        AGPL-3.0-or-later
@@ -13,7 +15,19 @@ Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  cargo
 BuildRequires:  rust
+BuildRequires:  gcc
 BuildRequires:  systemd-rpm-macros
+# FFmpeg + OpenSSL development libraries, requested via pkg-config virtual
+# provides so the right package resolves on each distro (Fedora's *-free-devel,
+# openSUSE's libav*-devel / Packman, etc.). ffmpeg-sys-next links these.
+BuildRequires:  pkgconfig(libavcodec)
+BuildRequires:  pkgconfig(libavformat)
+BuildRequires:  pkgconfig(libavutil)
+BuildRequires:  pkgconfig(libavfilter)
+BuildRequires:  pkgconfig(libavdevice)
+BuildRequires:  pkgconfig(libswscale)
+BuildRequires:  pkgconfig(libswresample)
+BuildRequires:  pkgconfig(openssl)
 
 # useradd/usermod: shadow-utils on Fedora/EL, shadow on openSUSE.
 %if 0%{?suse_version}
@@ -76,5 +90,6 @@ fi
 %config(noreplace) %{_sysconfdir}/%{name}/zm_api.env
 
 %changelog
-* Sat May 31 2026 Steve Gilvarry <SteveGilvarry@users.noreply.github.com> - 3.0.0-1
-- Initial RPM packaging. Passive by default; zm_api-takeover for daemon control.
+* Sat May 31 2026 Steve Gilvarry <SteveGilvarry@users.noreply.github.com> - 3.0.0-0.1.alpha1
+- First Rust release (3.0.0-alpha.1). Passive by default; zm_api-takeover for
+  daemon control. Initial RPM packaging.
