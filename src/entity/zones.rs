@@ -33,21 +33,21 @@ pub struct Model {
     #[sea_orm(column_name = "MaxPixelThreshold")]
     pub max_pixel_threshold: Option<u16>,
     #[sea_orm(column_name = "MinAlarmPixels")]
-    pub min_alarm_pixels: Option<u32>,
+    pub min_alarm_pixels: Option<Decimal>,
     #[sea_orm(column_name = "MaxAlarmPixels")]
-    pub max_alarm_pixels: Option<u32>,
+    pub max_alarm_pixels: Option<Decimal>,
     #[sea_orm(column_name = "FilterX")]
     pub filter_x: Option<u8>,
     #[sea_orm(column_name = "FilterY")]
     pub filter_y: Option<u8>,
     #[sea_orm(column_name = "MinFilterPixels")]
-    pub min_filter_pixels: Option<u32>,
+    pub min_filter_pixels: Option<Decimal>,
     #[sea_orm(column_name = "MaxFilterPixels")]
-    pub max_filter_pixels: Option<u32>,
+    pub max_filter_pixels: Option<Decimal>,
     #[sea_orm(column_name = "MinBlobPixels")]
-    pub min_blob_pixels: Option<u32>,
+    pub min_blob_pixels: Option<Decimal>,
     #[sea_orm(column_name = "MaxBlobPixels")]
-    pub max_blob_pixels: Option<u32>,
+    pub max_blob_pixels: Option<Decimal>,
     #[sea_orm(column_name = "MinBlobs")]
     pub min_blobs: Option<u16>,
     #[sea_orm(column_name = "MaxBlobs")]
