@@ -985,11 +985,9 @@ impl DaemonManager {
                         continue;
                     }
                 }
-                "zmtelemetry" => {
-                    if !gates.zm_telemetry_data {
-                        debug!("Skipping zmtelemetry.pl: ZM_TELEMETRY_DATA is disabled");
-                        continue;
-                    }
+                "zmtelemetry" if !gates.zm_telemetry_data => {
+                    debug!("Skipping zmtelemetry.pl: ZM_TELEMETRY_DATA is disabled");
+                    continue;
                 }
                 "zmeventnotification" => {
                     if !gates.zm_opt_use_eventnotification {
@@ -1003,11 +1001,9 @@ impl DaemonManager {
                         continue;
                     }
                 }
-                "zmstats" => {
-                    if !gates.server_zmstats {
-                        debug!("Skipping zmstats.pl: disabled for this server");
-                        continue;
-                    }
+                "zmstats" if !gates.server_zmstats => {
+                    debug!("Skipping zmstats.pl: disabled for this server");
+                    continue;
                 }
                 _ => {}
             }

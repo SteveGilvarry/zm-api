@@ -5,7 +5,14 @@
 [advisories]
 version = 2
 # RUSTSEC advisory IDs to ignore, with a justification comment each.
-ignore = []
+ignore = [
+    # rsa "Marvin Attack" timing side-channel. No fixed `rsa` release exists and
+    # the crate is pulled in transitively (and unavoidably) by sqlx-mysql for the
+    # MariaDB/MySQL auth handshake — it is not used for any attacker-facing crypto
+    # in zm_api. Exploitation requires timing many RSA private-key operations;
+    # mitigated by a local/TLS database connection. Revisit when sqlx drops rsa.
+    "RUSTSEC-2023-0071",
+]
 
 [bans]
 # The dependency tree currently carries some duplicate versions via

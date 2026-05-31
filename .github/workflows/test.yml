@@ -246,9 +246,6 @@ jobs:
   security:
     name: Security audit
     runs-on: ubuntu-latest
-    # Non-blocking for now: advisories surface in the logs without failing
-    # the build. Flip to a required check once the dependency tree is clean.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
 
@@ -260,8 +257,11 @@ jobs:
         with:
           tool: cargo-audit,cargo-deny
 
+      # Ignored advisories are documented in deny.toml; cargo-audit does not
+      # read that file, so the ignore list is mirrored here. Keep the two in
+      # sync. RUSTSEC-2023-0071: unfixable rsa transitive dep via sqlx-mysql.
       - name: Audit dependencies for known vulnerabilities
-        run: cargo audit
+        run: cargo audit --ignore RUSTSEC-2023-0071
 
       - name: Check advisories, licenses and sources
         run: cargo deny check
