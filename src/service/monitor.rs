@@ -107,8 +107,8 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         janus_enabled: Set(req.janus_enabled),
         janus_audio_enabled: Set(req.janus_audio_enabled),
         janus_profile_override: Set(req.janus_profile_override.unwrap_or_default()),
-        janus_use_rtsp_restream: Set(req.janus_use_rtsp_restream),
-        janus_rtsp_user: Set(req.janus_rtsp_user),
+        restream: Set(req.restream),
+        rtsp_user: Set(req.rtsp_user),
         janus_rtsp_session_timeout: Set(req.janus_rtsp_session_timeout.unwrap_or(0)),
         linked_monitors: Set(req.linked_monitors),
         triggers: Set(req.triggers),
@@ -318,11 +318,11 @@ pub async fn update(
     if let Some(janus_profile_override) = req.janus_profile_override {
         monitor.janus_profile_override = Set(janus_profile_override);
     }
-    if let Some(janus_use_rtsp_restream) = req.janus_use_rtsp_restream {
-        monitor.janus_use_rtsp_restream = Set(janus_use_rtsp_restream);
+    if let Some(restream) = req.restream {
+        monitor.restream = Set(restream);
     }
-    if req.janus_rtsp_user.is_some() {
-        monitor.janus_rtsp_user = Set(req.janus_rtsp_user);
+    if req.rtsp_user.is_some() {
+        monitor.rtsp_user = Set(req.rtsp_user);
     }
     if let Some(janus_rtsp_session_timeout) = req.janus_rtsp_session_timeout {
         monitor.janus_rtsp_session_timeout = Set(janus_rtsp_session_timeout);

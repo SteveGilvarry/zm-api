@@ -73,10 +73,10 @@ pub struct Model {
     pub janus_audio_enabled: i8,
     #[sea_orm(column_name = "Janus_Profile_Override")]
     pub janus_profile_override: String,
-    #[sea_orm(column_name = "Janus_Use_RTSP_Restream")]
-    pub janus_use_rtsp_restream: i8,
-    #[sea_orm(column_name = "Janus_RTSP_User")]
-    pub janus_rtsp_user: Option<i32>,
+    #[sea_orm(column_name = "Restream")]
+    pub restream: i8,
+    #[sea_orm(column_name = "RTSP_User")]
+    pub rtsp_user: Option<i32>,
     #[sea_orm(column_name = "Janus_RTSP_Session_Timeout")]
     pub janus_rtsp_session_timeout: i32,
     #[sea_orm(column_name = "LinkedMonitors")]

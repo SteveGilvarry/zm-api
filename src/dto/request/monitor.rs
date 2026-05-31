@@ -29,6 +29,64 @@ pub fn is_valid_alarm_action(value: &str, _ctx: &()) -> garde::Result {
     }
 }
 
+// Hardening for fields that flow into URLs, hostnames, file paths, or process
+// argv assembled by ZoneMinder's capture daemon. We don't try to validate URL
+// syntax — that's the camera library's job — but we reject inputs that have no
+// business in any URL component:
+//
+//   * NUL, control characters, and CR/LF: header smuggling, log injection, and
+//     C-string truncation downstream.
+//   * Lengths beyond what any real camera URL would need: bounded memory cost
+//     and a sanity cap when these values get serialised back into config or
+//     argv.
+//
+// Used on `host`, `path`, `second_path`, `port`, and similar URL components.
+pub fn is_safe_url_component(value: &str, _ctx: &()) -> garde::Result {
+    if value.len() > 2048 {
+        return Err(garde::Error::new("must be at most 2048 characters"));
+    }
+    if value.bytes().any(|b| b < 0x20 || b == 0x7F) {
+        return Err(garde::Error::new(
+            "must not contain NUL, control characters, or CR/LF",
+        ));
+    }
+    Ok(())
+}
+
+// Stricter rules for fields that take a full URL (currently only `onvif_url`).
+// In addition to the component-level checks, restrict the scheme to the small
+// set that makes sense for a network camera, blocking SSRF gadgets like
+// `file://`, `unix://`, `gopher://`, and `javascript:`.
+pub fn is_safe_onvif_url(value: &str, ctx: &()) -> garde::Result {
+    is_safe_url_component(value, ctx)?;
+    if let Some(idx) = value.find("://") {
+        let scheme = value[..idx].to_ascii_lowercase();
+        if !matches!(scheme.as_str(), "http" | "https" | "rtsp" | "rtsps") {
+            return Err(garde::Error::new(
+                "unsupported URL scheme; expected http, https, rtsp, or rtsps",
+            ));
+        }
+    }
+    Ok(())
+}
+
+// `event_start_command` and `event_end_command` are by design shell commands
+// that ZoneMinder execs, so we cannot block shell metacharacters without
+// breaking the feature. We can still bound the field and reject NUL and
+// newlines, which would otherwise enable C-string truncation and log
+// forgery in the daemon that runs the command.
+pub fn is_safe_command_string(value: &str, _ctx: &()) -> garde::Result {
+    if value.len() > 4096 {
+        return Err(garde::Error::new("must be at most 4096 characters"));
+    }
+    if value.bytes().any(|b| b == 0 || b == b'\n' || b == b'\r') {
+        return Err(garde::Error::new(
+            "must not contain NUL or newline characters",
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct CreateMonitorRequest {
     #[garde(length(min = 1, max = 64))]
@@ -83,10 +141,10 @@ pub struct CreateMonitorRequest {
     pub janus_profile_override: Option<String>,
 
     #[garde(range(min = -1, max = 1))]
-    pub janus_use_rtsp_restream: i8,
+    pub restream: i8,
 
     #[garde(skip)] // Option<i32> can be None
-    pub janus_rtsp_user: Option<i32>,
+    pub rtsp_user: Option<i32>,
 
     #[garde(skip)] // Option<i32> can be None
     pub janus_rtsp_session_timeout: Option<i32>,
@@ -97,13 +155,19 @@ pub struct CreateMonitorRequest {
     #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
     pub triggers: String,
 
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
+    // DB column `EventStartCommand` is varchar(255).
+    #[garde(length(max = 255))]
+    #[garde(custom(is_safe_command_string))]
     pub event_start_command: String,
 
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
+    // DB column `EventEndCommand` is varchar(255).
+    #[garde(length(max = 255))]
+    #[garde(custom(is_safe_command_string))]
     pub event_end_command: String,
 
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
+    // DB column `ONVIF_URL` is varchar(255).
+    #[garde(length(max = 255))]
+    #[garde(custom(is_safe_onvif_url))]
     pub onvif_url: String,
 
     #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
@@ -148,19 +212,29 @@ pub struct CreateMonitorRequest {
     #[garde(skip)] // Option<String> can be None
     pub method: Option<String>,
 
-    #[garde(skip)] // Option<String> can be None
+    // DB column `Host` is varchar(64).
+    #[garde(inner(length(max = 64)))]
+    #[garde(inner(custom(is_safe_url_component)))]
     pub host: Option<String>,
 
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
+    // DB column `Port` is varchar(8).
+    #[garde(length(max = 8))]
+    #[garde(custom(is_safe_url_component))]
     pub port: String,
 
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
+    // DB column `SubPath` is varchar(64).
+    #[garde(length(max = 64))]
+    #[garde(custom(is_safe_url_component))]
     pub sub_path: String,
 
-    #[garde(skip)] // Option<String> can be None
+    // DB column `Path` is varchar(255).
+    #[garde(inner(length(max = 255)))]
+    #[garde(inner(custom(is_safe_url_component)))]
     pub path: Option<String>,
 
-    #[garde(skip)] // Option<String> can be None
+    // DB column `SecondPath` is varchar(255).
+    #[garde(inner(length(max = 255)))]
+    #[garde(inner(custom(is_safe_url_component)))]
     pub second_path: Option<String>,
 
     #[garde(skip)] // Option<String> can be None
@@ -480,10 +554,10 @@ pub struct UpdateMonitorRequest {
     pub janus_profile_override: Option<String>,
 
     #[garde(range(min = -1, max = 1))]
-    pub janus_use_rtsp_restream: Option<i8>,
+    pub restream: Option<i8>,
 
     #[garde(skip)]
-    pub janus_rtsp_user: Option<i32>,
+    pub rtsp_user: Option<i32>,
 
     #[garde(skip)]
     pub janus_rtsp_session_timeout: Option<i32>,
@@ -494,13 +568,16 @@ pub struct UpdateMonitorRequest {
     #[garde(length(min = 0))]
     pub triggers: Option<String>,
 
-    #[garde(length(min = 0))]
+    #[garde(inner(length(max = 255)))]
+    #[garde(inner(custom(is_safe_command_string)))]
     pub event_start_command: Option<String>,
 
-    #[garde(length(min = 0))]
+    #[garde(inner(length(max = 255)))]
+    #[garde(inner(custom(is_safe_command_string)))]
     pub event_end_command: Option<String>,
 
-    #[garde(length(min = 0))]
+    #[garde(inner(length(max = 255)))]
+    #[garde(inner(custom(is_safe_onvif_url)))]
     pub onvif_url: Option<String>,
 
     #[garde(length(min = 0))]
@@ -545,19 +622,24 @@ pub struct UpdateMonitorRequest {
     #[garde(skip)]
     pub method: Option<String>,
 
-    #[garde(skip)]
+    #[garde(inner(length(max = 64)))]
+    #[garde(inner(custom(is_safe_url_component)))]
     pub host: Option<String>,
 
-    #[garde(length(min = 0))]
+    #[garde(inner(length(max = 8)))]
+    #[garde(inner(custom(is_safe_url_component)))]
     pub port: Option<String>,
 
-    #[garde(length(min = 0))]
+    #[garde(inner(length(max = 64)))]
+    #[garde(inner(custom(is_safe_url_component)))]
     pub sub_path: Option<String>,
 
-    #[garde(skip)]
+    #[garde(inner(length(max = 255)))]
+    #[garde(inner(custom(is_safe_url_component)))]
     pub path: Option<String>,
 
-    #[garde(skip)]
+    #[garde(inner(length(max = 255)))]
+    #[garde(inner(custom(is_safe_url_component)))]
     pub second_path: Option<String>,
 
     #[garde(skip)]
@@ -846,4 +928,81 @@ pub struct AlarmControlRequest {
     #[garde(length(max = 255))]
     #[serde(default)]
     pub text: Option<String>,
+}
+
+#[cfg(test)]
+mod validator_tests {
+    use super::*;
+
+    #[test]
+    fn url_component_rejects_control_chars_and_crlf() {
+        assert!(is_safe_url_component("foo\nbar", &()).is_err());
+        assert!(is_safe_url_component("foo\0bar", &()).is_err());
+        assert!(is_safe_url_component("foo\rbar", &()).is_err());
+        assert!(is_safe_url_component("foo\x1bbar", &()).is_err());
+        assert!(is_safe_url_component("foo\x7fbar", &()).is_err());
+    }
+
+    #[test]
+    fn url_component_accepts_typical_camera_values() {
+        assert!(is_safe_url_component("192.168.1.50", &()).is_ok());
+        assert!(is_safe_url_component("cam.local:8080", &()).is_ok());
+        assert!(is_safe_url_component("/Streaming/Channels/101", &()).is_ok());
+        assert!(is_safe_url_component("", &()).is_ok());
+    }
+
+    #[test]
+    fn url_component_enforces_length_cap() {
+        let too_long = "a".repeat(2049);
+        assert!(is_safe_url_component(&too_long, &()).is_err());
+        let at_cap = "a".repeat(2048);
+        assert!(is_safe_url_component(&at_cap, &()).is_ok());
+    }
+
+    #[test]
+    fn onvif_url_rejects_dangerous_schemes() {
+        // The threat is SSRF from ZoneMinder's capture daemon making
+        // outbound requests via the URL, so block schemes that resolve to
+        // local FS, Unix sockets, or other gadgets. `javascript:` is
+        // intentionally not covered here — the daemon won't render it; that
+        // class belongs to whoever renders the URL in the UI.
+        assert!(is_safe_onvif_url("file:///etc/passwd", &()).is_err());
+        assert!(is_safe_onvif_url("unix:///var/run/foo.sock", &()).is_err());
+        assert!(is_safe_onvif_url("gopher://attacker/x", &()).is_err());
+        assert!(is_safe_onvif_url("ftp://example.com/", &()).is_err());
+    }
+
+    #[test]
+    fn onvif_url_accepts_camera_schemes() {
+        assert!(is_safe_onvif_url("http://192.168.1.50/onvif", &()).is_ok());
+        assert!(is_safe_onvif_url("HTTPS://CAM.LOCAL:8080/x", &()).is_ok());
+        assert!(is_safe_onvif_url("rtsp://cam:554/stream", &()).is_ok());
+        assert!(is_safe_onvif_url("rtsps://cam:443/stream", &()).is_ok());
+        // No scheme at all is also fine — the field has historically accepted
+        // bare host:port style strings.
+        assert!(is_safe_onvif_url("192.168.1.50", &()).is_ok());
+        assert!(is_safe_onvif_url("", &()).is_ok());
+    }
+
+    #[test]
+    fn command_string_rejects_nul_and_newlines_but_keeps_shell_metas() {
+        // Shell metacharacters stay legal — the field IS designed to be
+        // executed as a shell command by ZoneMinder.
+        assert!(is_safe_command_string("echo hi | tee /tmp/log", &()).is_ok());
+        assert!(is_safe_command_string("$(curl http://example.com)", &()).is_ok());
+        assert!(is_safe_command_string("kill -9 $(pidof zmc)", &()).is_ok());
+        assert!(is_safe_command_string("", &()).is_ok());
+
+        // NUL + CRLF are rejected: they enable C-string truncation and log
+        // forgery in the daemon that runs the command.
+        assert!(is_safe_command_string("rm -rf /\n", &()).is_err());
+        assert!(is_safe_command_string("echo \0", &()).is_err());
+        assert!(is_safe_command_string("echo \rbad", &()).is_err());
+    }
+
+    #[test]
+    fn command_string_enforces_length_cap() {
+        let too_long = "a".repeat(4097);
+        assert!(is_safe_command_string(&too_long, &()).is_err());
+    }
 }

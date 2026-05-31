@@ -10,6 +10,7 @@ use common::test_db::{get_test_db, test_prefix};
 use sea_orm::{ActiveModelTrait, DatabaseConnection, DbErr, EntityTrait, Set};
 use tower::ServiceExt;
 use zm_api::dto::request::{AlarmControlRequest, CreateMonitorRequest, UpdateStateRequest};
+use zm_api::dto::response::events::EventCountsByMonitorResponse;
 use zm_api::dto::response::{
     EventResponse, FrameResponse, MonitorResponse, PaginatedEventsResponse,
     PaginatedFramesResponse, PaginatedMonitorsResponse,
@@ -56,8 +57,8 @@ fn build_create_monitor_request(name: String) -> CreateMonitorRequest {
         janus_enabled: 0,
         janus_audio_enabled: 0,
         janus_profile_override: Some(String::new()),
-        janus_use_rtsp_restream: 0,
-        janus_rtsp_user: None,
+        restream: 0,
+        rtsp_user: None,
         janus_rtsp_session_timeout: Some(0),
         linked_monitors: None,
         triggers: String::new(),
@@ -225,6 +226,21 @@ async fn create_event_db(db: &DatabaseConnection, monitor_id: u32) -> Result<eve
         monitor_id: Set(monitor_id),
         state_id: Set(1),
         name: Set(name),
+        ..Default::default()
+    };
+    model.insert(db).await
+}
+
+async fn create_event_db_now(
+    db: &DatabaseConnection,
+    monitor_id: u32,
+) -> Result<events::Model, DbErr> {
+    let name = format!("{}event_now", test_prefix());
+    let model = events::ActiveModel {
+        monitor_id: Set(monitor_id),
+        state_id: Set(1),
+        name: Set(name),
+        start_date_time: Set(Some(chrono::Utc::now().naive_utc())),
         ..Default::default()
     };
     model.insert(db).await
@@ -544,4 +560,70 @@ async fn test_api_frames_list_get() {
     cleanup_monitor_db(&cleanup_db, monitor.id)
         .await
         .expect("Failed to cleanup monitor");
+}
+
+#[tokio::test]
+#[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
+async fn test_api_events_counts_by_monitor_groups_correctly() {
+    // Regression for the "no column found for name: monitor_id" 500 — the
+    // raw SQL emitted by the aggregation builder must alias `MonitorId` to
+    // `monitor_id` so `FromQueryResult` can deserialise it.
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
+
+    let mon_a = create_monitor_db(&db)
+        .await
+        .expect("Failed to create monitor A");
+    let mon_b = create_monitor_db(&db)
+        .await
+        .expect("Failed to create monitor B");
+    let ev_a1 = create_event_db_now(&db, mon_a.id).await.expect("event A1");
+    let ev_a2 = create_event_db_now(&db, mon_a.id).await.expect("event A2");
+    let ev_b1 = create_event_db_now(&db, mon_b.id).await.expect("event B1");
+
+    let app = build_app(db);
+
+    let response = app
+        .oneshot(
+            Request::get("/api/v3/events/counts-by-monitor/24")
+                .header(header::AUTHORIZATION, auth_header())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
+    let body: EventCountsByMonitorResponse = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body.hours, 24);
+    let count_a = body
+        .counts
+        .iter()
+        .find(|c| c.monitor_id == mon_a.id)
+        .expect("monitor A row missing");
+    let count_b = body
+        .counts
+        .iter()
+        .find(|c| c.monitor_id == mon_b.id)
+        .expect("monitor B row missing");
+    assert!(count_a.count >= 2, "expected >=2 events for monitor A");
+    assert!(count_b.count >= 1, "expected >=1 event for monitor B");
+
+    let cleanup_db = get_test_db()
+        .await
+        .expect("Failed to get cleanup connection");
+    for id in [ev_a1.id, ev_a2.id, ev_b1.id] {
+        cleanup_event_db(&cleanup_db, id)
+            .await
+            .expect("Failed to cleanup event");
+    }
+    for id in [mon_a.id, mon_b.id] {
+        cleanup_monitor_db(&cleanup_db, id)
+            .await
+            .expect("Failed to cleanup monitor");
+    }
 }

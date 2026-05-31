@@ -37,6 +37,11 @@ allow = [
     "CC0-1.0",
     "OpenSSL",
     "BSL-1.0",
+    # zm_api's own license (the workspace crate is scanned too).
+    "AGPL-3.0-or-later",
+    # Permissive licenses carried by transitive deps.
+    "CDLA-Permissive-2.0",
+    "WTFPL",
 ]
 confidence-threshold = 0.8
 
