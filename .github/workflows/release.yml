@@ -134,6 +134,8 @@ jobs:
           # dispatch/branch runs too — not only published tags.
           pkgver=$(sed -n 's/^pkgver=//p' /tmp/build/PKGBUILD | head -1)
           pkgtag=$(sed -n 's/^_pkgtag=//p' /tmp/build/PKGBUILD | head -1)
+          # The checkout is owned by a different uid than root in the container.
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git archive --format=tar.gz --prefix="zm-api-${pkgtag#v}/" \
             -o "/tmp/build/zm_api-${pkgver}.tar.gz" HEAD
           chown -R builder:builder /tmp/build
