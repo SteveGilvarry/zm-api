@@ -250,6 +250,38 @@ impl HlsSegmenter {
         result
     }
 
+    /// Flush the buffered access unit and emit the final (trailing) segment.
+    ///
+    /// Live streaming finalizes a segment only when the *next* keyframe arrives,
+    /// so a finite/VOD source must call this at end-of-file to emit the last
+    /// segment (and the only segment, for clips shorter than one target
+    /// duration). Returns `None` if nothing is buffered.
+    pub fn flush(&mut self) -> Option<FMP4Segment> {
+        // Move the last in-progress access unit into the current segment.
+        if let Some(pending) = self.pending_frame.take() {
+            self.current_segment_samples.push(SegmentSample {
+                nals: pending.nals,
+                timestamp: pending.timestamp,
+                is_keyframe: pending.is_keyframe,
+            });
+        }
+        if self.current_segment_samples.is_empty() {
+            return None;
+        }
+        // Estimate the final sample's duration from the trailing inter-sample
+        // gap (fall back to ~1/30s) so its trun duration isn't degenerate.
+        let n = self.current_segment_samples.len();
+        let last_ts = self.current_segment_samples[n - 1].timestamp;
+        let frame_dur = if n >= 2 {
+            last_ts
+                .saturating_sub(self.current_segment_samples[n - 2].timestamp)
+                .max(1)
+        } else {
+            u64::from(self.timescale) / 30
+        };
+        self.finalize_segment(last_ts + frame_dur)
+    }
+
     /// Extract SPS/PPS/VPS from NAL units
     fn extract_parameter_sets(&mut self, nal_data: &[u8]) {
         if nal_data.len() < 5 {
