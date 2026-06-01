@@ -954,13 +954,12 @@ impl HlsSegmenter {
         let start_time = self.segment_start_time?;
         let has_keyframe = self.current_segment_samples.iter().any(|s| s.is_keyframe);
 
-        // Calculate duration
-        let last_timestamp = self
-            .current_segment_samples
-            .last()
-            .map(|s| s.timestamp)
-            .unwrap_or(start_time);
-        let duration_ticks = last_timestamp.saturating_sub(start_time);
+        // Segment duration spans from this segment's start to the next segment's
+        // first sample (`next_start`) — the same boundary the trun uses to set the
+        // last sample's duration. Using the last sample's *own* timestamp instead
+        // would drop one frame interval per segment, accumulating drift (a 600s
+        // clip reports ~585s) and skewing EXTINF/seek timelines.
+        let duration_ticks = next_start.saturating_sub(start_time);
         let duration = Duration::from_micros(duration_ticks * 1_000_000 / self.timescale as u64);
 
         // Calculate data_offset: offset from start of moof box to first sample byte in mdat.

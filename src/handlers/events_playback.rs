@@ -34,6 +34,13 @@ pub struct EventPlaybackPath {
     pub id: u64,
 }
 
+/// Path parameters for an event HLS-VOD media segment.
+#[derive(Debug, Deserialize)]
+pub struct EventSegmentPath {
+    pub id: u64,
+    pub seq: usize,
+}
+
 /// Response for event video metadata
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct EventVideoInfo {
@@ -317,47 +324,90 @@ pub async fn get_event_playlist(
     State(state): State<AppState>,
     Path(path): Path<EventPlaybackPath>,
 ) -> Result<Response, AppError> {
-    debug!("Getting HLS playlist for event {}", path.id);
-
-    let video_path = get_event_video_path(&state, path.id).await?;
-
-    // Get file size
-    let metadata = tokio::fs::metadata(&video_path).await.map_err(|_| {
-        AppError::NotFoundError(crate::error::Resource {
-            resource_type: crate::error::ResourceType::Event,
-            details: vec![("event_id".to_string(), path.id.to_string())],
-        })
-    })?;
-
-    let file_size = metadata.len();
-
-    // For now, generate a simple VOD playlist that points to the video file
-    // In a full implementation, we would parse the fMP4 structure to find
-    // fragment boundaries for proper byte-range segments
-    let playlist = generate_simple_playlist(path.id, file_size);
-
+    debug!("Getting HLS-VOD playlist for event {}", path.id);
+    let assets = event_vod_assets(&state, path.id).await?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")
         .header(header::CACHE_CONTROL, "no-cache")
-        .body(Body::from(playlist))
+        .body(Body::from(assets.playlist.clone()))
         .unwrap())
 }
 
-/// Generate a simple HLS playlist for the video
-fn generate_simple_playlist(_event_id: u64, _file_size: u64) -> String {
-    // Simple playlist that references the video file directly
-    // A full implementation would parse fMP4 to find fragment boundaries
-    r#"#EXTM3U
-#EXT-X-VERSION:6
-#EXT-X-TARGETDURATION:10
-#EXT-X-PLAYLIST-TYPE:VOD
-#EXT-X-INDEPENDENT-SEGMENTS
-#EXTINF:10.0,
-video.mp4
-#EXT-X-ENDLIST
-"#
-    .to_string()
+/// Probe + package (cached) the HLS-VOD assets for an event.
+async fn event_vod_assets(
+    state: &AppState,
+    id: u64,
+) -> Result<std::sync::Arc<crate::streaming::hls::vod::VodAssets>, AppError> {
+    let video_path = get_event_video_path(state, id).await?;
+    let info = crate::streaming::probe::probe_event_media(id, video_path.clone())
+        .await
+        .map_err(AppError::InternalServerError)?;
+    crate::streaming::hls::vod::get_or_build(id, video_path, info)
+        .await
+        .map_err(AppError::InternalServerError)
+}
+
+/// Get the fMP4 initialization segment for an event's HLS-VOD stream.
+#[utoipa::path(
+    get,
+    path = "/api/v3/events/{id}/stream/init.mp4",
+    params(("id" = u64, Path, description = "Event ID")),
+    responses(
+        (status = 200, description = "fMP4 init segment", content_type = "video/mp4"),
+        (status = 404, description = "Event not found", body = AppResponseError)
+    ),
+    tag = "Event Playback",
+    security(("jwt" = []))
+)]
+pub async fn get_event_init(
+    State(state): State<AppState>,
+    Path(path): Path<EventPlaybackPath>,
+) -> Result<Response, AppError> {
+    let assets = event_vod_assets(&state, path.id).await?;
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "video/mp4")
+        .header(header::CACHE_CONTROL, "max-age=31536000, immutable")
+        .body(Body::from(assets.init.clone()))
+        .unwrap())
+}
+
+/// Get an fMP4 media segment for an event's HLS-VOD stream.
+#[utoipa::path(
+    get,
+    path = "/api/v3/events/{id}/stream/segment/{seq}",
+    params(
+        ("id" = u64, Path, description = "Event ID"),
+        ("seq" = usize, Path, description = "Zero-based segment index")
+    ),
+    responses(
+        (status = 200, description = "fMP4 media segment", content_type = "video/mp4"),
+        (status = 404, description = "Event or segment not found", body = AppResponseError)
+    ),
+    tag = "Event Playback",
+    security(("jwt" = []))
+)]
+pub async fn get_event_segment(
+    State(state): State<AppState>,
+    Path(path): Path<EventSegmentPath>,
+) -> Result<Response, AppError> {
+    let assets = event_vod_assets(&state, path.id).await?;
+    let segment = assets.segments.get(path.seq).ok_or_else(|| {
+        AppError::NotFoundError(crate::error::Resource {
+            resource_type: crate::error::ResourceType::Event,
+            details: vec![
+                ("event_id".to_string(), path.id.to_string()),
+                ("segment".to_string(), path.seq.to_string()),
+            ],
+        })
+    })?;
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "video/mp4")
+        .header(header::CACHE_CONTROL, "max-age=31536000, immutable")
+        .body(Body::from(segment.clone()))
+        .unwrap())
 }
 
 /// Get event video file with Range support
@@ -748,33 +798,6 @@ mod tests {
         assert_eq!(parse_range_header(Some("bytes=0-"), 0), None);
         assert_eq!(parse_range_header(Some("bytes=-100"), 0), None);
         assert_eq!(parse_range_header(Some("bytes=0-0"), 0), None);
-    }
-
-    // ------------------------------------------------------------------
-    // generate_simple_playlist
-    // ------------------------------------------------------------------
-
-    #[test]
-    fn generate_simple_playlist_is_well_formed() {
-        let playlist = generate_simple_playlist(42, 123_456);
-        assert!(playlist.starts_with("#EXTM3U"));
-        assert!(playlist.contains("#EXT-X-VERSION:6"));
-        assert!(playlist.contains("#EXT-X-PLAYLIST-TYPE:VOD"));
-        assert!(playlist.contains("#EXT-X-TARGETDURATION:10"));
-        assert!(playlist.contains("#EXT-X-INDEPENDENT-SEGMENTS"));
-        assert!(playlist.contains("#EXTINF:10.0,"));
-        assert!(playlist.contains("video.mp4"));
-        assert!(playlist.trim_end().ends_with("#EXT-X-ENDLIST"));
-    }
-
-    #[test]
-    fn generate_simple_playlist_is_stable_regardless_of_inputs() {
-        // The current implementation ignores its arguments; assert that
-        // contract so a future change is caught by a failing test.
-        assert_eq!(
-            generate_simple_playlist(1, 0),
-            generate_simple_playlist(9_999, u64::MAX)
-        );
     }
 
     // ------------------------------------------------------------------

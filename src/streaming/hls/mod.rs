@@ -19,6 +19,7 @@ pub mod playlist;
 pub mod segmenter;
 pub mod session;
 pub mod storage;
+pub mod vod;
 
 pub use playlist::{MasterPlaylist, MediaPlaylist, PlaylistGenerator};
 pub use segmenter::{FMP4Segment, HlsSegmenter, InitSegment};
