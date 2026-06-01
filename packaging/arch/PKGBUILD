@@ -10,7 +10,7 @@ arch=('x86_64' 'aarch64')
 url="https://github.com/SteveGilvarry/zm-api"
 license=('AGPL-3.0-or-later')
 depends=('openssl' 'systemd-libs')
-makedepends=('cargo')
+makedepends=('cargo' 'clang')
 # Arch enables LTO by default, which breaks ring's symbols in the sqlx_macros
 # proc-macro dylib ("undefined symbol: ring_core_*_x25519_sc_mask"). Disable it.
 options=('!lto')

@@ -120,7 +120,7 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Install build dependencies
-        run: pacman -Syu --noconfirm base-devel git rust ffmpeg openssl
+        run: pacman -Syu --noconfirm base-devel git rust ffmpeg openssl clang
 
       - uses: actions/checkout@v4
 
