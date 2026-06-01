@@ -48,6 +48,7 @@ rust_decimal = "1"
 test-context = "0.5"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["io"] }
 tokio-tungstenite = "0.29"
 tracing = { version = "0.1", features = ["attributes"] }
 tracing-appender = "0.2"

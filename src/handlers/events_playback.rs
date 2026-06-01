@@ -8,12 +8,14 @@ use axum::{
     extract::{Path, State},
     http::{header, HeaderMap, StatusCode},
     response::Response,
+    Json,
 };
 use chrono::{Datelike, Timelike};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
+use tokio_util::io::ReaderStream;
 use tracing::{debug, warn};
 
 use crate::entity::events::Model as EventModel;
@@ -36,12 +38,17 @@ pub struct EventPlaybackPath {
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct EventVideoInfo {
     pub event_id: u64,
-    pub duration_seconds: f64,
+    /// Detected video codec: "H264", "H265" or "Unknown".
     pub video_codec: String,
     pub width: u32,
     pub height: u32,
+    pub duration_seconds: f64,
     pub file_size: u64,
-    pub is_fragmented: bool,
+    /// True when the codec plays in any browser `<video>` (H.264). HEVC is
+    /// Safari / hardware-Chrome only.
+    pub playable_direct: bool,
+    /// Suggested playback endpoint: "direct" (progressive MP4) or "hls".
+    pub recommended_mode: String,
 }
 
 // ============================================================================
@@ -92,23 +99,7 @@ async fn get_event_video_path(state: &AppState, event_id: u64) -> AppResult<Path
     // rejecting traversal attempts in the DB-supplied default_video field.
     let video_filename = select_video_filename(event_id, &event.default_video);
 
-    // Look up storage path from database
-    let storage = match event.storage_id {
-        Some(storage_id) => repo::storage::find_by_id(state.db(), storage_id).await?,
-        None => None,
-    };
-
-    let storage_path = match storage {
-        Some(s) => s.path,
-        None => {
-            // Fall back to config if storage not found in DB
-            warn!(
-                "Storage {} not found in database, using config default",
-                event.storage_id.unwrap_or(0)
-            );
-            state.config.streaming.zoneminder.events_dir.clone()
-        }
-    };
+    let storage_path = resolve_event_storage_path(state, &event).await?;
 
     // Build event directory path based on scheme
     let event_dir = build_event_directory_path(
@@ -168,6 +159,43 @@ async fn get_event_entity(state: &AppState, event_id: u64) -> AppResult<EventMod
                 details: vec![("event_id".to_string(), event_id.to_string())],
             })
         })
+}
+
+/// Resolve the storage path for an event, falling back to the config default
+/// when the event's storage row is missing, and rejecting any value that
+/// contains a `..` traversal component.
+///
+/// `Storages.Path` is only writable by an admin (`System:Edit`), but the API
+/// runs as `www-data` and serves files based on that path — a malicious or
+/// mistaken admin entry like `/var/cache/zm/events/..` could let an
+/// otherwise-permitted event read end up resolving outside the events tree.
+/// Reject those at the DB-read boundary.
+async fn resolve_event_storage_path(state: &AppState, event: &EventModel) -> AppResult<String> {
+    let storage_path = match event.storage_id {
+        Some(sid) => match repo::storage::find_by_id(state.db(), sid).await? {
+            Some(s) => s.path,
+            None => {
+                warn!(
+                    "Storage {} not found in database, using config default",
+                    sid
+                );
+                state.config.streaming.zoneminder.events_dir.clone()
+            }
+        },
+        None => state.config.streaming.zoneminder.events_dir.clone(),
+    };
+
+    if crate::util::path::contains_traversal(&storage_path) {
+        warn!(
+            "Refusing storage path with '..' traversal: {:?}",
+            storage_path
+        );
+        return Err(AppError::InternalServerError(
+            "storage path contains '..' traversal".to_string(),
+        ));
+    }
+
+    Ok(storage_path)
 }
 
 /// Build the event directory path based on ZoneMinder's storage scheme
@@ -389,11 +417,9 @@ pub async fn get_event_video(
                 .await
                 .map_err(|e| AppError::InternalServerError(format!("Failed to seek: {}", e)))?;
 
-            // Read the range
-            let mut buffer = vec![0u8; length as usize];
-            file.read_exact(&mut buffer).await.map_err(|e| {
-                AppError::InternalServerError(format!("Failed to read video: {}", e))
-            })?;
+            // Stream exactly `length` bytes from the seek point rather than
+            // buffering the whole range into memory.
+            let stream = ReaderStream::new(file.take(length));
 
             return Ok(Response::builder()
                 .status(StatusCode::PARTIAL_CONTENT)
@@ -404,7 +430,7 @@ pub async fn get_event_video(
                     format!("bytes {}-{}/{}", start, end, file_size),
                 )
                 .header(header::CONTENT_LENGTH, length.to_string())
-                .body(Body::from(buffer))
+                .body(Body::from_stream(stream))
                 .unwrap());
         } else {
             // Invalid range
@@ -414,24 +440,67 @@ pub async fn get_event_video(
         }
     }
 
-    // No range request - return full file
-    // For large files, we should stream instead of loading entirely into memory
-    let mut file = File::open(&video_path)
+    // No range request - stream the full file from disk rather than reading it
+    // entirely into memory (events can be multiple GB).
+    let file = File::open(&video_path)
         .await
         .map_err(|e| AppError::InternalServerError(format!("Failed to open video: {}", e)))?;
-
-    let mut buffer = Vec::with_capacity(file_size as usize);
-    file.read_to_end(&mut buffer)
-        .await
-        .map_err(|e| AppError::InternalServerError(format!("Failed to read video: {}", e)))?;
+    let stream = ReaderStream::new(file);
 
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "video/mp4")
         .header(header::ACCEPT_RANGES, "bytes")
         .header(header::CONTENT_LENGTH, file_size.to_string())
-        .body(Body::from(buffer))
+        .body(Body::from_stream(stream))
         .unwrap())
+}
+
+/// Get event video metadata (codec, dimensions, duration).
+///
+/// Probes the recorded file with the ffmpeg libraries so the client can pick a
+/// playback path: H.264 plays in any browser; HEVC is Safari / hardware-Chrome
+/// only (`playable_direct` / `recommended_mode` reflect this).
+#[utoipa::path(
+    get,
+    path = "/api/v3/events/{id}/info",
+    params(("id" = u64, Path, description = "Event ID")),
+    responses(
+        (status = 200, description = "Event video metadata", body = EventVideoInfo),
+        (status = 404, description = "Event or video not found", body = AppResponseError)
+    ),
+    tag = "Events Playback",
+    summary = "Get recorded event video metadata.",
+    description = "- Requires a valid JWT (header or `?token=`).",
+    security(("jwt" = []))
+)]
+pub async fn get_event_info(
+    State(state): State<AppState>,
+    Path(path): Path<EventPlaybackPath>,
+) -> Result<Json<EventVideoInfo>, AppError> {
+    debug!("Getting media info for event {}", path.id);
+
+    let video_path = get_event_video_path(&state, path.id).await?;
+    let file_size = tokio::fs::metadata(&video_path)
+        .await
+        .map(|m| m.len())
+        .unwrap_or(0);
+
+    let info = crate::streaming::probe::probe_event_media(path.id, video_path)
+        .await
+        .map_err(AppError::InternalServerError)?;
+
+    let playable_direct = info.playable_direct();
+    Ok(Json(EventVideoInfo {
+        event_id: path.id,
+        video_codec: info.codec.as_str().to_string(),
+        width: info.width,
+        height: info.height,
+        duration_seconds: info.duration_seconds,
+        file_size,
+        playable_direct,
+        recommended_mode: if playable_direct { "direct" } else { "hls" }.to_string(),
+    }))
 }
 
 /// Get event video for HLS streaming (same as video endpoint but different path)
@@ -489,22 +558,7 @@ pub async fn get_event_thumbnail(
     // Get event from database (using repo to get raw entity)
     let event = get_event_entity(&state, path.id).await?;
 
-    // Look up storage path from database
-    let storage = match event.storage_id {
-        Some(storage_id) => repo::storage::find_by_id(state.db(), storage_id).await?,
-        None => None,
-    };
-
-    let storage_path = match storage {
-        Some(s) => s.path,
-        None => {
-            warn!(
-                "Storage {} not found in database, using config default",
-                event.storage_id.unwrap_or(0)
-            );
-            state.config.streaming.zoneminder.events_dir.clone()
-        }
-    };
+    let storage_path = resolve_event_storage_path(&state, &event).await?;
 
     // Build event directory path based on scheme
     let event_dir = build_event_directory_path(

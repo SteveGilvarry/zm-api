@@ -89,6 +89,7 @@ use crate::util::claim::UserClaims;
         crate::handlers::events_playback::get_event_video,
         crate::handlers::events_playback::get_event_stream_video,
         crate::handlers::events_playback::get_event_thumbnail,
+        crate::handlers::events_playback::get_event_info,
 
         // event summaries
         crate::handlers::event_summaries::list_event_summaries,
