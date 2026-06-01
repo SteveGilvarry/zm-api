@@ -11,6 +11,9 @@ url="https://github.com/SteveGilvarry/zm-api"
 license=('AGPL-3.0-or-later')
 depends=('openssl' 'systemd-libs')
 makedepends=('cargo')
+# Arch enables LTO by default, which breaks ring's symbols in the sqlx_macros
+# proc-macro dylib ("undefined symbol: ring_core_*_x25519_sc_mask"). Disable it.
+options=('!lto')
 install="${pkgname}.install"
 backup=(
   "etc/${pkgname}/base.toml"
