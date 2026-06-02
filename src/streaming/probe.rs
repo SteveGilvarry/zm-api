@@ -88,3 +88,24 @@ fn probe_blocking(path: &Path) -> Result<MediaInfo, String> {
         duration_seconds,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn info(codec: VideoCodec) -> MediaInfo {
+        MediaInfo {
+            codec,
+            width: 1920,
+            height: 1080,
+            duration_seconds: 12.0,
+        }
+    }
+
+    #[test]
+    fn only_h264_is_directly_playable() {
+        assert!(info(VideoCodec::H264).playable_direct());
+        assert!(!info(VideoCodec::H265).playable_direct());
+        assert!(!info(VideoCodec::Unknown).playable_direct());
+    }
+}

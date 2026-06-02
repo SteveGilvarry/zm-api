@@ -1,10 +1,13 @@
 //! Integration tests for the event-playback API.
 //!
-//! Exercises the four media endpoints under `media_auth_middleware`:
+//! Exercises the media endpoints under `media_auth_middleware`:
 //!   - `GET /api/v3/events/{id}/stream/playlist.m3u8`
 //!   - `GET /api/v3/events/{id}/stream/video.mp4`
+//!   - `GET /api/v3/events/{id}/stream/init.mp4`
+//!   - `GET /api/v3/events/{id}/stream/segment/{seq}`
 //!   - `GET /api/v3/events/{id}/video`
 //!   - `GET /api/v3/events/{id}/thumbnail`
+//!   - `GET /api/v3/events/{id}/info`
 //!
 //! Covers not-found, unauthenticated (header + `?token=` query param), and the
 //! event-exists-but-media-missing path.
@@ -86,6 +89,43 @@ async fn playlist_for_unknown_event_is_not_found() {
     );
 }
 
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn info_for_unknown_event_is_not_found() {
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+
+    let resp = app
+        .get(&format!("/api/v3/events/{}/info", MISSING_EVENT_ID), &token)
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_FOUND,
+        "unknown event info should be 404; body: {}",
+        resp.text()
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn vod_init_and_segment_for_unknown_event_are_not_found() {
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+
+    for path in [
+        format!("/api/v3/events/{}/stream/init.mp4", MISSING_EVENT_ID),
+        format!("/api/v3/events/{}/stream/segment/0", MISSING_EVENT_ID),
+    ] {
+        let resp = app.get(&path, &token).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::NOT_FOUND,
+            "unknown event VOD asset {path} should be 404; body: {}",
+            resp.text()
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // unauthenticated: no token at all -> 401
 // ---------------------------------------------------------------------------
@@ -98,8 +138,11 @@ async fn playback_without_token_is_unauthorized() {
     for path in [
         format!("/api/v3/events/{}/video", MISSING_EVENT_ID),
         format!("/api/v3/events/{}/thumbnail", MISSING_EVENT_ID),
+        format!("/api/v3/events/{}/info", MISSING_EVENT_ID),
         format!("/api/v3/events/{}/stream/playlist.m3u8", MISSING_EVENT_ID),
         format!("/api/v3/events/{}/stream/video.mp4", MISSING_EVENT_ID),
+        format!("/api/v3/events/{}/stream/init.mp4", MISSING_EVENT_ID),
+        format!("/api/v3/events/{}/stream/segment/0", MISSING_EVENT_ID),
     ] {
         let resp = app.request(Method::GET, &path).send().await;
         assert_eq!(
@@ -236,6 +279,50 @@ async fn thumbnail_for_event_with_no_media_file_errors() {
         resp.status(),
         StatusCode::NOT_FOUND,
         "missing thumbnail should be 404, got {}; body: {}",
+        resp.status(),
+        resp.text()
+    );
+
+    let _ = zm_api::entity::events::Entity::delete_by_id(event.id)
+        .exec(&app.db)
+        .await;
+    delete_monitor(&app.db, monitor.id)
+        .await
+        .expect("cleanup monitor");
+}
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn vod_playlist_for_event_with_no_media_file_errors() {
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+
+    let monitor = insert_monitor(&app.db, "PlaybackNoVod")
+        .await
+        .expect("insert monitor fixture");
+
+    let event = zm_api::entity::events::ActiveModel {
+        monitor_id: Set(monitor.id),
+        state_id: Set(1),
+        name: Set(unique_name("PlaybackNoVod")),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("insert event fixture");
+
+    // The VOD playlist resolves the source file first (event_vod_assets ->
+    // get_event_video_path); with no file on disk it must error, not panic or
+    // hand back an empty 200.
+    let resp = app
+        .get(
+            &format!("/api/v3/events/{}/stream/playlist.m3u8", event.id),
+            &token,
+        )
+        .await;
+    assert!(
+        resp.status().is_client_error() || resp.status().is_server_error(),
+        "missing media should yield 4xx/5xx for the VOD playlist, got {}; body: {}",
         resp.status(),
         resp.text()
     );

@@ -1292,6 +1292,92 @@ mod tests {
     }
 
     #[test]
+    fn test_segment_duration_spans_to_next_segment_start() {
+        // Regression guard: a finalized segment's reported duration must span
+        // from its start to the *next* segment's first sample (`next_start`),
+        // not stop at the last sample's timestamp. Stopping at the last sample
+        // drops one inter-frame interval per segment and accumulates drift
+        // (a 600s clip mis-reports as ~585s in EXTINF / seek timelines).
+        let mut segmenter = HlsSegmenter::new(1, Duration::from_secs(2));
+        segmenter.set_codec(VideoCodec::H264);
+
+        let sps = vec![0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1E, 0xAB, 0x40];
+        let pps = vec![0x00, 0x00, 0x00, 0x01, 0x68, 0xCE, 0x3C, 0x80];
+        segmenter.process_nal(&sps, 0, false);
+        segmenter.process_nal(&pps, 1000, false);
+
+        // IDR is the first VCL keyframe -> it becomes the timestamp origin
+        // (normalized to 0). Frames are a uniform 300ms apart.
+        let idr = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x80, 0x40];
+        segmenter.process_nal(&idr, 100_000, true);
+        for i in 1..=10 {
+            let p_frame = vec![0x00, 0x00, 0x00, 0x01, 0x41, 0x9A, i];
+            segmenter.process_nal(&p_frame, 100_000 + i as u64 * 300_000, false);
+        }
+
+        // Next keyframe finalizes the segment. Last sample sits at normalized
+        // 3_000_000us; the boundary keyframe at 3_300_000us. Duration must be
+        // 3.3s (start..next_start), NOT 3.0s (start..last_sample).
+        let idr2 = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x80, 0x41];
+        let seg = segmenter
+            .process_nal(&idr2, 100_000 + 11 * 300_000, true)
+            .expect("segment should finalize on the second keyframe");
+
+        assert_eq!(
+            seg.duration,
+            Duration::from_micros(3_300_000),
+            "duration must span start..next_start (3.3s)"
+        );
+        assert_ne!(
+            seg.duration,
+            Duration::from_micros(3_000_000),
+            "duration must NOT stop at the last sample's timestamp (the old bug)"
+        );
+    }
+
+    #[test]
+    fn test_flush_emits_trailing_segment_for_short_clip() {
+        // A clip shorter than one target duration produces no segment until EOF;
+        // flush() must emit the single trailing segment (VOD finalizes the tail,
+        // unlike live which waits for the next keyframe that never comes).
+        let mut segmenter = HlsSegmenter::new(1, Duration::from_secs(4));
+        segmenter.set_codec(VideoCodec::H264);
+
+        let sps = vec![0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1E, 0xAB, 0x40];
+        let pps = vec![0x00, 0x00, 0x00, 0x01, 0x68, 0xCE, 0x3C, 0x80];
+        segmenter.process_nal(&sps, 0, false);
+        segmenter.process_nal(&pps, 1000, false);
+
+        let idr = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x80, 0x40];
+        assert!(
+            segmenter.process_nal(&idr, 100_000, true).is_none(),
+            "first keyframe alone must not finalize a segment"
+        );
+        for i in 1..=5 {
+            let p_frame = vec![0x00, 0x00, 0x00, 0x01, 0x41, 0x9A, i];
+            assert!(
+                segmenter
+                    .process_nal(&p_frame, 100_000 + i as u64 * 200_000, false)
+                    .is_none(),
+                "short clip under target duration must not finalize mid-stream"
+            );
+        }
+
+        let tail = segmenter
+            .flush()
+            .expect("flush must emit the trailing segment");
+        assert!(tail.is_keyframe, "the trailing segment opens on the IDR");
+        assert!(
+            tail.duration > Duration::ZERO,
+            "flushed segment must have a non-degenerate duration"
+        );
+        assert!(
+            segmenter.flush().is_none(),
+            "a second flush has nothing left to emit"
+        );
+    }
+
+    #[test]
     fn test_non_vcl_nals_excluded_from_media_segments() {
         let mut segmenter = HlsSegmenter::new(1, Duration::from_secs(2));
         segmenter.set_codec(VideoCodec::H264);

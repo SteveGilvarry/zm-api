@@ -326,4 +326,67 @@ mod tests {
         assert_eq!(nals[0], vec![0, 0, 0, 1, 0x67, 0x42]);
         assert_eq!(nals[1], vec![0, 0, 0, 1, 0x68, 0xce]);
     }
+
+    #[test]
+    fn parse_hvcc_extracts_vps_sps_pps() {
+        // 21 bytes of config header, then byte 21 = lengthSizeMinusOne (0xFF ->
+        // length_size 4), byte 22 = num_arrays (3). Each array: NAL-type byte,
+        // num_nalus (u16), then [len(u16)][data] per nalu. Three arrays carry
+        // one VPS (0x40 01), SPS (0x42 01) and PPS (0x44 01) respectively.
+        let mut hvcc = vec![0u8; 21];
+        hvcc.push(0xFF);
+        hvcc.push(3);
+        hvcc.extend_from_slice(&[0x20, 0x00, 0x01, 0x00, 0x02, 0x40, 0x01]); // VPS
+        hvcc.extend_from_slice(&[0x21, 0x00, 0x01, 0x00, 0x02, 0x42, 0x01]); // SPS
+        hvcc.extend_from_slice(&[0x22, 0x00, 0x01, 0x00, 0x02, 0x44, 0x01]); // PPS
+
+        let (nals, ls) = parse_hvcc(&hvcc).unwrap();
+        assert_eq!(ls, 4);
+        assert_eq!(nals.len(), 3);
+        assert_eq!(nals[0], vec![0, 0, 0, 1, 0x40, 0x01]);
+        assert_eq!(nals[1], vec![0, 0, 0, 1, 0x42, 0x01]);
+        assert_eq!(nals[2], vec![0, 0, 0, 1, 0x44, 0x01]);
+    }
+
+    #[test]
+    fn parse_hvcc_rejects_short_record() {
+        assert!(parse_hvcc(&[0u8; 10]).is_err());
+    }
+
+    fn seg(duration: Duration) -> FMP4Segment {
+        FMP4Segment {
+            sequence: 0,
+            data: Vec::new(),
+            duration,
+            timestamp: 0,
+            is_keyframe: true,
+        }
+    }
+
+    #[test]
+    fn build_playlist_is_well_formed_vod() {
+        let segments = [
+            seg(Duration::from_millis(4000)),
+            seg(Duration::from_millis(3500)),
+            seg(Duration::from_millis(1200)),
+        ];
+        let p = build_playlist(&segments, Duration::from_secs(4));
+
+        assert!(p.starts_with("#EXTM3U"));
+        assert!(p.contains("#EXT-X-VERSION:7"));
+        assert!(p.contains("#EXT-X-PLAYLIST-TYPE:VOD"));
+        assert!(p.contains("#EXT-X-INDEPENDENT-SEGMENTS"));
+        // TARGETDURATION is the ceil of the longest segment / target.
+        assert!(p.contains("#EXT-X-TARGETDURATION:4"));
+        // Init segment is referenced via a relative MAP URI.
+        assert!(p.contains("#EXT-X-MAP:URI=\"init.mp4\""));
+        // Per-segment EXTINF + relative segment URIs, in order.
+        assert!(p.contains("#EXTINF:4.000,\nsegment/0"));
+        assert!(p.contains("#EXTINF:3.500,\nsegment/1"));
+        assert!(p.contains("#EXTINF:1.200,\nsegment/2"));
+        // VOD playlists must terminate with ENDLIST.
+        assert!(p.trim_end().ends_with("#EXT-X-ENDLIST"));
+        // Exactly one URI per segment.
+        assert_eq!(p.matches("\nsegment/").count(), 3);
+    }
 }
