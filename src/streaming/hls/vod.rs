@@ -363,6 +363,173 @@ mod tests {
         }
     }
 
+    /// Mux `num_frames` blank 64×64 frames into a real MP4 at `path` using the
+    /// named libavcodec encoder (GLOBAL_HEADER set, so the avcC/hvcC lands in
+    /// the container — exactly what `package_blocking` reads). Returns the frame
+    /// count, or `None` if the encoder isn't in this ffmpeg build (skip).
+    fn generate_test_mp4(encoder_name: &str, path: &Path, num_frames: i64) -> Option<i64> {
+        use ffmpeg_next as ffmpeg;
+        ffmpeg::init().ok();
+
+        let codec = ffmpeg::codec::encoder::find_by_name(encoder_name)?;
+        let mut octx = ffmpeg::format::output(&path).ok()?;
+        let global_header = octx
+            .format()
+            .flags()
+            .contains(ffmpeg::format::Flags::GLOBAL_HEADER);
+
+        let mut enc_ctx = ffmpeg::codec::context::Context::new_with_codec(codec)
+            .encoder()
+            .video()
+            .ok()?;
+        enc_ctx.set_width(64);
+        enc_ctx.set_height(64);
+        enc_ctx.set_format(ffmpeg::format::Pixel::YUV420P);
+        let tb = ffmpeg::Rational(1, 25);
+        enc_ctx.set_time_base(tb);
+        enc_ctx.set_gop(10);
+        if global_header {
+            enc_ctx.set_flags(ffmpeg::codec::Flags::GLOBAL_HEADER);
+        }
+        let mut opts = ffmpeg::Dictionary::new();
+        opts.set("preset", "ultrafast");
+        let mut enc = enc_ctx.open_with(opts).ok()?;
+
+        {
+            let mut ost = octx.add_stream(codec).ok()?;
+            ost.set_parameters(&enc);
+            ost.set_time_base(tb);
+        }
+        octx.write_header().ok()?;
+        let ost_tb = octx.stream(0)?.time_base();
+
+        fn drain(
+            enc: &mut ffmpeg_next::encoder::Video,
+            octx: &mut ffmpeg_next::format::context::Output,
+            tb: ffmpeg_next::Rational,
+            ost_tb: ffmpeg_next::Rational,
+        ) -> Option<()> {
+            let mut pkt = ffmpeg_next::Packet::empty();
+            while enc.receive_packet(&mut pkt).is_ok() {
+                pkt.set_stream(0);
+                pkt.rescale_ts(tb, ost_tb);
+                pkt.write_interleaved(octx).ok()?;
+            }
+            Some(())
+        }
+
+        for i in 0..num_frames {
+            let mut frame = ffmpeg::frame::Video::new(ffmpeg::format::Pixel::YUV420P, 64, 64);
+            // Vary the luma per frame so encoded packets aren't degenerate.
+            for plane in 0..3usize {
+                let v = if plane == 0 {
+                    (i as u8).wrapping_mul(7)
+                } else {
+                    128
+                };
+                frame.data_mut(plane).fill(v);
+            }
+            frame.set_pts(Some(i));
+            enc.send_frame(&frame).ok()?;
+            drain(&mut enc, &mut octx, tb, ost_tb)?;
+        }
+        enc.send_eof().ok()?;
+        drain(&mut enc, &mut octx, tb, ost_tb)?;
+        octx.write_trailer().ok()?;
+        Some(num_frames)
+    }
+
+    /// Demux `path` and return (video packet count, codec id).
+    fn count_video_packets(path: &Path) -> Option<(usize, ffmpeg_next::codec::Id)> {
+        use ffmpeg_next as ffmpeg;
+        let mut ictx = ffmpeg::format::input(&path).ok()?;
+        let (idx, id) = {
+            let st = ictx.streams().best(ffmpeg::media::Type::Video)?;
+            let id = ffmpeg::codec::context::Context::from_parameters(st.parameters())
+                .ok()?
+                .id();
+            (st.index(), id)
+        };
+        let count = ictx.packets().filter(|(s, _)| s.index() == idx).count();
+        Some((count, id))
+    }
+
+    /// End-to-end: generate a real MP4, run the full probe + package pipeline,
+    /// reconstruct a fragmented MP4 from init+segments, and assert every input
+    /// frame survives the round-trip. Gated on encoder availability.
+    async fn assert_real_mp4_roundtrips(encoder: &str, expect_codec: VideoCodec, event_id: u64) {
+        use ffmpeg_next as ffmpeg;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let src = dir.path().join("source.mp4");
+
+        let num_frames = 50;
+        let Some(_) = generate_test_mp4(encoder, &src, num_frames) else {
+            eprintln!("skipping: encoder {encoder} not available in this ffmpeg build");
+            return;
+        };
+
+        // Probe the real file (exercises probe_event_media end-to-end).
+        let info = crate::streaming::probe::probe_event_media(event_id, src.clone())
+            .await
+            .expect("probe should succeed on the generated mp4");
+        assert_eq!(info.codec, expect_codec, "probed codec mismatch");
+        assert_eq!((info.width, info.height), (64, 64), "probed dimensions");
+
+        // Package into HLS-VOD with a small target so multiple segments form.
+        let assets = package_blocking(&src, info, Duration::from_millis(500))
+            .expect("package_blocking should succeed");
+
+        assert_eq!(
+            &assets.init[4..8],
+            b"ftyp",
+            "init must begin with an ftyp box"
+        );
+        assert!(!assets.segments.is_empty(), "must produce media segments");
+        assert!(
+            assets.playlist.contains("#EXT-X-ENDLIST"),
+            "VOD playlist must terminate with ENDLIST"
+        );
+
+        // Source packet count (frames) for parity.
+        let (src_count, src_id) = count_video_packets(&src).expect("demux source");
+        assert!(src_count > 0, "source must contain packets");
+        let expect_id = match expect_codec {
+            VideoCodec::H264 => ffmpeg::codec::Id::H264,
+            VideoCodec::H265 => ffmpeg::codec::Id::HEVC,
+            VideoCodec::Unknown => unreachable!(),
+        };
+        assert_eq!(src_id, expect_id, "source codec id");
+
+        // Reconstruct a fragmented MP4: init segment followed by every media
+        // segment. ffmpeg demuxes this as one stream — packet count must match.
+        let recon = dir.path().join("recon.mp4");
+        let mut buf = assets.init.clone();
+        for seg in &assets.segments {
+            buf.extend_from_slice(seg);
+        }
+        std::fs::write(&recon, &buf).expect("write recon");
+
+        let (recon_count, recon_id) = count_video_packets(&recon).expect("demux recon");
+        assert_eq!(
+            recon_id, expect_id,
+            "reconstructed codec id must match source"
+        );
+        assert_eq!(
+            recon_count, src_count,
+            "every source frame must survive the VOD round-trip ({recon_count} vs {src_count})"
+        );
+    }
+
+    #[tokio::test]
+    async fn vod_packages_real_h264_mp4_without_frame_loss() {
+        assert_real_mp4_roundtrips("libx264", VideoCodec::H264, 9_900_001).await;
+    }
+
+    #[tokio::test]
+    async fn vod_packages_real_h265_mp4_without_frame_loss() {
+        assert_real_mp4_roundtrips("libx265", VideoCodec::H265, 9_900_002).await;
+    }
+
     #[test]
     fn build_playlist_is_well_formed_vod() {
         let segments = [
