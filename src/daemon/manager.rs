@@ -1,6 +1,7 @@
 //! Daemon manager - core process control and lifecycle management.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -52,6 +53,9 @@ pub struct DaemonManager {
     config: Arc<DaemonConfig>,
     /// Shutdown signal
     shutdown: Arc<Notify>,
+    /// Latched shutdown flag checked by start/reconcile paths (the `Notify`
+    /// signal alone is lost on a task that is mid-tick).
+    shutting_down: Arc<AtomicBool>,
     /// Server ID for ZoneMinder distributed mode
     server_id: Option<u32>,
     /// Whether the manager is running
@@ -68,6 +72,7 @@ impl DaemonManager {
             pid_map: Arc::new(RwLock::new(HashMap::new())),
             config: Arc::new(config),
             shutdown: Arc::new(Notify::new()),
+            shutting_down: Arc::new(AtomicBool::new(false)),
             server_id,
             running: Arc::new(RwLock::new(false)),
             db: None,
@@ -90,6 +95,7 @@ impl DaemonManager {
             pid_map: Arc::new(RwLock::new(HashMap::new())),
             config: Arc::new(config),
             shutdown: Arc::new(Notify::new()),
+            shutting_down: Arc::new(AtomicBool::new(false)),
             server_id,
             running: Arc::new(RwLock::new(false)),
             db: Some(db),
@@ -113,11 +119,28 @@ impl DaemonManager {
 
     /// Signal shutdown to all background tasks.
     pub fn signal_shutdown(&self) {
+        // Latch before waking waiters: a loop mid-tick isn't awaiting
+        // `notified()`, so it must observe the flag to avoid re-spawning.
+        self.shutting_down.store(true, Ordering::SeqCst);
         self.shutdown.notify_waiters();
+    }
+
+    /// Whether shutdown has been signaled.
+    pub fn is_shutting_down(&self) -> bool {
+        self.shutting_down.load(Ordering::SeqCst)
     }
 
     /// Start a daemon process.
     pub async fn start_daemon(&self, id: &str, args: &[String]) -> AppResult<DaemonResponse> {
+        // Refuse to spawn during shutdown so a reconcile/health restart can't
+        // orphan a daemon that never receives the stop wave.
+        if self.is_shutting_down() {
+            return Ok(DaemonResponse::error(format!(
+                "Manager is shutting down, refusing to start {}",
+                id
+            )));
+        }
+
         // Check if already running
         {
             let processes = self.processes.read().await;
@@ -563,6 +586,10 @@ impl DaemonManager {
     pub async fn shutdown_all(&self) -> AppResult<DaemonResponse> {
         info!("Shutting down all daemons");
 
+        // Quiesce background loops first so reconciliation/health checks can't
+        // re-spawn the daemons we're about to stop.
+        self.signal_shutdown();
+
         let timeout = self.config.shutdown_timeout();
         let check_interval = std::time::Duration::from_millis(500);
 
@@ -624,9 +651,6 @@ impl DaemonManager {
         // Mark as not running
         *self.running.write().await = false;
 
-        // Signal shutdown to background tasks
-        self.signal_shutdown();
-
         // Count final results
         let stopped = {
             let processes = self.processes.read().await;
@@ -657,6 +681,7 @@ impl DaemonManager {
         }
 
         *running = true;
+        self.shutting_down.store(false, Ordering::SeqCst);
         drop(running); // Release lock before spawning
 
         // Start background health check task
@@ -1303,6 +1328,10 @@ impl DaemonManager {
     /// Compares what should be running (capturing monitors in DB) with what is
     /// actually running (tracked daemons) and corrects any discrepancies.
     async fn reconcile_monitors(&self) -> AppResult<()> {
+        if self.is_shutting_down() {
+            return Ok(());
+        }
+
         let db = match &self.db {
             Some(db) => db.clone(),
             None => return Ok(()), // No DB, nothing to reconcile
@@ -2261,6 +2290,35 @@ mod tests {
         assert!(
             !process.has_child(),
             "dead child handle must be cleared so try_wait() cannot re-fire"
+        );
+    }
+
+    /// Regression: once shutdown is signaled, `start_daemon` must refuse so a
+    /// reconcile/health restart can't orphan a daemon that misses the stop wave
+    /// (which previously hung shutdown until systemd SIGKILL'd the unit).
+    #[tokio::test]
+    async fn test_no_daemon_starts_while_shutting_down() {
+        let config = DaemonConfig::default();
+        let manager = DaemonManager::new(config, None);
+
+        assert!(!manager.is_shutting_down());
+        manager.signal_shutdown();
+        assert!(manager.is_shutting_down());
+
+        // A would-be reconcile/health restart must be refused before it can
+        // resolve a path or fork a process.
+        let resp = manager
+            .start_daemon("zmc", &["-m".to_string(), "1".to_string()])
+            .await
+            .unwrap();
+
+        assert!(
+            !resp.success,
+            "start must be refused while shutting down to avoid orphaned daemons"
+        );
+        assert!(
+            manager.list_daemon_ids().await.is_empty(),
+            "no process entry should be created for a refused start"
         );
     }
 }
