@@ -6,6 +6,7 @@ mod common;
 
 use axum::body::{self, Body};
 use axum::http::{header, Request, StatusCode};
+use common::fixtures::RowGuard;
 use common::test_db::{get_test_db, test_prefix};
 use sea_orm::{ActiveModelTrait, DatabaseConnection, DbErr, EntityTrait, Set};
 use tower::ServiceExt;
@@ -255,21 +256,6 @@ async fn create_frame_db(db: &DatabaseConnection, event_id: u64) -> Result<frame
     model.insert(db).await
 }
 
-async fn cleanup_monitor_db(db: &DatabaseConnection, id: u32) -> Result<(), DbErr> {
-    monitors::Entity::delete_by_id(id).exec(db).await?;
-    Ok(())
-}
-
-async fn cleanup_event_db(db: &DatabaseConnection, id: u64) -> Result<(), DbErr> {
-    events::Entity::delete_by_id(id).exec(db).await?;
-    Ok(())
-}
-
-async fn cleanup_frame_db(db: &DatabaseConnection, id: u64) -> Result<(), DbErr> {
-    frames::Entity::delete_by_id(id).exec(db).await?;
-    Ok(())
-}
-
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_monitors_create_update_delete() {
@@ -280,6 +266,7 @@ async fn test_api_monitors_create_update_delete() {
 
     let name = format!("{}create_monitor", test_prefix());
     let created = create_monitor(&app, name).await;
+    let _g_monitor = RowGuard::monitor(created.id);
     let fetched = get_monitor(&app, created.id).await;
     assert_eq!(fetched.name, created.name);
 
@@ -332,6 +319,7 @@ async fn test_api_monitors_state_alarm() {
 
     let name = format!("{}state_monitor", test_prefix());
     let created = create_monitor(&app, name).await;
+    let _g_monitor = RowGuard::monitor(created.id);
 
     let state_body = serde_json::to_vec(&UpdateStateRequest {
         state: "start".to_string(),
@@ -391,6 +379,7 @@ async fn test_api_monitors_list_get() {
     let monitor = create_monitor_db(&db)
         .await
         .expect("Failed to create monitor");
+    let _g_monitor = RowGuard::monitor(monitor.id);
     let app = build_app(db);
 
     let response = app
@@ -427,13 +416,6 @@ async fn test_api_monitors_list_get() {
         .unwrap();
     let body: MonitorResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body.id, monitor.id);
-
-    let cleanup_db = get_test_db()
-        .await
-        .expect("Failed to get cleanup connection");
-    cleanup_monitor_db(&cleanup_db, monitor.id)
-        .await
-        .expect("Failed to cleanup monitor");
 }
 
 #[tokio::test]
@@ -445,9 +427,14 @@ async fn test_api_events_list_get() {
     let monitor = create_monitor_db(&db)
         .await
         .expect("Failed to create monitor");
+    let _g_monitor = RowGuard::monitor(monitor.id);
     let event = create_event_db(&db, monitor.id)
         .await
         .expect("Failed to create event");
+    let event_id = event.id;
+    let _g_event = RowGuard::new(format!("Events#{event_id}"), move |db| async move {
+        let _ = events::Entity::delete_by_id(event_id).exec(&db).await;
+    });
     let app = build_app(db);
 
     let response = app
@@ -484,16 +471,6 @@ async fn test_api_events_list_get() {
         .unwrap();
     let body: EventResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body.id, event.id);
-
-    let cleanup_db = get_test_db()
-        .await
-        .expect("Failed to get cleanup connection");
-    cleanup_event_db(&cleanup_db, event.id)
-        .await
-        .expect("Failed to cleanup event");
-    cleanup_monitor_db(&cleanup_db, monitor.id)
-        .await
-        .expect("Failed to cleanup monitor");
 }
 
 #[tokio::test]
@@ -505,12 +482,21 @@ async fn test_api_frames_list_get() {
     let monitor = create_monitor_db(&db)
         .await
         .expect("Failed to create monitor");
+    let _g_monitor = RowGuard::monitor(monitor.id);
     let event = create_event_db(&db, monitor.id)
         .await
         .expect("Failed to create event");
+    let event_id = event.id;
+    let _g_event = RowGuard::new(format!("Events#{event_id}"), move |db| async move {
+        let _ = events::Entity::delete_by_id(event_id).exec(&db).await;
+    });
     let frame = create_frame_db(&db, event.id)
         .await
         .expect("Failed to create frame");
+    let frame_id = frame.id;
+    let _g_frame = RowGuard::new(format!("Frames#{frame_id}"), move |db| async move {
+        let _ = frames::Entity::delete_by_id(frame_id).exec(&db).await;
+    });
     let app = build_app(db);
 
     let response = app
@@ -547,19 +533,6 @@ async fn test_api_frames_list_get() {
         .unwrap();
     let body: FrameResponse = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body.id, frame.id);
-
-    let cleanup_db = get_test_db()
-        .await
-        .expect("Failed to get cleanup connection");
-    cleanup_frame_db(&cleanup_db, frame.id)
-        .await
-        .expect("Failed to cleanup frame");
-    cleanup_event_db(&cleanup_db, event.id)
-        .await
-        .expect("Failed to cleanup event");
-    cleanup_monitor_db(&cleanup_db, monitor.id)
-        .await
-        .expect("Failed to cleanup monitor");
 }
 
 #[tokio::test]
@@ -575,12 +548,20 @@ async fn test_api_events_counts_by_monitor_groups_correctly() {
     let mon_a = create_monitor_db(&db)
         .await
         .expect("Failed to create monitor A");
+    let _g_mon_a = RowGuard::monitor(mon_a.id);
     let mon_b = create_monitor_db(&db)
         .await
         .expect("Failed to create monitor B");
+    let _g_mon_b = RowGuard::monitor(mon_b.id);
     let ev_a1 = create_event_db_now(&db, mon_a.id).await.expect("event A1");
     let ev_a2 = create_event_db_now(&db, mon_a.id).await.expect("event A2");
     let ev_b1 = create_event_db_now(&db, mon_b.id).await.expect("event B1");
+    let event_ids = [ev_a1.id, ev_a2.id, ev_b1.id];
+    let _g_events = RowGuard::new("Events#counts", move |db| async move {
+        for id in event_ids {
+            let _ = events::Entity::delete_by_id(id).exec(&db).await;
+        }
+    });
 
     let app = build_app(db);
 
@@ -618,18 +599,4 @@ async fn test_api_events_counts_by_monitor_groups_correctly() {
         .expect("monitor B row missing");
     assert!(count_a.count >= 2, "expected >=2 events for monitor A");
     assert!(count_b.count >= 1, "expected >=1 event for monitor B");
-
-    let cleanup_db = get_test_db()
-        .await
-        .expect("Failed to get cleanup connection");
-    for id in [ev_a1.id, ev_a2.id, ev_b1.id] {
-        cleanup_event_db(&cleanup_db, id)
-            .await
-            .expect("Failed to cleanup event");
-    }
-    for id in [mon_a.id, mon_b.id] {
-        cleanup_monitor_db(&cleanup_db, id)
-            .await
-            .expect("Failed to cleanup monitor");
-    }
 }

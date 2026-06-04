@@ -7,9 +7,9 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
-use common::fixtures::unique_name;
+use common::fixtures::{unique_name, RowGuard};
 use common::harness::{superuser_token, TestApp};
-use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+use sea_orm::{ActiveModelTrait, Set};
 use serde_json::json;
 use zm_api::dto::response::{PaginatedServersResponse, ServerResponse};
 use zm_api::entity::sea_orm_active_enums::Status;
@@ -31,18 +31,13 @@ async fn insert_server(db: &sea_orm::DatabaseConnection, label: &str) -> u32 {
     .id
 }
 
-async fn delete_server(db: &sea_orm::DatabaseConnection, id: u32) {
-    let _ = zm_api::entity::servers::Entity::delete_by_id(id)
-        .exec(db)
-        .await;
-}
-
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn list_servers_returns_inserted_row() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
     let id = insert_server(&app.db, "SrvList").await;
+    let _guard = RowGuard::server(id);
 
     let resp = app
         .get("/api/v3/servers?page=1&page_size=1000", &token)
@@ -53,8 +48,6 @@ async fn list_servers_returns_inserted_row() {
         body.items.iter().any(|s| s.id == id),
         "servers list should contain the fixture row"
     );
-
-    delete_server(&app.db, id).await;
 }
 
 #[tokio::test]
@@ -63,13 +56,12 @@ async fn get_server_returns_the_row() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
     let id = insert_server(&app.db, "SrvGet").await;
+    let _guard = RowGuard::server(id);
 
     let resp = app.get(&format!("/api/v3/servers/{id}"), &token).await;
     assert_status(&resp, StatusCode::OK);
     let body: ServerResponse = resp.json();
     assert_eq!(body.id, id);
-
-    delete_server(&app.db, id).await;
 }
 
 #[tokio::test]
@@ -101,6 +93,7 @@ async fn create_then_delete_server_round_trips() {
         create.text()
     );
     let created: ServerResponse = create.json();
+    let _guard = RowGuard::server(created.id);
 
     let delete = app
         .delete(&format!("/api/v3/servers/{}", created.id), &token)

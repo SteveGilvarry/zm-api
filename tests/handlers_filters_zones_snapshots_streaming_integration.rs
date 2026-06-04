@@ -6,6 +6,7 @@ mod common;
 
 use axum::body::{self, Body};
 use axum::http::{header, Request, StatusCode};
+use common::fixtures::RowGuard;
 use common::test_db::{get_test_db, test_prefix};
 use sea_orm::{ActiveModelTrait, DatabaseConnection, DbErr, EntityTrait, Set};
 use tower::ServiceExt;
@@ -13,7 +14,7 @@ use zm_api::dto::request::filters::CreateFilterRequest;
 use zm_api::dto::request::snapshots::CreateSnapshotRequest;
 use zm_api::dto::request::zones::CreateZoneRequest;
 use zm_api::dto::response::{FilterResponse, SnapshotResponse, ZoneResponse};
-use zm_api::entity::monitors;
+use zm_api::entity::{monitors, snapshots};
 
 fn auth_header() -> String {
     let token = zm_api::service::token::generate_tokens(
@@ -40,11 +41,6 @@ async fn create_monitor_db(db: &DatabaseConnection) -> Result<monitors::Model, D
     model.insert(db).await
 }
 
-async fn cleanup_monitor_db(db: &DatabaseConnection, id: u32) -> Result<(), DbErr> {
-    monitors::Entity::delete_by_id(id).exec(db).await?;
-    Ok(())
-}
-
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_filters_create_get_delete() {
@@ -57,9 +53,7 @@ async fn test_api_filters_create_get_delete() {
     let create_body = serde_json::to_vec(&CreateFilterRequest {
         name: name.clone(),
         query_json: "{\"filter\":\"all\"}".to_string(),
-        user_id: None,
-        execute_interval: None,
-        email_format: None,
+        ..Default::default()
     })
     .expect("serialize filter");
 
@@ -80,6 +74,7 @@ async fn test_api_filters_create_get_delete() {
         .await
         .unwrap();
     let created: FilterResponse = serde_json::from_slice(&bytes).unwrap();
+    let _g_filter = RowGuard::filter(created.id);
     assert_eq!(created.name, name);
 
     let response = app
@@ -117,6 +112,7 @@ async fn test_api_zones_create_get_delete() {
     let monitor = create_monitor_db(&db)
         .await
         .expect("Failed to create monitor");
+    let _g_monitor = RowGuard::monitor(monitor.id);
     let app = build_app(db);
 
     let name = format!("{}zone", test_prefix());
@@ -147,6 +143,7 @@ async fn test_api_zones_create_get_delete() {
         .await
         .unwrap();
     let created: ZoneResponse = serde_json::from_slice(&bytes).unwrap();
+    let _g_zone = RowGuard::zone(created.id);
     assert_eq!(created.name, name);
 
     let response = app
@@ -173,13 +170,6 @@ async fn test_api_zones_create_get_delete() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
-
-    let cleanup_db = get_test_db()
-        .await
-        .expect("Failed to get cleanup connection");
-    cleanup_monitor_db(&cleanup_db, monitor.id)
-        .await
-        .expect("Failed to cleanup monitor");
 }
 
 #[tokio::test]
@@ -216,6 +206,10 @@ async fn test_api_snapshots_create_get_delete() {
         .await
         .unwrap();
     let created: SnapshotResponse = serde_json::from_slice(&bytes).unwrap();
+    let snapshot_id = created.id;
+    let _g_snapshot = RowGuard::new(format!("Snapshots#{snapshot_id}"), move |db| async move {
+        let _ = snapshots::Entity::delete_by_id(snapshot_id).exec(&db).await;
+    });
     assert_eq!(created.name.as_deref(), Some(name.as_str()));
 
     let response = app

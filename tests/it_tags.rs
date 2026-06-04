@@ -7,9 +7,9 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
-use common::fixtures::unique_name;
+use common::fixtures::{unique_name, RowGuard};
 use common::harness::{superuser_token, TestApp};
-use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+use sea_orm::{ActiveModelTrait, Set};
 use serde_json::json;
 use zm_api::dto::response::{PaginatedTagsResponse, TagResponse};
 
@@ -25,18 +25,13 @@ async fn insert_tag(db: &sea_orm::DatabaseConnection, label: &str) -> u64 {
     .id
 }
 
-async fn delete_tag(db: &sea_orm::DatabaseConnection, id: u64) {
-    let _ = zm_api::entity::tags::Entity::delete_by_id(id)
-        .exec(db)
-        .await;
-}
-
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn list_tags_returns_inserted_row() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
     let id = insert_tag(&app.db, "TagList").await;
+    let _guard = RowGuard::tag(id);
 
     let resp = app.get("/api/v3/tags?page=1&page_size=1000", &token).await;
     assert_status(&resp, StatusCode::OK);
@@ -45,8 +40,6 @@ async fn list_tags_returns_inserted_row() {
         body.items.iter().any(|t| t.id == id),
         "list should contain the fixture tag"
     );
-
-    delete_tag(&app.db, id).await;
 }
 
 #[tokio::test]
@@ -55,13 +48,12 @@ async fn get_tag_returns_the_row() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
     let id = insert_tag(&app.db, "TagGet").await;
+    let _guard = RowGuard::tag(id);
 
     let resp = app.get(&format!("/api/v3/tags/{id}"), &token).await;
     assert_status(&resp, StatusCode::OK);
     let body: TagResponse = resp.json();
     assert_eq!(body.id, id);
-
-    delete_tag(&app.db, id).await;
 }
 
 #[tokio::test]
@@ -88,6 +80,7 @@ async fn create_then_delete_tag_round_trips() {
         create.text()
     );
     let created: TagResponse = create.json();
+    let _guard = RowGuard::tag(created.id);
 
     let delete = app
         .delete(&format!("/api/v3/tags/{}", created.id), &token)

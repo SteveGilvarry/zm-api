@@ -7,7 +7,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
-use common::fixtures::{delete_monitor, insert_monitor};
+use common::fixtures::{insert_monitor, RowGuard};
 use common::harness::{superuser_token, TestApp};
 use sea_orm::prelude::Decimal;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
@@ -30,10 +30,16 @@ async fn insert_status(db: &sea_orm::DatabaseConnection, monitor_id: u32) {
     .expect("insert monitor_status fixture");
 }
 
-async fn delete_status(db: &sea_orm::DatabaseConnection, monitor_id: u32) {
-    let _ = zm_api::entity::monitor_status::Entity::delete_by_id(monitor_id)
-        .exec(db)
-        .await;
+/// Guard a `Monitor_Status` row (keyed by monitor id).
+fn status_guard(monitor_id: u32) -> RowGuard {
+    RowGuard::new(
+        format!("Monitor_Status#{monitor_id}"),
+        move |db| async move {
+            let _ = zm_api::entity::monitor_status::Entity::delete_by_id(monitor_id)
+                .exec(&db)
+                .await;
+        },
+    )
 }
 
 #[tokio::test]
@@ -44,7 +50,9 @@ async fn list_monitor_statuses_returns_inserted_row() {
     let monitor = insert_monitor(&app.db, "StatusList")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     insert_status(&app.db, monitor.id).await;
+    let _status = status_guard(monitor.id);
 
     let resp = app
         .get("/api/v3/monitor-status?page=1&page_size=1000", &token)
@@ -55,9 +63,6 @@ async fn list_monitor_statuses_returns_inserted_row() {
         body.items.iter().any(|s| s.monitor_id == monitor.id),
         "monitor status list should contain the fixture row"
     );
-
-    delete_status(&app.db, monitor.id).await;
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -68,7 +73,9 @@ async fn get_monitor_status_returns_the_row() {
     let monitor = insert_monitor(&app.db, "StatusGet")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     insert_status(&app.db, monitor.id).await;
+    let _status = status_guard(monitor.id);
 
     let resp = app
         .get(&format!("/api/v3/monitor-status/{}", monitor.id), &token)
@@ -77,9 +84,6 @@ async fn get_monitor_status_returns_the_row() {
     let body: MonitorStatusResponse = resp.json();
     assert_eq!(body.monitor_id, monitor.id);
     assert_eq!(body.status, "Connected");
-
-    delete_status(&app.db, monitor.id).await;
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -100,7 +104,9 @@ async fn patch_monitor_status_updates_the_row() {
     let monitor = insert_monitor(&app.db, "StatusPatch")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     insert_status(&app.db, monitor.id).await;
+    let _status = status_guard(monitor.id);
 
     let resp = app
         .patch_json(
@@ -113,9 +119,6 @@ async fn patch_monitor_status_updates_the_row() {
     let body: MonitorStatusResponse = resp.json();
     assert_eq!(body.status, "Running");
     assert_eq!(body.capture_bandwidth, 2048);
-
-    delete_status(&app.db, monitor.id).await;
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -126,7 +129,9 @@ async fn patch_monitor_status_with_invalid_body_is_rejected() {
     let monitor = insert_monitor(&app.db, "StatusBadPatch")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     insert_status(&app.db, monitor.id).await;
+    let _status = status_guard(monitor.id);
 
     // `capture_bandwidth` must be an integer, not a string.
     let resp = app
@@ -142,7 +147,4 @@ async fn patch_monitor_status_with_invalid_body_is_rejected() {
         resp.status(),
         resp.text()
     );
-
-    delete_status(&app.db, monitor.id).await;
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }

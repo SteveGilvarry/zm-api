@@ -10,8 +10,7 @@ mod common;
 
 use axum::http::{Method, StatusCode};
 use common::fixtures::{
-    cleanup_group_permissions, cleanup_user, delete_group, grant_group_permission, insert_group,
-    insert_user_with_id,
+    cleanup_group_permissions, grant_group_permission, insert_group, insert_user_with_id, RowGuard,
 };
 use common::harness::{superuser_token, token_for, TestApp};
 use zm_api::entity::sea_orm_active_enums::Permission;
@@ -31,14 +30,17 @@ async fn restricted_user_sees_only_permitted_groups() {
     let group_a = insert_group(&app.db, "AclGrpVisible")
         .await
         .expect("insert group A");
+    let _grp_a = RowGuard::group(group_a.id);
     let group_b = insert_group(&app.db, "AclGrpHidden")
         .await
         .expect("insert group B");
+    let _grp_b = RowGuard::group(group_b.id);
 
     // The permission row's `UserId` FK requires the user to exist first.
     insert_user_with_id(&app.db, ACL_TEST_UID_VIEW, "AclGrpUser")
         .await
         .expect("insert acl user");
+    let _user = RowGuard::user(ACL_TEST_UID_VIEW);
 
     // The user is granted View on A only — which makes their scope Restricted.
     grant_group_permission(&app.db, group_a.id, ACL_TEST_UID_VIEW, Permission::View)
@@ -76,18 +78,11 @@ async fn restricted_user_sees_only_permitted_groups() {
         .await;
     assert_eq!(hidden.status(), StatusCode::NOT_FOUND);
 
+    // The `Groups_Permissions` rows have no typed guard; remove them before the
+    // user/group guards drop so the foreign keys stay satisfied.
     cleanup_group_permissions(&app.db, ACL_TEST_UID_VIEW)
         .await
         .expect("cleanup permissions");
-    cleanup_user(&app.db, ACL_TEST_UID_VIEW)
-        .await
-        .expect("cleanup acl user");
-    delete_group(&app.db, group_a.id)
-        .await
-        .expect("cleanup group A");
-    delete_group(&app.db, group_b.id)
-        .await
-        .expect("cleanup group B");
 }
 
 #[tokio::test]
@@ -98,9 +93,11 @@ async fn view_only_grant_blocks_writes() {
     let group = insert_group(&app.db, "AclGrpViewOnly")
         .await
         .expect("insert group");
+    let _grp = RowGuard::group(group.id);
     insert_user_with_id(&app.db, ACL_TEST_UID_EDIT, "AclGrpEditUser")
         .await
         .expect("insert acl user");
+    let _user = RowGuard::user(ACL_TEST_UID_EDIT);
 
     // View only — reads are allowed, writes are not.
     grant_group_permission(&app.db, group.id, ACL_TEST_UID_EDIT, Permission::View)
@@ -122,15 +119,11 @@ async fn view_only_grant_blocks_writes() {
         .await;
     assert_eq!(delete.status(), StatusCode::NOT_FOUND);
 
+    // The `Groups_Permissions` rows have no typed guard; remove them before the
+    // user/group guards drop so the foreign keys stay satisfied.
     cleanup_group_permissions(&app.db, ACL_TEST_UID_EDIT)
         .await
         .expect("cleanup permissions");
-    cleanup_user(&app.db, ACL_TEST_UID_EDIT)
-        .await
-        .expect("cleanup acl user");
-    delete_group(&app.db, group.id)
-        .await
-        .expect("cleanup group");
 }
 
 #[tokio::test]
@@ -141,9 +134,11 @@ async fn unrestricted_user_sees_all_groups() {
     let group_a = insert_group(&app.db, "AclGrpAll1")
         .await
         .expect("insert group A");
+    let _grp_a = RowGuard::group(group_a.id);
     let group_b = insert_group(&app.db, "AclGrpAll2")
         .await
         .expect("insert group B");
+    let _grp_b = RowGuard::group(group_b.id);
 
     // `superuser_token()` carries user id 0, which has no `Groups_Permissions`
     // rows — default-allow, so both groups are visible.
@@ -156,11 +151,4 @@ async fn unrestricted_user_sees_all_groups() {
     let body = list.text();
     assert!(body.contains(&group_a.name));
     assert!(body.contains(&group_b.name));
-
-    delete_group(&app.db, group_a.id)
-        .await
-        .expect("cleanup group A");
-    delete_group(&app.db, group_b.id)
-        .await
-        .expect("cleanup group B");
 }

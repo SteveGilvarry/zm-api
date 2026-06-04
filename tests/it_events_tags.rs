@@ -7,7 +7,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
-use common::fixtures::{delete_monitor, insert_monitor, unique_name};
+use common::fixtures::{insert_monitor, unique_name, RowGuard};
 use common::harness::{superuser_token, TestApp};
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde_json::json;
@@ -51,22 +51,25 @@ async fn insert_event_tag(db: &sea_orm::DatabaseConnection, tag_id: u64, event_i
     .expect("insert events_tags fixture");
 }
 
-async fn delete_event_tag_row(db: &sea_orm::DatabaseConnection, tag_id: u64, event_id: u64) {
-    let _ = zm_api::entity::events_tags::Entity::delete_by_id((tag_id, event_id))
-        .exec(db)
-        .await;
+/// Guard an `Events` row (no typed constructor — u64 PK).
+fn guard_event(id: u64) -> RowGuard {
+    RowGuard::new(format!("Events#{id}"), move |db| async move {
+        let _ = zm_api::entity::events::Entity::delete_by_id(id)
+            .exec(&db)
+            .await;
+    })
 }
 
-async fn delete_event(db: &sea_orm::DatabaseConnection, id: u64) {
-    let _ = zm_api::entity::events::Entity::delete_by_id(id)
-        .exec(db)
-        .await;
-}
-
-async fn delete_tag(db: &sea_orm::DatabaseConnection, id: u64) {
-    let _ = zm_api::entity::tags::Entity::delete_by_id(id)
-        .exec(db)
-        .await;
+/// Guard an `Events_Tags` association row (composite PK: tag_id + event_id).
+fn guard_event_tag(tag_id: u64, event_id: u64) -> RowGuard {
+    RowGuard::new(
+        format!("Events_Tags#({tag_id},{event_id})"),
+        move |db| async move {
+            let _ = zm_api::entity::events_tags::Entity::delete_by_id((tag_id, event_id))
+                .exec(&db)
+                .await;
+        },
+    )
 }
 
 #[tokio::test]
@@ -77,9 +80,13 @@ async fn list_events_tags_returns_inserted_row() {
     let monitor = insert_monitor(&app.db, "EvtTagList")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     let event_id = insert_event(&app.db, monitor.id, "EvtTagListEvt").await;
+    let _evt = guard_event(event_id);
     let tag_id = insert_tag(&app.db, "EvtTagListTag").await;
+    let _tag = RowGuard::tag(tag_id);
     insert_event_tag(&app.db, tag_id, event_id).await;
+    let _link = guard_event_tag(tag_id, event_id);
 
     let resp = app
         .get(
@@ -95,11 +102,6 @@ async fn list_events_tags_returns_inserted_row() {
             .any(|t| t.tag_id == tag_id && t.event_id == event_id),
         "list should contain the fixture association"
     );
-
-    delete_event_tag_row(&app.db, tag_id, event_id).await;
-    delete_event(&app.db, event_id).await;
-    delete_tag(&app.db, tag_id).await;
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -110,9 +112,13 @@ async fn get_event_tag_returns_the_row() {
     let monitor = insert_monitor(&app.db, "EvtTagGet")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     let event_id = insert_event(&app.db, monitor.id, "EvtTagGetEvt").await;
+    let _evt = guard_event(event_id);
     let tag_id = insert_tag(&app.db, "EvtTagGetTag").await;
+    let _tag = RowGuard::tag(tag_id);
     insert_event_tag(&app.db, tag_id, event_id).await;
+    let _link = guard_event_tag(tag_id, event_id);
 
     let resp = app
         .get(&format!("/api/v3/events-tags/{tag_id}/{event_id}"), &token)
@@ -121,11 +127,6 @@ async fn get_event_tag_returns_the_row() {
     let body: EventTagResponse = resp.json();
     assert_eq!(body.tag_id, tag_id);
     assert_eq!(body.event_id, event_id);
-
-    delete_event_tag_row(&app.db, tag_id, event_id).await;
-    delete_event(&app.db, event_id).await;
-    delete_tag(&app.db, tag_id).await;
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -148,8 +149,11 @@ async fn create_then_delete_event_tag_round_trips() {
     let monitor = insert_monitor(&app.db, "EvtTagRoundTrip")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     let event_id = insert_event(&app.db, monitor.id, "EvtTagRoundTripEvt").await;
+    let _evt = guard_event(event_id);
     let tag_id = insert_tag(&app.db, "EvtTagRoundTripTag").await;
+    let _tag = RowGuard::tag(tag_id);
 
     let body = json!({ "event_id": event_id, "tag_id": tag_id });
     let create = app.post_json("/api/v3/events-tags", &token, &body).await;
@@ -158,6 +162,9 @@ async fn create_then_delete_event_tag_round_trips() {
         "create should succeed; body: {}",
         create.text()
     );
+    // Safety net: the association is deleted through the API below, but if an
+    // assertion before that panics the guard still reclaims it.
+    let _link = guard_event_tag(tag_id, event_id);
 
     let delete = app
         .delete(&format!("/api/v3/events-tags/{tag_id}/{event_id}"), &token)
@@ -172,10 +179,6 @@ async fn create_then_delete_event_tag_round_trips() {
         .get(&format!("/api/v3/events-tags/{tag_id}/{event_id}"), &token)
         .await;
     assert_eq!(get.status(), StatusCode::NOT_FOUND);
-
-    delete_event(&app.db, event_id).await;
-    delete_tag(&app.db, tag_id).await;
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]

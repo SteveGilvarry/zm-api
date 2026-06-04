@@ -7,11 +7,29 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
-use common::fixtures::{delete_monitor, insert_monitor, unique_name};
+use common::fixtures::{insert_monitor, unique_name, RowGuard};
 use common::harness::{superuser_token, TestApp};
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde_json::json;
 use zm_api::dto::response::{EventDataResponse, PaginatedEventDataResponse};
+
+/// Guard an `Events` row by id.
+fn guard_event(id: u64) -> RowGuard {
+    RowGuard::new(format!("Events#{id}"), move |db| async move {
+        let _ = zm_api::entity::events::Entity::delete_by_id(id)
+            .exec(&db)
+            .await;
+    })
+}
+
+/// Guard an `Event_Data` row by id.
+fn guard_event_data(id: u64) -> RowGuard {
+    RowGuard::new(format!("Event_Data#{id}"), move |db| async move {
+        let _ = zm_api::entity::event_data::Entity::delete_by_id(id)
+            .exec(&db)
+            .await;
+    })
+}
 
 /// Insert an `Events` row for a monitor and return its id.
 async fn insert_event(db: &sea_orm::DatabaseConnection, monitor_id: u32, label: &str) -> u64 {
@@ -45,18 +63,6 @@ async fn insert_event_data(
     .id
 }
 
-async fn delete_event_data_row(db: &sea_orm::DatabaseConnection, id: u64) {
-    let _ = zm_api::entity::event_data::Entity::delete_by_id(id)
-        .exec(db)
-        .await;
-}
-
-async fn delete_event(db: &sea_orm::DatabaseConnection, id: u64) {
-    let _ = zm_api::entity::events::Entity::delete_by_id(id)
-        .exec(db)
-        .await;
-}
-
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn list_event_data_returns_inserted_row() {
@@ -65,8 +71,11 @@ async fn list_event_data_returns_inserted_row() {
     let monitor = insert_monitor(&app.db, "EvtDataList")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     let event_id = insert_event(&app.db, monitor.id, "EvtDataListEvt").await;
+    let _evt = guard_event(event_id);
     let data_id = insert_event_data(&app.db, event_id, monitor.id).await;
+    let _data = guard_event_data(data_id);
 
     // `EventDataQuery` flattens `PaginationParams`; the handler uses
     // `axum_extra`'s Query so numeric/flattened query params deserialize
@@ -83,10 +92,6 @@ async fn list_event_data_returns_inserted_row() {
         body.items.iter().any(|d| d.id == data_id),
         "list should contain the fixture row"
     );
-
-    delete_event_data_row(&app.db, data_id).await;
-    delete_event(&app.db, event_id).await;
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -97,8 +102,11 @@ async fn get_event_data_returns_the_row() {
     let monitor = insert_monitor(&app.db, "EvtDataGet")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     let event_id = insert_event(&app.db, monitor.id, "EvtDataGetEvt").await;
+    let _evt = guard_event(event_id);
     let data_id = insert_event_data(&app.db, event_id, monitor.id).await;
+    let _data = guard_event_data(data_id);
 
     let resp = app
         .get(&format!("/api/v3/event-data/{data_id}"), &token)
@@ -107,10 +115,6 @@ async fn get_event_data_returns_the_row() {
     let body: EventDataResponse = resp.json();
     assert_eq!(body.id, data_id);
     assert_eq!(body.event_id, Some(event_id));
-
-    delete_event_data_row(&app.db, data_id).await;
-    delete_event(&app.db, event_id).await;
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -131,7 +135,9 @@ async fn create_then_delete_event_data_round_trips() {
     let monitor = insert_monitor(&app.db, "EvtDataRoundTrip")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     let event_id = insert_event(&app.db, monitor.id, "EvtDataRoundTripEvt").await;
+    let _evt = guard_event(event_id);
 
     let body = json!({
         "event_id": event_id,
@@ -145,6 +151,9 @@ async fn create_then_delete_event_data_round_trips() {
         create.text()
     );
     let created: EventDataResponse = create.json();
+    // Safety net: the row is deleted through the API below, but if an
+    // assertion before that panics the guard still reclaims it.
+    let _data = guard_event_data(created.id);
 
     let delete = app
         .delete(&format!("/api/v3/event-data/{}", created.id), &token)
@@ -159,9 +168,6 @@ async fn create_then_delete_event_data_round_trips() {
         .get(&format!("/api/v3/event-data/{}", created.id), &token)
         .await;
     assert_eq!(get.status(), StatusCode::NOT_FOUND);
-
-    delete_event(&app.db, event_id).await;
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]

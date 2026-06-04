@@ -7,9 +7,9 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
-use common::fixtures::{delete_monitor, insert_monitor, unique_name};
+use common::fixtures::{insert_monitor, unique_name, RowGuard};
 use common::harness::{superuser_token, TestApp};
-use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+use sea_orm::{ActiveModelTrait, Set};
 use serde_json::json;
 use zm_api::dto::response::{ControlPresetResponse, PaginatedControlPresetsResponse};
 
@@ -30,12 +30,6 @@ async fn insert_preset(
     .expect("insert control preset fixture");
 }
 
-async fn delete_preset(db: &sea_orm::DatabaseConnection, monitor_id: u32, preset: u32) {
-    let _ = zm_api::entity::control_presets::Entity::delete_by_id((monitor_id, preset))
-        .exec(db)
-        .await;
-}
-
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn list_control_presets_returns_inserted_preset() {
@@ -44,7 +38,9 @@ async fn list_control_presets_returns_inserted_preset() {
     let monitor = insert_monitor(&app.db, "PresetList")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     insert_preset(&app.db, monitor.id, 1, "PresetListLabel").await;
+    let _preset = RowGuard::control_preset(monitor.id, 1);
 
     // `ControlPresetQuery` flattens `PaginationParams`; the handler uses
     // `axum_extra`'s Query so numeric/flattened query params deserialize
@@ -64,9 +60,6 @@ async fn list_control_presets_returns_inserted_preset() {
         body.items.iter().any(|p| p.monitor_id == monitor.id),
         "list should contain the fixture preset"
     );
-
-    delete_preset(&app.db, monitor.id, 1).await;
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -77,7 +70,9 @@ async fn get_control_preset_returns_the_preset() {
     let monitor = insert_monitor(&app.db, "PresetGet")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     insert_preset(&app.db, monitor.id, 2, "PresetGetLabel").await;
+    let _preset = RowGuard::control_preset(monitor.id, 2);
 
     let resp = app
         .get(&format!("/api/v3/control_presets/{}/2", monitor.id), &token)
@@ -86,9 +81,6 @@ async fn get_control_preset_returns_the_preset() {
     let body: ControlPresetResponse = resp.json();
     assert_eq!(body.monitor_id, monitor.id);
     assert_eq!(body.preset, 2);
-
-    delete_preset(&app.db, monitor.id, 2).await;
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -109,6 +101,7 @@ async fn create_then_delete_control_preset_round_trips() {
     let monitor = insert_monitor(&app.db, "PresetRoundTrip")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
 
     let body = json!({
         "monitor_id": monitor.id,
@@ -126,6 +119,9 @@ async fn create_then_delete_control_preset_round_trips() {
     let created: ControlPresetResponse = create.json();
     assert_eq!(created.monitor_id, monitor.id);
     assert_eq!(created.preset, 5);
+    // Safety net: the row is deleted through the API below, but if an
+    // assertion before that panics the guard still reclaims it.
+    let _preset = RowGuard::control_preset(monitor.id, 5);
 
     let delete = app
         .delete(&format!("/api/v3/control_presets/{}/5", monitor.id), &token)
@@ -140,8 +136,6 @@ async fn create_then_delete_control_preset_round_trips() {
         .get(&format!("/api/v3/control_presets/{}/5", monitor.id), &token)
         .await;
     assert_eq!(get.status(), StatusCode::NOT_FOUND);
-
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]

@@ -18,12 +18,21 @@
 mod common;
 
 use axum::http::{Method, StatusCode};
-use common::fixtures::{delete_monitor, insert_monitor, unique_name};
+use common::fixtures::{insert_monitor, unique_name, RowGuard};
 use common::harness::{superuser_token, TestApp};
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
 /// An event id far outside the range any real ZoneMinder row would use.
 const MISSING_EVENT_ID: u64 = 999_000_111;
+
+/// Guard an `Events` row (no typed constructor — u64 PK).
+fn guard_event(id: u64) -> RowGuard {
+    RowGuard::new(format!("Events#{id}"), move |db| async move {
+        let _ = zm_api::entity::events::Entity::delete_by_id(id)
+            .exec(&db)
+            .await;
+    })
+}
 
 // ---------------------------------------------------------------------------
 // not-found: a valid token, but the event does not exist
@@ -215,6 +224,7 @@ async fn video_for_event_with_no_media_file_errors() {
     let monitor = insert_monitor(&app.db, "PlaybackNoMedia")
         .await
         .expect("insert monitor fixture");
+    let _mon = RowGuard::monitor(monitor.id);
 
     // An event with no `storage_id` and no on-disk directory: path resolution
     // falls back to the config events dir and finds nothing.
@@ -227,6 +237,7 @@ async fn video_for_event_with_no_media_file_errors() {
     .insert(&app.db)
     .await
     .expect("insert event fixture");
+    let _evt = guard_event(event.id);
 
     let resp = app
         .get(&format!("/api/v3/events/{}/video", event.id), &token)
@@ -240,14 +251,6 @@ async fn video_for_event_with_no_media_file_errors() {
         resp.status(),
         resp.text()
     );
-
-    // Cleanup: event first (FK to monitor), then the monitor.
-    let _ = zm_api::entity::events::Entity::delete_by_id(event.id)
-        .exec(&app.db)
-        .await;
-    delete_monitor(&app.db, monitor.id)
-        .await
-        .expect("cleanup monitor");
 }
 
 #[tokio::test]
@@ -259,6 +262,7 @@ async fn thumbnail_for_event_with_no_media_file_errors() {
     let monitor = insert_monitor(&app.db, "PlaybackNoThumb")
         .await
         .expect("insert monitor fixture");
+    let _mon = RowGuard::monitor(monitor.id);
 
     let event = zm_api::entity::events::ActiveModel {
         monitor_id: Set(monitor.id),
@@ -269,6 +273,7 @@ async fn thumbnail_for_event_with_no_media_file_errors() {
     .insert(&app.db)
     .await
     .expect("insert event fixture");
+    let _evt = guard_event(event.id);
 
     let resp = app
         .get(&format!("/api/v3/events/{}/thumbnail", event.id), &token)
@@ -282,13 +287,6 @@ async fn thumbnail_for_event_with_no_media_file_errors() {
         resp.status(),
         resp.text()
     );
-
-    let _ = zm_api::entity::events::Entity::delete_by_id(event.id)
-        .exec(&app.db)
-        .await;
-    delete_monitor(&app.db, monitor.id)
-        .await
-        .expect("cleanup monitor");
 }
 
 #[tokio::test]
@@ -300,6 +298,7 @@ async fn vod_playlist_for_event_with_no_media_file_errors() {
     let monitor = insert_monitor(&app.db, "PlaybackNoVod")
         .await
         .expect("insert monitor fixture");
+    let _mon = RowGuard::monitor(monitor.id);
 
     let event = zm_api::entity::events::ActiveModel {
         monitor_id: Set(monitor.id),
@@ -310,6 +309,7 @@ async fn vod_playlist_for_event_with_no_media_file_errors() {
     .insert(&app.db)
     .await
     .expect("insert event fixture");
+    let _evt = guard_event(event.id);
 
     // The VOD playlist resolves the source file first (event_vod_assets ->
     // get_event_video_path); with no file on disk it must error, not panic or
@@ -326,11 +326,4 @@ async fn vod_playlist_for_event_with_no_media_file_errors() {
         resp.status(),
         resp.text()
     );
-
-    let _ = zm_api::entity::events::Entity::delete_by_id(event.id)
-        .exec(&app.db)
-        .await;
-    delete_monitor(&app.db, monitor.id)
-        .await
-        .expect("cleanup monitor");
 }

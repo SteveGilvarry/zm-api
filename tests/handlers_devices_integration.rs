@@ -5,6 +5,7 @@ mod common;
 
 use axum::body::{self, Body};
 use axum::http::{header, Request, StatusCode};
+use common::fixtures::RowGuard;
 use common::test_db::get_test_db;
 use common::test_db::test_prefix;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
@@ -42,18 +43,6 @@ async fn create_device_db(
     device.insert(db).await
 }
 
-/// Delete a single device row by id. Per-id cleanup keeps the suite safe to
-/// run concurrently — a prefix-wide delete would wipe a sibling's fixture.
-async fn delete_device_db(
-    db: &sea_orm::DatabaseConnection,
-    device_id: u32,
-) -> Result<(), sea_orm::DbErr> {
-    use zm_api::entity::devices::Entity as Device;
-
-    Device::delete_by_id(device_id).exec(db).await?;
-    Ok(())
-}
-
 #[tokio::test]
 #[ignore = "Requires running test database - run with: ./scripts/test-db.sh start"]
 async fn test_api_devices_list() {
@@ -65,6 +54,7 @@ async fn test_api_devices_list() {
     let device = create_device_db(&db, "ListController")
         .await
         .expect("Failed to create test device");
+    let _g_device = RowGuard::device(device.id);
 
     // Test: List devices
     let state = zm_api::server::state::AppState::for_test_with_db(db);
@@ -88,14 +78,6 @@ async fn test_api_devices_list() {
 
     // Verify our test device is in the list
     assert!(body.items.iter().any(|d| d.id == device.id));
-
-    // Note: Cleanup is done in a separate connection since we consumed db
-    let cleanup_db = get_test_db()
-        .await
-        .expect("Failed to get cleanup connection");
-    delete_device_db(&cleanup_db, device.id)
-        .await
-        .expect("Failed to cleanup");
 }
 
 #[tokio::test]
@@ -109,6 +91,7 @@ async fn test_api_devices_get() {
     let device = create_device_db(&db, "GetController")
         .await
         .expect("Failed to create test device");
+    let _g_device = RowGuard::device(device.id);
 
     // Test: Get device by ID
     let state = zm_api::server::state::AppState::for_test_with_db(db);
@@ -133,14 +116,6 @@ async fn test_api_devices_get() {
     assert_eq!(body.id, device.id);
     assert_eq!(body.name, device.name);
     assert_eq!(body.key_string, "A1");
-
-    // Cleanup
-    let cleanup_db = get_test_db()
-        .await
-        .expect("Failed to get cleanup connection");
-    delete_device_db(&cleanup_db, device.id)
-        .await
-        .expect("Failed to cleanup");
 }
 
 #[tokio::test]
@@ -158,6 +133,7 @@ async fn test_api_devices_create_delete() {
         .await
         .expect("Failed to create test device");
     let device_id = device.id;
+    let _g_device = RowGuard::device(device_id);
 
     // Test: Delete device
     let state = zm_api::server::state::AppState::for_test_with_db(db);

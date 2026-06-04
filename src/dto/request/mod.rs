@@ -6,6 +6,7 @@ pub mod devices;
 pub mod event_data;
 pub mod events;
 pub mod events_tags;
+pub mod filter_ast;
 pub mod filters;
 pub mod frames;
 pub mod groups;

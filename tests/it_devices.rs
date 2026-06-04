@@ -12,7 +12,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
-use common::fixtures::{delete_device, insert_device, unique_name};
+use common::fixtures::{insert_device, unique_name, RowGuard};
 use common::harness::{superuser_token, TestApp};
 use serde_json::json;
 use zm_api::dto::response::{DeviceResponse, PaginatedDevicesResponse};
@@ -25,6 +25,7 @@ async fn list_devices_returns_inserted_device() {
     let device = insert_device(&app.db, "ListController")
         .await
         .expect("insert device fixture");
+    let _dev = RowGuard::device(device.id);
 
     let resp = app
         .get("/api/v3/devices?page=1&page_size=1000", &token)
@@ -35,8 +36,6 @@ async fn list_devices_returns_inserted_device() {
         body.items.iter().any(|d| d.id == device.id),
         "device list should contain the fixture device"
     );
-
-    delete_device(&app.db, device.id).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -47,6 +46,7 @@ async fn get_device_returns_the_device() {
     let device = insert_device(&app.db, "GetController")
         .await
         .expect("insert device fixture");
+    let _dev = RowGuard::device(device.id);
 
     let resp = app
         .get(&format!("/api/v3/devices/{}", device.id), &token)
@@ -54,8 +54,6 @@ async fn get_device_returns_the_device() {
     assert_status(&resp, StatusCode::OK);
     let body: DeviceResponse = resp.json();
     assert_eq!(body.id, device.id);
-
-    delete_device(&app.db, device.id).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -109,6 +107,9 @@ async fn create_then_delete_device_round_trips() {
         create.text()
     );
     let created: DeviceResponse = create.json();
+    // Safety net: the row is deleted through the API below, but if an
+    // assertion before that panics the guard still reclaims it.
+    let _dev = RowGuard::device(created.id);
 
     let delete = app
         .delete(&format!("/api/v3/devices/{}", created.id), &token)

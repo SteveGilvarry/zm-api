@@ -7,9 +7,9 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
-use common::fixtures::unique_name;
+use common::fixtures::{unique_name, RowGuard};
 use common::harness::{superuser_token, TestApp};
-use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+use sea_orm::{ActiveModelTrait, Set};
 use serde_json::json;
 use zm_api::dto::response::{ControlResponse, PaginatedControlsResponse};
 use zm_api::entity::sea_orm_active_enums::MonitorType;
@@ -27,18 +27,13 @@ async fn insert_control(db: &sea_orm::DatabaseConnection, label: &str) -> u32 {
     .id
 }
 
-async fn delete_control(db: &sea_orm::DatabaseConnection, id: u32) {
-    let _ = zm_api::entity::controls::Entity::delete_by_id(id)
-        .exec(db)
-        .await;
-}
-
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn list_controls_returns_inserted_row() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
     let id = insert_control(&app.db, "ControlList").await;
+    let _guard = RowGuard::control(id);
 
     let resp = app
         .get("/api/v3/controls?page=1&page_size=1000", &token)
@@ -49,8 +44,6 @@ async fn list_controls_returns_inserted_row() {
         body.items.iter().any(|c| c.id == id),
         "list should contain the fixture control"
     );
-
-    delete_control(&app.db, id).await;
 }
 
 #[tokio::test]
@@ -59,13 +52,12 @@ async fn get_control_returns_the_row() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
     let id = insert_control(&app.db, "ControlGet").await;
+    let _guard = RowGuard::control(id);
 
     let resp = app.get(&format!("/api/v3/controls/{id}"), &token).await;
     assert_status(&resp, StatusCode::OK);
     let body: ControlResponse = resp.json();
     assert_eq!(body.id, id);
-
-    delete_control(&app.db, id).await;
 }
 
 #[tokio::test]
@@ -95,6 +87,7 @@ async fn create_then_delete_control_round_trips() {
         create.text()
     );
     let created: ControlResponse = create.json();
+    let _guard = RowGuard::control(created.id);
 
     let delete = app
         .delete(&format!("/api/v3/controls/{}", created.id), &token)

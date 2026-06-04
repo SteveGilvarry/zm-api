@@ -7,7 +7,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
-use common::fixtures::{cleanup_user, delete_monitor, insert_monitor, insert_user_with_id};
+use common::fixtures::{insert_monitor, insert_user_with_id, RowGuard};
 use common::harness::{superuser_token, TestApp};
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde_json::json;
@@ -28,10 +28,13 @@ async fn insert_permission(db: &sea_orm::DatabaseConnection, monitor_id: u32, us
     .id
 }
 
-async fn delete_permission(db: &sea_orm::DatabaseConnection, id: u32) {
-    let _ = zm_api::entity::monitors_permissions::Entity::delete_by_id(id)
-        .exec(db)
-        .await;
+/// Guard a `Monitors_Permissions` row by id.
+fn permission_guard(id: u32) -> RowGuard {
+    RowGuard::new(format!("Monitors_Permissions#{id}"), move |db| async move {
+        let _ = zm_api::entity::monitors_permissions::Entity::delete_by_id(id)
+            .exec(&db)
+            .await;
+    })
 }
 
 #[tokio::test]
@@ -42,11 +45,14 @@ async fn list_monitors_permissions_returns_inserted_row() {
     let monitor = insert_monitor(&app.db, "MonPermList")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     let user_id = 990_011;
     insert_user_with_id(&app.db, user_id, "MonPermListUser")
         .await
         .expect("insert user");
+    let _user = RowGuard::user(user_id);
     let id = insert_permission(&app.db, monitor.id, user_id).await;
+    let _perm = permission_guard(id);
 
     let resp = app
         .get("/api/v3/monitors-permissions?page=1&page_size=1000", &token)
@@ -57,10 +63,6 @@ async fn list_monitors_permissions_returns_inserted_row() {
         body.items.iter().any(|p| p.id == id),
         "list should contain the fixture permission"
     );
-
-    delete_permission(&app.db, id).await;
-    cleanup_user(&app.db, user_id).await.expect("cleanup user");
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -71,11 +73,14 @@ async fn get_monitor_permission_returns_the_row() {
     let monitor = insert_monitor(&app.db, "MonPermGet")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     let user_id = 990_012;
     insert_user_with_id(&app.db, user_id, "MonPermGetUser")
         .await
         .expect("insert user");
+    let _user = RowGuard::user(user_id);
     let id = insert_permission(&app.db, monitor.id, user_id).await;
+    let _perm = permission_guard(id);
 
     let resp = app
         .get(&format!("/api/v3/monitors-permissions/{id}"), &token)
@@ -84,10 +89,6 @@ async fn get_monitor_permission_returns_the_row() {
     let body: MonitorPermissionResponse = resp.json();
     assert_eq!(body.id, id);
     assert_eq!(body.monitor_id, monitor.id);
-
-    delete_permission(&app.db, id).await;
-    cleanup_user(&app.db, user_id).await.expect("cleanup user");
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -110,10 +111,12 @@ async fn create_then_delete_monitor_permission_round_trips() {
     let monitor = insert_monitor(&app.db, "MonPermRoundTrip")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     let user_id = 990_013;
     insert_user_with_id(&app.db, user_id, "MonPermRoundTripUser")
         .await
         .expect("insert user");
+    let _user = RowGuard::user(user_id);
 
     let body = json!({
         "monitor_id": monitor.id,
@@ -129,6 +132,9 @@ async fn create_then_delete_monitor_permission_round_trips() {
         create.text()
     );
     let created: MonitorPermissionResponse = create.json();
+    // Safety net: the row is deleted through the API below, but a panic before
+    // that still reclaims it.
+    let _perm = permission_guard(created.id);
 
     let delete = app
         .delete(
@@ -149,9 +155,6 @@ async fn create_then_delete_monitor_permission_round_trips() {
         )
         .await;
     assert_eq!(get.status(), StatusCode::NOT_FOUND);
-
-    cleanup_user(&app.db, user_id).await.expect("cleanup user");
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]

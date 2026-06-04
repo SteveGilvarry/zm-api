@@ -10,8 +10,8 @@ mod common;
 
 use axum::http::{Method, StatusCode};
 use common::fixtures::{
-    cleanup_monitor_permissions, cleanup_user, delete_monitor, grant_monitor_permission,
-    insert_monitor, insert_user_with_id,
+    cleanup_monitor_permissions, grant_monitor_permission, insert_monitor, insert_user_with_id,
+    RowGuard,
 };
 use common::harness::{superuser_token, token_for, TestApp};
 use zm_api::entity::sea_orm_active_enums::Permission;
@@ -23,6 +23,28 @@ use zm_api::util::authz::UserPermissions;
 const ACL_TEST_UID: u32 = 990_001;
 const ACL_TEST_UID_EVENTS: u32 = 990_002;
 
+/// Guard the `Monitors_Permissions` rows owned by a test user. `RowGuard`'s
+/// typed constructors delete by primary key; these rows are keyed by user id,
+/// so this wraps the by-user cleanup in a panic-safe guard.
+fn monitor_permissions_guard(user_id: u32) -> RowGuard {
+    RowGuard::new(
+        format!("Monitors_Permissions(user={user_id})"),
+        move |db| async move {
+            let _ = cleanup_monitor_permissions(&db, user_id).await;
+        },
+    )
+}
+
+/// Guard an `Events` row by id.
+fn event_guard(id: u64) -> RowGuard {
+    RowGuard::new(format!("Events#{id}"), move |db| async move {
+        use sea_orm::EntityTrait;
+        let _ = zm_api::entity::events::Entity::delete_by_id(id)
+            .exec(&db)
+            .await;
+    })
+}
+
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn restricted_user_sees_only_permitted_monitors() {
@@ -31,19 +53,25 @@ async fn restricted_user_sees_only_permitted_monitors() {
     let monitor_a = insert_monitor(&app.db, "AclVisible")
         .await
         .expect("insert monitor A");
+    let _mon_a = RowGuard::monitor(monitor_a.id);
     let monitor_b = insert_monitor(&app.db, "AclHidden")
         .await
         .expect("insert monitor B");
+    let _mon_b = RowGuard::monitor(monitor_b.id);
 
     // The permission row's `UserId` FK requires the user to exist first.
     insert_user_with_id(&app.db, ACL_TEST_UID, "AclUser")
         .await
         .expect("insert acl user");
+    let _user = RowGuard::user(ACL_TEST_UID);
 
     // The user is granted View on A only — which makes their scope Restricted.
     grant_monitor_permission(&app.db, monitor_a.id, ACL_TEST_UID, Permission::View)
         .await
         .expect("grant permission");
+    // Declared last so it drops first: the permission rows reference both the
+    // user and monitor, so they must be removed before those parents.
+    let _perms = monitor_permissions_guard(ACL_TEST_UID);
 
     // Feature-level RBAC is satisfied (superuser perms); the row-level ACL is
     // driven entirely by the token's user id.
@@ -86,19 +114,6 @@ async fn restricted_user_sees_only_permitted_monitors() {
         .send()
         .await;
     assert_eq!(write_hidden.status(), StatusCode::NOT_FOUND);
-
-    cleanup_monitor_permissions(&app.db, ACL_TEST_UID)
-        .await
-        .expect("cleanup permissions");
-    cleanup_user(&app.db, ACL_TEST_UID)
-        .await
-        .expect("cleanup acl user");
-    delete_monitor(&app.db, monitor_a.id)
-        .await
-        .expect("cleanup monitor A");
-    delete_monitor(&app.db, monitor_b.id)
-        .await
-        .expect("cleanup monitor B");
 }
 
 #[tokio::test]
@@ -109,9 +124,11 @@ async fn unrestricted_user_sees_all_monitors() {
     let monitor_a = insert_monitor(&app.db, "AclAll1")
         .await
         .expect("insert monitor A");
+    let _mon_a = RowGuard::monitor(monitor_a.id);
     let monitor_b = insert_monitor(&app.db, "AclAll2")
         .await
         .expect("insert monitor B");
+    let _mon_b = RowGuard::monitor(monitor_b.id);
 
     // `superuser_token()` carries user id 0, which has no `Monitors_Permissions`
     // rows — default-allow, so both monitors are visible.
@@ -124,13 +141,6 @@ async fn unrestricted_user_sees_all_monitors() {
     let body = list.text();
     assert!(body.contains(&monitor_a.name));
     assert!(body.contains(&monitor_b.name));
-
-    delete_monitor(&app.db, monitor_a.id)
-        .await
-        .expect("cleanup monitor A");
-    delete_monitor(&app.db, monitor_b.id)
-        .await
-        .expect("cleanup monitor B");
 }
 
 #[tokio::test]
@@ -144,9 +154,11 @@ async fn events_of_hidden_monitors_are_filtered() {
     let visible = insert_monitor(&app.db, "AclEvtVisible")
         .await
         .expect("insert visible monitor");
+    let _mon_visible = RowGuard::monitor(visible.id);
     let hidden = insert_monitor(&app.db, "AclEvtHidden")
         .await
         .expect("insert hidden monitor");
+    let _mon_hidden = RowGuard::monitor(hidden.id);
 
     // One event per monitor.
     let visible_event = zm_api::entity::events::ActiveModel {
@@ -158,6 +170,7 @@ async fn events_of_hidden_monitors_are_filtered() {
     .insert(&app.db)
     .await
     .expect("insert visible event");
+    let _evt_visible = event_guard(visible_event.id);
     let hidden_event = zm_api::entity::events::ActiveModel {
         monitor_id: Set(hidden.id),
         state_id: Set(1),
@@ -167,13 +180,16 @@ async fn events_of_hidden_monitors_are_filtered() {
     .insert(&app.db)
     .await
     .expect("insert hidden event");
+    let _evt_hidden = event_guard(hidden_event.id);
 
     insert_user_with_id(&app.db, ACL_TEST_UID_EVENTS, "AclEvtUser")
         .await
         .expect("insert acl user");
+    let _user = RowGuard::user(ACL_TEST_UID_EVENTS);
     grant_monitor_permission(&app.db, visible.id, ACL_TEST_UID_EVENTS, Permission::View)
         .await
         .expect("grant permission");
+    let _perms = monitor_permissions_guard(ACL_TEST_UID_EVENTS);
     let token = token_for(ACL_TEST_UID_EVENTS, UserPermissions::superuser());
 
     let list = app
@@ -195,25 +211,4 @@ async fn events_of_hidden_monitors_are_filtered() {
         .get(&format!("/api/v3/events/{}", hidden_event.id), &token)
         .await;
     assert_eq!(hidden_get.status(), StatusCode::NOT_FOUND);
-
-    // Cleanup: events first (FK), then permissions and monitors.
-    use sea_orm::EntityTrait;
-    let _ = zm_api::entity::events::Entity::delete_by_id(visible_event.id)
-        .exec(&app.db)
-        .await;
-    let _ = zm_api::entity::events::Entity::delete_by_id(hidden_event.id)
-        .exec(&app.db)
-        .await;
-    cleanup_monitor_permissions(&app.db, ACL_TEST_UID_EVENTS)
-        .await
-        .expect("cleanup permissions");
-    cleanup_user(&app.db, ACL_TEST_UID_EVENTS)
-        .await
-        .expect("cleanup acl user");
-    delete_monitor(&app.db, visible.id)
-        .await
-        .expect("cleanup visible monitor");
-    delete_monitor(&app.db, hidden.id)
-        .await
-        .expect("cleanup hidden monitor");
 }

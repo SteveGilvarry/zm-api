@@ -6,6 +6,7 @@ mod common;
 
 use axum::body::{self, Body};
 use axum::http::{header, Request, StatusCode};
+use common::fixtures::RowGuard;
 use common::test_db::{get_test_db, test_prefix};
 use sea_orm::{ActiveModelTrait, DatabaseConnection, DbErr, EntityTrait, Set};
 use tower::ServiceExt;
@@ -17,7 +18,7 @@ use zm_api::dto::response::{
     GroupPermissionResponse, GroupResponse, MonitorPermissionResponse, SessionResponse,
     UserResponse,
 };
-use zm_api::entity::monitors;
+use zm_api::entity::{groups_permissions, monitors, monitors_permissions, sessions};
 
 fn auth_header() -> String {
     let token = zm_api::service::token::generate_tokens(
@@ -42,11 +43,6 @@ async fn create_monitor_db(db: &DatabaseConnection) -> Result<monitors::Model, D
         ..Default::default()
     };
     model.insert(db).await
-}
-
-async fn cleanup_monitor_db(db: &DatabaseConnection, id: u32) -> Result<(), DbErr> {
-    monitors::Entity::delete_by_id(id).exec(db).await?;
-    Ok(())
 }
 
 #[tokio::test]
@@ -85,6 +81,7 @@ async fn test_api_users_create_get_delete() {
         .await
         .unwrap();
     let created: UserResponse = serde_json::from_slice(&bytes).unwrap();
+    let _g_user = RowGuard::user(created.id);
     assert_eq!(created.username, username);
 
     let response = app
@@ -145,6 +142,7 @@ async fn test_api_groups_create_get_delete() {
         .await
         .unwrap();
     let created: GroupResponse = serde_json::from_slice(&bytes).unwrap();
+    let _g_group = RowGuard::group(created.id);
     assert_eq!(created.name, name);
 
     let response = app
@@ -208,6 +206,7 @@ async fn test_api_groups_permissions_create_delete() {
         .await
         .unwrap();
     let user: UserResponse = serde_json::from_slice(&bytes).unwrap();
+    let _g_user = RowGuard::user(user.id);
 
     let group_name = format!("{}gp_group", test_prefix());
     let group_body = serde_json::to_vec(&CreateGroupRequest {
@@ -232,6 +231,7 @@ async fn test_api_groups_permissions_create_delete() {
         .await
         .unwrap();
     let group: GroupResponse = serde_json::from_slice(&bytes).unwrap();
+    let _g_group = RowGuard::group(group.id);
 
     let perm_body = serde_json::to_vec(&CreateGroupPermissionRequest {
         group_id: group.id,
@@ -256,6 +256,15 @@ async fn test_api_groups_permissions_create_delete() {
         .await
         .unwrap();
     let perm: GroupPermissionResponse = serde_json::from_slice(&bytes).unwrap();
+    let perm_id = perm.id;
+    let _g_perm = RowGuard::new(
+        format!("Groups_Permissions#{perm_id}"),
+        move |db| async move {
+            let _ = groups_permissions::Entity::delete_by_id(perm_id)
+                .exec(&db)
+                .await;
+        },
+    );
     assert_eq!(perm.user_id, user.id);
 
     let response = app
@@ -303,6 +312,7 @@ async fn test_api_monitors_permissions_create_delete() {
     let monitor = create_monitor_db(&db)
         .await
         .expect("Failed to create monitor");
+    let _g_monitor = RowGuard::monitor(monitor.id);
     let app = build_app(db);
 
     let username = format!("{}mp_user", test_prefix());
@@ -332,6 +342,7 @@ async fn test_api_monitors_permissions_create_delete() {
         .await
         .unwrap();
     let user: UserResponse = serde_json::from_slice(&bytes).unwrap();
+    let _g_user = RowGuard::user(user.id);
 
     let perm_body = serde_json::to_vec(&CreateMonitorPermissionRequest {
         monitor_id: monitor.id,
@@ -356,6 +367,15 @@ async fn test_api_monitors_permissions_create_delete() {
         .await
         .unwrap();
     let perm: MonitorPermissionResponse = serde_json::from_slice(&bytes).unwrap();
+    let perm_id = perm.id;
+    let _g_perm = RowGuard::new(
+        format!("Monitors_Permissions#{perm_id}"),
+        move |db| async move {
+            let _ = monitors_permissions::Entity::delete_by_id(perm_id)
+                .exec(&db)
+                .await;
+        },
+    );
     assert_eq!(perm.monitor_id, monitor.id);
 
     let response = app
@@ -381,13 +401,6 @@ async fn test_api_monitors_permissions_create_delete() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
-
-    let cleanup_db = get_test_db()
-        .await
-        .expect("Failed to get cleanup connection");
-    cleanup_monitor_db(&cleanup_db, monitor.id)
-        .await
-        .expect("Failed to cleanup monitor");
 }
 
 #[tokio::test]
@@ -436,6 +449,15 @@ async fn test_api_sessions_create_update_delete() {
         );
     }
     let created: SessionResponse = serde_json::from_slice(&bytes).unwrap();
+    let guard_session_id = created.id.clone();
+    let _g_session = RowGuard::new(
+        format!("Sessions#{guard_session_id}"),
+        move |db| async move {
+            let _ = sessions::Entity::delete_by_id(guard_session_id)
+                .exec(&db)
+                .await;
+        },
+    );
     assert_eq!(created.id, session_id);
 
     let update_body = serde_json::to_vec(&UpdateSessionRequest {

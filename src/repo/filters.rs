@@ -31,23 +31,96 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<Fi
 pub async fn update(
     db: &DatabaseConnection,
     id: u32,
-    name: Option<String>,
-    query_json: Option<String>,
+    req: &crate::dto::request::UpdateFilterRequest,
 ) -> AppResult<Option<FilterModel>> {
+    use crate::dto::request::parse_email_format;
     use sea_orm::{ActiveModelTrait, Set};
-    if let Some(model) = find_by_id(db, id).await? {
-        let mut active: crate::entity::filters::ActiveModel = model.into();
-        if let Some(n) = name {
-            active.name = Set(n);
-        }
-        if let Some(q) = query_json {
-            active.query_json = Set(q);
-        }
-        let updated = active.update(db).await?;
-        Ok(Some(updated))
-    } else {
-        Ok(None)
+    let Some(model) = find_by_id(db, id).await? else {
+        return Ok(None);
+    };
+    let mut active: crate::entity::filters::ActiveModel = model.into();
+    // Only fields present in the request are changed; everything else keeps
+    // its current value.
+    if let Some(v) = req.name.clone() {
+        active.name = Set(v);
     }
+    if let Some(v) = req.query_json.clone() {
+        active.query_json = Set(v);
+    }
+    if let Some(v) = req.execute_interval {
+        active.execute_interval = Set(v);
+    }
+    if req.user_id.is_some() {
+        active.user_id = Set(req.user_id);
+    }
+    if let Some(v) = req.email_format.as_deref() {
+        active.email_format = Set(parse_email_format(v));
+    }
+    if let Some(v) = req.auto_archive {
+        active.auto_archive = Set(v);
+    }
+    if let Some(v) = req.auto_unarchive {
+        active.auto_unarchive = Set(v);
+    }
+    if let Some(v) = req.auto_video {
+        active.auto_video = Set(v);
+    }
+    if let Some(v) = req.auto_upload {
+        active.auto_upload = Set(v);
+    }
+    if let Some(v) = req.auto_email {
+        active.auto_email = Set(v);
+    }
+    if req.email_to.is_some() {
+        active.email_to = Set(req.email_to.clone());
+    }
+    if req.email_subject.is_some() {
+        active.email_subject = Set(req.email_subject.clone());
+    }
+    if req.email_body.is_some() {
+        active.email_body = Set(req.email_body.clone());
+    }
+    if req.email_server.is_some() {
+        active.email_server = Set(req.email_server.clone());
+    }
+    if let Some(v) = req.auto_message {
+        active.auto_message = Set(v);
+    }
+    if let Some(v) = req.auto_execute {
+        active.auto_execute = Set(v);
+    }
+    if req.auto_execute_cmd.is_some() {
+        active.auto_execute_cmd = Set(req.auto_execute_cmd.clone());
+    }
+    if let Some(v) = req.auto_delete {
+        active.auto_delete = Set(v);
+    }
+    if let Some(v) = req.auto_move {
+        active.auto_move = Set(v);
+    }
+    if let Some(v) = req.auto_move_to {
+        active.auto_move_to = Set(v);
+    }
+    if let Some(v) = req.auto_copy {
+        active.auto_copy = Set(v);
+    }
+    if let Some(v) = req.auto_copy_to {
+        active.auto_copy_to = Set(v);
+    }
+    if let Some(v) = req.update_disk_space {
+        active.update_disk_space = Set(v);
+    }
+    if let Some(v) = req.background {
+        active.background = Set(v);
+    }
+    if let Some(v) = req.concurrent {
+        active.concurrent = Set(v);
+    }
+    if let Some(v) = req.lock_rows {
+        active.lock_rows = Set(v);
+    }
+    let updated = active.update(db).await?;
+    Ok(Some(updated))
 }
 
 #[tracing::instrument(skip_all)]
@@ -55,47 +128,43 @@ pub async fn create(
     db: &DatabaseConnection,
     req: &crate::dto::request::CreateFilterRequest,
 ) -> AppResult<FilterModel> {
+    use crate::dto::request::parse_email_format;
     use crate::entity::filters::ActiveModel as AM;
+    use crate::entity::sea_orm_active_enums::EmailFormat;
     use sea_orm::{ActiveModelTrait, Set};
-    fn parse_email_format(s: &str) -> crate::entity::sea_orm_active_enums::EmailFormat {
-        use crate::entity::sea_orm_active_enums::EmailFormat::*;
-        match s.to_lowercase().as_str() {
-            "individual" => Individual,
-            _ => Summary,
-        }
-    }
+    // Omitted fields fall back to the `Filters` table's schema defaults.
     let am = AM {
         id: Default::default(),
         name: Set(req.name.clone()),
         user_id: Set(req.user_id),
-        execute_interval: Set(req.execute_interval.unwrap_or(0)),
+        execute_interval: Set(req.execute_interval.unwrap_or(60)),
         query_json: Set(req.query_json.clone()),
-        auto_archive: Set(0),
-        auto_unarchive: Set(0),
-        auto_video: Set(0),
-        auto_upload: Set(0),
-        auto_email: Set(0),
-        email_server: Set(None),
-        email_to: Set(None),
-        email_subject: Set(None),
-        email_body: Set(None),
+        auto_archive: Set(req.auto_archive.unwrap_or(0)),
+        auto_unarchive: Set(req.auto_unarchive.unwrap_or(0)),
+        auto_video: Set(req.auto_video.unwrap_or(0)),
+        auto_upload: Set(req.auto_upload.unwrap_or(0)),
+        auto_email: Set(req.auto_email.unwrap_or(0)),
+        email_server: Set(req.email_server.clone()),
+        email_to: Set(req.email_to.clone()),
+        email_subject: Set(req.email_subject.clone()),
+        email_body: Set(req.email_body.clone()),
         email_format: Set(req
             .email_format
             .as_deref()
             .map(parse_email_format)
-            .unwrap_or(crate::entity::sea_orm_active_enums::EmailFormat::Summary)),
-        auto_message: Set(0),
-        auto_execute: Set(0),
-        auto_execute_cmd: Set(None),
-        auto_delete: Set(0),
-        auto_move: Set(0),
-        auto_copy: Set(0),
-        auto_copy_to: Set(0),
-        auto_move_to: Set(0),
-        update_disk_space: Set(0),
-        background: Set(0),
-        concurrent: Set(0),
-        lock_rows: Set(0),
+            .unwrap_or(EmailFormat::Individual)),
+        auto_message: Set(req.auto_message.unwrap_or(0)),
+        auto_execute: Set(req.auto_execute.unwrap_or(0)),
+        auto_execute_cmd: Set(req.auto_execute_cmd.clone()),
+        auto_delete: Set(req.auto_delete.unwrap_or(0)),
+        auto_move: Set(req.auto_move.unwrap_or(0)),
+        auto_copy: Set(req.auto_copy.unwrap_or(0)),
+        auto_copy_to: Set(req.auto_copy_to.unwrap_or(0)),
+        auto_move_to: Set(req.auto_move_to.unwrap_or(0)),
+        update_disk_space: Set(req.update_disk_space.unwrap_or(0)),
+        background: Set(req.background.unwrap_or(0)),
+        concurrent: Set(req.concurrent.unwrap_or(0)),
+        lock_rows: Set(req.lock_rows.unwrap_or(0)),
     };
     Ok(am.insert(db).await?)
 }
@@ -191,14 +260,12 @@ mod tests {
             .append_query_results::<FilterModel, _, _>(vec![vec![updated.clone()]])
             .into_connection();
 
-        let res = update(
-            &db,
-            7,
-            Some("new".to_string()),
-            Some("{\"k\":\"v\"}".to_string()),
-        )
-        .await
-        .unwrap();
+        let req = crate::dto::request::UpdateFilterRequest {
+            name: Some("new".to_string()),
+            query_json: Some("{\"k\":\"v\"}".to_string()),
+            ..Default::default()
+        };
+        let res = update(&db, 7, &req).await.unwrap();
         assert!(res.is_some());
         let row = res.unwrap();
         assert_eq!(row.name, "new");

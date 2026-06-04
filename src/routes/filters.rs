@@ -1,7 +1,11 @@
 use crate::handlers::filters;
 use crate::server::state::AppState;
 use crate::util::middleware::auth_middleware;
-use axum::{middleware, routing::get, Router};
+use axum::{
+    middleware,
+    routing::{get, post},
+    Router,
+};
 
 pub fn add_filter_routes(router: Router<AppState>) -> Router<AppState> {
     let api_prefix = "/api/v3";
@@ -9,6 +13,10 @@ pub fn add_filter_routes(router: Router<AppState>) -> Router<AppState> {
         .route(
             &format!("{}/filters", api_prefix),
             get(filters::list_filters).post(filters::create_filter),
+        )
+        .route(
+            &format!("{}/filters/preview", api_prefix),
+            post(filters::preview_filter),
         )
         .route(
             &format!("{}/filters/{{id}}", api_prefix),

@@ -7,9 +7,9 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
-use common::fixtures::unique_name;
+use common::fixtures::{unique_name, RowGuard};
 use common::harness::{superuser_token, TestApp};
-use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+use sea_orm::{ActiveModelTrait, Set};
 use serde_json::json;
 use zm_api::dto::response::{PaginatedZonePresetsResponse, ZonePresetResponse};
 use zm_api::entity::sea_orm_active_enums::{CheckMethod, Units, ZoneType};
@@ -31,18 +31,13 @@ async fn insert_zone_preset(db: &sea_orm::DatabaseConnection, label: &str) -> u3
     .id
 }
 
-async fn delete_zone_preset(db: &sea_orm::DatabaseConnection, id: u32) {
-    let _ = zm_api::entity::zone_presets::Entity::delete_by_id(id)
-        .exec(db)
-        .await;
-}
-
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn list_zone_presets_returns_inserted_row() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
     let id = insert_zone_preset(&app.db, "ZpList").await;
+    let _guard = RowGuard::zone_preset(id);
 
     let resp = app
         .get("/api/v3/zone-presets?page=1&page_size=1000", &token)
@@ -53,8 +48,6 @@ async fn list_zone_presets_returns_inserted_row() {
         body.items.iter().any(|z| z.id == id),
         "zone presets list should contain the fixture row"
     );
-
-    delete_zone_preset(&app.db, id).await;
 }
 
 #[tokio::test]
@@ -63,13 +56,12 @@ async fn get_zone_preset_returns_the_row() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
     let id = insert_zone_preset(&app.db, "ZpGet").await;
+    let _guard = RowGuard::zone_preset(id);
 
     let resp = app.get(&format!("/api/v3/zone-presets/{id}"), &token).await;
     assert_status(&resp, StatusCode::OK);
     let body: ZonePresetResponse = resp.json();
     assert_eq!(body.id, id);
-
-    delete_zone_preset(&app.db, id).await;
 }
 
 #[tokio::test]
@@ -101,6 +93,7 @@ async fn create_then_delete_zone_preset_round_trips() {
         create.text()
     );
     let created: ZonePresetResponse = create.json();
+    let _guard = RowGuard::zone_preset(created.id);
 
     let delete = app
         .delete(&format!("/api/v3/zone-presets/{}", created.id), &token)

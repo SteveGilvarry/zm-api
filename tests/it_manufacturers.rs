@@ -7,9 +7,9 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
-use common::fixtures::unique_name;
+use common::fixtures::{unique_name, RowGuard};
 use common::harness::{superuser_token, TestApp};
-use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+use sea_orm::{ActiveModelTrait, Set};
 use serde_json::json;
 use zm_api::dto::response::{ManufacturerResponse, PaginatedManufacturersResponse};
 
@@ -25,18 +25,13 @@ async fn insert_manufacturer(db: &sea_orm::DatabaseConnection, label: &str) -> u
     .id
 }
 
-async fn delete_manufacturer(db: &sea_orm::DatabaseConnection, id: u32) {
-    let _ = zm_api::entity::manufacturers::Entity::delete_by_id(id)
-        .exec(db)
-        .await;
-}
-
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn list_manufacturers_returns_inserted_row() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
     let id = insert_manufacturer(&app.db, "MfgList").await;
+    let _guard = RowGuard::manufacturer(id);
 
     let resp = app
         .get("/api/v3/manufacturers?page=1&page_size=1000", &token)
@@ -47,8 +42,6 @@ async fn list_manufacturers_returns_inserted_row() {
         body.items.iter().any(|m| m.id == id),
         "manufacturers list should contain the fixture row"
     );
-
-    delete_manufacturer(&app.db, id).await;
 }
 
 #[tokio::test]
@@ -57,6 +50,7 @@ async fn get_manufacturer_returns_the_row() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
     let id = insert_manufacturer(&app.db, "MfgGet").await;
+    let _guard = RowGuard::manufacturer(id);
 
     let resp = app
         .get(&format!("/api/v3/manufacturers/{id}"), &token)
@@ -64,8 +58,6 @@ async fn get_manufacturer_returns_the_row() {
     assert_status(&resp, StatusCode::OK);
     let body: ManufacturerResponse = resp.json();
     assert_eq!(body.id, id);
-
-    delete_manufacturer(&app.db, id).await;
 }
 
 #[tokio::test]
@@ -92,6 +84,7 @@ async fn create_then_delete_manufacturer_round_trips() {
         create.text()
     );
     let created: ManufacturerResponse = create.json();
+    let _guard = RowGuard::manufacturer(created.id);
 
     let delete = app
         .delete(&format!("/api/v3/manufacturers/{}", created.id), &token)

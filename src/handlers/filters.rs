@@ -1,14 +1,16 @@
-use crate::dto::request::CreateFilterRequest;
+use crate::dto::request::filter_ast::FilterQuery;
+use crate::dto::request::{CreateFilterRequest, UpdateFilterRequest};
+use crate::dto::response::events::PaginatedEventsResponse;
 use crate::dto::response::filters::PaginatedFiltersResponse;
 use crate::dto::response::FilterResponse;
 use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use crate::service::monitor_acl::MonitorScope;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use serde::Deserialize;
 
 /// List saved event filters with pagination.
 ///
@@ -40,7 +42,7 @@ pub async fn list_filters(
     get,
     path = "/api/v3/filters/{id}",
     params(("id" = u32, Path, description = "Filter ID")),
-    responses((status = 200, description = "Filter details", body = serde_json::Value)),
+    responses((status = 200, description = "Filter details", body = FilterResponse)),
     tag = "Filters",
     security(("jwt" = []))
 )]
@@ -52,21 +54,15 @@ pub async fn get_filter(
     Ok(Json(item))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
-pub struct UpdateFilterRequest {
-    pub name: Option<String>,
-    pub query: Option<String>,
-}
-
-/// Update filter name or JSON query definition.
+/// Update any subset of a filter's fields.
 ///
-/// - Requires a valid JWT; validates JSON shape at the application level.
+/// - Requires a valid JWT; only fields present in the body are changed.
 #[utoipa::path(
     put,
     path = "/api/v3/filters/{id}",
     params(("id" = u32, Path, description = "Filter ID")),
     request_body = UpdateFilterRequest,
-    responses((status = 200, description = "Updated filter", body = serde_json::Value)),
+    responses((status = 200, description = "Updated filter", body = FilterResponse)),
     tag = "Filters",
     security(("jwt" = []))
 )]
@@ -75,7 +71,7 @@ pub async fn update_filter(
     State(state): State<AppState>,
     Json(req): Json<UpdateFilterRequest>,
 ) -> AppResult<Json<FilterResponse>> {
-    let item = crate::service::filters::update(&state, id, req.name, req.query).await?;
+    let item = crate::service::filters::update(&state, id, &req).await?;
     Ok(Json(item))
 }
 
@@ -97,6 +93,34 @@ pub async fn create_filter(
 ) -> AppResult<(axum::http::StatusCode, Json<FilterResponse>)> {
     let item = crate::service::filters::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
+}
+
+/// Preview a structured filter: run it now and return the matching events.
+///
+/// - Body is the structured filter AST (`FilterQuery`); `page`/`page_size` are
+///   query params. The predicate is compiled to a parameterised query (no SQL
+///   is built from client strings) and row-level monitor ACL is applied.
+/// - Requires a valid JWT.
+#[utoipa::path(
+    post,
+    path = "/api/v3/filters/preview",
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+    ),
+    request_body = FilterQuery,
+    responses((status = 200, description = "Events matching the filter", body = PaginatedEventsResponse)),
+    tag = "Filters",
+    security(("jwt" = []))
+)]
+pub async fn preview_filter(
+    State(state): State<AppState>,
+    scope: MonitorScope,
+    Query(params): Query<PaginationParams>,
+    Json(query): Json<FilterQuery>,
+) -> AppResult<Json<PaginatedEventsResponse>> {
+    let result = crate::service::filters::preview(&state, &query, &params, &scope).await?;
+    Ok(Json(result))
 }
 
 /// Delete a filter by id.

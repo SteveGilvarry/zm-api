@@ -6,11 +6,14 @@ mod common;
 
 use axum::body::{self, Body};
 use axum::http::{header, Request, StatusCode};
+use common::fixtures::RowGuard;
+use sea_orm::EntityTrait;
 use tower::ServiceExt;
 use zm_api::constant::API_VERSION;
 use zm_api::dto::request::server_stats::CreateServerStatRequest;
 use zm_api::dto::request::stats::{CreateStatRequest, UpdateStatRequest};
 use zm_api::dto::response::{MessageResponse, ServerStatResponse, StatResponse, VersionResponse};
+use zm_api::entity::{server_stats, stats};
 
 fn auth_header() -> String {
     let token = zm_api::service::token::generate_tokens(
@@ -120,6 +123,10 @@ async fn test_api_server_stats_create_get_delete() {
         .await
         .unwrap();
     let created: ServerStatResponse = serde_json::from_slice(&bytes).unwrap();
+    let stat_id = created.id;
+    let _g_server_stat = RowGuard::new(format!("Server_Stats#{stat_id}"), move |db| async move {
+        let _ = server_stats::Entity::delete_by_id(stat_id).exec(&db).await;
+    });
     assert_eq!(created.server_id, Some(1));
     assert_eq!(created.cpu_load.as_deref(), Some("1.5"));
 
@@ -194,6 +201,10 @@ async fn test_api_stats_create_get_update_delete() {
         .await
         .unwrap();
     let created: StatResponse = serde_json::from_slice(&bytes).unwrap();
+    let stat_id = created.id;
+    let _g_stat = RowGuard::new(format!("Stats#{stat_id}"), move |db| async move {
+        let _ = stats::Entity::delete_by_id(stat_id).exec(&db).await;
+    });
     assert_eq!(created.monitor_id, 1);
 
     let response = app

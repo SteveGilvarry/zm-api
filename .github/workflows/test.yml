@@ -116,6 +116,17 @@ jobs:
         env:
           DATABASE_URL: mysql://zm_test_user:zm_test_pass@127.0.0.1:3307/zm_test
 
+      # Fixtures clean up after themselves via the RowGuard RAII helper, so a
+      # clean run must leave zero `Test_run_*` rows behind. Runs even when tests
+      # fail (`always()`) so a leak is visible rather than masked. The DB is
+      # ephemeral and the suite has just finished, so any leftover row is a real
+      # leak regardless of age — hence `--max-age-secs 0`.
+      - name: Check for leaked fixture rows
+        if: always()
+        run: cargo run --bin fixture-doctor -- --max-age-secs 0
+        env:
+          DATABASE_URL: mysql://zm_test_user:zm_test_pass@127.0.0.1:3307/zm_test
+
   lint:
     name: Rustfmt & Clippy
     runs-on: ubuntu-latest

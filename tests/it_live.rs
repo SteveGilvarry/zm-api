@@ -22,7 +22,7 @@ mod common;
 
 use axum::http::{Method, StatusCode};
 use common::assertions::assert_error;
-use common::fixtures::{delete_monitor, insert_monitor};
+use common::fixtures::{insert_monitor, RowGuard};
 use common::harness::{superuser_token, TestApp};
 
 /// A monitor id far outside the range any real ZoneMinder row would use.
@@ -136,6 +136,7 @@ async fn hls_and_stats_for_streamless_monitor_error() {
     let monitor = insert_monitor(&app.db, "LiveStreamless")
         .await
         .expect("insert monitor fixture");
+    let _mon = RowGuard::monitor(monitor.id);
 
     let paths = [
         format!("/api/v3/live/{}/stats", monitor.id),
@@ -153,10 +154,6 @@ async fn hls_and_stats_for_streamless_monitor_error() {
             "{path}: a stream-less monitor must not yield 200"
         );
     }
-
-    delete_monitor(&app.db, monitor.id)
-        .await
-        .expect("cleanup monitor");
 }
 
 #[tokio::test]
@@ -167,6 +164,7 @@ async fn invalid_hls_segment_name_is_rejected() {
     let monitor = insert_monitor(&app.db, "LiveBadSegment")
         .await
         .expect("insert monitor fixture");
+    let _mon = RowGuard::monitor(monitor.id);
 
     // A garbage segment name fails `parse_segment_sequence` -> 4xx error.
     let resp = app
@@ -176,10 +174,6 @@ async fn invalid_hls_segment_name_is_rejected() {
         )
         .await;
     assert_is_error(&resp, "invalid segment name");
-
-    delete_monitor(&app.db, monitor.id)
-        .await
-        .expect("cleanup monitor");
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +211,7 @@ async fn snapshot_for_streamless_monitor_errors() {
     let monitor = insert_monitor(&app.db, "LiveSnapshot")
         .await
         .expect("insert monitor fixture");
+    let _mon = RowGuard::monitor(monitor.id);
 
     // No snapshot service is wired in the test state -> the handler errors
     // rather than returning a JPEG.
@@ -229,10 +224,6 @@ async fn snapshot_for_streamless_monitor_errors() {
         StatusCode::OK,
         "snapshot without a service must not yield 200"
     );
-
-    delete_monitor(&app.db, monitor.id)
-        .await
-        .expect("cleanup monitor");
 }
 
 #[tokio::test]

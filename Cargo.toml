@@ -14,6 +14,12 @@ repository = "https://github.com/SteveGilvarry/zm-api"
 [features]
 default = []
 
+# Maintenance tool: scan for and clean up leaked `Test_run_*` integration-test
+# fixture rows. See src/bin/fixture_doctor.rs.
+[[bin]]
+name = "fixture-doctor"
+path = "src/bin/fixture_doctor.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

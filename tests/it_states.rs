@@ -7,9 +7,9 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
-use common::fixtures::unique_name;
+use common::fixtures::{unique_name, RowGuard};
 use common::harness::{superuser_token, TestApp};
-use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+use sea_orm::{ActiveModelTrait, Set};
 use serde_json::json;
 use zm_api::dto::response::{PaginatedStatesResponse, StateResponse};
 
@@ -27,18 +27,13 @@ async fn insert_state(db: &sea_orm::DatabaseConnection, label: &str) -> u32 {
     .id
 }
 
-async fn delete_state(db: &sea_orm::DatabaseConnection, id: u32) {
-    let _ = zm_api::entity::states::Entity::delete_by_id(id)
-        .exec(db)
-        .await;
-}
-
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn list_states_returns_inserted_row() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
     let id = insert_state(&app.db, "StList").await;
+    let _guard = RowGuard::state(id);
 
     let resp = app
         .get("/api/v3/states?page=1&page_size=1000", &token)
@@ -49,8 +44,6 @@ async fn list_states_returns_inserted_row() {
         body.items.iter().any(|s| s.id == id),
         "states list should contain the fixture row"
     );
-
-    delete_state(&app.db, id).await;
 }
 
 #[tokio::test]
@@ -59,13 +52,12 @@ async fn get_state_returns_the_row() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
     let id = insert_state(&app.db, "StGet").await;
+    let _guard = RowGuard::state(id);
 
     let resp = app.get(&format!("/api/v3/states/{id}"), &token).await;
     assert_status(&resp, StatusCode::OK);
     let body: StateResponse = resp.json();
     assert_eq!(body.id, id);
-
-    delete_state(&app.db, id).await;
 }
 
 #[tokio::test]
@@ -96,6 +88,7 @@ async fn create_then_delete_state_round_trips() {
         create.text()
     );
     let created: StateResponse = create.json();
+    let _guard = RowGuard::state(created.id);
 
     let delete = app
         .delete(&format!("/api/v3/states/{}", created.id), &token)

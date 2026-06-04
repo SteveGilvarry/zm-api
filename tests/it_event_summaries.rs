@@ -7,10 +7,22 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
-use common::fixtures::{delete_monitor, insert_monitor};
+use common::fixtures::{insert_monitor, RowGuard};
 use common::harness::{superuser_token, TestApp};
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use zm_api::dto::response::{EventSummaryResponse, PaginatedEventSummariesResponse};
+
+/// Guard an `Event_Summaries` row (keyed by monitor id).
+fn guard_summary(monitor_id: u32) -> RowGuard {
+    RowGuard::new(
+        format!("Event_Summaries#{monitor_id}"),
+        move |db| async move {
+            let _ = zm_api::entity::event_summaries::Entity::delete_by_id(monitor_id)
+                .exec(&db)
+                .await;
+        },
+    )
+}
 
 /// Insert an `Event_Summaries` row for a monitor.
 async fn insert_summary(db: &sea_orm::DatabaseConnection, monitor_id: u32) {
@@ -25,12 +37,6 @@ async fn insert_summary(db: &sea_orm::DatabaseConnection, monitor_id: u32) {
     .expect("insert event summary fixture");
 }
 
-async fn delete_summary(db: &sea_orm::DatabaseConnection, monitor_id: u32) {
-    let _ = zm_api::entity::event_summaries::Entity::delete_by_id(monitor_id)
-        .exec(db)
-        .await;
-}
-
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn list_event_summaries_returns_inserted_row() {
@@ -39,7 +45,9 @@ async fn list_event_summaries_returns_inserted_row() {
     let monitor = insert_monitor(&app.db, "SummaryList")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     insert_summary(&app.db, monitor.id).await;
+    let _summary = guard_summary(monitor.id);
 
     let resp = app
         .get("/api/v3/event-summaries?page=1&page_size=1000", &token)
@@ -50,9 +58,6 @@ async fn list_event_summaries_returns_inserted_row() {
         body.items.iter().any(|s| s.monitor_id == monitor.id),
         "event summary list should contain the fixture row"
     );
-
-    delete_summary(&app.db, monitor.id).await;
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -63,7 +68,9 @@ async fn get_event_summary_returns_the_row() {
     let monitor = insert_monitor(&app.db, "SummaryGet")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     insert_summary(&app.db, monitor.id).await;
+    let _summary = guard_summary(monitor.id);
 
     let resp = app
         .get(&format!("/api/v3/event-summaries/{}", monitor.id), &token)
@@ -72,9 +79,6 @@ async fn get_event_summary_returns_the_row() {
     let body: EventSummaryResponse = resp.json();
     assert_eq!(body.monitor_id, monitor.id);
     assert_eq!(body.total_events, 42);
-
-    delete_summary(&app.db, monitor.id).await;
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]

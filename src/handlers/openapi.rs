@@ -109,6 +109,7 @@ use crate::util::claim::UserClaims;
         crate::handlers::filters::get_filter,
         crate::handlers::filters::list_filters,
         crate::handlers::filters::update_filter,
+        crate::handlers::filters::preview_filter,
 
         // frames
         crate::handlers::frames::create_frame,
@@ -421,8 +422,14 @@ use crate::util::claim::UserClaims;
 
             // filters
             crate::dto::request::filters::CreateFilterRequest,
+            crate::dto::request::filters::UpdateFilterRequest,
+            crate::dto::request::filter_ast::FilterQuery,
+            crate::dto::request::filter_ast::FilterExpr,
+            crate::dto::request::filter_ast::FilterField,
+            crate::dto::request::filter_ast::FilterOp,
+            crate::dto::request::filter_ast::MatchOp,
+            crate::dto::request::filter_ast::FilterSort,
             crate::dto::response::filters::FilterResponse,
-            crate::handlers::filters::UpdateFilterRequest,
 
             // frames
             crate::dto::request::frames::CreateFrameRequest,

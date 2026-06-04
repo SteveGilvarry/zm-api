@@ -106,6 +106,33 @@ pub async fn find_with_options(
     Ok((events, total))
 }
 
+/// Find events matching a prebuilt `Condition` (the compiled filter AST), with
+/// row-level ACL, sorting, and pagination. Used by the filter `/preview`.
+#[instrument(skip(state, condition))]
+pub async fn find_with_condition(
+    state: &AppState,
+    condition: Condition,
+    sort_column: events::Column,
+    sort_direction: SortDirection,
+    monitor_filter: Option<Vec<u32>>,
+    page: u64,
+    page_size: u64,
+) -> Result<(Vec<events::Model>, u64), DbErr> {
+    let mut query = Events::find().filter(condition);
+
+    // Row-level ACL: restrict to the caller's permitted monitors.
+    if let Some(monitor_ids) = &monitor_filter {
+        query = query.filter(events::Column::MonitorId.is_in(monitor_ids.iter().copied()));
+    }
+
+    query = apply_sorting(query, sort_column, sort_direction);
+
+    let paginator = query.paginate(state.db(), page_size);
+    let total = paginator.num_items().await?;
+    let items = paginator.fetch_page(page).await?;
+    Ok((items, total))
+}
+
 /// Find events by monitor ID with optional date range filter (legacy helper)
 #[instrument(skip(state))]
 pub async fn find_by_monitor_id(

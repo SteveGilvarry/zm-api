@@ -7,8 +7,9 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
+use common::fixtures::RowGuard;
 use common::harness::{superuser_token, TestApp};
-use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+use sea_orm::{ActiveModelTrait, Set};
 use serde_json::json;
 use zm_api::dto::response::{PaginatedReportsResponse, ReportResponse};
 
@@ -29,18 +30,13 @@ async fn insert_report(db: &sea_orm::DatabaseConnection) -> u32 {
     .id
 }
 
-async fn delete_report(db: &sea_orm::DatabaseConnection, id: u32) {
-    let _ = zm_api::entity::reports::Entity::delete_by_id(id)
-        .exec(db)
-        .await;
-}
-
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn list_reports_returns_inserted_row() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
     let id = insert_report(&app.db).await;
+    let _guard = RowGuard::report(id);
 
     let resp = app
         .get("/api/v3/reports?page=1&page_size=1000", &token)
@@ -51,8 +47,6 @@ async fn list_reports_returns_inserted_row() {
         body.items.iter().any(|r| r.id == id),
         "list should contain the fixture report"
     );
-
-    delete_report(&app.db, id).await;
 }
 
 #[tokio::test]
@@ -61,13 +55,12 @@ async fn get_report_returns_the_row() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
     let id = insert_report(&app.db).await;
+    let _guard = RowGuard::report(id);
 
     let resp = app.get(&format!("/api/v3/reports/{id}"), &token).await;
     assert_status(&resp, StatusCode::OK);
     let body: ReportResponse = resp.json();
     assert_eq!(body.id, id);
-
-    delete_report(&app.db, id).await;
 }
 
 #[tokio::test]
@@ -97,6 +90,7 @@ async fn create_then_delete_report_round_trips() {
         create.text()
     );
     let created: ReportResponse = create.json();
+    let _guard = RowGuard::report(created.id);
 
     let delete = app
         .delete(&format!("/api/v3/reports/{}", created.id), &token)

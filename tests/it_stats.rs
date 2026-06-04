@@ -7,7 +7,7 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
-use common::fixtures::{delete_monitor, insert_monitor};
+use common::fixtures::{insert_monitor, RowGuard};
 use common::harness::{superuser_token, TestApp};
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde_json::json;
@@ -40,10 +40,13 @@ async fn insert_stat(db: &sea_orm::DatabaseConnection, monitor_id: u32) -> u32 {
     .id
 }
 
-async fn delete_stat(db: &sea_orm::DatabaseConnection, id: u32) {
-    let _ = zm_api::entity::stats::Entity::delete_by_id(id)
-        .exec(db)
-        .await;
+/// Guard a `Stats` row by id.
+fn stat_guard(id: u32) -> RowGuard {
+    RowGuard::new(format!("Stats#{id}"), move |db| async move {
+        let _ = zm_api::entity::stats::Entity::delete_by_id(id)
+            .exec(&db)
+            .await;
+    })
 }
 
 fn stat_body(monitor_id: u32) -> serde_json::Value {
@@ -75,7 +78,9 @@ async fn list_stats_returns_inserted_row() {
     let monitor = insert_monitor(&app.db, "StatList")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     let id = insert_stat(&app.db, monitor.id).await;
+    let _stat = stat_guard(id);
 
     let resp = app.get("/api/v3/stats?page=1&page_size=1000", &token).await;
     assert_status(&resp, StatusCode::OK);
@@ -84,9 +89,6 @@ async fn list_stats_returns_inserted_row() {
         body.items.iter().any(|s| s.id == id),
         "list should contain the fixture stat"
     );
-
-    delete_stat(&app.db, id).await;
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -97,16 +99,15 @@ async fn get_stat_returns_the_row() {
     let monitor = insert_monitor(&app.db, "StatGet")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
     let id = insert_stat(&app.db, monitor.id).await;
+    let _stat = stat_guard(id);
 
     let resp = app.get(&format!("/api/v3/stats/{id}"), &token).await;
     assert_status(&resp, StatusCode::OK);
     let body: StatResponse = resp.json();
     assert_eq!(body.id, id);
     assert_eq!(body.monitor_id, monitor.id);
-
-    delete_stat(&app.db, id).await;
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -127,6 +128,7 @@ async fn create_then_delete_stat_round_trips() {
     let monitor = insert_monitor(&app.db, "StatRoundTrip")
         .await
         .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
 
     let create = app
         .post_json("/api/v3/stats", &token, &stat_body(monitor.id))
@@ -137,6 +139,9 @@ async fn create_then_delete_stat_round_trips() {
         create.text()
     );
     let created: StatResponse = create.json();
+    // Safety net: the row is deleted through the API below, but a panic before
+    // that still reclaims it.
+    let _stat = stat_guard(created.id);
 
     let delete = app
         .delete(&format!("/api/v3/stats/{}", created.id), &token)
@@ -151,8 +156,6 @@ async fn create_then_delete_stat_round_trips() {
         .get(&format!("/api/v3/stats/{}", created.id), &token)
         .await;
     assert_eq!(get.status(), StatusCode::NOT_FOUND);
-
-    delete_monitor(&app.db, monitor.id).await.expect("cleanup");
 }
 
 #[tokio::test]

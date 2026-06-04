@@ -7,9 +7,9 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
-use common::fixtures::unique_name;
+use common::fixtures::{unique_name, RowGuard};
 use common::harness::{superuser_token, TestApp};
-use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+use sea_orm::{ActiveModelTrait, Set};
 use serde_json::json;
 use zm_api::dto::response::{MontageLayoutResponse, PaginatedMontageLayoutsResponse};
 
@@ -27,18 +27,13 @@ async fn insert_layout(db: &sea_orm::DatabaseConnection, label: &str) -> u32 {
     .id
 }
 
-async fn delete_layout(db: &sea_orm::DatabaseConnection, id: u32) {
-    let _ = zm_api::entity::montage_layouts::Entity::delete_by_id(id)
-        .exec(db)
-        .await;
-}
-
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn list_montage_layouts_returns_inserted_row() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
     let id = insert_layout(&app.db, "MlList").await;
+    let _guard = RowGuard::montage_layout(id);
 
     let resp = app
         .get("/api/v3/montage_layouts?page=1&page_size=1000", &token)
@@ -49,8 +44,6 @@ async fn list_montage_layouts_returns_inserted_row() {
         body.items.iter().any(|m| m.id == id),
         "montage layouts list should contain the fixture row"
     );
-
-    delete_layout(&app.db, id).await;
 }
 
 #[tokio::test]
@@ -59,6 +52,7 @@ async fn get_montage_layout_returns_the_row() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
     let id = insert_layout(&app.db, "MlGet").await;
+    let _guard = RowGuard::montage_layout(id);
 
     let resp = app
         .get(&format!("/api/v3/montage_layouts/{id}"), &token)
@@ -66,8 +60,6 @@ async fn get_montage_layout_returns_the_row() {
     assert_status(&resp, StatusCode::OK);
     let body: MontageLayoutResponse = resp.json();
     assert_eq!(body.id, id);
-
-    delete_layout(&app.db, id).await;
 }
 
 #[tokio::test]
@@ -100,6 +92,7 @@ async fn create_then_delete_montage_layout_round_trips() {
         create.text()
     );
     let created: MontageLayoutResponse = create.json();
+    let _guard = RowGuard::montage_layout(created.id);
 
     let delete = app
         .delete(&format!("/api/v3/montage_layouts/{}", created.id), &token)
