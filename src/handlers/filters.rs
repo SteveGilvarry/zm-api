@@ -7,6 +7,7 @@ use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use crate::service::monitor_acl::MonitorScope;
+use crate::util::claim::UserClaims;
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -29,9 +30,10 @@ use axum::{
 )]
 pub async fn list_filters(
     State(state): State<AppState>,
+    claims: UserClaims,
     Query(params): Query<PaginationParams>,
 ) -> AppResult<Json<PaginatedFiltersResponse>> {
-    let result = crate::service::filters::list_paginated(&state, &params).await?;
+    let result = crate::service::filters::list_paginated(&state, &params, &claims).await?;
     Ok(Json(PaginatedFiltersResponse::from(result)))
 }
 
@@ -49,8 +51,9 @@ pub async fn list_filters(
 pub async fn get_filter(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    claims: UserClaims,
 ) -> AppResult<Json<FilterResponse>> {
-    let item = crate::service::filters::get_by_id(&state, id).await?;
+    let item = crate::service::filters::get_by_id(&state, id, &claims).await?;
     Ok(Json(item))
 }
 
@@ -69,9 +72,10 @@ pub async fn get_filter(
 pub async fn update_filter(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    claims: UserClaims,
     Json(req): Json<UpdateFilterRequest>,
 ) -> AppResult<Json<FilterResponse>> {
-    let item = crate::service::filters::update(&state, id, &req).await?;
+    let item = crate::service::filters::update(&state, id, &req, &claims).await?;
     Ok(Json(item))
 }
 
@@ -89,9 +93,10 @@ pub async fn update_filter(
 )]
 pub async fn create_filter(
     State(state): State<AppState>,
+    claims: UserClaims,
     Json(req): Json<CreateFilterRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<FilterResponse>)> {
-    let item = crate::service::filters::create(&state, req).await?;
+    let item = crate::service::filters::create(&state, req, &claims).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
@@ -138,7 +143,8 @@ pub async fn preview_filter(
 pub async fn delete_filter(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    claims: UserClaims,
 ) -> AppResult<axum::http::StatusCode> {
-    crate::service::filters::delete(&state, id).await?;
+    crate::service::filters::delete(&state, id, &claims).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

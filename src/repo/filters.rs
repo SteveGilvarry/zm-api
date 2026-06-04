@@ -1,20 +1,32 @@
 use crate::dto::PaginationParams;
-use crate::entity::filters::{Entity as Filters, Model as FilterModel};
+use crate::entity::filters::{Column as FilterColumn, Entity as Filters, Model as FilterModel};
 use crate::error::AppResult;
 use sea_orm::*;
 
 // Repos accept a database connection (preferred)
+//
+// `owner` scopes the result to a single user's filters (`Some(uid)`); `None` is
+// unrestricted (used for admins / System-level access). See `service::filters`.
 #[tracing::instrument(skip_all)]
-pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<FilterModel>> {
-    Ok(Filters::find().all(db).await?)
+pub async fn find_all(db: &DatabaseConnection, owner: Option<u32>) -> AppResult<Vec<FilterModel>> {
+    let mut query = Filters::find();
+    if let Some(uid) = owner {
+        query = query.filter(FilterColumn::UserId.eq(uid));
+    }
+    Ok(query.all(db).await?)
 }
 
 #[tracing::instrument(skip_all)]
 pub async fn find_paginated(
     db: &DatabaseConnection,
     params: &PaginationParams,
+    owner: Option<u32>,
 ) -> AppResult<(Vec<FilterModel>, u64)> {
-    let paginator = Filters::find().paginate(db, params.page_size());
+    let mut query = Filters::find();
+    if let Some(uid) = owner {
+        query = query.filter(FilterColumn::UserId.eq(uid));
+    }
+    let paginator = query.paginate(db, params.page_size());
     let total = paginator.num_items().await?;
     let items = paginator
         .fetch_page(params.page().saturating_sub(1))
@@ -223,7 +235,7 @@ mod tests {
             ]])
             .into_connection();
 
-        let rows = find_all(&db).await.unwrap();
+        let rows = find_all(&db, None).await.unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].name, "f1");
         assert_eq!(rows[1].name, "f2");

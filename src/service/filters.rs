@@ -10,7 +10,8 @@ use crate::repo;
 use crate::repo::events as events_repo;
 use crate::server::state::AppState;
 use crate::service::monitor_acl::MonitorScope;
-use crate::util::authz::Level;
+use crate::util::authz::{Feature, Level};
+use crate::util::claim::UserClaims;
 
 /// Build a `FilterResponse`, additionally parsing the stored `query_json` into
 /// the structured AST for display. A parse failure (legacy/unmodelled filter)
@@ -23,28 +24,73 @@ fn response_with_ast(model: &filters::Model) -> FilterResponse {
     resp
 }
 
-pub async fn list_all(state: &AppState) -> AppResult<Vec<FilterResponse>> {
-    let items = repo::filters::find_all(state.db()).await?;
+/// Not-found error used both for genuinely missing filters and for filters the
+/// caller may not access — so ownership is not leaked via 404-vs-403.
+fn not_found(id: u32) -> AppError {
+    AppError::NotFoundError(crate::error::Resource {
+        details: vec![("id".into(), id.to_string())],
+        resource_type: crate::error::ResourceType::Message,
+    })
+}
+
+// ---- Ownership ACL ---------------------------------------------------------
+// Filters are owned by a user (`Filters.UserId`). A caller may only see/manage
+// their own filters unless they hold the System permission: `System >= View`
+// can see all filters, `System == Edit` can manage (and reassign) all — which
+// also protects ZoneMinder's built-in system filters (e.g. PurgeWhenFull) from
+// deletion by ordinary users.
+
+fn can_view_all(claims: &UserClaims) -> bool {
+    matches!(
+        claims.perms.level(Feature::System),
+        Level::View | Level::Edit
+    )
+}
+
+fn can_manage_all(claims: &UserClaims) -> bool {
+    matches!(claims.perms.level(Feature::System), Level::Edit)
+}
+
+fn owns(claims: &UserClaims, owner: Option<u32>) -> bool {
+    owner == Some(claims.uid)
+}
+
+/// Filter list scope: `None` (all) for System viewers, else the caller's id.
+fn list_owner_scope(claims: &UserClaims) -> Option<u32> {
+    if can_view_all(claims) {
+        None
+    } else {
+        Some(claims.uid)
+    }
+}
+
+pub async fn list_all(state: &AppState, claims: &UserClaims) -> AppResult<Vec<FilterResponse>> {
+    let items = repo::filters::find_all(state.db(), list_owner_scope(claims)).await?;
     Ok(items.iter().map(response_with_ast).collect())
 }
 
 pub async fn list_paginated(
     state: &AppState,
     params: &PaginationParams,
+    claims: &UserClaims,
 ) -> AppResult<PaginatedResponse<FilterResponse>> {
-    let (items, total) = repo::filters::find_paginated(state.db(), params).await?;
+    let (items, total) =
+        repo::filters::find_paginated(state.db(), params, list_owner_scope(claims)).await?;
     let responses: Vec<FilterResponse> = items.iter().map(response_with_ast).collect();
     Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
-pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<FilterResponse> {
-    let item = repo::filters::find_by_id(state.db(), id).await?;
-    let item = item.ok_or_else(|| {
-        AppError::NotFoundError(crate::error::Resource {
-            details: vec![("id".into(), id.to_string())],
-            resource_type: crate::error::ResourceType::Message,
-        })
-    })?;
+pub async fn get_by_id(
+    state: &AppState,
+    id: u32,
+    claims: &UserClaims,
+) -> AppResult<FilterResponse> {
+    let item = repo::filters::find_by_id(state.db(), id)
+        .await?
+        .ok_or_else(|| not_found(id))?;
+    if !can_view_all(claims) && !owns(claims, item.user_id) {
+        return Err(not_found(id));
+    }
     Ok(response_with_ast(&item))
 }
 
@@ -111,31 +157,42 @@ pub async fn update(
     state: &AppState,
     id: u32,
     req: &crate::dto::request::UpdateFilterRequest,
+    claims: &UserClaims,
 ) -> AppResult<FilterResponse> {
+    // Ownership: only the owner or a System-Edit admin may modify a filter.
+    let existing = repo::filters::find_by_id(state.db(), id)
+        .await?
+        .ok_or_else(|| not_found(id))?;
+    if !can_manage_all(claims) && !owns(claims, existing.user_id) {
+        return Err(not_found(id));
+    }
+
     // A structured AST, when supplied, is translated to ZoneMinder's flat
     // query_json (and validated by construction during translation).
     let mut effective = req.clone();
     if let Some(ast) = &req.filter {
         effective.query_json = Some(crate::service::filter_translate::to_zm_query_json(ast)?);
     }
+    // Only a System-Edit admin may reassign ownership; ignore any user_id from
+    // an ordinary owner so they cannot give a filter away.
+    if !can_manage_all(claims) {
+        effective.user_id = None;
+    }
     // Guard against stored SQL injection on any raw query_json: it is turned
     // into live SQL by zmfilter.pl. See `service::filter_query`.
     if let Some(q) = effective.query_json.as_deref() {
         crate::service::filter_query::validate_query_json(q)?;
     }
-    let item = repo::filters::update(state.db(), id, &effective).await?;
-    let item = item.ok_or_else(|| {
-        AppError::NotFoundError(crate::error::Resource {
-            details: vec![("id".into(), id.to_string())],
-            resource_type: crate::error::ResourceType::Message,
-        })
-    })?;
+    let item = repo::filters::update(state.db(), id, &effective)
+        .await?
+        .ok_or_else(|| not_found(id))?;
     Ok(response_with_ast(&item))
 }
 
 pub async fn create(
     state: &AppState,
     req: crate::dto::request::CreateFilterRequest,
+    claims: &UserClaims,
 ) -> AppResult<FilterResponse> {
     // A structured AST, when supplied, is translated to ZoneMinder's flat
     // query_json and wins over any raw string.
@@ -143,6 +200,13 @@ pub async fn create(
     if let Some(ast) = &req.filter {
         req.query_json = crate::service::filter_translate::to_zm_query_json(ast)?;
     }
+    // Ownership: ordinary users own what they create; only a System-Edit admin
+    // may create a filter owned by someone else (defaulting to themselves).
+    req.user_id = if can_manage_all(claims) {
+        req.user_id.or(Some(claims.uid))
+    } else {
+        Some(claims.uid)
+    };
     // Guard against stored SQL injection: query_json is turned into live SQL by
     // zmfilter.pl. See `service::filter_query`.
     crate::service::filter_query::validate_query_json(&req.query_json)?;
@@ -150,7 +214,14 @@ pub async fn create(
     Ok(response_with_ast(&model))
 }
 
-pub async fn delete(state: &AppState, id: u32) -> AppResult<()> {
+pub async fn delete(state: &AppState, id: u32, claims: &UserClaims) -> AppResult<()> {
+    // Ownership: only the owner or a System-Edit admin may delete a filter.
+    let existing = repo::filters::find_by_id(state.db(), id)
+        .await?
+        .ok_or_else(|| not_found(id))?;
+    if !can_manage_all(claims) && !owns(claims, existing.user_id) {
+        return Err(not_found(id));
+    }
     let ok = repo::filters::delete_by_id(state.db(), id).await?;
     if ok {
         Ok(())
@@ -170,7 +241,36 @@ mod tests {
     use crate::entity::filters::Model as FilterModel;
     use crate::error::AppError;
     use crate::server::state::AppState;
+    use crate::util::authz::UserPermissions;
     use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
+    use std::time::Duration;
+
+    /// System-Edit admin (manages all filters).
+    fn admin_claims() -> UserClaims {
+        UserClaims::new(
+            Duration::from_secs(600),
+            "admin".into(),
+            1,
+            UserPermissions::superuser(),
+        )
+    }
+
+    /// Ordinary user (System None) with the given id.
+    fn user_claims(uid: u32) -> UserClaims {
+        UserClaims::new(
+            Duration::from_secs(600),
+            "user".into(),
+            uid,
+            UserPermissions::default(),
+        )
+    }
+
+    fn mk_filter_owned(id: u32, owner: Option<u32>) -> FilterModel {
+        FilterModel {
+            user_id: owner,
+            ..mk_filter(id, "f")
+        }
+    }
 
     fn mk_filter(id: u32, name: &str) -> FilterModel {
         use crate::entity::sea_orm_active_enums::EmailFormat;
@@ -211,7 +311,7 @@ mod tests {
             .append_query_results::<FilterModel, _, _>(vec![vec![mk_filter(1, "f1")]])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let resp = get_by_id(&state, 1).await.unwrap();
+        let resp = get_by_id(&state, 1, &admin_claims()).await.unwrap();
         assert_eq!(resp.id, 1);
         assert_eq!(resp.name, "f1");
     }
@@ -225,12 +325,16 @@ mod tests {
             ..initial.clone()
         };
         let db = MockDatabase::new(DatabaseBackend::MySql)
-            .append_query_results::<FilterModel, _, _>(vec![vec![initial]])
+            // 1) service-level ownership pre-check, 2) repo find_by_id, 3) refetch
+            .append_query_results::<FilterModel, _, _>(vec![
+                vec![initial.clone()],
+                vec![initial],
+                vec![updated.clone()],
+            ])
             .append_exec_results(vec![MockExecResult {
                 last_insert_id: 0,
                 rows_affected: 1,
             }])
-            .append_query_results::<FilterModel, _, _>(vec![vec![updated.clone()]])
             .into_connection();
         let state = AppState::for_test_with_db(db);
         let req = crate::dto::request::UpdateFilterRequest {
@@ -238,7 +342,7 @@ mod tests {
             query_json: Some("{\"k\":\"v\"}".into()),
             ..Default::default()
         };
-        let resp = update(&state, 2, &req).await.unwrap();
+        let resp = update(&state, 2, &req, &admin_claims()).await.unwrap();
         assert_eq!(resp.name, "new");
         assert_eq!(resp.query_json, "{\"k\":\"v\"}");
     }
@@ -246,13 +350,15 @@ mod tests {
     #[tokio::test]
     async fn test_delete_ok() {
         let db = MockDatabase::new(DatabaseBackend::MySql)
+            // ownership pre-check fetches the row, then the delete executes.
+            .append_query_results::<FilterModel, _, _>(vec![vec![mk_filter(1, "f")]])
             .append_exec_results(vec![MockExecResult {
                 last_insert_id: 0,
                 rows_affected: 1,
             }])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        assert!(delete(&state, 1).await.is_ok());
+        assert!(delete(&state, 1, &admin_claims()).await.is_ok());
     }
 
     #[tokio::test]
@@ -262,7 +368,9 @@ mod tests {
             .append_query_results::<FilterModel, _, _>(vec![empty])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let err = get_by_id(&state, 99).await.expect_err("should error");
+        let err = get_by_id(&state, 99, &admin_claims())
+            .await
+            .expect_err("should error");
         matches!(err, AppError::NotFoundError(_));
     }
 
@@ -277,20 +385,73 @@ mod tests {
             name: Some("x".into()),
             ..Default::default()
         };
-        let err = update(&state, 1, &req).await.expect_err("should error");
+        let err = update(&state, 1, &req, &admin_claims())
+            .await
+            .expect_err("should error");
         matches!(err, AppError::NotFoundError(_));
     }
 
     #[tokio::test]
     async fn test_delete_not_found() {
+        // The ownership pre-check finds no row -> not found (no delete exec).
+        let empty: Vec<FilterModel> = vec![];
         let db = MockDatabase::new(DatabaseBackend::MySql)
-            .append_exec_results(vec![MockExecResult {
-                last_insert_id: 0,
-                rows_affected: 0,
-            }])
+            .append_query_results::<FilterModel, _, _>(vec![empty])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let err = delete(&state, 1).await.expect_err("should error");
+        let err = delete(&state, 1, &admin_claims())
+            .await
+            .expect_err("should error");
         matches!(err, AppError::NotFoundError(_));
+    }
+
+    #[tokio::test]
+    async fn test_non_owner_cannot_get() {
+        // Filter owned by user 2; caller is ordinary user 3 -> hidden as 404.
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<FilterModel, _, _>(vec![vec![mk_filter_owned(5, Some(2))]])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let err = get_by_id(&state, 5, &user_claims(3))
+            .await
+            .expect_err("non-owner must not read another user's filter");
+        assert!(matches!(err, AppError::NotFoundError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_owner_can_get() {
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<FilterModel, _, _>(vec![vec![mk_filter_owned(5, Some(3))]])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let resp = get_by_id(&state, 5, &user_claims(3))
+            .await
+            .expect("owner may read own filter");
+        assert_eq!(resp.id, 5);
+    }
+
+    #[tokio::test]
+    async fn test_non_owner_cannot_delete() {
+        // Owned by user 2; ordinary user 3 -> 404, and no delete is executed.
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<FilterModel, _, _>(vec![vec![mk_filter_owned(5, Some(2))]])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let err = delete(&state, 5, &user_claims(3))
+            .await
+            .expect_err("non-owner must not delete another user's filter");
+        assert!(matches!(err, AppError::NotFoundError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_admin_can_get_any() {
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<FilterModel, _, _>(vec![vec![mk_filter_owned(5, Some(2))]])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let resp = get_by_id(&state, 5, &admin_claims())
+            .await
+            .expect("system admin may read any filter");
+        assert_eq!(resp.id, 5);
     }
 }
