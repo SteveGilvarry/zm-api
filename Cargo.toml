@@ -9,6 +9,10 @@ edition = "2021"
 license = "AGPL-3.0-or-later"
 description = "A modern REST API for ZoneMinder"
 repository = "https://github.com/SteveGilvarry/zm-api"
+# The crate ships two binaries (the server `zm_api` and the `fixture-doctor`
+# maintenance tool), so plain `cargo run` is ambiguous without this — keep it
+# defaulting to the server.
+default-run = "zm_api"
 
 # Features
 [features]
