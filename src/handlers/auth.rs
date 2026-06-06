@@ -4,7 +4,7 @@ use garde::Validate;
 use tracing::{info, warn};
 
 use crate::dto::request::{LoginRequest, RefreshTokenRequest};
-use crate::dto::response::{LoginResponse, MessageResponse, TokenResponse};
+use crate::dto::response::{MessageResponse, TokenResponse};
 use crate::error::AppResponseError;
 use crate::error::AppResult;
 use crate::server::state::AppState;
@@ -17,9 +17,9 @@ use crate::util::claim::UserClaimsRequest;
         request_body = LoginRequest,
         path = "/api/v3/auth/login",
         responses(
-                (status = 200, description = "Success login user", body = [LoginResponse]),
-                (status = 400, description = "Invalid data input", body = [AppResponseError]),
-                (status = 500, description = "Internal server error", body = [AppResponseError])
+                (status = 200, description = "Success login user", body = TokenResponse),
+                (status = 400, description = "Invalid data input", body = AppResponseError),
+                (status = 500, description = "Internal server error", body = AppResponseError)
         ),
         tag = "Auth"
 )]
@@ -58,6 +58,7 @@ pub async fn refresh_token(
     Json(req): Json<RefreshTokenRequest>,
 ) -> AppResult<Json<TokenResponse>> {
     info!("Refresh token with request: {req:?}.");
+    req.validate()?;
     match service::auth::refresh_token(&state, req).await {
         Ok(resp) => {
             info!("Success refresh token user response: {resp:?}.");
