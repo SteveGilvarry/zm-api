@@ -75,21 +75,43 @@ fn is_safe_event_filename(name: &str) -> bool {
         && !name.contains('\0')
 }
 
+/// True iff `name` looks like a playable video container we can serve / probe.
+/// ZoneMinder records HLS-mode monitors with `DefaultVideo = index.m3u8` (a
+/// playlist, not media); accepting it would make the API hand clients a
+/// playlist in place of the video and make ffmpeg probing fail.
+fn is_video_container(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    [".mp4", ".mkv", ".mov", ".m4v", ".webm", ".avi"]
+        .iter()
+        .any(|ext| lower.ends_with(ext))
+}
+
 /// Pick the filename to look for under the event directory. Falls back to the
-/// canonical `{event_id}-video.mp4` name if `default_video` is empty or fails
-/// the safety check above.
+/// canonical `{event_id}-video.mp4` name when `default_video` is empty, fails
+/// the safety check, or isn't a real video container (e.g. ZoneMinder's
+/// `index.m3u8` for HLS-recorded events). The fallback name lets the
+/// alternative-name search in [`get_event_video_path`] locate the real
+/// `{event_id}-video.h264.mp4` on disk.
 fn select_video_filename(event_id: u64, default_video: &str) -> String {
     if default_video.is_empty() {
         return format!("{}-video.mp4", event_id);
     }
-    if is_safe_event_filename(default_video) {
-        return default_video.to_string();
+    if !is_safe_event_filename(default_video) {
+        warn!(
+            "Refusing unsafe default_video for event {}: {:?}; using default name",
+            event_id, default_video
+        );
+        return format!("{}-video.mp4", event_id);
     }
-    warn!(
-        "Refusing unsafe default_video for event {}: {:?}; using default name",
-        event_id, default_video
-    );
-    format!("{}-video.mp4", event_id)
+    if !is_video_container(default_video) {
+        warn!(
+            "default_video {:?} for event {} is not a playable container \
+             (likely an HLS playlist); using default name",
+            default_video, event_id
+        );
+        return format!("{}-video.mp4", event_id);
+    }
+    default_video.to_string()
 }
 
 /// Get the video file path for an event
@@ -178,18 +200,20 @@ async fn get_event_entity(state: &AppState, event_id: u64) -> AppResult<EventMod
 /// otherwise-permitted event read end up resolving outside the events tree.
 /// Reject those at the DB-read boundary.
 async fn resolve_event_storage_path(state: &AppState, event: &EventModel) -> AppResult<String> {
-    let storage_path = match event.storage_id {
-        Some(sid) => match repo::storage::find_by_id(state.db(), sid).await? {
+    let storage_path = if is_default_storage(event.storage_id) {
+        default_storage_path(state).await?
+    } else {
+        let sid = event.storage_id.expect("non-default storage_id is Some");
+        match repo::storage::find_by_id(state.db(), sid).await? {
             Some(s) => s.path,
             None => {
                 warn!(
-                    "Storage {} not found in database, using config default",
+                    "Storage {} not found in database, using default storage",
                     sid
                 );
-                state.config.streaming.zoneminder.events_dir.clone()
+                default_storage_path(state).await?
             }
-        },
-        None => state.config.streaming.zoneminder.events_dir.clone(),
+        }
     };
 
     if crate::util::path::contains_traversal(&storage_path) {
@@ -203,6 +227,23 @@ async fn resolve_event_storage_path(state: &AppState, event: &EventModel) -> App
     }
 
     Ok(storage_path)
+}
+
+/// True iff `storage_id` denotes ZoneMinder's primary/default storage rather
+/// than a real `Storage` row. ZoneMinder writes `Events.StorageId = 0` (and
+/// occasionally NULL) as a sentinel meaning "the default storage" — it is not a
+/// foreign key, so looking up row 0 always misses.
+fn is_default_storage(storage_id: Option<u16>) -> bool {
+    matches!(storage_id, None | Some(0))
+}
+
+/// Resolve the default events directory: ZoneMinder's primary storage row when
+/// the `Storage` table is populated, otherwise the configured `events_dir`.
+async fn default_storage_path(state: &AppState) -> AppResult<String> {
+    if let Some(s) = repo::storage::find_default(state.db()).await? {
+        return Ok(s.path);
+    }
+    Ok(state.config.streaming.zoneminder.events_dir.clone())
 }
 
 /// Build the event directory path based on ZoneMinder's storage scheme
@@ -899,6 +940,52 @@ mod tests {
             select_video_filename(42, "subdir/escape.mp4"),
             "42-video.mp4"
         );
+    }
+
+    #[test]
+    fn select_video_filename_rejects_hls_playlist_default() {
+        // ZoneMinder records HLS-mode monitors with `DefaultVideo = index.m3u8`
+        // (a playlist, not a playable container). Serving it as the event video
+        // hands the client a playlist; fall back to the canonical name so the
+        // alternative-name search finds the real `{id}-video.h264.mp4`.
+        assert_eq!(select_video_filename(7238, "index.m3u8"), "7238-video.mp4");
+        assert_eq!(select_video_filename(7238, "stream.M3U8"), "7238-video.mp4");
+        assert_eq!(select_video_filename(7238, "index.ts"), "7238-video.mp4");
+    }
+
+    #[test]
+    fn select_video_filename_accepts_video_containers_case_insensitively() {
+        assert_eq!(select_video_filename(9, "9-video.mp4"), "9-video.mp4");
+        assert_eq!(
+            select_video_filename(9, "9-video.h264.mp4"),
+            "9-video.h264.mp4"
+        );
+        assert_eq!(select_video_filename(9, "clip.MKV"), "clip.MKV");
+        assert_eq!(select_video_filename(9, "clip.MOV"), "clip.MOV");
+    }
+
+    #[test]
+    fn is_video_container_matches_known_extensions() {
+        assert!(is_video_container("a.mp4"));
+        assert!(is_video_container("a.h264.mp4"));
+        assert!(is_video_container("a.MKV"));
+        assert!(is_video_container("a.mov"));
+        assert!(is_video_container("a.m4v"));
+        assert!(is_video_container("a.webm"));
+        assert!(!is_video_container("index.m3u8"));
+        assert!(!is_video_container("seg.ts"));
+        assert!(!is_video_container("snapshot.jpg"));
+        assert!(!is_video_container("noext"));
+    }
+
+    #[test]
+    fn is_default_storage_treats_zero_and_null_as_default() {
+        // ZoneMinder uses StorageId = 0 (and sometimes NULL) as a sentinel for
+        // the primary/default storage, not a real foreign key.
+        assert!(is_default_storage(None));
+        assert!(is_default_storage(Some(0)));
+        assert!(!is_default_storage(Some(1)));
+        assert!(!is_default_storage(Some(7)));
     }
 
     #[test]

@@ -23,6 +23,18 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u16) -> AppResult<Option<St
     Ok(Storage::find_by_id(id).one(db).await?)
 }
 
+/// ZoneMinder's primary/default storage. `Events.StorageId = 0` (and sometimes
+/// NULL) is a sentinel for "the default storage" rather than a real foreign
+/// key, so it can't be looked up with [`find_by_id`]. This returns the storage
+/// ZoneMinder treats as primary — the lowest `Id` row — used to resolve those
+/// events' on-disk paths.
+pub async fn find_default(db: &DatabaseConnection) -> AppResult<Option<StorageModel>> {
+    Ok(Storage::find()
+        .order_by_asc(crate::entity::storage::Column::Id)
+        .one(db)
+        .await?)
+}
+
 pub async fn create(
     db: &DatabaseConnection,
     req: &crate::dto::request::CreateStorageRequest,
@@ -180,6 +192,27 @@ mod tests {
         .unwrap();
         assert_eq!(updated.name, "new");
         assert_eq!(updated.path, "/data");
+    }
+
+    #[tokio::test]
+    async fn test_find_default_returns_primary_storage() {
+        // `Events.StorageId = 0` is a sentinel for the default storage; we
+        // resolve it to ZoneMinder's primary storage row (lowest Id).
+        let primary = mk(1, "Default");
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<StorageModel, _, _>(vec![vec![primary]])
+            .into_connection();
+        let found = find_default(&db).await.unwrap().unwrap();
+        assert_eq!(found.id, 1);
+        assert_eq!(found.name, "Default");
+    }
+
+    #[tokio::test]
+    async fn test_find_default_none_when_no_storage() {
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<StorageModel, _, _>(vec![Vec::<StorageModel>::new()])
+            .into_connection();
+        assert!(find_default(&db).await.unwrap().is_none());
     }
 
     #[tokio::test]
