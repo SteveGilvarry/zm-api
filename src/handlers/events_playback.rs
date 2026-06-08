@@ -12,7 +12,7 @@ use axum::{
 };
 use chrono::{Datelike, Timelike};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path as StdPath, PathBuf};
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio_util::io::ReaderStream;
@@ -54,8 +54,12 @@ pub struct EventVideoInfo {
     /// True when the codec plays in any browser `<video>` (H.264). HEVC is
     /// Safari / hardware-Chrome only.
     pub playable_direct: bool,
-    /// Suggested playback endpoint: "direct" (progressive MP4) or "hls".
+    /// Suggested playback endpoint: "direct" (progressive MP4), "hls" (VOD), or
+    /// "event" (in-progress live HLS via `playlist.m3u8`).
     pub recommended_mode: String,
+    /// True while the event is still recording (no `EndDateTime`). Codec/size
+    /// fields may be unknown until it finalizes; play via `playlist.m3u8`.
+    pub in_progress: bool,
 }
 
 // ============================================================================
@@ -246,6 +250,92 @@ async fn default_storage_path(state: &AppState) -> AppResult<String> {
     Ok(state.config.streaming.zoneminder.events_dir.clone())
 }
 
+/// True iff the event is still recording. ZoneMinder sets `EndDateTime` on
+/// close, so a NULL end means the event is in progress — there is no finalized
+/// `{id}-video.*.mp4` yet, only a growing `incomplete.*.mp4` plus ZoneMinder's
+/// live `index.m3u8`.
+fn event_is_in_progress(event: &EventModel) -> bool {
+    event.end_date_time.is_none()
+}
+
+/// The on-disk directory for an event, resolving storage + scheme.
+async fn event_directory(
+    state: &AppState,
+    event: &EventModel,
+    event_id: u64,
+) -> AppResult<PathBuf> {
+    let storage_path = resolve_event_storage_path(state, event).await?;
+    Ok(build_event_directory_path(
+        &storage_path,
+        event.monitor_id,
+        event_id,
+        event.start_date_time,
+        &event.scheme,
+    ))
+}
+
+/// Locate the growing `incomplete.*.mp4` file an in-progress event records into.
+async fn find_incomplete_media(dir: &StdPath) -> Option<PathBuf> {
+    let mut rd = tokio::fs::read_dir(dir).await.ok()?;
+    while let Ok(Some(entry)) = rd.next_entry().await {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("incomplete.") && name.ends_with(".mp4") {
+            return Some(entry.path());
+        }
+    }
+    None
+}
+
+/// Resolve the media file to byte-serve for an event: the growing
+/// `incomplete.*.mp4` while recording, else the finalized recorded video.
+async fn get_event_media_path(state: &AppState, event_id: u64) -> AppResult<PathBuf> {
+    let event = get_event_entity(state, event_id).await?;
+    if event_is_in_progress(&event) {
+        let dir = event_directory(state, &event, event_id).await?;
+        if let Some(p) = find_incomplete_media(&dir).await {
+            return Ok(p);
+        }
+    }
+    get_event_video_path(state, event_id).await
+}
+
+/// Rewrite ZoneMinder's in-progress `index.m3u8` so its init/segment URIs point
+/// at our native Range-served media route (`media_uri`) instead of the legacy
+/// `index.php?view=view_video…` PHP path. The `#EXT-X-BYTERANGE` offsets, the
+/// `#EXT-X-PLAYLIST-TYPE:EVENT` tag, and the absence of `#EXT-X-ENDLIST` (still
+/// recording) are preserved verbatim — they index the same growing file we
+/// serve, so a player resolves `media_uri` + each byte range against it.
+fn rewrite_zm_event_playlist(zm_m3u8: &str, media_uri: &str) -> String {
+    let mut out = String::with_capacity(zm_m3u8.len());
+    for line in zm_m3u8.lines() {
+        if line.starts_with("#EXT-X-MAP:") {
+            out.push_str(&replace_map_uri(line, media_uri));
+        } else if !line.is_empty() && !line.starts_with('#') {
+            // A bare URI line is a segment reference — swap the index.php target.
+            out.push_str(media_uri);
+        } else {
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// Replace the `URI="…"` value inside an `#EXT-X-MAP` line, leaving the rest of
+/// the line (notably `BYTERANGE="…"`) untouched.
+fn replace_map_uri(line: &str, media_uri: &str) -> String {
+    const KEY: &str = "URI=\"";
+    if let Some(start) = line.find(KEY) {
+        let val_start = start + KEY.len();
+        if let Some(rel_end) = line[val_start..].find('"') {
+            let val_end = val_start + rel_end;
+            return format!("{}{}{}", &line[..val_start], media_uri, &line[val_end..]);
+        }
+    }
+    line.to_string()
+}
+
 /// Build the event directory path based on ZoneMinder's storage scheme
 fn build_event_directory_path(
     storage_path: &str,
@@ -365,6 +455,38 @@ pub async fn get_event_playlist(
     State(state): State<AppState>,
     Path(path): Path<EventPlaybackPath>,
 ) -> Result<Response, AppError> {
+    let event = get_event_entity(&state, path.id).await?;
+
+    // In-progress events have no finalized file to package as VOD. ZoneMinder
+    // already maintains a growing `#EXT-X-PLAYLIST-TYPE:EVENT` playlist
+    // (index.m3u8) of byte-range segments into the recording; re-expose it with
+    // native URIs instead of 404ing until the event closes.
+    if event_is_in_progress(&event) {
+        debug!("Getting in-progress (EVENT) playlist for event {}", path.id);
+        let dir = event_directory(&state, &event, path.id).await?;
+        let zm_m3u8 = tokio::fs::read_to_string(dir.join("index.m3u8"))
+            .await
+            .map_err(|_| {
+                AppError::NotFoundError(Resource {
+                    resource_type: ResourceType::Event,
+                    details: vec![
+                        ("event_id".to_string(), path.id.to_string()),
+                        (
+                            "reason".to_string(),
+                            "in-progress playlist not available yet".to_string(),
+                        ),
+                    ],
+                })
+            })?;
+        let body = rewrite_zm_event_playlist(&zm_m3u8, "media.mp4");
+        return Ok(Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")
+            .header(header::CACHE_CONTROL, "no-cache")
+            .body(Body::from(body))
+            .unwrap());
+    }
+
     debug!("Getting HLS-VOD playlist for event {}", path.id);
     let assets = event_vod_assets(&state, path.id).await?;
     Ok(Response::builder()
@@ -479,30 +601,29 @@ pub async fn get_event_video(
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     debug!("Getting video for event {}", path.id);
-
     let video_path = get_event_video_path(&state, path.id).await?;
+    serve_file_with_range(&video_path, &headers).await
+}
 
-    // Get file metadata
-    let metadata = tokio::fs::metadata(&video_path).await.map_err(|e| {
+/// Serve a file as `video/mp4` with HTTP Range support — 200 for a full request,
+/// 206 for a byte range. Streams from disk so multi-GB recordings (and the
+/// growing in-progress file) don't buffer into memory.
+async fn serve_file_with_range(path: &StdPath, headers: &HeaderMap) -> Result<Response, AppError> {
+    let metadata = tokio::fs::metadata(path).await.map_err(|e| {
         AppError::InternalServerError(format!("Failed to read video metadata: {}", e))
     })?;
-
     let file_size = metadata.len();
 
-    // Check for Range header
     let range_header = headers.get(header::RANGE).and_then(|v| v.to_str().ok());
 
     if let Some(range_str) = range_header {
-        // Handle range request
         if let Some((start, end)) = parse_range_header(Some(range_str), file_size) {
             let length = end - start + 1;
 
-            // Read the requested range
-            let mut file = File::open(&video_path).await.map_err(|e| {
+            let mut file = File::open(path).await.map_err(|e| {
                 AppError::InternalServerError(format!("Failed to open video: {}", e))
             })?;
 
-            // Seek to start position
             use tokio::io::AsyncSeekExt;
             file.seek(std::io::SeekFrom::Start(start))
                 .await
@@ -524,7 +645,6 @@ pub async fn get_event_video(
                 .body(Body::from_stream(stream))
                 .unwrap());
         } else {
-            // Invalid range
             return Err(AppError::BadRequestError(
                 "Invalid Range header".to_string(),
             ));
@@ -533,7 +653,7 @@ pub async fn get_event_video(
 
     // No range request - stream the full file from disk rather than reading it
     // entirely into memory (events can be multiple GB).
-    let file = File::open(&video_path)
+    let file = File::open(path)
         .await
         .map_err(|e| AppError::InternalServerError(format!("Failed to open video: {}", e)))?;
     let stream = ReaderStream::new(file);
@@ -545,6 +665,34 @@ pub async fn get_event_video(
         .header(header::CONTENT_LENGTH, file_size.to_string())
         .body(Body::from_stream(stream))
         .unwrap())
+}
+
+/// Byte-serve an event's media file for the in-progress HLS playlist's
+/// `#EXT-X-BYTERANGE` segments — the growing `incomplete.*.mp4` while recording,
+/// or the finalized file once closed. Range support is what makes the rewritten
+/// `media.mp4` URIs resolve.
+#[utoipa::path(
+    get,
+    path = "/api/v3/events/{id}/stream/media.mp4",
+    operation_id = "getEventStreamMedia",
+    tag = "Event Playback",
+    params(("id" = u64, Path, description = "Event ID")),
+    responses(
+        (status = 200, description = "Media file (full)", content_type = "video/mp4"),
+        (status = 206, description = "Partial content", content_type = "video/mp4"),
+        (status = 404, description = "Event not found", body = AppResponseError),
+        (status = 416, description = "Range not satisfiable", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+pub async fn get_event_stream_media(
+    State(state): State<AppState>,
+    Path(path): Path<EventPlaybackPath>,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
+    debug!("Getting media (range) for event {}", path.id);
+    let media_path = get_event_media_path(&state, path.id).await?;
+    serve_file_with_range(&media_path, &headers).await
 }
 
 /// Get event video metadata (codec, dimensions, duration).
@@ -571,6 +719,33 @@ pub async fn get_event_info(
 ) -> Result<Json<EventVideoInfo>, AppError> {
     debug!("Getting media info for event {}", path.id);
 
+    let event = get_event_entity(&state, path.id).await?;
+
+    // While recording there is no finalized file to probe (the growing MP4 has
+    // no moov atom yet), so codec/dimensions are unknown. Return 200 with
+    // `in_progress: true` and `recommended_mode: "event"` so the client can pick
+    // the in-progress HLS path instead of seeing a 404.
+    if event_is_in_progress(&event) {
+        let file_size = match event_directory(&state, &event, path.id).await {
+            Ok(dir) => match find_incomplete_media(&dir).await {
+                Some(p) => tokio::fs::metadata(&p).await.map(|m| m.len()).unwrap_or(0),
+                None => 0,
+            },
+            Err(_) => 0,
+        };
+        return Ok(Json(EventVideoInfo {
+            event_id: path.id,
+            video_codec: "Unknown".to_string(),
+            width: 0,
+            height: 0,
+            duration_seconds: 0.0,
+            file_size,
+            playable_direct: false,
+            recommended_mode: "event".to_string(),
+            in_progress: true,
+        }));
+    }
+
     let video_path = get_event_video_path(&state, path.id).await?;
     let file_size = tokio::fs::metadata(&video_path)
         .await
@@ -591,6 +766,7 @@ pub async fn get_event_info(
         file_size,
         playable_direct,
         recommended_mode: if playable_direct { "direct" } else { "hls" }.to_string(),
+        in_progress: false,
     }))
 }
 
@@ -986,6 +1162,63 @@ mod tests {
         assert!(is_default_storage(Some(0)));
         assert!(!is_default_storage(Some(1)));
         assert!(!is_default_storage(Some(7)));
+    }
+
+    #[test]
+    fn replace_map_uri_swaps_uri_keeps_byterange() {
+        let line = r#"#EXT-X-MAP:URI="index.php?view=view_video&eid=7848&file=incomplete.h264.mp4",BYTERANGE="868@0""#;
+        assert_eq!(
+            replace_map_uri(line, "media.mp4"),
+            r#"#EXT-X-MAP:URI="media.mp4",BYTERANGE="868@0""#
+        );
+    }
+
+    #[test]
+    fn replace_map_uri_passes_through_without_uri() {
+        let line = "#EXT-X-MAP:BYTERANGE=\"10@0\"";
+        assert_eq!(replace_map_uri(line, "media.mp4"), line);
+    }
+
+    #[test]
+    fn rewrite_zm_event_playlist_rewrites_uris_preserves_structure() {
+        // Verbatim shape of ZoneMinder's in-progress index.m3u8.
+        let zm = "#EXTM3U\n\
+                  #EXT-X-VERSION:7\n\
+                  #EXT-X-TARGETDURATION:1\n\
+                  #EXT-X-MEDIA-SEQUENCE:0\n\
+                  #EXT-X-PLAYLIST-TYPE:EVENT\n\
+                  #EXT-X-MAP:URI=\"index.php?view=view_video&eid=7848&file=incomplete.h264.mp4\",BYTERANGE=\"868@0\"\n\
+                  #EXTINF:1.000,\n\
+                  #EXT-X-BYTERANGE:631575@868\n\
+                  index.php?view=view_video&eid=7848&file=incomplete.h264.mp4\n\
+                  #EXTINF:1.000,\n\
+                  #EXT-X-BYTERANGE:627822@632443\n\
+                  index.php?view=view_video&eid=7848&file=incomplete.h264.mp4\n";
+
+        let out = rewrite_zm_event_playlist(zm, "media.mp4");
+
+        // No legacy PHP path survives anywhere.
+        assert!(!out.contains("index.php"), "index.php leaked: {out}");
+        // EVENT type and byte-range offsets are preserved; no premature ENDLIST.
+        assert!(out.contains("#EXT-X-PLAYLIST-TYPE:EVENT"));
+        assert!(out.contains("#EXT-X-BYTERANGE:631575@868"));
+        assert!(out.contains("#EXT-X-BYTERANGE:627822@632443"));
+        assert!(!out.contains("#EXT-X-ENDLIST"));
+        // MAP + every segment line now target the native media route.
+        assert!(out.contains(r#"#EXT-X-MAP:URI="media.mp4",BYTERANGE="868@0""#));
+        assert_eq!(out.matches("\nmedia.mp4\n").count(), 2);
+        // EXTINF timing untouched.
+        assert_eq!(out.matches("#EXTINF:1.000,").count(), 2);
+    }
+
+    #[test]
+    fn rewrite_zm_event_playlist_keeps_endlist_when_present() {
+        let zm =
+            "#EXTM3U\nindex.php?view=view_video&eid=1&file=incomplete.h264.mp4\n#EXT-X-ENDLIST\n";
+        let out = rewrite_zm_event_playlist(zm, "media.mp4");
+        assert!(out.contains("#EXT-X-ENDLIST"));
+        assert!(out.contains("\nmedia.mp4\n"));
+        assert!(!out.contains("index.php"));
     }
 
     #[test]

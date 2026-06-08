@@ -26,6 +26,13 @@ pub fn add_events_playback_routes(router: Router<AppState>) -> Router<AppState> 
             get(events_playback::get_event_stream_video)
                 .route_layer(axum::middleware::from_fn(media_auth_middleware)),
         )
+        // Range-served media for the in-progress (EVENT) playlist's byte-range
+        // segments — the growing incomplete.*.mp4 while recording.
+        .route(
+            "/api/v3/events/{id}/stream/media.mp4",
+            get(events_playback::get_event_stream_media)
+                .route_layer(axum::middleware::from_fn(media_auth_middleware)),
+        )
         // HLS-VOD init + media segments
         .route(
             "/api/v3/events/{id}/stream/init.mp4",
