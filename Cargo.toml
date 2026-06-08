@@ -172,7 +172,7 @@ conf-files = [
 ]
 
 [package.metadata.rpm]
-package = "zm_api"
+package = "zm-api"
 license = "AGPL-3.0-or-later"
 
 [package.metadata.rpm.cargo]

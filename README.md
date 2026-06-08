@@ -19,6 +19,21 @@ with live streaming, fine-grained access control, and OpenAPI docs baked in.*
 
 ---
 
+## 📦 Install
+
+Install the prebuilt package — it runs as a systemd service in **passive mode** (REST API
+only), safe to drop onto an existing ZoneMinder box:
+
+```bash
+sudo dpkg -i zm-api_*.deb        # Debian / Ubuntu / Raspberry Pi OS
+sudo dnf install zm-api-*.rpm    # Fedora / RHEL / Rocky / Alma  (zypper on openSUSE)
+```
+
+Want to build from source or run a local dev setup instead? See **[Quick Start](#-quick-start)**.
+Full distro matrix, config & TLS: **[`docs/deployment.md`](docs/deployment.md)**.
+
+---
+
 ## ✨ Why zm_api?
 
 ZoneMinder is a rock-solid surveillance platform, but its API grew organically across Perl,
@@ -123,14 +138,36 @@ flowchart TD
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### Install as a service (packages)
+
+The fastest path. Packages install zm_api as a systemd service in **passive mode** — it serves
+the REST API alongside a running ZoneMinder without touching its daemons, so it's safe on an
+existing box.
+
+```bash
+sudo dpkg -i zm-api_*.deb        # Debian / Ubuntu / Raspberry Pi OS
+sudo dnf install zm-api-*.rpm    # Fedora / RHEL / Rocky / Alma  (zypper on openSUSE)
+```
+
+To have zm_api take over ZoneMinder daemon supervision (stops & disables `zoneminder.service`):
+
+```bash
+sudo zm_api-takeover             # --revert hands control back to ZoneMinder
+```
+
+Build packages yourself with `./scripts/package.sh [deb|rpm|arch|all]`. Full distro matrix,
+config, and TLS setup: [`docs/deployment.md`](docs/deployment.md).
+
+### Build from source
+
+For development or platforms without a prebuilt package.
+
+**Prerequisites**
 
 - **Rust** (current stable) — install via [rustup](https://rustup.rs)
 - **MariaDB / MySQL** with a ZoneMinder schema
 - **FFmpeg dev libraries** — `libavutil-dev libavcodec-dev libavformat-dev libavfilter-dev
   libavdevice-dev libswscale-dev libswresample-dev` (Debian/Ubuntu) or `brew install ffmpeg`
-
-### Run it
 
 ```bash
 # 1. Clone
@@ -156,25 +193,6 @@ Once running, open the interactive docs:
 |---|---|
 | 🧭 **Swagger UI** | `http://<host>:<port>/swagger-ui` |
 | 📄 **OpenAPI spec** | `http://<host>:<port>/api-docs/openapi.json` |
-
-### Install as a service (packages)
-
-Packages install zm_api as a systemd service in **passive mode** — it serves the REST API
-alongside a running ZoneMinder without touching its daemons, so it's safe on an existing box.
-
-```bash
-sudo dpkg -i zm-api_*.deb        # Debian / Ubuntu / Raspberry Pi OS
-sudo dnf install zm_api-*.rpm    # Fedora / RHEL / Rocky / Alma  (zypper on openSUSE)
-```
-
-To have zm_api take over ZoneMinder daemon supervision (stops & disables `zoneminder.service`):
-
-```bash
-sudo zm_api-takeover             # --revert hands control back to ZoneMinder
-```
-
-Build packages with `./scripts/package.sh [deb|rpm|arch|all]`. Full distro matrix, config, and
-TLS setup: [`docs/deployment.md`](docs/deployment.md).
 
 ---
 

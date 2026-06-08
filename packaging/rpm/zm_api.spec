@@ -1,8 +1,13 @@
-# RPM spec for zm_api — covers Fedora / RHEL / Rocky / AlmaLinux and openSUSE.
+# RPM spec for zm-api — covers Fedora / RHEL / Rocky / AlmaLinux and openSUSE.
 # Build locally with:  rpmbuild -bb packaging/rpm/zm_api.spec  (after placing a
 # source tarball in ~/rpmbuild/SOURCES), or submit to COPR / openSUSE OBS.
 
-Name:           zm_api
+# Package name is hyphenated (distro convention, matches the .deb and the repo).
+# The Rust crate/binary, systemd unit and install paths stay underscored
+# (zm_api) — %{appname} carries that everywhere paths/files are referenced.
+%global appname zm_api
+
+Name:           zm-api
 Version:        3.0.0
 # Pre-release ordering: 0.N.prerel sorts before the stable release.
 # For the stable 3.0.0, set Release back to 1 (plus the dist tag).
@@ -11,7 +16,7 @@ Summary:        ZoneMinder REST API and daemon supervisor
 
 License:        AGPL-3.0-or-later
 URL:            https://github.com/SteveGilvarry/zm-api
-Source0:        %{name}-%{version}.tar.gz
+Source0:        %{appname}-%{version}.tar.gz
 
 BuildRequires:  cargo
 BuildRequires:  rust
@@ -48,48 +53,48 @@ passively alongside stock ZoneMinder (REST API only) or, after disabling
 zoneminder.service, take over supervision of the ZoneMinder daemons.
 
 %prep
-%autosetup -n %{name}-%{version}
+%autosetup -n %{appname}-%{version}
 
 %build
 cargo build --release --locked
 
 %install
-install -D -m 0755 target/release/%{name}            %{buildroot}%{_bindir}/%{name}
-install -D -m 0755 packaging/zm_api-takeover.sh       %{buildroot}%{_bindir}/%{name}-takeover
-install -D -m 0755 packaging/setup-instance.sh        %{buildroot}%{_datadir}/%{name}/setup-instance.sh
-install -D -m 0644 settings/base.toml                 %{buildroot}%{_sysconfdir}/%{name}/base.toml
-install -D -m 0644 settings/prod.toml                 %{buildroot}%{_sysconfdir}/%{name}/prod.toml
-install -D -m 0644 packaging/systemd/zm_api.env       %{buildroot}%{_sysconfdir}/%{name}/zm_api.env
-install -D -m 0644 packaging/systemd/zm_api.service   %{buildroot}%{_unitdir}/%{name}.service
+install -D -m 0755 target/release/%{appname}          %{buildroot}%{_bindir}/%{appname}
+install -D -m 0755 packaging/zm_api-takeover.sh        %{buildroot}%{_bindir}/%{appname}-takeover
+install -D -m 0755 packaging/setup-instance.sh         %{buildroot}%{_datadir}/%{appname}/setup-instance.sh
+install -D -m 0644 settings/base.toml                  %{buildroot}%{_sysconfdir}/%{appname}/base.toml
+install -D -m 0644 settings/prod.toml                  %{buildroot}%{_sysconfdir}/%{appname}/prod.toml
+install -D -m 0644 packaging/systemd/zm_api.env        %{buildroot}%{_sysconfdir}/%{appname}/zm_api.env
+install -D -m 0644 packaging/systemd/zm_api.service    %{buildroot}%{_unitdir}/%{appname}.service
 # NOTE: static/ is not packaged — it holds dev JWT keys. Per-install keys are
 # generated into /var/lib/zm_api/keys by setup-instance.sh.
 
 %post
 # Provision user/dirs/JWT keys (idempotent), then register the unit. Ships in
 # passive mode, so this never disturbs a running ZoneMinder.
-[ -x %{_datadir}/%{name}/setup-instance.sh ] && %{_datadir}/%{name}/setup-instance.sh || :
-%systemd_post %{name}.service
+[ -x %{_datadir}/%{appname}/setup-instance.sh ] && %{_datadir}/%{appname}/setup-instance.sh || :
+%systemd_post %{appname}.service
 if [ $1 -eq 1 ] && [ -d /run/systemd/system ]; then
-  systemctl enable --now %{name}.service || :
+  systemctl enable --now %{appname}.service || :
 fi
 
 %preun
-%systemd_preun %{name}.service
+%systemd_preun %{appname}.service
 
 %postun
-%systemd_postun_with_restart %{name}.service
+%systemd_postun_with_restart %{appname}.service
 
 %files
 %license LICENSE
-%{_bindir}/%{name}
-%{_bindir}/%{name}-takeover
-%dir %{_datadir}/%{name}
-%{_datadir}/%{name}/setup-instance.sh
-%{_unitdir}/%{name}.service
-%dir %{_sysconfdir}/%{name}
-%config(noreplace) %{_sysconfdir}/%{name}/base.toml
-%config(noreplace) %{_sysconfdir}/%{name}/prod.toml
-%config(noreplace) %{_sysconfdir}/%{name}/zm_api.env
+%{_bindir}/%{appname}
+%{_bindir}/%{appname}-takeover
+%dir %{_datadir}/%{appname}
+%{_datadir}/%{appname}/setup-instance.sh
+%{_unitdir}/%{appname}.service
+%dir %{_sysconfdir}/%{appname}
+%config(noreplace) %{_sysconfdir}/%{appname}/base.toml
+%config(noreplace) %{_sysconfdir}/%{appname}/prod.toml
+%config(noreplace) %{_sysconfdir}/%{appname}/zm_api.env
 
 %changelog
 * Sun May 31 2026 Steve Gilvarry <SteveGilvarry@users.noreply.github.com> - 3.0.0-0.1.alpha1
