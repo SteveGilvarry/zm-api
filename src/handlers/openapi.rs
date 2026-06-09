@@ -456,6 +456,8 @@ use crate::util::claim::UserClaims;
             crate::handlers::live::StartLiveResponse,
             crate::handlers::live::LiveStatsResponse,
             crate::handlers::live::LiveProtocolStatus,
+            // WebRTC signaling WebSocket message envelope (see webrtc_websocket_handler)
+            crate::handlers::live::WebRtcSignalingMessage,
 
             // logs
             crate::dto::request::logs::LogQueryParams,

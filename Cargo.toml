@@ -126,10 +126,6 @@ features = ["mysql", "postgres"]
 [build-dependencies]
 pkg-config = "0.3"
 
-# Link to the MSE plugin library
-# Note: You'll need to build the MSE plugin library first
-# and ensure it's in your library path or specify the path
-
 [dev-dependencies]
 # HTTP server testing helpers for Axum
 axum-test = { version = "20", features = ["typed-routing"] }

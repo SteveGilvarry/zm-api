@@ -10,7 +10,7 @@ Keep it practical: commands that work, where code lives, and project-specific co
 - Web framework: Axum v0.8.8
 - ORM: SeaORM v1.1 (current app config builds a `mysql://...` URL)
 - API docs: Utoipa v5.4.0 + Swagger UI (`/api-docs/openapi.json`, `/swagger-ui`)
-- Streaming-related code exists (WebRTC/MSE), but treat it as product code: don’t refactor broadly unless the task requires it.
+- Live streaming is WebRTC + HLS (the earlier MSE scaffolding was removed in commit `ab731fc`). Treat streaming as product code: don’t refactor broadly unless the task requires it.
 
 ## Guardrails (Important)
 

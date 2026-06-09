@@ -513,8 +513,13 @@ fn parse_segment_sequence(filename: &str) -> Option<u64> {
 // WebRTC Endpoints (WebSocket signaling)
 // ============================================================================
 
-/// WebRTC signaling message types
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// WebRTC signaling message types.
+///
+/// This is the *actual* wire format exchanged over the
+/// `/api/v3/live/{monitor_id}/webrtc/ws` WebSocket (text frames, JSON). The
+/// discriminator is the `type` field, lowercased: `offer`, `answer`,
+/// `icecandidate`, `ready`, `error`, `ping`, `pong`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum WebRtcSignalingMessage {
     /// Server offer to client
@@ -550,7 +555,31 @@ pub enum WebRtcSignalingMessage {
     Pong,
 }
 
-/// WebSocket handler for WebRTC signaling
+/// WebSocket handler for WebRTC signaling.
+///
+/// Upgrades to a WebSocket and exchanges WebRTC signaling over JSON **text
+/// frames**. OpenAPI cannot type WebSocket message bodies, so the message
+/// schema is documented here and as the `WebRtcSignalingMessage` component.
+///
+/// ## Message envelope
+///
+/// Every frame is a JSON object discriminated by a lowercase `type` field
+/// (see the `WebRtcSignalingMessage` schema). Note the field casing:
+/// `icecandidate` (one word) with camelCase `sdpMid` / `sdpMLineIndex`.
+///
+/// ## Typical flow (client-initiated, the common path)
+///
+/// 1. **Server → client** `{"type":"offer","session_id":"<id>","sdp":"..."}`
+///    — the server sends its SDP offer immediately on connect.
+/// 2. **Client → server** `{"type":"answer","session_id":"<id>","sdp":"..."}`.
+/// 3. **Both directions** `{"type":"icecandidate","session_id":"<id>",`
+///    `"candidate":"candidate:...","sdpMid":"0","sdpMLineIndex":0}` — trickled
+///    as discovered.
+/// 4. **Server → client** `{"type":"ready","session_id":"<id>","monitor_id":N}`
+///    once media is flowing.
+/// 5. **Errors** arrive as `{"type":"error","message":"..."}`.
+/// 6. **Keepalive**: either side may send `{"type":"ping"}`; the peer replies
+///    `{"type":"pong"}`.
 #[utoipa::path(
     get,
     path = "/api/v3/live/{monitor_id}/webrtc/ws",
@@ -560,7 +589,9 @@ pub enum WebRtcSignalingMessage {
         ("monitor_id" = u32, Path, description = "Monitor/Camera ID")
     ),
     responses(
-        (status = 101, description = "WebSocket connection upgraded for WebRTC signaling"),
+        (status = 101, description = "WebSocket upgraded. Frames are JSON `WebRtcSignalingMessage` \
+            objects (text). Server sends `offer`/`ready`/`icecandidate`/`error`/`pong`; client \
+            sends `answer`/`icecandidate`/`ping`.", body = WebRtcSignalingMessage),
         (status = 404, description = "Monitor not found", body = AppResponseError),
         (status = 503, description = "Service unavailable", body = AppResponseError)
     )
