@@ -36,6 +36,8 @@ pub struct AppState {
     pub snapshot_service: Option<Arc<SnapshotService>>,
     // PTZ Manager
     pub ptz_manager: Arc<PtzManager>,
+    // HomeKit (HAP) accessory bridge
+    pub homekit: Option<Arc<crate::homekit::HomeKitServer>>,
 }
 
 impl AppState {
@@ -111,6 +113,34 @@ impl AppState {
         let ptz_manager = Arc::new(PtzManager::with_defaults());
         tracing::info!("PTZ manager initialized");
 
+        // Initialize HomeKit bridge if enabled (reuses source router + snapshots).
+        let homekit = if config.homekit.enabled {
+            match source_router.as_ref() {
+                Some(router) => match crate::homekit::HomeKitServer::new(
+                    config.homekit.clone(),
+                    Arc::clone(router),
+                    snapshot_service.clone(),
+                ) {
+                    Ok(server) => {
+                        tracing::info!("HomeKit bridge enabled");
+                        Some(server)
+                    }
+                    Err(e) => {
+                        tracing::error!("HomeKit bridge init failed, disabling: {e}");
+                        None
+                    }
+                },
+                None => {
+                    tracing::warn!(
+                        "HomeKit enabled but streaming/source router is not; disabling HomeKit"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             config: Arc::new(config),
             db,
@@ -123,6 +153,7 @@ impl AppState {
             snapshot_service,
             daemon_manager,
             ptz_manager,
+            homekit,
         })
     }
 
@@ -151,6 +182,7 @@ impl AppState {
             snapshot_service: None,
             daemon_manager: None,
             ptz_manager: std::sync::Arc::new(PtzManager::with_defaults()),
+            homekit: None,
         }
     }
 

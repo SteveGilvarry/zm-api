@@ -100,6 +100,17 @@ impl AppServer {
             }
         }
 
+        // Start the HomeKit (HAP) bridge as an independent background task. A
+        // failure here must not take down the REST API, so it is spawned
+        // detached and only logged.
+        if let Some(homekit) = self.state.homekit.clone() {
+            tokio::spawn(async move {
+                if let Err(e) = homekit.run().await {
+                    tracing::error!("HomeKit bridge exited: {e}");
+                }
+            });
+        }
+
         // Capture the daemon manager before `self.state` is consumed by the
         // router, so managed daemons can be drained after the server exits.
         let daemon_manager = self.state.daemon_manager.clone();

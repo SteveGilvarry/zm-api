@@ -110,6 +110,20 @@ nix = { version = "0.31", features = ["signal", "fs"] }
 
 # Low-level libc bindings for PR_SET_PDEATHSIG
 libc = "0.2"
+# Apple HomeKit (HAP) accessory protocol support — see src/homekit/
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rtp = "0.17"
+webrtc-srtp = "0.17"
+# HAP uses SRP-6a with a proof formula the `srp` crate does not implement
+# (it omits H(N)^H(g)/H(I)/salt), so we implement RFC 5054 SRP-6a directly.
+num-bigint = "0.4"
+num-traits = "0.2"
+subtle = "2"
+mdns-sd = "0.13"
 
 [dependencies.sea-orm]
 version = "1"

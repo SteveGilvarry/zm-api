@@ -33,6 +33,8 @@ pub struct AppConfig {
     pub streaming: StreamingConfig,
     #[serde(default)]
     pub daemon: DaemonConfig,
+    #[serde(default)]
+    pub homekit: crate::homekit::HomeKitConfig,
 }
 
 impl AppConfig {

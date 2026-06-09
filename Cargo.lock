@@ -1563,6 +1563,7 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
  "curve25519-dalek-derive",
+ "digest",
  "fiat-crypto",
  "rustc_version",
  "subtle",
@@ -1855,6 +1856,31 @@ dependencies = [
  "rfc6979",
  "signature",
  "spki",
+]
+
+[[package]]
+name = "ed25519"
+version = "2.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "115531babc129696a58c64a4fef0a8bf9e9698629fb97e9e40767d235cfbcd53"
+dependencies = [
+ "pkcs8",
+ "signature",
+]
+
+[[package]]
+name = "ed25519-dalek"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70e796c081cee67dc755e1a36a0a172b897fab85fc3f6bc48307991f64e4eca9"
+dependencies = [
+ "curve25519-dalek",
+ "ed25519",
+ "rand_core 0.6.4",
+ "serde",
+ "sha2",
+ "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -3010,6 +3036,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "if-addrs"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69b2eeee38fef3aa9b4cc5f1beea8a2444fc00e7377cafae396de3f5c2065e24"
+dependencies = [
+ "libc",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "impl-more"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3440,6 +3476,20 @@ checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
 dependencies = [
  "cfg-if",
  "digest",
+]
+
+[[package]]
+name = "mdns-sd"
+version = "0.13.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "328f4e1041f7cfeb3affccb814ddbe2f004856a2ce769c8bf22080d74c5204c6"
+dependencies = [
+ "fastrand",
+ "flume",
+ "if-addrs",
+ "log",
+ "mio",
+ "socket2 0.5.10",
 ]
 
 [[package]]
@@ -7734,6 +7784,15 @@ dependencies = [
 
 [[package]]
 name = "windows-sys"
+version = "0.59.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
+dependencies = [
+ "windows-targets 0.52.6",
+]
+
+[[package]]
+name = "windows-sys"
 version = "0.60.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2f500e4d28234f72040990ec9d39e3a6b950f9f22d3dba18416c35882612bcb"
@@ -8262,15 +8321,18 @@ dependencies = [
  "base64",
  "bcrypt",
  "bytes",
+ "chacha20poly1305",
  "chrono",
  "config",
  "dashmap",
  "dotenvy",
+ "ed25519-dalek",
  "fake",
  "ffmpeg-next",
  "futures",
  "futures-util",
  "garde",
+ "hkdf",
  "insta",
  "interceptor",
  "itertools 0.14.0",
@@ -8278,9 +8340,12 @@ dependencies = [
  "libc",
  "libloading 0.9.0",
  "log",
+ "mdns-sd",
  "memmap2",
  "mockall",
  "nix 0.31.3",
+ "num-bigint",
+ "num-traits",
  "once_cell",
  "openssl",
  "pkg-config",
@@ -8290,6 +8355,7 @@ dependencies = [
  "reqwest",
  "retina",
  "rstest",
+ "rtp",
  "rust_decimal",
  "rustls",
  "rustls-acme",
@@ -8298,8 +8364,10 @@ dependencies = [
  "sentry",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "strum 0.28.0",
+ "subtle",
  "tempfile",
  "test-context",
  "thiserror 2.0.18",
@@ -8321,7 +8389,9 @@ dependencies = [
  "uuid",
  "webrtc",
  "webrtc-media",
+ "webrtc-srtp",
  "webrtc-util",
+ "x25519-dalek",
 ]
 
 [[package]]

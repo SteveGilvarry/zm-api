@@ -131,3 +131,18 @@ shutdown_timeout_seconds = 30
 stats_update_interval_seconds = 60
 enable_socket_ipc = true
 enable_rest_api = true
+
+# Apple HomeKit (HAP) accessory bridge. Disabled by default. When enabled,
+# zm_api advertises a HomeKit bridge over mDNS and exposes one monitor as an IP
+# camera (live H.264 over SRTP + JPEG snapshots), reusing the streaming pipeline.
+# Requires `streaming.enabled = true`. Override `pin`/`monitor_id` in your profile.
+[homekit]
+enabled = false
+name = "ZoneMinder"
+# 8-digit setup code entered in the Home app, format XXX-XX-XXX.
+pin = "031-45-154"
+setup_id = "ZMAP"
+port = 51826
+persist_dir = "/var/lib/zm_api/homekit"
+# ZoneMinder monitor id to expose as the camera (Phase 1 exposes one).
+monitor_id = 1

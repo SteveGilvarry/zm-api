@@ -16,6 +16,7 @@ pub mod entity;
 pub mod enum_traits;
 pub mod error;
 pub mod handlers;
+pub mod homekit;
 pub mod migration;
 pub mod ptz;
 pub mod repo;
