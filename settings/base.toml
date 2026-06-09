@@ -99,7 +99,7 @@ stun_servers = ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]
 enabled = true
 segment_duration_seconds = 2
 playlist_size = 10
-ll_hls_enabled = false
+ll_hls_enabled = true
 partial_segment_ms = 200
 
 [streaming.hls.storage]
