@@ -4,6 +4,7 @@ use crate::dto::response::SnapshotEventResponse;
 use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use crate::service::monitor_acl::MonitorScope;
 use axum::{
     extract::{Path, Query, State},
     Json,
@@ -24,8 +25,9 @@ use axum::{
 pub async fn list_snapshot_events(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
+    scope: MonitorScope,
 ) -> AppResult<Json<PaginatedSnapshotEventsResponse>> {
-    let result = crate::service::snapshots_events::list_paginated(&state, &params).await?;
+    let result = crate::service::snapshots_events::list_paginated(&state, &params, &scope).await?;
     Ok(Json(PaginatedSnapshotEventsResponse::from(result)))
 }
 
@@ -41,8 +43,9 @@ pub async fn list_snapshot_events(
 pub async fn get_snapshot_event(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<Json<SnapshotEventResponse>> {
-    let item = crate::service::snapshots_events::get_by_id(&state, id).await?;
+    let item = crate::service::snapshots_events::get_by_id(&state, id, &scope).await?;
     Ok(Json(item))
 }
 
@@ -57,9 +60,10 @@ pub async fn get_snapshot_event(
 )]
 pub async fn create_snapshot_event(
     State(state): State<AppState>,
+    scope: MonitorScope,
     Json(req): Json<CreateSnapshotEventRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<SnapshotEventResponse>)> {
-    let item = crate::service::snapshots_events::create(&state, req).await?;
+    let item = crate::service::snapshots_events::create(&state, req, &scope).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
@@ -75,7 +79,8 @@ pub async fn create_snapshot_event(
 pub async fn delete_snapshot_event(
     Path(id): Path<u32>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<axum::http::StatusCode> {
-    crate::service::snapshots_events::delete(&state, id).await?;
+    crate::service::snapshots_events::delete(&state, id, &scope).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

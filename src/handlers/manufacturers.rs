@@ -2,12 +2,13 @@ use crate::dto::request::CreateManufacturerRequest;
 use crate::dto::response::manufacturers::PaginatedManufacturersResponse;
 use crate::dto::response::ManufacturerResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 use serde::Deserialize;
 
 /// List manufacturers for camera models supported in ZoneMinder presets.
@@ -67,12 +68,14 @@ pub async fn create_manufacturer(
     State(state): State<AppState>,
     Json(req): Json<CreateManufacturerRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<ManufacturerResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::manufacturers::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Deserialize, utoipa::ToSchema, garde::Validate)]
 pub struct UpdateManufacturerRequest {
+    #[garde(inner(length(min = 1, max = 64)))]
     pub name: Option<String>,
 }
 
@@ -94,6 +97,7 @@ pub async fn update_manufacturer(
     State(state): State<AppState>,
     Json(req): Json<UpdateManufacturerRequest>,
 ) -> AppResult<Json<ManufacturerResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::manufacturers::update(&state, id, req.name).await?;
     Ok(Json(item))
 }

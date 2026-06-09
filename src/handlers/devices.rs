@@ -2,12 +2,13 @@ use crate::dto::request::devices::{CreateDeviceRequest, UpdateDeviceRequest};
 use crate::dto::response::devices::PaginatedDevicesResponse;
 use crate::dto::response::DeviceResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 
 /// List all devices with pagination.
 ///
@@ -65,6 +66,7 @@ pub async fn create_device(
     State(state): State<AppState>,
     Json(req): Json<CreateDeviceRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<DeviceResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::devices::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -87,6 +89,7 @@ pub async fn update_device(
     State(state): State<AppState>,
     Json(req): Json<UpdateDeviceRequest>,
 ) -> AppResult<Json<DeviceResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::devices::update(&state, id, req).await?;
     Ok(Json(item))
 }

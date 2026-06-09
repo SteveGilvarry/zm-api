@@ -199,9 +199,12 @@ pub fn create_router_app(state: AppState) -> Router {
         monitor_status::add_monitor_status_routes(Router::new()),
         Feature::Monitors,
     );
+    // Permission CRUD is administrative: a Groups:Edit / Monitors:Edit user
+    // would otherwise be able to grant themselves or others elevated row-level
+    // access via this endpoint. Require System (admin-tier) instead.
     let monitor_permission_routes = protect(
         monitors_permissions::add_monitor_permission_routes(Router::new()),
-        Feature::Monitors,
+        Feature::System,
     );
     let zone_routes = protect(zones::add_zone_routes(Router::new()), Feature::Monitors);
     let zone_preset_routes = protect(
@@ -243,11 +246,15 @@ pub fn create_router_app(state: AppState) -> Router {
         Feature::Control,
     );
     // PTZ acts on a monitor named in the path (`{id}`); guard it row-level.
-    let ptz_routes = protect(ptz::add_ptz_routes(Router::new()), Feature::Control).route_layer(
-        axum::middleware::from_fn_with_state(
+    // Order matters: `protect` must wrap *outside* the row-level guard so the
+    // feature-level RBAC check runs first and the guard's DB query is only
+    // reached after the caller has at least `Control:View`.
+    let ptz_routes = protect(
+        ptz::add_ptz_routes(Router::new()).route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::service::monitor_acl::monitor_path_guard,
-        ),
+        )),
+        Feature::Control,
     );
     let trigger_x10_routes = protect(
         triggers_x10::add_trigger_x10_routes(Router::new()),
@@ -259,9 +266,10 @@ pub fn create_router_app(state: AppState) -> Router {
         groups_monitors::add_group_monitor_routes(Router::new()),
         Feature::Groups,
     );
+    // Permission CRUD is administrative — see `monitor_permission_routes` above.
     let group_permission_routes = protect(
         groups_permissions::add_group_permission_routes(Router::new()),
-        Feature::Groups,
+        Feature::System,
     );
 
     let device_routes = protect(devices::add_device_routes(Router::new()), Feature::Devices);
@@ -283,11 +291,16 @@ pub fn create_router_app(state: AppState) -> Router {
     // Live streaming serves a monitor named in the path (`{monitor_id}`);
     // guard it row-level. `/live/sessions` and `/live/sources` have no path
     // monitor id, so the guard passes them through.
-    let live_routes = protect(live::add_live_routes(Router::new()), Feature::Stream).route_layer(
-        axum::middleware::from_fn_with_state(
+    //
+    // Order matters: `protect` must wrap *outside* the row-level guard so the
+    // feature-level RBAC check runs first and the guard's DB query is only
+    // reached after the caller has at least `Stream:View`.
+    let live_routes = protect(
+        live::add_live_routes(Router::new()).route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::service::monitor_acl::monitor_path_guard,
-        ),
+        )),
+        Feature::Stream,
     );
 
     let config_routes = protect(configs::add_config_routes(Router::new()), Feature::System);

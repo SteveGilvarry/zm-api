@@ -97,7 +97,8 @@ pub struct EventCreateRequest {
     pub secondary_storage_id: Option<u16>,
 
     #[schema(example = "Motion Detection")]
-    #[garde(length(min = 1, max = 255))]
+    // DB column `Events.Name` is varchar(64).
+    #[garde(length(min = 1, max = 64))]
     pub name: String,
 
     #[schema(example = "Motion in zone 1", nullable = true)]
@@ -136,7 +137,8 @@ pub struct EventCreateRequest {
 #[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
 pub struct EventUpdateRequest {
     #[schema(example = "Motion Detection")]
-    #[garde(length(min = 1, max = 255))]
+    // DB column `Events.Name` is varchar(64).
+    #[garde(length(min = 1, max = 64))]
     pub name: Option<String>,
 
     #[schema(example = "Motion in zone 1", nullable = true)]

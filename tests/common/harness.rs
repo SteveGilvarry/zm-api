@@ -212,11 +212,19 @@ pub fn token_for(user_id: u32, perms: UserPermissions) -> String {
 
 /// Mint a raw access-token JWT carrying the given permissions.
 ///
-/// Uses user id 0, which matches no `Monitors_Permissions` row and therefore
-/// resolves to unrestricted monitor access (default-allow).
+/// Uses a high-numbered "ghost" user id that no fixture inserts or grants
+/// permissions to. With no rows in `Monitors_Permissions` or
+/// `Groups_Permissions`, `MonitorScope::resolve` returns `MonitorScope::All`
+/// — unrestricted monitor access for the tests that don't care about
+/// row-level ACL.
 pub fn token_with(perms: UserPermissions) -> String {
-    token_for(0, perms)
+    token_for(GHOST_TEST_UID, perms)
 }
+
+/// Test-only user id deliberately chosen to be unused by any fixture or
+/// seeded user in the dev database. Sits well above the ranges other
+/// `it_*` tests pick (990_xxx, 9_876_543) so it cannot collide.
+const GHOST_TEST_UID: u32 = 999_999_001;
 
 /// Mint a raw access-token JWT with full `Edit` permissions everywhere.
 pub fn superuser_token() -> String {

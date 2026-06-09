@@ -2,12 +2,13 @@ use crate::dto::request::controls::{CreateControlRequest, UpdateControlRequest};
 use crate::dto::response::controls::PaginatedControlsResponse;
 use crate::dto::response::ControlResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 
 /// List all camera controls with pagination.
 ///
@@ -65,6 +66,7 @@ pub async fn create_control(
     State(state): State<AppState>,
     Json(req): Json<CreateControlRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<ControlResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::controls::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -87,6 +89,7 @@ pub async fn update_control(
     State(state): State<AppState>,
     Json(req): Json<UpdateControlRequest>,
 ) -> AppResult<Json<ControlResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::controls::update(&state, id, req).await?;
     Ok(Json(item))
 }

@@ -1,12 +1,16 @@
 use crate::entity::sea_orm_active_enums::MonitorType;
+use garde::Validate;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema, Validate)]
+#[garde(allow_unvalidated)]
 pub struct CreateControlRequest {
+    #[garde(length(min = 1, max = 64))]
     pub name: String,
     #[serde(rename = "type")]
     pub r#type: MonitorType,
+    #[garde(inner(length(max = 64)))]
     pub protocol: Option<String>,
     pub can_wake: Option<u8>,
     pub can_sleep: Option<u8>,
@@ -106,11 +110,14 @@ pub struct CreateControlRequest {
     pub num_scan_paths: Option<u8>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema, Validate)]
+#[garde(allow_unvalidated)]
 pub struct UpdateControlRequest {
+    #[garde(inner(length(min = 1, max = 64)))]
     pub name: Option<String>,
     #[serde(rename = "type")]
     pub r#type: Option<MonitorType>,
+    #[garde(inner(length(max = 64)))]
     pub protocol: Option<String>,
     pub can_wake: Option<u8>,
     pub can_sleep: Option<u8>,

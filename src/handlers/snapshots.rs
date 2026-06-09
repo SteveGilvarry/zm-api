@@ -1,3 +1,12 @@
+//! Handlers for the `Snapshots` table.
+//!
+//! Unlike events and frames, `Snapshots` carries no `monitor_id` column —
+//! snapshots associate with monitors only transitively via the
+//! `Snapshots_Events` link table. Per-monitor `MonitorScope` enforcement
+//! therefore lives entirely in `snapshots_events`, not here. The snapshot
+//! body itself (name / description / created_by) has no monitor identity
+//! to gate on.
+
 use crate::dto::request::snapshots::{CreateSnapshotRequest, UpdateSnapshotRequest};
 use crate::dto::response::snapshots::PaginatedSnapshotsResponse;
 use crate::dto::response::SnapshotResponse;

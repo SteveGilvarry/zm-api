@@ -1,5 +1,6 @@
 use axum::extract::{Path, Query, State};
 use axum::Json;
+use garde::Validate;
 use tracing::{info, warn};
 
 use crate::dto::request::{
@@ -8,6 +9,7 @@ use crate::dto::request::{
 use crate::dto::response::monitors::PaginatedMonitorsResponse;
 use crate::dto::response::MonitorResponse;
 use crate::dto::PaginationParams;
+use crate::error::AppError;
 use crate::error::AppResponseError;
 use crate::error::AppResult;
 use crate::server::state::AppState;
@@ -100,6 +102,7 @@ pub async fn create_monitor(
     State(state): State<AppState>,
     Json(req): Json<CreateMonitorRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     info!("Creating new monitor with request: {req:?}.");
     match service::monitor::create(&state, req).await {
         Ok(monitor) => Ok(Json(monitor)),
@@ -135,6 +138,7 @@ pub async fn update_monitor(
     scope: MonitorScope,
     Json(req): Json<UpdateMonitorRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     info!("Editing monitor with ID: {id} and request: {req:?}.");
     match service::monitor::update(&state, id, req, &scope).await {
         Ok(monitor) => Ok(Json(monitor)),

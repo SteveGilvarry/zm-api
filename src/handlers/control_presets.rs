@@ -4,13 +4,14 @@ use crate::dto::request::control_presets::{
 use crate::dto::response::control_presets::PaginatedControlPresetsResponse;
 use crate::dto::response::ControlPresetResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use crate::service::monitor_acl::MonitorScope;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 use serde::Deserialize;
 
 // NB: pagination fields are inlined rather than `#[serde(flatten)]`-ed in.
@@ -105,6 +106,7 @@ pub async fn create_control_preset(
     scope: MonitorScope,
     Json(req): Json<CreateControlPresetRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<ControlPresetResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::control_presets::create(&state, req, &scope).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -131,6 +133,7 @@ pub async fn update_control_preset(
     scope: MonitorScope,
     Json(req): Json<UpdateControlPresetRequest>,
 ) -> AppResult<Json<ControlPresetResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item =
         crate::service::control_presets::update(&state, monitor_id, preset, req, &scope).await?;
     Ok(Json(item))

@@ -23,7 +23,11 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<Us
     Ok(Users::find_by_id(id).one(db).await?)
 }
 
-// Find a user by username and enabled flag (ZoneMinder Users table)
+// Find a user by username, filtered to those whose accounts are enabled AND
+// whose API access is enabled. ZoneMinder maintains a separate `APIEnabled`
+// column intended to let an admin disable the API for a user without
+// suspending their web-UI login — honour it at the auth boundary so a
+// disabled-API user can't acquire a token.
 #[tracing::instrument(skip_all)]
 pub async fn find_by_username_and_status(
     db: &DatabaseConnection,
@@ -34,7 +38,8 @@ pub async fn find_by_username_and_status(
         .filter(
             crate::entity::users::Column::Username
                 .eq(username)
-                .and(crate::entity::users::Column::Enabled.eq(is_enabled)),
+                .and(crate::entity::users::Column::Enabled.eq(is_enabled))
+                .and(crate::entity::users::Column::ApiEnabled.eq(1u8)),
         )
         .one(db)
         .await?)

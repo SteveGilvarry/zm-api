@@ -48,6 +48,9 @@ fn protected_routes() -> Vec<ProtectedRoute> {
         route(Method::GET, "/api/v3/sessions"),
         route(Method::GET, "/api/v3/montage_layouts"),
         route(Method::POST, "/api/v3/system/shutdown"),
+        // Invokes `systemctl restart/stop/start zoneminder` — must require
+        // System (admin) RBAC, not just authentication.
+        route(Method::POST, "/api/v3/states/change/restart"),
         // --- Monitors ---
         route(Method::GET, "/api/v3/monitors"),
         route(Method::GET, "/api/v3/monitor_presets"),
@@ -81,6 +84,18 @@ fn protected_routes() -> Vec<ProtectedRoute> {
         route(Method::GET, "/api/v3/snapshots-events"),
         // --- Stream ---
         route(Method::GET, "/api/v3/live/sessions"),
+        route(Method::GET, "/api/v3/live/sources"),
+        // Per-monitor live endpoints: HLS media endpoints accept
+        // `?token=` via `media_auth_middleware`; control/stats endpoints
+        // require the `Authorization` header via `auth_middleware`.
+        route(Method::POST, "/api/v3/live/1/start"),
+        route(Method::DELETE, "/api/v3/live/1/stop"),
+        route(Method::GET, "/api/v3/live/1/stats"),
+        route(Method::GET, "/api/v3/live/1/hls/master.m3u8"),
+        route(Method::GET, "/api/v3/live/1/hls/live.m3u8"),
+        route(Method::GET, "/api/v3/live/1/hls/init.mp4"),
+        route(Method::GET, "/api/v3/live/1/hls/segment_00001.m4s"),
+        route(Method::GET, "/api/v3/live/1/webrtc/ws"),
     ]
 }
 

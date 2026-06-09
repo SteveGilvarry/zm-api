@@ -54,6 +54,7 @@ pub async fn list_events(
     Query(params): Query<EventQueryParams>,
     scope: MonitorScope,
 ) -> AppResult<Json<PaginatedEventsResponse>> {
+    params.validate().map_err(AppError::InvalidInputError)?;
     info!("Listing events with params: {:?}", params);
 
     let events = service::events::list(&state, &params, &scope).await?;

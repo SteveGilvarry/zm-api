@@ -89,10 +89,13 @@ pub struct PtzPresetRequest {
     /// restricted to keep names safe to log, store, and pass downstream as
     /// a single argv element to zmcontrol.pl: NUL truncates C strings,
     /// newlines enable log injection, and slashes have no business in a
-    /// preset label. Any printable, non-control, non-slash character is OK,
-    /// including Unicode letters (so non-Latin names still work).
+    /// preset label. The first character may not be `-` either, since a
+    /// leading hyphen makes the value indistinguishable from a flag to the
+    /// Perl Getopt::Long parser on the receiving end. Any printable,
+    /// non-control, non-slash character is OK after that, including Unicode
+    /// letters (so non-Latin names still work).
     #[garde(length(max = 64))]
-    #[garde(pattern(r"^[^\x00-\x1F\x7F/\\]*$"))]
+    #[garde(pattern(r"^([^\x00-\x1F\x7F/\\-][^\x00-\x1F\x7F/\\]*)?$"))]
     #[serde(default)]
     pub name: Option<String>,
 }
@@ -204,5 +207,17 @@ mod tests {
         assert!(preset(Some(&too_long)).validate().is_err());
         let just_right = "a".repeat(64);
         assert!(preset(Some(&just_right)).validate().is_ok());
+    }
+
+    #[test]
+    fn preset_name_rejects_leading_hyphen() {
+        // A leading `-` makes the value look like a flag to the downstream
+        // Perl Getopt::Long parser. Hyphens elsewhere are fine.
+        assert!(preset(Some("-front")).validate().is_err());
+        assert!(preset(Some("--filter_id=1")).validate().is_err());
+        assert!(preset(Some("-")).validate().is_err());
+        // Mid-string and trailing hyphens stay legal.
+        assert!(preset(Some("Cam-01_west")).validate().is_ok());
+        assert!(preset(Some("a-")).validate().is_ok());
     }
 }

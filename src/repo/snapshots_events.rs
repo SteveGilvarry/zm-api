@@ -6,15 +6,40 @@ use crate::entity::snapshots_events::{
 use crate::error::AppResult;
 use sea_orm::*;
 
-pub async fn find_all(db: &DatabaseConnection) -> AppResult<Vec<SnapshotEventModel>> {
-    Ok(SnapshotsEvents::find().all(db).await?)
+/// Subquery selecting event ids that belong to an allowlist of monitors.
+/// Used to row-level-ACL-filter `Snapshots_Events`, which link to monitors
+/// only via their parent event.
+fn events_for_monitors(ids: &[u32]) -> sea_orm::sea_query::SelectStatement {
+    use crate::entity::events;
+    use sea_orm::sea_query::Query;
+    Query::select()
+        .column(events::Column::Id)
+        .from(events::Entity)
+        .and_where(events::Column::MonitorId.is_in(ids.iter().copied()))
+        .to_owned()
+}
+
+pub async fn find_all(
+    db: &DatabaseConnection,
+    monitor_filter: Option<&[u32]>,
+) -> AppResult<Vec<SnapshotEventModel>> {
+    let mut query = SnapshotsEvents::find();
+    if let Some(ids) = monitor_filter {
+        query = query.filter(Column::EventId.in_subquery(events_for_monitors(ids)));
+    }
+    Ok(query.all(db).await?)
 }
 
 pub async fn find_paginated(
     db: &DatabaseConnection,
     params: &PaginationParams,
+    monitor_filter: Option<&[u32]>,
 ) -> AppResult<(Vec<SnapshotEventModel>, u64)> {
-    let paginator = SnapshotsEvents::find().paginate(db, params.page_size());
+    let mut query = SnapshotsEvents::find();
+    if let Some(ids) = monitor_filter {
+        query = query.filter(Column::EventId.in_subquery(events_for_monitors(ids)));
+    }
+    let paginator = query.paginate(db, params.page_size());
     let total = paginator.num_items().await?;
     let items = paginator
         .fetch_page(params.page().saturating_sub(1))
@@ -29,11 +54,13 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<Sn
 pub async fn find_by_snapshot_id(
     db: &DatabaseConnection,
     snapshot_id: u32,
+    monitor_filter: Option<&[u32]>,
 ) -> AppResult<Vec<SnapshotEventModel>> {
-    Ok(SnapshotsEvents::find()
-        .filter(Column::SnapshotId.eq(snapshot_id))
-        .all(db)
-        .await?)
+    let mut query = SnapshotsEvents::find().filter(Column::SnapshotId.eq(snapshot_id));
+    if let Some(ids) = monitor_filter {
+        query = query.filter(Column::EventId.in_subquery(events_for_monitors(ids)));
+    }
+    Ok(query.all(db).await?)
 }
 
 pub async fn find_by_event_id(

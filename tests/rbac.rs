@@ -90,3 +90,79 @@ async fn wrong_feature_permission_does_not_grant_access() {
         StatusCode::FORBIDDEN
     );
 }
+
+// ---------------------------------------------------------------------------
+// Granting permissions to users is an administrative operation. The
+// `/groups-permissions` and `/monitors-permissions` POST/PATCH/DELETE routes
+// must require `System:Edit`, not the feature they manage — otherwise a user
+// with `Groups:Edit` or `Monitors:Edit` could grant themselves or others
+// elevated row-level access.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn groups_edit_alone_cannot_grant_group_permissions() {
+    let perms = UserPermissions {
+        groups: Level::Edit,
+        ..UserPermissions::default()
+    };
+    let t = token(perms);
+    assert_eq!(
+        status("POST", "/api/v3/groups-permissions", Some(&t)).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        status("DELETE", "/api/v3/groups-permissions/1", Some(&t)).await,
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[tokio::test]
+async fn monitors_edit_alone_cannot_grant_monitor_permissions() {
+    let perms = UserPermissions {
+        monitors: Level::Edit,
+        ..UserPermissions::default()
+    };
+    let t = token(perms);
+    assert_eq!(
+        status("POST", "/api/v3/monitors-permissions", Some(&t)).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        status("DELETE", "/api/v3/monitors-permissions/1", Some(&t)).await,
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[tokio::test]
+async fn state_change_requires_system_edit() {
+    // POST /api/v3/states/change/{action} invokes `systemctl restart` on
+    // zoneminder. Any token-holder must not be able to trigger it; require
+    // System:Edit even though Monitors:Edit is the "biggest" feature most
+    // operators carry.
+    let perms = UserPermissions {
+        monitors: Level::Edit,
+        ..UserPermissions::default()
+    };
+    let t = token(perms);
+    assert_eq!(
+        status("POST", "/api/v3/states/change/restart", Some(&t)).await,
+        StatusCode::FORBIDDEN
+    );
+}
+
+#[tokio::test]
+async fn system_edit_clears_rbac_for_permission_crud() {
+    let perms = UserPermissions {
+        system: Level::Edit,
+        ..UserPermissions::default()
+    };
+    let t = token(perms);
+    // Both routes should clear RBAC for a System:Edit caller — what happens
+    // beyond that (bad JSON body, etc.) is a handler concern, not an RBAC one.
+    let got = status("POST", "/api/v3/groups-permissions", Some(&t)).await;
+    assert_ne!(got, StatusCode::FORBIDDEN);
+    assert_ne!(got, StatusCode::UNAUTHORIZED);
+    let got = status("POST", "/api/v3/monitors-permissions", Some(&t)).await;
+    assert_ne!(got, StatusCode::FORBIDDEN);
+    assert_ne!(got, StatusCode::UNAUTHORIZED);
+}

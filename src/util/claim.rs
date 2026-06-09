@@ -33,10 +33,12 @@ pub struct UserClaims {
     pub exp: i64,
     // username
     pub user: String,
-    // numeric user id, used to resolve row-level monitor ACLs. Defaulted to 0
-    // for tokens issued before this field existed; a uid of 0 matches no
-    // permission row and therefore resolves to unrestricted (default-allow).
-    #[serde(default)]
+    // numeric user id, used to resolve row-level monitor ACLs. Required at
+    // the protocol level: a token without `uid` fails to deserialise and the
+    // request is rejected. (The earlier `#[serde(default)]` was speculative
+    // backward-compat for tokens issued before this field existed — but the
+    // field was added together with the ACL machinery, so no such tokens
+    // could ever have exploited the missing-uid default-allow path.)
     pub uid: u32,
     // per-feature permission snapshot (RBAC). Defaulted for backward
     // compatibility with tokens issued before RBAC existed.

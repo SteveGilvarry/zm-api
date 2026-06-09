@@ -4,6 +4,7 @@ use axum::{
     extract::{Path, State},
     Json,
 };
+use garde::Validate;
 use tracing::instrument;
 
 use crate::dto::request::ptz::{
@@ -13,7 +14,7 @@ use crate::dto::request::ptz::{
 use crate::dto::response::ptz::{
     PtzCapabilitiesResponse, PtzCommandResponse, PtzProtocolListResponse, PtzStatusResponse,
 };
-use crate::error::{AppResponseError, AppResult};
+use crate::error::{AppError, AppResponseError, AppResult};
 use crate::server::state::AppState;
 use crate::service;
 
@@ -111,6 +112,7 @@ pub async fn move_up(
     State(state): State<AppState>,
     Json(request): Json<PtzMoveRequest>,
 ) -> AppResult<Json<PtzCommandResponse>> {
+    request.validate().map_err(AppError::InvalidInputError)?;
     let ptz_manager = state.ptz_manager();
     let result = service::ptz::move_direction(&state, ptz_manager, id, "up", request).await?;
     Ok(Json(result))
@@ -138,6 +140,7 @@ pub async fn move_down(
     State(state): State<AppState>,
     Json(request): Json<PtzMoveRequest>,
 ) -> AppResult<Json<PtzCommandResponse>> {
+    request.validate().map_err(AppError::InvalidInputError)?;
     let ptz_manager = state.ptz_manager();
     let result = service::ptz::move_direction(&state, ptz_manager, id, "down", request).await?;
     Ok(Json(result))
@@ -165,6 +168,7 @@ pub async fn move_left(
     State(state): State<AppState>,
     Json(request): Json<PtzMoveRequest>,
 ) -> AppResult<Json<PtzCommandResponse>> {
+    request.validate().map_err(AppError::InvalidInputError)?;
     let ptz_manager = state.ptz_manager();
     let result = service::ptz::move_direction(&state, ptz_manager, id, "left", request).await?;
     Ok(Json(result))
@@ -192,6 +196,7 @@ pub async fn move_right(
     State(state): State<AppState>,
     Json(request): Json<PtzMoveRequest>,
 ) -> AppResult<Json<PtzCommandResponse>> {
+    request.validate().map_err(AppError::InvalidInputError)?;
     let ptz_manager = state.ptz_manager();
     let result = service::ptz::move_direction(&state, ptz_manager, id, "right", request).await?;
     Ok(Json(result))
@@ -219,6 +224,7 @@ pub async fn move_up_left(
     State(state): State<AppState>,
     Json(request): Json<PtzMoveRequest>,
 ) -> AppResult<Json<PtzCommandResponse>> {
+    request.validate().map_err(AppError::InvalidInputError)?;
     let ptz_manager = state.ptz_manager();
     let result = service::ptz::move_direction(&state, ptz_manager, id, "up-left", request).await?;
     Ok(Json(result))
@@ -246,6 +252,7 @@ pub async fn move_up_right(
     State(state): State<AppState>,
     Json(request): Json<PtzMoveRequest>,
 ) -> AppResult<Json<PtzCommandResponse>> {
+    request.validate().map_err(AppError::InvalidInputError)?;
     let ptz_manager = state.ptz_manager();
     let result = service::ptz::move_direction(&state, ptz_manager, id, "up-right", request).await?;
     Ok(Json(result))
@@ -273,6 +280,7 @@ pub async fn move_down_left(
     State(state): State<AppState>,
     Json(request): Json<PtzMoveRequest>,
 ) -> AppResult<Json<PtzCommandResponse>> {
+    request.validate().map_err(AppError::InvalidInputError)?;
     let ptz_manager = state.ptz_manager();
     let result =
         service::ptz::move_direction(&state, ptz_manager, id, "down-left", request).await?;
@@ -301,6 +309,7 @@ pub async fn move_down_right(
     State(state): State<AppState>,
     Json(request): Json<PtzMoveRequest>,
 ) -> AppResult<Json<PtzCommandResponse>> {
+    request.validate().map_err(AppError::InvalidInputError)?;
     let ptz_manager = state.ptz_manager();
     let result =
         service::ptz::move_direction(&state, ptz_manager, id, "down-right", request).await?;
@@ -353,6 +362,7 @@ pub async fn zoom_in(
     State(state): State<AppState>,
     Json(request): Json<PtzZoomRequest>,
 ) -> AppResult<Json<PtzCommandResponse>> {
+    request.validate().map_err(AppError::InvalidInputError)?;
     let ptz_manager = state.ptz_manager();
     let result = service::ptz::zoom(&state, ptz_manager, id, "in", request).await?;
     Ok(Json(result))
@@ -380,6 +390,7 @@ pub async fn zoom_out(
     State(state): State<AppState>,
     Json(request): Json<PtzZoomRequest>,
 ) -> AppResult<Json<PtzCommandResponse>> {
+    request.validate().map_err(AppError::InvalidInputError)?;
     let ptz_manager = state.ptz_manager();
     let result = service::ptz::zoom(&state, ptz_manager, id, "out", request).await?;
     Ok(Json(result))
@@ -431,6 +442,7 @@ pub async fn focus_near(
     State(state): State<AppState>,
     Json(request): Json<PtzFocusRequest>,
 ) -> AppResult<Json<PtzCommandResponse>> {
+    request.validate().map_err(AppError::InvalidInputError)?;
     let ptz_manager = state.ptz_manager();
     let result = service::ptz::focus(&state, ptz_manager, id, "near", request).await?;
     Ok(Json(result))
@@ -458,6 +470,7 @@ pub async fn focus_far(
     State(state): State<AppState>,
     Json(request): Json<PtzFocusRequest>,
 ) -> AppResult<Json<PtzCommandResponse>> {
+    request.validate().map_err(AppError::InvalidInputError)?;
     let ptz_manager = state.ptz_manager();
     let result = service::ptz::focus(&state, ptz_manager, id, "far", request).await?;
     Ok(Json(result))
@@ -564,6 +577,8 @@ pub async fn set_preset(
     State(state): State<AppState>,
     Json(request): Json<PtzPresetRequest>,
 ) -> AppResult<Json<PtzCommandResponse>> {
+    request.validate().map_err(AppError::InvalidInputError)?;
+
     let ptz_manager = state.ptz_manager();
     let result = service::ptz::set_preset(&state, ptz_manager, id, preset_id, request).await?;
     Ok(Json(result))
@@ -642,6 +657,7 @@ pub async fn move_absolute(
     State(state): State<AppState>,
     Json(request): Json<PtzAbsoluteRequest>,
 ) -> AppResult<Json<PtzCommandResponse>> {
+    request.validate().map_err(AppError::InvalidInputError)?;
     let ptz_manager = state.ptz_manager();
     let result = service::ptz::move_absolute(&state, ptz_manager, id, request).await?;
     Ok(Json(result))
@@ -669,6 +685,7 @@ pub async fn move_relative(
     State(state): State<AppState>,
     Json(request): Json<PtzRelativeRequest>,
 ) -> AppResult<Json<PtzCommandResponse>> {
+    request.validate().map_err(AppError::InvalidInputError)?;
     let ptz_manager = state.ptz_manager();
     let result = service::ptz::move_relative(&state, ptz_manager, id, request).await?;
     Ok(Json(result))

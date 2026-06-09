@@ -2,13 +2,14 @@ use crate::dto::request::CreateZoneRequest;
 use crate::dto::response::zones::PaginatedZonesResponse;
 use crate::dto::response::ZoneResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use crate::service::monitor_acl::MonitorScope;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 
 /// List detection zones configured for a given monitor with pagination.
 ///
@@ -66,9 +67,12 @@ pub async fn get(
     Ok(Json(zone))
 }
 
-#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema, garde::Validate)]
 pub struct UpdateZoneRequest {
+    #[garde(inner(length(min = 1, max = 64)))]
     pub name: Option<String>,
+    // Underlying column is `Zones.Coords` TINYTEXT (255).
+    #[garde(inner(length(max = 255)))]
     pub polygon: Option<String>,
 }
 
@@ -94,6 +98,7 @@ pub async fn update(
     scope: MonitorScope,
     Json(req): Json<UpdateZoneRequest>,
 ) -> AppResult<Json<ZoneResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let updated = crate::service::zones::update(&state, id, req.name, req.polygon, &scope).await?;
     Ok(Json(updated))
 }
@@ -118,6 +123,7 @@ pub async fn create(
     scope: MonitorScope,
     Json(req): Json<CreateZoneRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<ZoneResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let zone = crate::service::zones::create(&state, id, req, &scope).await?;
     Ok((axum::http::StatusCode::CREATED, Json(zone)))
 }
