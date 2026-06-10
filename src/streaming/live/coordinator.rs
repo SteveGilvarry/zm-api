@@ -121,6 +121,9 @@ pub struct LiveStreamCoordinator {
     hls_manager: Option<Arc<HlsSessionManager>>,
     /// Active sessions
     sessions: Arc<RwLock<HashMap<u32, LiveSession>>>,
+    /// Handle to the idle-session reaper task, retained so it is aborted when
+    /// the coordinator is dropped (REVIEW_FIXES_PLAN §3.2).
+    idle_watchdog: std::sync::Mutex<Option<JoinHandle<()>>>,
 }
 
 impl LiveStreamCoordinator {
@@ -133,6 +136,57 @@ impl LiveStreamCoordinator {
             source_router,
             hls_manager,
             sessions: Arc::new(RwLock::new(HashMap::new())),
+            idle_watchdog: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// Spawn the idle-session reaper. Every `check_interval` it asks the HLS
+    /// manager which sessions have gone untouched for at least `idle_timeout`
+    /// and fully tears each one down (`stop_session`: reader + segmenter +
+    /// storage). Without this, a viewer who closes their tab leaves the FIFO
+    /// reader and segmenter running forever (sessions otherwise end only via an
+    /// explicit `DELETE /stop`).
+    ///
+    /// `idle_timeout == 0` disables reaping. The task holds only a `Weak` ref to
+    /// the coordinator, so it does not keep it alive and exits once the
+    /// coordinator is dropped — the retained handle aborts it promptly on drop.
+    pub fn start_idle_watchdog(self: &Arc<Self>, idle_timeout: Duration, check_interval: Duration) {
+        if idle_timeout.is_zero() {
+            info!("HLS idle-session reaping disabled (idle_timeout = 0)");
+            return;
+        }
+        if self.hls_manager.is_none() {
+            return;
+        }
+
+        let weak = Arc::downgrade(self);
+        let handle = tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(check_interval);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                ticker.tick().await;
+                let Some(coord) = weak.upgrade() else { break };
+                let Some(hls) = coord.hls_manager.as_ref() else {
+                    break;
+                };
+                let idle = hls.idle_sessions(idle_timeout).await;
+                for monitor_id in idle {
+                    info!(
+                        "Reaping idle HLS session for monitor {} (idle ≥ {:?})",
+                        monitor_id, idle_timeout
+                    );
+                    if let Err(e) = coord.stop_session(monitor_id).await {
+                        warn!("Failed to reap idle session {}: {}", monitor_id, e);
+                    }
+                }
+                // Drop the strong ref before sleeping so it never pins the
+                // coordinator across the idle interval.
+                drop(coord);
+            }
+        });
+
+        if let Some(old) = self.idle_watchdog.lock().unwrap().replace(handle) {
+            old.abort();
         }
     }
 
@@ -453,6 +507,14 @@ impl LiveStreamCoordinator {
     /// Get the HLS manager reference
     pub fn hls_manager(&self) -> Option<&Arc<HlsSessionManager>> {
         self.hls_manager.as_ref()
+    }
+}
+
+impl Drop for LiveStreamCoordinator {
+    fn drop(&mut self) {
+        if let Some(handle) = self.idle_watchdog.lock().unwrap().take() {
+            handle.abort();
+        }
     }
 }
 

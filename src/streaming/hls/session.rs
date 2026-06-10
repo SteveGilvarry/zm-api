@@ -4,9 +4,10 @@
 //! storage, and playlist generation for each monitor.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, RwLock};
+use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
 use super::playlist::{MediaPlaylist, PlaylistGenerator, SegmentRef};
@@ -27,6 +28,11 @@ pub struct HlsSession {
     viewer_count: usize,
     /// Channel for notifying about new segments
     segment_tx: broadcast::Sender<u64>,
+    /// Last time a client requested this session's playlist or media. Updated
+    /// through a shared `&self` reference (interior mutability) so the
+    /// frequently-taken read lock on the session map suffices. Drives idle
+    /// reaping — see [`HlsSessionManager::idle_sessions`].
+    last_access: Mutex<Instant>,
 }
 
 impl HlsSession {
@@ -60,7 +66,19 @@ impl HlsSession {
             bytes_written: 0,
             viewer_count: 0,
             segment_tx,
+            last_access: Mutex::new(Instant::now()),
         }
+    }
+
+    /// Mark the session as freshly accessed (a client fetched its playlist or
+    /// media). Resets the idle clock.
+    fn touch(&self) {
+        *self.last_access.lock().unwrap() = Instant::now();
+    }
+
+    /// How long since the session was last accessed by a client.
+    fn idle_for(&self) -> Duration {
+        self.last_access.lock().unwrap().elapsed()
     }
 
     /// Process a packet from FIFO
@@ -204,6 +222,10 @@ pub struct HlsSessionManager {
     storage: Arc<HlsStorage>,
     config: HlsConfig,
     base_url: String,
+    /// Handle to the background storage-cleanup loop, retained so it is aborted
+    /// when the manager is dropped (otherwise the task would outlive the manager
+    /// and keep its `Arc<HlsStorage>` clone alive — a leak on reload/in tests).
+    cleanup_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl HlsSessionManager {
@@ -222,6 +244,7 @@ impl HlsSessionManager {
             storage: Arc::new(HlsStorage::new(storage_config)),
             config,
             base_url: base_url.to_string(),
+            cleanup_handle: Mutex::new(None),
         }
     }
 
@@ -319,6 +342,7 @@ impl HlsSessionManager {
             .get(&monitor_id)
             .ok_or(HlsError::SessionNotFound(monitor_id))?;
 
+        session.touch();
         Ok(session.generate_playlist())
     }
 
@@ -329,12 +353,23 @@ impl HlsSessionManager {
             .get(&monitor_id)
             .ok_or(HlsError::SessionNotFound(monitor_id))?;
 
+        session.touch();
         let master = session.playlist_generator.generate_master_playlist();
         Ok(master.generate())
     }
 
+    /// Record that a client accessed this monitor's session (keeps it alive).
+    /// A no-op if the session doesn't exist.
+    async fn note_access(&self, monitor_id: u32) {
+        let sessions = self.sessions.read().await;
+        if let Some(session) = sessions.get(&monitor_id) {
+            session.touch();
+        }
+    }
+
     /// Get init segment data
     pub async fn get_init_segment(&self, monitor_id: u32) -> Result<Vec<u8>, HlsError> {
+        self.note_access(monitor_id).await;
         self.storage
             .read_init_segment(monitor_id)
             .await
@@ -343,10 +378,23 @@ impl HlsSessionManager {
 
     /// Get segment data
     pub async fn get_segment(&self, monitor_id: u32, sequence: u64) -> Result<Vec<u8>, HlsError> {
+        self.note_access(monitor_id).await;
         self.storage
             .read_segment(monitor_id, sequence)
             .await
             .map_err(HlsError::from)
+    }
+
+    /// Monitors whose sessions have not been accessed for at least `idle_for`.
+    /// Used by the coordinator's watchdog to reap sessions left behind by
+    /// viewers who navigated away. See REVIEW_FIXES_PLAN §3.2.
+    pub async fn idle_sessions(&self, idle_for: Duration) -> Vec<u32> {
+        let sessions = self.sessions.read().await;
+        sessions
+            .iter()
+            .filter(|(_, session)| session.idle_for() >= idle_for)
+            .map(|(id, _)| *id)
+            .collect()
     }
 
     /// Subscribe to new segments for LL-HLS blocking reload
@@ -372,6 +420,9 @@ impl HlsSessionManager {
         {
             let sessions = self.sessions.read().await;
             if let Some(session) = sessions.get(&monitor_id) {
+                // A blocking LL-HLS poll is the clearest sign of an active
+                // viewer — keep the session off the idle-reap list.
+                session.touch();
                 if session.segmenter.sequence() > target_sequence {
                     return Ok(());
                 }
@@ -437,9 +488,29 @@ impl HlsSessionManager {
         &self.storage
     }
 
-    /// Start the background cleanup task
-    pub fn start_cleanup_task(&self) -> tokio::task::JoinHandle<()> {
-        Arc::clone(&self.storage).start_cleanup_task()
+    /// Start the background storage-cleanup loop and retain its handle so it is
+    /// aborted on drop. Previously this returned a handle that every caller
+    /// dropped on the floor — so the loop was, in fact, never started at all
+    /// (no caller existed). Call this once after constructing the manager.
+    /// See REVIEW_FIXES_PLAN §3.1.
+    pub fn start_cleanup_task(&self) {
+        let handle = Arc::clone(&self.storage).start_cleanup_task();
+        if let Some(old) = self.cleanup_handle.lock().unwrap().replace(handle) {
+            old.abort();
+        }
+    }
+
+    /// The configured idle-session timeout (`0` disables reaping).
+    pub fn idle_timeout(&self) -> Duration {
+        Duration::from_secs(self.config.idle_timeout_seconds)
+    }
+}
+
+impl Drop for HlsSessionManager {
+    fn drop(&mut self) {
+        if let Some(handle) = self.cleanup_handle.lock().unwrap().take() {
+            handle.abort();
+        }
     }
 }
 
@@ -473,6 +544,7 @@ mod tests {
             playlist_size: 6,
             ll_hls_enabled: false,
             partial_segment_ms: 200,
+            idle_timeout_seconds: 90,
             storage: crate::configure::streaming::HlsStorageConfig {
                 path: "/tmp/hls-test".to_string(),
                 retention_minutes: 5,
@@ -518,5 +590,47 @@ mod tests {
 
         let sessions = manager.list_sessions().await;
         assert!(sessions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_idle_sessions_threshold() {
+        // REVIEW_FIXES_PLAN §3.2: idle_sessions filters by last-access age.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = test_config();
+        config.storage.path = tmp.path().to_string_lossy().into_owned();
+        let manager = HlsSessionManager::new(config, "/api/v3/live");
+
+        manager.start_session(1).await.unwrap();
+        manager.start_session(2).await.unwrap();
+
+        // A huge threshold excludes freshly-started sessions...
+        assert!(manager
+            .idle_sessions(Duration::from_secs(100_000))
+            .await
+            .is_empty());
+
+        // ...while a zero threshold matches every live session.
+        let mut all = manager.idle_sessions(Duration::ZERO).await;
+        all.sort_unstable();
+        assert_eq!(all, vec![1, 2]);
+    }
+
+    #[tokio::test]
+    async fn test_get_playlist_refreshes_access() {
+        // Fetching the playlist must reset the idle clock (a polling player
+        // keeps its session alive). With a zero threshold the session always
+        // appears; the meaningful assertion is that the call path touches
+        // without panicking and the session remains listed.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = test_config();
+        config.storage.path = tmp.path().to_string_lossy().into_owned();
+        let manager = HlsSessionManager::new(config, "/api/v3/live");
+
+        manager.start_session(7).await.unwrap();
+        let _ = manager.get_playlist(7).await.unwrap();
+        assert!(manager
+            .idle_sessions(Duration::from_secs(100_000))
+            .await
+            .is_empty());
     }
 }

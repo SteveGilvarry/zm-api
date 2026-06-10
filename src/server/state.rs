@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use sea_orm::DatabaseConnection;
 
@@ -64,10 +65,14 @@ impl AppState {
         // Initialize HLS session manager (Phase 3)
         let hls_session_manager = if config.streaming.hls.enabled {
             tracing::info!("HLS streaming enabled, initializing session manager");
-            Some(Arc::new(HlsSessionManager::new(
+            let manager = Arc::new(HlsSessionManager::new(
                 config.streaming.hls.clone(),
                 "/api/v3/live", // Changed to use /api/v3/live/ prefix
-            )))
+            ));
+            // Start the background segment-cleanup loop (previously never
+            // started — its handle was dropped on the floor). See §3.1.
+            manager.start_cleanup_task();
+            Some(manager)
         } else {
             tracing::info!("HLS streaming disabled in configuration");
             None
@@ -83,6 +88,12 @@ impl AppState {
                 Arc::clone(&router),
                 hls_session_manager.clone(),
             ));
+            // Reap HLS sessions abandoned by viewers who navigated away, so the
+            // FIFO reader + segmenter don't run forever (§3.2). Disabled when
+            // idle_timeout_seconds is 0.
+            if let Some(hls) = &hls_session_manager {
+                coordinator.start_idle_watchdog(hls.idle_timeout(), Duration::from_secs(15));
+            }
             (Some(router), Some(coordinator))
         } else {
             tracing::info!("Live streaming disabled in configuration");

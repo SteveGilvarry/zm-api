@@ -163,6 +163,15 @@ pub struct HlsConfig {
     pub playlist_size: u32,
     pub ll_hls_enabled: bool,
     pub partial_segment_ms: u32,
+    /// Tear down an HLS session whose playlist/segments have not been requested
+    /// for this many seconds (a viewer that navigated away). `0` disables idle
+    /// reaping.
+    ///
+    /// MUST comfortably exceed the LL-HLS blocking-request hold time (5s, see
+    /// `handlers::live`) plus one `segment_duration_seconds`, or an actively
+    /// blocking LL-HLS player could be reaped between requests. The 90s default
+    /// leaves a wide margin.
+    pub idle_timeout_seconds: u64,
     pub storage: HlsStorageConfig,
 }
 
@@ -174,6 +183,7 @@ impl Default for HlsConfig {
             playlist_size: 10,
             ll_hls_enabled: false,
             partial_segment_ms: 200,
+            idle_timeout_seconds: 90,
             storage: HlsStorageConfig::default(),
         }
     }
