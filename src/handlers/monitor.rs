@@ -91,6 +91,7 @@ pub async fn get_monitor(
         (status = 200, description = "Monitor created successfully", body = MonitorResponse),
         (status = 400, description = "Invalid request data", body = AppResponseError),
         (status = 401, description = "Unauthorized - Invalid or missing token", body = AppResponseError),
+        (status = 403, description = "Caller's monitor access is restricted", body = AppResponseError),
         (status = 500, description = "Internal server error", body = AppResponseError)
     ),
     security(
@@ -100,9 +101,20 @@ pub async fn get_monitor(
 )]
 pub async fn create_monitor(
     State(state): State<AppState>,
+    scope: MonitorScope,
     Json(req): Json<CreateMonitorRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
     req.validate().map_err(AppError::InvalidInputError)?;
+    // Row-level ACL: creating a monitor is a whole-system operation with no
+    // pre-existing monitor row to scope against. A user whose access is
+    // restricted to specific monitors must not be able to mint new ones — only
+    // unrestricted (admin-equivalent) callers may. Feature-level `Monitors:Edit`
+    // is already enforced by the route's `protect` layer (REVIEW_FIXES_PLAN §1.4).
+    if scope.is_restricted() {
+        return Err(AppError::PermissionDeniedError(
+            "creating monitors requires unrestricted monitor access".to_string(),
+        ));
+    }
     info!("Creating new monitor with request: {req:?}.");
     match service::monitor::create(&state, req).await {
         Ok(monitor) => Ok(Json(monitor)),

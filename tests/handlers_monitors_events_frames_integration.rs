@@ -6,7 +6,10 @@ mod common;
 
 use axum::body::{self, Body};
 use axum::http::{header, Request, StatusCode};
-use common::fixtures::RowGuard;
+use common::fixtures::{
+    cleanup_monitor_permissions, grant_monitor_permission, insert_monitor, insert_user_with_id,
+    RowGuard,
+};
 use common::test_db::{get_test_db, test_prefix};
 use sea_orm::{ActiveModelTrait, DatabaseConnection, DbErr, EntityTrait, Set};
 use tower::ServiceExt;
@@ -24,9 +27,15 @@ use zm_api::entity::sea_orm_active_enums::{
 use zm_api::entity::{events, frames, monitors};
 
 fn auth_header() -> String {
+    bearer_for(1)
+}
+
+/// A Bearer header carrying superuser *feature* permissions but a specific user
+/// id, so row-level `Monitors_Permissions` rows for that id drive the scope.
+fn bearer_for(uid: u32) -> String {
     let token = zm_api::service::token::generate_tokens(
         "tester".to_string(),
-        1,
+        uid,
         zm_api::util::authz::UserPermissions::superuser(),
     )
     .expect("token")
@@ -191,6 +200,63 @@ async fn create_monitor(app: &axum::Router, name: String) -> MonitorResponse {
         .await
         .unwrap();
     serde_json::from_slice(&bytes).expect("parse monitor response")
+}
+
+/// REVIEW_FIXES_PLAN §1.4: a monitor-restricted user must not be able to create
+/// monitors, even though their *feature* permissions satisfy `Monitors:Edit`.
+/// Creating a monitor has no pre-existing row to scope against, so a restricted
+/// scope is rejected with 403.
+#[tokio::test]
+#[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
+async fn test_create_monitor_rejects_restricted_user() {
+    use zm_api::entity::sea_orm_active_enums::Permission;
+
+    const UID: u32 = 990_010;
+
+    let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
+
+    // A monitor the user is granted access to — this is what makes their scope
+    // Restricted (any row flips a user from default-allow to allowlist).
+    let granted = insert_monitor(&db, "CreateAclMon")
+        .await
+        .expect("insert monitor");
+    let _g_mon = RowGuard::monitor(granted.id);
+    insert_user_with_id(&db, UID, "CreateAclUser")
+        .await
+        .expect("insert user");
+    let _g_user = RowGuard::user(UID);
+    grant_monitor_permission(&db, granted.id, UID, Permission::View)
+        .await
+        .expect("grant permission");
+    let _g_perms = RowGuard::new(
+        format!("Monitors_Permissions(user={UID})"),
+        move |db| async move {
+            let _ = cleanup_monitor_permissions(&db, UID).await;
+        },
+    );
+
+    let app = build_app(db);
+
+    let create_body = serde_json::to_vec(&build_create_monitor_request(format!(
+        "{}restricted_create",
+        test_prefix()
+    )))
+    .expect("serialize monitor create request");
+
+    let response = app
+        .oneshot(
+            Request::post("/api/v3/monitors")
+                .header(header::AUTHORIZATION, bearer_for(UID))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(create_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
 async fn get_monitor(app: &axum::Router, id: u32) -> MonitorResponse {
