@@ -37,10 +37,11 @@ async fn ensure_event_monitor_visible(
     }
 }
 
-/// List all frames, optionally filtered by event_id
+/// List all frames for a single event (bounded — `event_id` is required, see
+/// [`repo::frames::find_all`]). Broad listings must use [`list_paginated`].
 pub async fn list_all(
     state: &AppState,
-    event_id: Option<u64>,
+    event_id: u64,
     scope: &MonitorScope,
 ) -> AppResult<Vec<FrameResponse>> {
     let filter = scope.visible_ids(Level::View);

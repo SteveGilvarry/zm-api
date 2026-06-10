@@ -21,17 +21,19 @@ fn events_for_monitors(ids: &[u32]) -> sea_orm::sea_query::SelectStatement {
         .to_owned()
 }
 
-/// Find all frames, optionally filtered by event_id
+/// Find all frames for a single event.
+///
+/// `event_id` is REQUIRED (not optional): `Frames` is one of the largest tables
+/// in a real ZoneMinder install (tens of millions of rows), so an unscoped
+/// `SELECT *` would be a reliability hazard. Callers that need a broad listing
+/// must page via [`find_paginated`]. See REVIEW_FIXES_PLAN §4.4.
 pub async fn find_all(
     db: &DatabaseConnection,
-    event_id: Option<u64>,
+    event_id: u64,
     monitor_filter: Option<&[u32]>,
 ) -> AppResult<Vec<FrameModel>> {
-    let mut query = FrameEntity::find();
+    let mut query = FrameEntity::find().filter(Column::EventId.eq(event_id));
 
-    if let Some(eid) = event_id {
-        query = query.filter(Column::EventId.eq(eid));
-    }
     if let Some(ids) = monitor_filter {
         query = query.filter(Column::EventId.in_subquery(events_for_monitors(ids)));
     }

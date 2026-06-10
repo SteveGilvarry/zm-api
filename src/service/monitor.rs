@@ -849,7 +849,20 @@ pub async fn control_alarm(
             let cause = req.cause.as_deref().unwrap_or("API");
             let text = req.text.as_deref().unwrap_or("Triggered via REST API");
 
-            zm_shm::trigger_alarm(id, score, cause, text).map_err(|e| {
+            // The shared-memory mmap/poke is blocking; run it off the async
+            // executor so it can't stall the runtime. REVIEW_FIXES_PLAN §4.3.
+            let cause_owned = cause.to_string();
+            let text_owned = text.to_string();
+            tokio::task::spawn_blocking(move || {
+                zm_shm::trigger_alarm(id, score, &cause_owned, &text_owned)
+            })
+            .await
+            .map_err(|e| {
+                AppError::ServiceUnavailableError(format!(
+                    "Alarm task failed for monitor {id}: {e}"
+                ))
+            })?
+            .map_err(|e| {
                 AppError::ServiceUnavailableError(format!(
                     "Failed to trigger alarm for monitor {}: {}",
                     id, e
@@ -863,12 +876,21 @@ pub async fn control_alarm(
         }
         "off" | "cancel" => {
             // Cancel alarm via shared memory
-            zm_shm::cancel_alarm(id).map_err(|e| {
-                AppError::ServiceUnavailableError(format!(
-                    "Failed to cancel alarm for monitor {}: {}",
-                    id, e
-                ))
-            })?;
+            // Blocking shared-memory write — run off the async executor.
+            // REVIEW_FIXES_PLAN §4.3.
+            tokio::task::spawn_blocking(move || zm_shm::cancel_alarm(id))
+                .await
+                .map_err(|e| {
+                    AppError::ServiceUnavailableError(format!(
+                        "Alarm task failed for monitor {id}: {e}"
+                    ))
+                })?
+                .map_err(|e| {
+                    AppError::ServiceUnavailableError(format!(
+                        "Failed to cancel alarm for monitor {}: {}",
+                        id, e
+                    ))
+                })?;
 
             info!("Cancelled alarm on monitor {}", id);
         }
