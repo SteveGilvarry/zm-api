@@ -308,7 +308,8 @@ pub async fn list_live_sessions(State(state): State<AppState>) -> AppResult<Json
     responses(
         (status = 200, description = "Master playlist", content_type = "application/vnd.apple.mpegurl"),
         (status = 404, description = "Session not found", body = AppResponseError)
-    )
+    ),
+    security(("jwt" = []))
 )]
 pub async fn get_live_master_playlist(
     State(state): State<AppState>,
@@ -350,7 +351,8 @@ pub async fn get_live_master_playlist(
     responses(
         (status = 200, description = "Media playlist", content_type = "application/vnd.apple.mpegurl"),
         (status = 404, description = "Session not found", body = AppResponseError)
-    )
+    ),
+    security(("jwt" = []))
 )]
 pub async fn get_live_media_playlist(
     State(state): State<AppState>,
@@ -402,7 +404,8 @@ pub async fn get_live_media_playlist(
     responses(
         (status = 200, description = "Init segment", content_type = "video/mp4"),
         (status = 404, description = "Init segment not ready", body = AppResponseError)
-    )
+    ),
+    security(("jwt" = []))
 )]
 pub async fn get_live_init_segment(
     State(state): State<AppState>,
@@ -455,7 +458,8 @@ pub struct HlsSegmentPath {
     responses(
         (status = 200, description = "Media segment", content_type = "video/iso.segment"),
         (status = 404, description = "Segment not found", body = AppResponseError)
-    )
+    ),
+    security(("jwt" = []))
 )]
 pub async fn get_live_segment(
     State(state): State<AppState>,
@@ -1048,7 +1052,8 @@ async fn handle_webrtc_websocket(
         (status = 200, description = "JPEG snapshot image", content_type = "image/jpeg"),
         (status = 404, description = "Monitor not found", body = AppResponseError),
         (status = 503, description = "Service unavailable", body = AppResponseError)
-    )
+    ),
+    security(("jwt" = []))
 )]
 pub async fn get_monitor_snapshot(
     State(state): State<AppState>,

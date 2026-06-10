@@ -127,32 +127,37 @@ pub(crate) fn extract_token_from_query(request: &Request) -> Option<String> {
     })
 }
 
-/// Simple percent-decoding for URL query parameters
+/// Percent-decode a URL query parameter value (form semantics: `+` is a space).
+///
+/// Decoded `%XX` escapes are assembled into a byte buffer and interpreted as
+/// UTF-8 at the end. The previous implementation pushed each decoded byte via
+/// `byte as char`, which is only correct for ASCII — a multi-byte sequence like
+/// `%C3%A9` produced two garbage chars instead of `é`. Invalid hex, truncated
+/// escapes, and byte sequences that aren't valid UTF-8 all yield `None`.
+/// See REVIEW_FIXES_PLAN §5.4.
 fn percent_decode(input: &str) -> Option<String> {
-    let mut result = String::with_capacity(input.len());
+    let mut bytes = Vec::with_capacity(input.len());
     let mut chars = input.chars().peekable();
 
     while let Some(c) = chars.next() {
-        if c == '%' {
-            // Read two hex digits
-            let hex: String = chars.by_ref().take(2).collect();
-            if hex.len() == 2 {
-                if let Ok(byte) = u8::from_str_radix(&hex, 16) {
-                    result.push(byte as char);
-                } else {
-                    return None; // Invalid hex
+        match c {
+            '%' => {
+                let hex: String = chars.by_ref().take(2).collect();
+                if hex.len() != 2 {
+                    return None; // Incomplete escape sequence
                 }
-            } else {
-                return None; // Incomplete escape sequence
+                let byte = u8::from_str_radix(&hex, 16).ok()?; // Invalid hex
+                bytes.push(byte);
             }
-        } else if c == '+' {
-            result.push(' ');
-        } else {
-            result.push(c);
+            '+' => bytes.push(b' '),
+            other => {
+                let mut buf = [0u8; 4];
+                bytes.extend_from_slice(other.encode_utf8(&mut buf).as_bytes());
+            }
         }
     }
 
-    Some(result)
+    String::from_utf8(bytes).ok()
 }
 
 #[cfg(test)]
@@ -214,9 +219,13 @@ mod tests {
         assert_eq!(percent_decode("plain"), Some("plain".to_string()));
         assert_eq!(percent_decode("a%20b"), Some("a b".to_string()));
         assert_eq!(percent_decode("a+b"), Some("a b".to_string()));
+        // Multi-byte UTF-8: %C3%A9 is `é` (was mangled by the old byte-as-char).
+        assert_eq!(percent_decode("caf%C3%A9"), Some("café".to_string()));
         // Incomplete escape sequence.
         assert_eq!(percent_decode("a%2"), None);
         // Invalid hex digits.
         assert_eq!(percent_decode("a%zzb"), None);
+        // Bytes that don't form valid UTF-8 are rejected.
+        assert_eq!(percent_decode("%80%81"), None);
     }
 }

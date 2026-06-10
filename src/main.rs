@@ -12,6 +12,12 @@ async fn main() -> AppResult<()> {
     // Required by rustls 0.23+ (used by webrtc-rs DTLS, axum-server TLS, sqlx).
     zm_api::install_crypto_provider();
 
+    // Initialize the ffmpeg libraries once at startup (idempotent, thread-safe).
+    // Snapshot/VOD decode paths rely on registered codecs/demuxers; doing it
+    // here means production requests never race first-use registration.
+    // REVIEW_FIXES_PLAN §5.2.
+    ffmpeg_next::init().ok();
+
     let _file_appender_guard = configure::tracing::init()?;
     info!("The initialization of Tracing was successful.");
     let config = CONFIG.clone();

@@ -57,6 +57,7 @@ APP_PROFILE=test-db cargo test --test '*' -- --include-ignored
 ## Active Implementation Plans
 
 - **PTZ Control System** – `docs/PTZ_TASKS.md` – Rust-based PTZ control API with Perl bridge fallback, phased implementation from immediate Perl proxy to native protocol implementations (ONVIF, Dahua, HikVision, Reolink, serial protocols).
+- **Review Fixes (2026-06)** – `docs/REVIEW_FIXES_PLAN.md` – Phased fixes from the full API review: password hashing, event-playback ACL, WebRTC startup latency (keyframe re-read, trickle ICE), HLS session lifecycle, daemon-ID unification, housekeeping.
 
 ## Fast Commands
 

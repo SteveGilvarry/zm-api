@@ -84,7 +84,6 @@ tower-http = { version = "0.6", features = [
     "set-header",
 ] }
 tower_governor = "0.8"
-libloading = "0.9"
 mockall = "0.14"
 
 # WebRTC native implementation

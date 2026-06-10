@@ -165,7 +165,13 @@ impl DatabaseConfig {
         )
     }
 
-    /// Create a database connection URL from components
+    /// Create a database connection URL from components.
+    ///
+    /// The username and password are percent-encoded: ZoneMinder's packaged
+    /// installers auto-generate DB passwords that routinely contain `@`, `/`,
+    /// `?` or `#` (and the `/etc/zm/zm.conf` fallback can supply anything).
+    /// Interpolated raw, an `@` in the password would split the authority and
+    /// the URL parser would misread the host. See REVIEW_FIXES_PLAN §5.3.
     pub fn create_url(
         username: &str,
         password: &str,
@@ -173,7 +179,9 @@ impl DatabaseConfig {
         port: u16,
         database_name: &str,
     ) -> String {
-        format!("mysql://{username}:{password}@{host}:{port}/{database_name}")
+        let user = urlencoding::encode(username);
+        let pass = urlencoding::encode(password);
+        format!("mysql://{user}:{pass}@{host}:{port}/{database_name}")
     }
 }
 
@@ -201,6 +209,24 @@ mod tests {
         assert_eq!(
             config.get_url(),
             "mysql://testuser:testpass@dbhost:3307/testdb"
+        );
+    }
+
+    #[test]
+    fn create_url_percent_encodes_special_chars() {
+        // A password with `@` and `/` must be encoded, and the result must parse
+        // back to the original host/password (REVIEW_FIXES_PLAN §5.3).
+        let url = DatabaseConfig::create_url("zm@user", "p@ss/w0rd#x", "10.0.0.5", 3306, "zm");
+        assert_eq!(url, "mysql://zm%40user:p%40ss%2Fw0rd%23x@10.0.0.5:3306/zm");
+        let parsed = url::Url::parse(&url).expect("URL must parse");
+        assert_eq!(parsed.host_str(), Some("10.0.0.5"));
+        assert_eq!(parsed.port(), Some(3306));
+        assert_eq!(parsed.username(), "zm%40user");
+        assert_eq!(
+            parsed
+                .password()
+                .map(|p| urlencoding::decode(p).unwrap().into_owned()),
+            Some("p@ss/w0rd#x".to_string())
         );
     }
 
