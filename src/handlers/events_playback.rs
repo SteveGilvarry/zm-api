@@ -23,6 +23,8 @@ use crate::entity::sea_orm_active_enums::Scheme;
 use crate::error::{AppError, AppResponseError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
+use crate::service::monitor_acl::MonitorScope;
+use crate::util::authz::Level;
 
 // ============================================================================
 // DTOs
@@ -124,9 +126,13 @@ fn select_video_filename(event_id: u64, default_video: &str) -> String {
 /// - **Deep**: `{storage_path}/{MonitorId}/{YY/MM/DD/HH/MM/SS}/{video_file}`
 /// - **Medium**: `{storage_path}/{MonitorId}/{YYYY-MM-DD}/{EventId}/{video_file}`
 /// - **Shallow**: `{storage_path}/{MonitorId}/{EventId}/{video_file}`
-async fn get_event_video_path(state: &AppState, event_id: u64) -> AppResult<PathBuf> {
+async fn get_event_video_path(
+    state: &AppState,
+    event_id: u64,
+    scope: &MonitorScope,
+) -> AppResult<PathBuf> {
     // Get event from database (using repo to get raw entity)
-    let event = get_event_entity(state, event_id).await?;
+    let event = get_event_entity(state, event_id, scope).await?;
 
     // Get the video filename from the event (e.g., "467-video.h264.mp4"),
     // rejecting traversal attempts in the DB-supplied default_video field.
@@ -182,16 +188,35 @@ async fn get_event_video_path(state: &AppState, event_id: u64) -> AppResult<Path
     }))
 }
 
-/// Helper to get raw event entity from database
-async fn get_event_entity(state: &AppState, event_id: u64) -> AppResult<EventModel> {
-    repo::events::find_by_id(state, event_id)
+/// Helper to get raw event entity from database, enforcing row-level ACL.
+///
+/// Every playback handler resolves its event through here, so the scope check
+/// below is the single choke point that keeps a monitor-restricted caller from
+/// streaming, downloading, or thumbnailing events belonging to monitors outside
+/// their allowlist. Out-of-scope events return the same `NotFound` as a missing
+/// event so the API doesn't leak which event ids exist (REVIEW_FIXES_PLAN §1.3).
+async fn get_event_entity(
+    state: &AppState,
+    event_id: u64,
+    scope: &MonitorScope,
+) -> AppResult<EventModel> {
+    let event = repo::events::find_by_id(state, event_id)
         .await?
-        .ok_or_else(|| {
-            AppError::NotFoundError(Resource {
-                resource_type: ResourceType::Event,
-                details: vec![("event_id".to_string(), event_id.to_string())],
-            })
-        })
+        .ok_or_else(|| not_found_event(event_id))?;
+    if !scope.allows(event.monitor_id, Level::View) {
+        return Err(not_found_event(event_id));
+    }
+    Ok(event)
+}
+
+/// The canonical `NotFound` for an event id — used for both genuinely missing
+/// events and ones hidden by row-level ACL (identical responses avoid an
+/// existence oracle).
+fn not_found_event(event_id: u64) -> AppError {
+    AppError::NotFoundError(Resource {
+        resource_type: ResourceType::Event,
+        details: vec![("event_id".to_string(), event_id.to_string())],
+    })
 }
 
 /// Resolve the storage path for an event, falling back to the config default
@@ -289,15 +314,19 @@ async fn find_incomplete_media(dir: &StdPath) -> Option<PathBuf> {
 
 /// Resolve the media file to byte-serve for an event: the growing
 /// `incomplete.*.mp4` while recording, else the finalized recorded video.
-async fn get_event_media_path(state: &AppState, event_id: u64) -> AppResult<PathBuf> {
-    let event = get_event_entity(state, event_id).await?;
+async fn get_event_media_path(
+    state: &AppState,
+    event_id: u64,
+    scope: &MonitorScope,
+) -> AppResult<PathBuf> {
+    let event = get_event_entity(state, event_id, scope).await?;
     if event_is_in_progress(&event) {
         let dir = event_directory(state, &event, event_id).await?;
         if let Some(p) = find_incomplete_media(&dir).await {
             return Ok(p);
         }
     }
-    get_event_video_path(state, event_id).await
+    get_event_video_path(state, event_id, scope).await
 }
 
 /// Rewrite ZoneMinder's in-progress `index.m3u8` so its init/segment URIs point
@@ -454,8 +483,9 @@ fn parse_range_header(range_header: Option<&str>, file_size: u64) -> Option<(u64
 pub async fn get_event_playlist(
     State(state): State<AppState>,
     Path(path): Path<EventPlaybackPath>,
+    scope: MonitorScope,
 ) -> Result<Response, AppError> {
-    let event = get_event_entity(&state, path.id).await?;
+    let event = get_event_entity(&state, path.id, &scope).await?;
 
     // In-progress events have no finalized file to package as VOD. ZoneMinder
     // already maintains a growing `#EXT-X-PLAYLIST-TYPE:EVENT` playlist
@@ -488,7 +518,7 @@ pub async fn get_event_playlist(
     }
 
     debug!("Getting HLS-VOD playlist for event {}", path.id);
-    let assets = event_vod_assets(&state, path.id).await?;
+    let assets = event_vod_assets(&state, path.id, &scope).await?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")
@@ -501,8 +531,9 @@ pub async fn get_event_playlist(
 async fn event_vod_assets(
     state: &AppState,
     id: u64,
+    scope: &MonitorScope,
 ) -> Result<std::sync::Arc<crate::streaming::hls::vod::VodAssets>, AppError> {
-    let video_path = get_event_video_path(state, id).await?;
+    let video_path = get_event_video_path(state, id, scope).await?;
     let info = crate::streaming::probe::probe_event_media(id, video_path.clone())
         .await
         .map_err(AppError::InternalServerError)?;
@@ -526,8 +557,9 @@ async fn event_vod_assets(
 pub async fn get_event_init(
     State(state): State<AppState>,
     Path(path): Path<EventPlaybackPath>,
+    scope: MonitorScope,
 ) -> Result<Response, AppError> {
-    let assets = event_vod_assets(&state, path.id).await?;
+    let assets = event_vod_assets(&state, path.id, &scope).await?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "video/mp4")
@@ -554,8 +586,9 @@ pub async fn get_event_init(
 pub async fn get_event_segment(
     State(state): State<AppState>,
     Path(path): Path<EventSegmentPath>,
+    scope: MonitorScope,
 ) -> Result<Response, AppError> {
-    let assets = event_vod_assets(&state, path.id).await?;
+    let assets = event_vod_assets(&state, path.id, &scope).await?;
     let segment = assets.segments.get(path.seq).ok_or_else(|| {
         AppError::NotFoundError(crate::error::Resource {
             resource_type: crate::error::ResourceType::Event,
@@ -598,10 +631,11 @@ pub async fn get_event_segment(
 pub async fn get_event_video(
     State(state): State<AppState>,
     Path(path): Path<EventPlaybackPath>,
+    scope: MonitorScope,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     debug!("Getting video for event {}", path.id);
-    let video_path = get_event_video_path(&state, path.id).await?;
+    let video_path = get_event_video_path(&state, path.id, &scope).await?;
     serve_file_with_range(&video_path, &headers).await
 }
 
@@ -688,10 +722,11 @@ async fn serve_file_with_range(path: &StdPath, headers: &HeaderMap) -> Result<Re
 pub async fn get_event_stream_media(
     State(state): State<AppState>,
     Path(path): Path<EventPlaybackPath>,
+    scope: MonitorScope,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     debug!("Getting media (range) for event {}", path.id);
-    let media_path = get_event_media_path(&state, path.id).await?;
+    let media_path = get_event_media_path(&state, path.id, &scope).await?;
     serve_file_with_range(&media_path, &headers).await
 }
 
@@ -716,10 +751,11 @@ pub async fn get_event_stream_media(
 pub async fn get_event_info(
     State(state): State<AppState>,
     Path(path): Path<EventPlaybackPath>,
+    scope: MonitorScope,
 ) -> Result<Json<EventVideoInfo>, AppError> {
     debug!("Getting media info for event {}", path.id);
 
-    let event = get_event_entity(&state, path.id).await?;
+    let event = get_event_entity(&state, path.id, &scope).await?;
 
     // While recording there is no finalized file to probe (the growing MP4 has
     // no moov atom yet), so codec/dimensions are unknown. Return 200 with
@@ -746,7 +782,7 @@ pub async fn get_event_info(
         }));
     }
 
-    let video_path = get_event_video_path(&state, path.id).await?;
+    let video_path = get_event_video_path(&state, path.id, &scope).await?;
     let file_size = tokio::fs::metadata(&video_path)
         .await
         .map(|m| m.len())
@@ -792,10 +828,11 @@ pub async fn get_event_info(
 pub async fn get_event_stream_video(
     state: State<AppState>,
     path: Path<EventPlaybackPath>,
+    scope: MonitorScope,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
     // Delegate to the main video endpoint
-    get_event_video(state, path, headers).await
+    get_event_video(state, path, scope, headers).await
 }
 
 /// Get event thumbnail
@@ -819,11 +856,12 @@ pub async fn get_event_stream_video(
 pub async fn get_event_thumbnail(
     State(state): State<AppState>,
     Path(path): Path<EventPlaybackPath>,
+    scope: MonitorScope,
 ) -> Result<Response, AppError> {
     debug!("Getting thumbnail for event {}", path.id);
 
     // Get event from database (using repo to get raw entity)
-    let event = get_event_entity(&state, path.id).await?;
+    let event = get_event_entity(&state, path.id, &scope).await?;
 
     let storage_path = resolve_event_storage_path(&state, &event).await?;
 

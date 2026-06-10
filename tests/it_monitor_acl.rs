@@ -22,6 +22,7 @@ use zm_api::util::authz::UserPermissions;
 /// by id after each test.
 const ACL_TEST_UID: u32 = 990_001;
 const ACL_TEST_UID_EVENTS: u32 = 990_002;
+const ACL_TEST_UID_PLAYBACK: u32 = 990_003;
 
 /// Guard the `Monitors_Permissions` rows owned by a test user. `RowGuard`'s
 /// typed constructors delete by primary key; these rows are keyed by user id,
@@ -211,4 +212,85 @@ async fn events_of_hidden_monitors_are_filtered() {
         .get(&format!("/api/v3/events/{}", hidden_event.id), &token)
         .await;
     assert_eq!(hidden_get.status(), StatusCode::NOT_FOUND);
+}
+
+/// REVIEW_FIXES_PLAN §1.3: the event *playback* endpoints (video, info,
+/// thumbnail, HLS-VOD) must apply the same row-level ACL as the JSON events
+/// API. Before the fix these resolved events by id with no scope check, so a
+/// monitor-restricted user could stream any event's media by guessing its id.
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn playback_of_hidden_monitor_events_is_blocked() {
+    use common::fixtures::unique_name;
+    use sea_orm::{ActiveModelTrait, Set};
+
+    let app = TestApp::spawn().await;
+
+    let visible = insert_monitor(&app.db, "AclPbVisible")
+        .await
+        .expect("insert visible monitor");
+    let _mon_visible = RowGuard::monitor(visible.id);
+    let hidden = insert_monitor(&app.db, "AclPbHidden")
+        .await
+        .expect("insert hidden monitor");
+    let _mon_hidden = RowGuard::monitor(hidden.id);
+
+    // In-progress events (EndDateTime NULL): `/info` short-circuits to a 200
+    // before touching any media file, so a permitted event is observably
+    // *allowed* without needing real recordings on disk.
+    let visible_event = zm_api::entity::events::ActiveModel {
+        monitor_id: Set(visible.id),
+        state_id: Set(1),
+        name: Set(unique_name("AclPbVisible")),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("insert visible event");
+    let _evt_visible = event_guard(visible_event.id);
+    let hidden_event = zm_api::entity::events::ActiveModel {
+        monitor_id: Set(hidden.id),
+        state_id: Set(1),
+        name: Set(unique_name("AclPbHidden")),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("insert hidden event");
+    let _evt_hidden = event_guard(hidden_event.id);
+
+    insert_user_with_id(&app.db, ACL_TEST_UID_PLAYBACK, "AclPbUser")
+        .await
+        .expect("insert acl user");
+    let _user = RowGuard::user(ACL_TEST_UID_PLAYBACK);
+    grant_monitor_permission(&app.db, visible.id, ACL_TEST_UID_PLAYBACK, Permission::View)
+        .await
+        .expect("grant permission");
+    let _perms = monitor_permissions_guard(ACL_TEST_UID_PLAYBACK);
+    let token = token_for(ACL_TEST_UID_PLAYBACK, UserPermissions::superuser());
+
+    // Permitted event: `/info` is reachable (200, in-progress metadata).
+    let visible_info = app
+        .get(&format!("/api/v3/events/{}/info", visible_event.id), &token)
+        .await;
+    assert_eq!(
+        visible_info.status(),
+        StatusCode::OK,
+        "permitted event playback info should be reachable"
+    );
+
+    // Hidden event: every playback surface 404s (existence is not revealed).
+    for path in [
+        format!("/api/v3/events/{}/info", hidden_event.id),
+        format!("/api/v3/events/{}/video", hidden_event.id),
+        format!("/api/v3/events/{}/thumbnail", hidden_event.id),
+        format!("/api/v3/events/{}/stream/playlist.m3u8", hidden_event.id),
+    ] {
+        let resp = app.get(&path, &token).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::NOT_FOUND,
+            "playback of a hidden monitor's event must 404: {path}"
+        );
+    }
 }
