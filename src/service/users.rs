@@ -47,8 +47,13 @@ pub async fn update(
 
 pub async fn create(
     state: &AppState,
-    req: crate::dto::request::CreateUserRequest,
+    mut req: crate::dto::request::CreateUserRequest,
 ) -> AppResult<UserResponse> {
+    // Hash the password before it ever reaches the DB. Without this the
+    // plaintext is stored verbatim, which both leaks credentials and makes the
+    // account unusable (the bcrypt login verifier can never match a plaintext
+    // value). See docs/REVIEW_FIXES_PLAN.md §1.1.
+    req.password = crate::util::password::hash(req.password).await?;
     let model = repo::users::create(state.db(), &req).await?;
     Ok(UserResponse::from(&model))
 }
@@ -204,6 +209,14 @@ mod tests {
             phone: None,
             enabled: Some(1),
         };
+        // NOTE: this exercises the hashing code path but cannot assert on the
+        // stored value — `MockDatabase` returns a canned row and the connection
+        // is moved into `AppState` (the `mock` feature disables
+        // `DatabaseConnection: Clone`, and the transaction log is only readable
+        // by consuming the connection). The authoritative regression that the
+        // password is bcrypt-hashed and never stored in plaintext lives in the
+        // DB integration test `test_api_users_create_get_delete`
+        // (REVIEW_FIXES_PLAN §1.1).
         let out = create(&state, req).await.unwrap();
         assert_eq!(out.username, "eve");
     }

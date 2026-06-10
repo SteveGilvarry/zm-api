@@ -18,7 +18,7 @@ use zm_api::dto::response::{
     GroupPermissionResponse, GroupResponse, MonitorPermissionResponse, SessionResponse,
     UserResponse,
 };
-use zm_api::entity::{groups_permissions, monitors, monitors_permissions, sessions};
+use zm_api::entity::{groups_permissions, monitors, monitors_permissions, sessions, users};
 
 fn auth_header() -> String {
     let token = zm_api::service::token::generate_tokens(
@@ -49,6 +49,11 @@ async fn create_monitor_db(db: &DatabaseConnection) -> Result<monitors::Model, D
 #[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
 async fn test_api_users_create_get_delete() {
     let db = get_test_db()
+        .await
+        .expect("Failed to connect to test database");
+    // Second handle to read the stored row back after creation (the `mock`
+    // feature disables `DatabaseConnection: Clone`, so open a fresh one).
+    let probe_db = get_test_db()
         .await
         .expect("Failed to connect to test database");
     let app = build_app(db);
@@ -83,6 +88,29 @@ async fn test_api_users_create_get_delete() {
     let created: UserResponse = serde_json::from_slice(&bytes).unwrap();
     let _g_user = RowGuard::user(created.id);
     assert_eq!(created.username, username);
+
+    // Regression for REVIEW_FIXES_PLAN §1.1: the stored password must be a
+    // bcrypt hash, never the plaintext, and it must verify against the
+    // original plaintext (proving the create→login round-trip works).
+    let stored = users::Entity::find_by_id(created.id)
+        .one(&probe_db)
+        .await
+        .expect("query user")
+        .expect("user row exists");
+    assert_ne!(stored.password, "testpass", "password stored in plaintext");
+    assert!(
+        stored.password.starts_with("$2"),
+        "password is not a bcrypt hash: {}",
+        stored.password
+    );
+    assert!(
+        zm_api::util::password::verify_existing_or_dummy(
+            "testpass".to_string(),
+            Some(stored.password.clone()),
+        )
+        .await,
+        "stored hash does not verify against the original password"
+    );
 
     let response = app
         .clone()
