@@ -173,16 +173,50 @@ impl HlsStorage {
             is_partial: false,
         };
 
-        // Track segment
-        let mut monitors = self.monitors.write().await;
-        if let Some(storage) = monitors.get_mut(&monitor_id) {
-            storage.segments.insert(sequence, info.clone());
+        // Track segment and enforce the per-stream segment cap *atomically* with
+        // the insert. Deciding which sequences to evict under the same write lock
+        // that performs the insert closes a TOCTOU window where two concurrent
+        // inserts could each observe the count below the cap and skip eviction
+        // (unbounded growth) or both evict the same boundary segment. Only the
+        // filesystem deletes are deferred until after the lock is released — the
+        // in-memory map is always bounded. See REVIEW_FIXES_PLAN §3.3.
+        let mut due_for_interval_cleanup = false;
+        let evicted_paths: Vec<PathBuf> = {
+            let mut monitors = self.monitors.write().await;
+            match monitors.get_mut(&monitor_id) {
+                Some(storage) => {
+                    storage.segments.insert(sequence, info.clone());
 
-            // Trigger cleanup if needed
-            if storage.last_cleanup.elapsed() >= self.config.cleanup_interval {
-                drop(monitors);
-                self.cleanup_monitor(monitor_id).await;
+                    let mut evicted = Vec::new();
+                    if storage.segments.len() > self.config.max_segments_per_stream {
+                        let mut seqs: Vec<u64> = storage.segments.keys().copied().collect();
+                        seqs.sort_unstable();
+                        let excess = storage.segments.len() - self.config.max_segments_per_stream;
+                        for seq in seqs.into_iter().take(excess) {
+                            if let Some(removed) = storage.segments.remove(&seq) {
+                                evicted.push(removed.path);
+                            }
+                        }
+                    }
+
+                    // Time-based retention (and partial-segment cleanup) still
+                    // runs on the slower interval path below.
+                    due_for_interval_cleanup =
+                        storage.last_cleanup.elapsed() >= self.config.cleanup_interval;
+                    evicted
+                }
+                None => Vec::new(),
             }
+        };
+
+        for path in &evicted_paths {
+            if let Err(e) = fs::remove_file(path).await {
+                warn!("Failed to remove evicted segment file {:?}: {}", path, e);
+            }
+        }
+
+        if due_for_interval_cleanup {
+            self.cleanup_monitor(monitor_id).await;
         }
 
         debug!(
@@ -604,6 +638,31 @@ mod tests {
         for (i, seg) in segments.iter().enumerate() {
             assert_eq!(seg.sequence, i as u64);
         }
+    }
+
+    #[tokio::test]
+    async fn test_store_segment_enforces_cap_atomically() {
+        // REVIEW_FIXES_PLAN §3.3: the in-memory segment map must never exceed
+        // max_segments_per_stream once inserts push past the cap — eviction is
+        // now performed under the insert's write lock, not only on the slow
+        // interval path.
+        let (storage, _temp) = create_test_storage().await; // cap = 10
+        for i in 0..25 {
+            storage
+                .store_segment(1, i, b"data", Duration::from_secs(4))
+                .await
+                .unwrap();
+        }
+
+        let segments = storage.list_segments(1).await;
+        assert_eq!(segments.len(), 10, "segment count must be capped");
+        // The newest 10 (sequences 15..=24) must be the survivors.
+        assert_eq!(segments.first().unwrap().sequence, 15);
+        assert_eq!(segments.last().unwrap().sequence, 24);
+
+        // Evicted segment files must be gone from disk, survivors present.
+        assert!(storage.read_segment(1, 14).await.is_err());
+        assert!(storage.read_segment(1, 24).await.is_ok());
     }
 
     #[tokio::test]

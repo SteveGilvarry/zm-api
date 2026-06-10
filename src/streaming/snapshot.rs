@@ -159,6 +159,15 @@ impl SnapshotService {
         })
         .await;
 
+        // Drop our receiver and source handle *before* tearing down a temporary
+        // source. `remove_source` aborts the reader and drops the map's entry,
+        // but these locals are clones of the same broadcast channel / source
+        // Arc — left alive until function end, they keep the channel open and
+        // the MonitorSource refcount above zero, defeating the prompt teardown
+        // this cleanup is meant to perform. See REVIEW_FIXES_PLAN §3.4.
+        drop(rx);
+        drop(source);
+
         // Cleanup temporary source if we created one
         if created_temp {
             let _ = self.source_router.remove_source(monitor_id).await;
