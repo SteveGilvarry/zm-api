@@ -23,11 +23,10 @@ use tracing::{debug, error, info, warn};
 use crate::error::{AppError, AppResponseError, AppResult};
 use crate::server::state::AppState;
 use crate::streaming::live::webrtc::{
-    extract_profile_level_id, AccessUnitAssembler, AssembledAccessUnit, WebRtcLiveConfig,
-    WebRtcLiveManager,
+    AccessUnitAssembler, AssembledAccessUnit, WebRtcLiveConfig, WebRtcLiveManager,
 };
 use crate::streaming::live::{CoordinatorError, LiveStreamConfig};
-use crate::streaming::source::{CachedKeyframe, VideoCodec};
+use crate::streaming::source::{CachedKeyframe, MonitorSource, VideoCodec};
 
 // ============================================================================
 // DTOs
@@ -624,12 +623,53 @@ pub async fn webrtc_websocket_handler(
 
     let router = Arc::clone(source_router);
 
-    Ok(ws.on_upgrade(move |socket| handle_webrtc_websocket(router, monitor_id, socket)))
+    // Honor the operator's configured STUN/TURN servers instead of the
+    // hardcoded Google STUN defaults (REVIEW_FIXES_PLAN §2.2).
+    let webrtc_config = WebRtcLiveConfig::from_webrtc_config(&state.config.streaming.webrtc);
+
+    Ok(ws.on_upgrade(move |socket| {
+        handle_webrtc_websocket(router, monitor_id, webrtc_config, socket)
+    }))
+}
+
+/// Inject a keyframe at DTLS-connected time so the viewer sees a picture
+/// immediately instead of waiting a full GOP for the next natural IDR.
+///
+/// Crucially this re-reads the source's keyframe cache **live**. On a cold
+/// start the cache is empty when signaling begins, but the FIFO reader almost
+/// always populates it during the seconds of ICE/DTLS negotiation. The old code
+/// injected the snapshot captured *before* signaling (`pre_signaling`), which on
+/// a cold start was `None` — throwing away the freshly-cached keyframe and
+/// forcing a GOP-length stall (1–8s depending on the camera). We prefer the live
+/// read, fall back to the pre-signaling snapshot, then to nothing (the normal
+/// access-unit path then waits for the next keyframe). See REVIEW_FIXES_PLAN §2.1.
+async fn inject_startup_keyframe(
+    webrtc_manager: &WebRtcLiveManager,
+    session_id: &str,
+    source: &MonitorSource,
+    pre_signaling: &Option<CachedKeyframe>,
+    au_assembler: &mut AccessUnitAssembler,
+) -> bool {
+    let Some(ck) = source.cached_keyframe().or_else(|| pre_signaling.clone()) else {
+        return false;
+    };
+    let au = AssembledAccessUnit {
+        data: ck.keyframe_au.clone(),
+        timestamp_us: ck.timestamp_us,
+        is_keyframe: true,
+    };
+    if let Err(e) = webrtc_manager.write_access_unit(session_id, &au).await {
+        warn!("Failed to inject startup keyframe: {}", e);
+        return false;
+    }
+    au_assembler.clear_needs_keyframe();
+    true
 }
 
 async fn handle_webrtc_websocket(
     source_router: Arc<crate::streaming::source::SourceRouter>,
     monitor_id: u32,
+    webrtc_config: WebRtcLiveConfig,
     socket: WebSocket,
 ) {
     info!(
@@ -638,7 +678,7 @@ async fn handle_webrtc_websocket(
     );
 
     // Create WebRTC manager for this session
-    let webrtc_manager = WebRtcLiveManager::new(WebRtcLiveConfig::default());
+    let webrtc_manager = WebRtcLiveManager::new(webrtc_config);
 
     // Get source to determine codec
     let source = match source_router.get_source(monitor_id).await {
@@ -650,8 +690,7 @@ async fn handle_webrtc_websocket(
     };
 
     // Try the keyframe cache first (warm path: reader already active).
-    // If populated, we skip both the 100ms codec sleep and the up-to-5s
-    // profile detection loop — cutting startup by 1.5-5+ seconds.
+    // If populated, we skip the cold-path codec-detection grace period entirely.
     let cached: Option<CachedKeyframe> = source.cached_keyframe();
 
     let (codec, profile_level_id) = if let Some(ref ck) = cached {
@@ -661,57 +700,29 @@ async fn handle_webrtc_websocket(
         );
         (ck.codec, Some(ck.profile_level_id.clone()))
     } else {
-        // Cold path: no cache yet — fall back to existing detection
+        // Cold path: no cached keyframe yet (first viewer since the reader
+        // started). Determine the codec from the source — the FIFO reader sets
+        // it as soon as it parses a packet; give it a brief grace period, then
+        // default to H.264.
+        //
+        // We deliberately do NOT wait for an SPS NAL here. The SDP offer
+        // advertises fixed, browser-universal H.264 profiles regardless of the
+        // camera's real profile-level-id (see `h264_offer_profile_level_ids`),
+        // so the detected value only ever reached a debug log — the previous
+        // up-to-5s SPS scan added that much startup latency for nothing.
+        // See REVIEW_FIXES_PLAN §2.3.
         debug!(
-            "No keyframe cache for monitor {}, using slow detection path",
+            "No keyframe cache for monitor {}, detecting codec from source",
             monitor_id
         );
 
-        // Wait a moment for codec detection
         tokio::time::sleep(Duration::from_millis(100)).await;
-        let codec = source.codec().await;
-        let codec = if codec == VideoCodec::Unknown {
-            VideoCodec::H264
-        } else {
-            codec
+        let codec = match source.codec().await {
+            VideoCodec::Unknown => VideoCodec::H264,
+            known => known,
         };
 
-        // Detect the actual H264 profile from the first SPS NAL so the SDP
-        // offer advertises the correct profile-level-id.
-        let mut profile_level_id: Option<String> = None;
-        if codec == VideoCodec::H264 {
-            let mut detect_rx = source.subscribe_video();
-            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-            loop {
-                tokio::select! {
-                    result = detect_rx.recv() => {
-                        match result {
-                            Ok(packet) => {
-                                if let Some(plid) = extract_profile_level_id(&packet.data) {
-                                    info!(
-                                        "Detected H264 profile-level-id={} for monitor {}",
-                                        plid, monitor_id
-                                    );
-                                    profile_level_id = Some(plid);
-                                    break;
-                                }
-                            }
-                            Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                            Err(broadcast::error::RecvError::Closed) => break,
-                        }
-                    }
-                    _ = tokio::time::sleep_until(deadline) => {
-                        warn!(
-                            "Timeout waiting for SPS NAL on monitor {}, using default profile",
-                            monitor_id
-                        );
-                        break;
-                    }
-                }
-            }
-        }
-
-        (codec, profile_level_id)
+        (codec, None)
     };
 
     // Create WebRTC session with offer and state watch channel
@@ -817,21 +828,11 @@ async fn handle_webrtc_websocket(
                                             match current_state {
                                                 webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState::Connected => {
                                                     streaming_started = true;
-                                                    // Inject cached keyframe for instant video start
+                                                    // Inject the freshest keyframe for instant video start
                                                     if !cache_injected {
-                                                        if let Some(ref ck) = cached {
-                                                            let au = AssembledAccessUnit {
-                                                                data: ck.keyframe_au.clone(),
-                                                                timestamp_us: ck.timestamp_us,
-                                                                is_keyframe: true,
-                                                            };
-                                                            if let Err(e) = webrtc_manager.write_access_unit(&session_id, &au).await {
-                                                                warn!("Failed to inject cached keyframe: {}", e);
-                                                            } else {
-                                                                au_assembler.clear_needs_keyframe();
-                                                                cache_injected = true;
-                                                                info!("Injected cached keyframe for session {} (fast start)", session_id);
-                                                            }
+                                                        cache_injected = inject_startup_keyframe(&webrtc_manager, &session_id, &source, &cached, &mut au_assembler).await;
+                                                        if cache_injected {
+                                                            info!("Injected startup keyframe for session {} (fast start)", session_id);
                                                         }
                                                     }
                                                     let ready_msg = WebRtcSignalingMessage::Ready {
@@ -899,21 +900,11 @@ async fn handle_webrtc_websocket(
                         match state {
                             webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState::Connected => {
                                 streaming_started = true;
-                                // Inject cached keyframe for instant video start
+                                // Inject the freshest keyframe for instant video start
                                 if !cache_injected {
-                                    if let Some(ref ck) = cached {
-                                        let au = AssembledAccessUnit {
-                                            data: ck.keyframe_au.clone(),
-                                            timestamp_us: ck.timestamp_us,
-                                            is_keyframe: true,
-                                        };
-                                        if let Err(e) = webrtc_manager.write_access_unit(&session_id, &au).await {
-                                            warn!("Failed to inject cached keyframe: {}", e);
-                                        } else {
-                                            au_assembler.clear_needs_keyframe();
-                                            cache_injected = true;
-                                            info!("Injected cached keyframe for session {} (fast start)", session_id);
-                                        }
+                                    cache_injected = inject_startup_keyframe(&webrtc_manager, &session_id, &source, &cached, &mut au_assembler).await;
+                                    if cache_injected {
+                                        info!("Injected startup keyframe for session {} (fast start)", session_id);
                                     }
                                 }
                                 // Send ready notification now that DTLS is complete

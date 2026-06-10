@@ -366,6 +366,34 @@ impl Default for WebRtcLiveConfig {
     }
 }
 
+impl WebRtcLiveConfig {
+    /// Build a live-streaming config from the application's `[streaming.webrtc]`
+    /// settings, so the operator's configured STUN/TURN servers actually take
+    /// effect on the live WS path (it previously always used the hardcoded
+    /// Google STUN defaults). An **empty** `stun_servers` list is honored
+    /// verbatim — on a LAN-only deployment that is the right setting: host
+    /// candidates alone let ICE gathering complete in milliseconds instead of
+    /// stalling on the ~5s STUN gather timeout when Google STUN is unreachable.
+    /// See REVIEW_FIXES_PLAN §2.2.
+    pub fn from_webrtc_config(cfg: &crate::configure::streaming::WebRtcConfig) -> Self {
+        let (turn_server, turn_username, turn_password) = match &cfg.turn {
+            Some(turn) if turn.enabled => (
+                Some(turn.server.clone()),
+                Some(turn.username.clone()),
+                Some(turn.password.clone()),
+            ),
+            _ => (None, None, None),
+        };
+        Self {
+            stun_servers: cfg.stun_servers.clone(),
+            turn_server,
+            turn_username,
+            turn_password,
+            max_sessions: cfg.max_connections as usize,
+        }
+    }
+}
+
 /// Manager for WebRTC live streaming sessions
 pub struct WebRtcLiveManager {
     config: WebRtcLiveConfig,
@@ -828,6 +856,59 @@ mod tests {
         assert_eq!(config.stun_servers.len(), 2);
         assert!(config.turn_server.is_none());
         assert_eq!(config.max_sessions, 100);
+    }
+
+    #[test]
+    fn from_webrtc_config_honors_empty_stun_list() {
+        // REVIEW_FIXES_PLAN §2.2: an empty STUN list must pass through verbatim
+        // (LAN-only deployments rely on this to skip the STUN gather stall).
+        let cfg = crate::configure::streaming::WebRtcConfig {
+            stun_servers: vec![],
+            max_connections: 7,
+            turn: None,
+            ..Default::default()
+        };
+        let live = WebRtcLiveConfig::from_webrtc_config(&cfg);
+        assert!(live.stun_servers.is_empty());
+        assert!(live.turn_server.is_none());
+        assert_eq!(live.max_sessions, 7);
+    }
+
+    #[test]
+    fn from_webrtc_config_maps_stun_and_enabled_turn() {
+        let cfg = crate::configure::streaming::WebRtcConfig {
+            stun_servers: vec!["stun:lan.local:3478".to_string()],
+            turn: Some(crate::configure::streaming::TurnConfig {
+                enabled: true,
+                server: "turn:lan.local:3478".to_string(),
+                username: "u".to_string(),
+                password: "p".to_string(),
+            }),
+            ..Default::default()
+        };
+        let live = WebRtcLiveConfig::from_webrtc_config(&cfg);
+        assert_eq!(live.stun_servers, vec!["stun:lan.local:3478".to_string()]);
+        assert_eq!(live.turn_server.as_deref(), Some("turn:lan.local:3478"));
+        assert_eq!(live.turn_username.as_deref(), Some("u"));
+        assert_eq!(live.turn_password.as_deref(), Some("p"));
+    }
+
+    #[test]
+    fn from_webrtc_config_ignores_disabled_turn() {
+        // A present-but-disabled TURN block must not be advertised.
+        let cfg = crate::configure::streaming::WebRtcConfig {
+            turn: Some(crate::configure::streaming::TurnConfig {
+                enabled: false,
+                server: "turn:nope:3478".to_string(),
+                username: "u".to_string(),
+                password: "p".to_string(),
+            }),
+            ..Default::default()
+        };
+        let live = WebRtcLiveConfig::from_webrtc_config(&cfg);
+        assert!(live.turn_server.is_none());
+        assert!(live.turn_username.is_none());
+        assert!(live.turn_password.is_none());
     }
 
     #[test]
