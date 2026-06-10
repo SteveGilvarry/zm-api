@@ -234,152 +234,171 @@ pub async fn apply_state(state: &AppState, state_name: &str) -> AppResult<Daemon
     // Two formats supported:
     // - Legacy (3-part): "id:function:enabled" e.g., "1:Monitor:1,2:Modect:1,3:None:0"
     // - New (4-part): "id:capturing:analysing:recording" e.g., "1:Always:Always:OnMotion"
-    let definition = &zm_state.definition;
-    let mut updated_monitors = 0;
+    // Apply the monitor config changes, activate this state, and deactivate
+    // every other state as ONE atomic unit. A partial failure here previously
+    // left monitors half-migrated between run states with inconsistent IsActive
+    // flags. The daemon restart stays OUTSIDE the transaction — it is an
+    // external side effect and runs only after the DB changes commit.
+    // REVIEW_FIXES_PLAN §4.2.
+    use sea_orm::sea_query::Expr;
+    use sea_orm::TransactionTrait;
 
-    for entry in definition.split(',') {
-        let entry = entry.trim();
-        if entry.is_empty() {
-            continue;
-        }
+    let state_name_owned = state_name.to_string();
+    let updated_monitors = state
+        .db
+        .as_ref()
+        .transaction::<_, u32, AppError>(move |txn| {
+            Box::pin(async move {
+                let definition = zm_state.definition.clone();
+                let mut updated_monitors = 0u32;
 
-        let parts: Vec<&str> = entry.split(':').collect();
-
-        match parts.len() {
-            3 => {
-                // Legacy format: id:function:enabled
-                let monitor_id = match parts[0].parse::<u32>() {
-                    Ok(id) => id,
-                    Err(_) => {
-                        warn!("Invalid monitor ID in state definition: {}", parts[0]);
+                for entry in definition.split(',') {
+                    let entry = entry.trim();
+                    if entry.is_empty() {
                         continue;
                     }
-                };
 
-                let function = match parse_function(parts[1]) {
-                    Some(f) => f,
-                    None => {
-                        warn!("Unknown function '{}' for monitor {}", parts[1], monitor_id);
-                        continue;
-                    }
-                };
+                    let parts: Vec<&str> = entry.split(':').collect();
 
-                let enabled: u8 = parts[2].parse().unwrap_or(1);
+                    match parts.len() {
+                        3 => {
+                            // Legacy format: id:function:enabled
+                            let monitor_id = match parts[0].parse::<u32>() {
+                                Ok(id) => id,
+                                Err(_) => {
+                                    warn!("Invalid monitor ID in state definition: {}", parts[0]);
+                                    continue;
+                                }
+                            };
 
-                // Map legacy enabled field to Capturing:
-                // enabled=0 → Capturing::None (disabled)
-                // enabled=1 → Capturing::Always (default active state)
-                let capturing = if enabled == 0 {
-                    Capturing::None
-                } else {
-                    Capturing::Always
-                };
+                            let function = match parse_function(parts[1]) {
+                                Some(f) => f,
+                                None => {
+                                    warn!(
+                                        "Unknown function '{}' for monitor {}",
+                                        parts[1], monitor_id
+                                    );
+                                    continue;
+                                }
+                            };
 
-                // Update monitor in database
-                let monitor = monitors::Entity::find_by_id(monitor_id)
-                    .one(state.db.as_ref())
-                    .await?;
+                            let enabled: u8 = parts[2].parse().unwrap_or(1);
 
-                if let Some(monitor) = monitor {
-                    let mut active: monitors::ActiveModel = monitor.into();
-                    active.function = Set(function.clone());
-                    active.capturing = Set(capturing.clone());
-                    active.update(state.db.as_ref()).await?;
-                    updated_monitors += 1;
-                    debug!(
-                        "Updated monitor {} (legacy): function={:?}, capturing={:?}",
-                        monitor_id, function, capturing
-                    );
-                }
-            }
-            4 => {
-                // New format: id:capturing:analysing:recording
-                let monitor_id = match parts[0].parse::<u32>() {
-                    Ok(id) => id,
-                    Err(_) => {
-                        warn!("Invalid monitor ID in state definition: {}", parts[0]);
-                        continue;
-                    }
-                };
+                            // Map legacy enabled field to Capturing:
+                            // enabled=0 → Capturing::None (disabled)
+                            // enabled=1 → Capturing::Always (default active state)
+                            let capturing = if enabled == 0 {
+                                Capturing::None
+                            } else {
+                                Capturing::Always
+                            };
 
-                let capturing = match parse_capturing(parts[1]) {
-                    Some(c) => c,
-                    None => {
-                        warn!(
-                            "Unknown capturing value '{}' for monitor {}",
-                            parts[1], monitor_id
-                        );
-                        continue;
-                    }
-                };
+                            // Update monitor in database
+                            let monitor = monitors::Entity::find_by_id(monitor_id).one(txn).await?;
 
-                let analysing = match parse_analysing(parts[2]) {
-                    Some(a) => a,
-                    None => {
-                        warn!(
-                            "Unknown analysing value '{}' for monitor {}",
-                            parts[2], monitor_id
-                        );
-                        continue;
-                    }
-                };
+                            if let Some(monitor) = monitor {
+                                let mut active: monitors::ActiveModel = monitor.into();
+                                active.function = Set(function.clone());
+                                active.capturing = Set(capturing.clone());
+                                active.update(txn).await?;
+                                updated_monitors += 1;
+                                debug!(
+                                    "Updated monitor {} (legacy): function={:?}, capturing={:?}",
+                                    monitor_id, function, capturing
+                                );
+                            }
+                        }
+                        4 => {
+                            // New format: id:capturing:analysing:recording
+                            let monitor_id = match parts[0].parse::<u32>() {
+                                Ok(id) => id,
+                                Err(_) => {
+                                    warn!("Invalid monitor ID in state definition: {}", parts[0]);
+                                    continue;
+                                }
+                            };
 
-                let recording = match parse_recording(parts[3]) {
-                    Some(r) => r,
-                    None => {
-                        warn!(
-                            "Unknown recording value '{}' for monitor {}",
-                            parts[3], monitor_id
-                        );
-                        continue;
-                    }
-                };
+                            let capturing = match parse_capturing(parts[1]) {
+                                Some(c) => c,
+                                None => {
+                                    warn!(
+                                        "Unknown capturing value '{}' for monitor {}",
+                                        parts[1], monitor_id
+                                    );
+                                    continue;
+                                }
+                            };
 
-                // Update monitor in database
-                let monitor = monitors::Entity::find_by_id(monitor_id)
-                    .one(state.db.as_ref())
-                    .await?;
+                            let analysing = match parse_analysing(parts[2]) {
+                                Some(a) => a,
+                                None => {
+                                    warn!(
+                                        "Unknown analysing value '{}' for monitor {}",
+                                        parts[2], monitor_id
+                                    );
+                                    continue;
+                                }
+                            };
 
-                if let Some(monitor) = monitor {
-                    let mut active: monitors::ActiveModel = monitor.into();
-                    active.capturing = Set(capturing.clone());
-                    active.analysing = Set(analysing.clone());
-                    active.recording = Set(recording.clone());
-                    active.update(state.db.as_ref()).await?;
-                    updated_monitors += 1;
-                    debug!(
+                            let recording = match parse_recording(parts[3]) {
+                                Some(r) => r,
+                                None => {
+                                    warn!(
+                                        "Unknown recording value '{}' for monitor {}",
+                                        parts[3], monitor_id
+                                    );
+                                    continue;
+                                }
+                            };
+
+                            // Update monitor in database
+                            let monitor = monitors::Entity::find_by_id(monitor_id).one(txn).await?;
+
+                            if let Some(monitor) = monitor {
+                                let mut active: monitors::ActiveModel = monitor.into();
+                                active.capturing = Set(capturing.clone());
+                                active.analysing = Set(analysing.clone());
+                                active.recording = Set(recording.clone());
+                                active.update(txn).await?;
+                                updated_monitors += 1;
+                                debug!(
                         "Updated monitor {} (new): capturing={:?}, analysing={:?}, recording={:?}",
                         monitor_id, capturing, analysing, recording
                     );
+                            }
+                        }
+                        _ => {
+                            if !entry.is_empty() {
+                                warn!(
+                                    "Invalid state definition entry (expected 3 or 4 parts): {}",
+                                    entry
+                                );
+                            }
+                            continue;
+                        }
+                    }
                 }
-            }
-            _ => {
-                if !entry.is_empty() {
-                    warn!(
-                        "Invalid state definition entry (expected 3 or 4 parts): {}",
-                        entry
-                    );
-                }
-                continue;
-            }
-        }
-    }
 
-    // Mark this state as active
-    let mut active_state: states::ActiveModel = zm_state.into();
-    active_state.is_active = Set(1);
-    active_state.update(state.db.as_ref()).await?;
+                // Mark this state as active.
+                let mut active_state: states::ActiveModel = zm_state.into();
+                active_state.is_active = Set(1);
+                active_state.update(txn).await?;
 
-    // Deactivate other states
-    // Note: This is a simplification - in production you'd use a proper UPDATE statement
-    let all_states = states::Entity::find().all(state.db.as_ref()).await?;
-    for s in all_states {
-        if s.name != state_name && s.is_active == 1 {
-            let mut active: states::ActiveModel = s.into();
-            active.is_active = Set(0);
-            active.update(state.db.as_ref()).await?;
-        }
-    }
+                // Deactivate every other state in a single UPDATE (no N+1 loop).
+                states::Entity::update_many()
+                    .col_expr(states::Column::IsActive, Expr::value(0u8))
+                    .filter(states::Column::Name.ne(state_name_owned.as_str()))
+                    .exec(txn)
+                    .await?;
+
+                Ok(updated_monitors)
+            })
+        })
+        .await
+        .map_err(|e| match e {
+            sea_orm::TransactionError::Connection(db) => AppError::from(db),
+            sea_orm::TransactionError::Transaction(app) => app,
+        })?;
 
     // Restart to apply changes
     info!(

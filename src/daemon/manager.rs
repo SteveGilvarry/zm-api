@@ -818,20 +818,10 @@ impl DaemonManager {
                 monitor_id, monitor.name, monitor_type, function, needs_analysis
             );
 
-            // Start zmc (capture daemon)
-            // For Local type: use -d <device>, otherwise use -m <id>
-            let (daemon_id, daemon_desc) =
-                if matches!(monitor_type, MonitorType::Local) && !monitor.device.is_empty() {
-                    (
-                        format!("zmc -d {}", monitor.device),
-                        format!("zmc for device {}", monitor.device),
-                    )
-                } else {
-                    (
-                        format!("zmc -m {}", monitor_id),
-                        format!("zmc for monitor {}", monitor_id),
-                    )
-                };
+            // Start zmc (capture daemon). The id form (-d <device> vs -m <id>)
+            // must match every other call site — see `zmc_daemon_id`.
+            let daemon_id = zmc_daemon_id(monitor_type, &monitor.device, monitor_id);
+            let daemon_desc = format!("zmc for monitor {}", monitor_id);
 
             match self.start_daemon(&daemon_id, &[]).await {
                 Ok(resp) if resp.success => {
@@ -1602,6 +1592,21 @@ impl DaemonManager {
     /// # Returns
     ///
     /// A response indicating success/failure and details about what was started.
+    /// Resolve the `zmc` daemon id for a monitor by looking up its type/device,
+    /// so stop/status derive the same key `start` used. Falls back to the `-m`
+    /// form when no DB is configured or the monitor row is missing.
+    async fn zmc_id_for_monitor(&self, monitor_id: u32) -> String {
+        if let Some(db) = &self.db {
+            if let Ok(Some(m)) = monitors::Entity::find_by_id(monitor_id)
+                .one(db.as_ref())
+                .await
+            {
+                return zmc_daemon_id(&m.r#type, &m.device, monitor_id);
+            }
+        }
+        format!("zmc -m {}", monitor_id)
+    }
+
     pub async fn start_monitor(&self, monitor_id: u32) -> AppResult<DaemonResponse> {
         let db = match &self.db {
             Some(db) => db.clone(),
@@ -1626,8 +1631,9 @@ impl DaemonManager {
         let mut started = Vec::new();
         let mut errors = Vec::new();
 
-        // Start zmc (capture daemon)
-        let zmc_id = format!("zmc -m {}", monitor_id);
+        // Start zmc (capture daemon). Use the shared id derivation so Local
+        // monitors get the same `-d <device>` key that stop/status expect.
+        let zmc_id = zmc_daemon_id(&monitor.r#type, &monitor.device, monitor_id);
         match self.start_daemon(&zmc_id, &[]).await {
             Ok(resp) if resp.success => {
                 started.push("zmc".to_string());
@@ -1692,8 +1698,9 @@ impl DaemonManager {
         let mut stopped = Vec::new();
         let mut errors = Vec::new();
 
-        // Stop zmc
-        let zmc_id = format!("zmc -m {}", monitor_id);
+        // Stop zmc — resolve the same id form `start` used (Local monitors are
+        // keyed by `-d <device>`).
+        let zmc_id = self.zmc_id_for_monitor(monitor_id).await;
         match self.stop_daemon(&zmc_id).await {
             Ok(resp) if resp.success => {
                 stopped.push("zmc".to_string());
@@ -1772,7 +1779,7 @@ impl DaemonManager {
     ///
     /// Returns true if at least zmc is running for the monitor.
     pub async fn is_monitor_running(&self, monitor_id: u32) -> bool {
-        let zmc_id = format!("zmc -m {}", monitor_id);
+        let zmc_id = self.zmc_id_for_monitor(monitor_id).await;
         let processes = self.processes.read().await;
 
         if let Some(process) = processes.get(&zmc_id) {
@@ -1784,11 +1791,11 @@ impl DaemonManager {
 
     /// Get status of a specific monitor's daemons.
     pub async fn get_monitor_daemon_status(&self, monitor_id: u32) -> Vec<ProcessStatus> {
+        let zmc_id = self.zmc_id_for_monitor(monitor_id).await;
         let processes = self.processes.read().await;
         let mut statuses = Vec::new();
 
         // Check zmc
-        let zmc_id = format!("zmc -m {}", monitor_id);
         if let Some(p) = processes.get(&zmc_id) {
             statuses.push(ProcessStatus {
                 id: p.id.clone(),
@@ -1906,6 +1913,35 @@ fn parse_daemon_command(id: &str, extra_args: &[String]) -> (String, Vec<String>
     args.extend(extra_args.iter().cloned());
 
     (command, args)
+}
+
+/// Build the `zmc` capture-daemon id for a monitor. This id doubles as the key
+/// in the process map, so **every** call site (start / stop / restart / status)
+/// must derive it identically — otherwise a daemon started under one form is
+/// invisible to the others.
+///
+/// Local (V4L2) monitors with a device path are addressed as `zmc -d <device>`
+/// to match how ZoneMinder launches local capture; everything else uses
+/// `zmc -m <id>`. Previously `start_all_daemons` used the `-d` form while
+/// stop/status hard-coded `-m`, so Local monitors were started, never found
+/// again, and churn-restarted on every reconcile tick. See REVIEW_FIXES_PLAN §4.1.
+///
+/// A device containing whitespace falls back to the `-m` form: the id is later
+/// re-split on whitespace by [`parse_daemon_command`], so a spaced path would
+/// fan out into bogus args and be rejected by `validate_daemon_spec` anyway.
+fn zmc_daemon_id(monitor_type: &MonitorType, device: &str, monitor_id: u32) -> String {
+    if matches!(monitor_type, MonitorType::Local) && !device.is_empty() {
+        if device.chars().any(char::is_whitespace) {
+            warn!(
+                "Monitor {} device path {:?} contains whitespace; using -m form \
+                 (a spaced device would fail daemon-spec validation)",
+                monitor_id, device
+            );
+        } else {
+            return format!("zmc -d {}", device);
+        }
+    }
+    format!("zmc -m {}", monitor_id)
 }
 
 /// Interpret a ZoneMinder Config `Value` as a boolean.
@@ -2064,6 +2100,48 @@ mod tests {
         let (cmd, args) = parse_daemon_command("zmc", &["-m".to_string(), "5".to_string()]);
         assert_eq!(cmd, "zmc");
         assert_eq!(args, vec!["-m", "5"]);
+    }
+
+    #[test]
+    fn zmc_daemon_id_local_with_device_uses_dash_d() {
+        assert_eq!(
+            zmc_daemon_id(&MonitorType::Local, "/dev/video0", 7),
+            "zmc -d /dev/video0"
+        );
+    }
+
+    #[test]
+    fn zmc_daemon_id_local_without_device_uses_dash_m() {
+        assert_eq!(zmc_daemon_id(&MonitorType::Local, "", 7), "zmc -m 7");
+    }
+
+    #[test]
+    fn zmc_daemon_id_non_local_uses_dash_m() {
+        // Network camera (Ffmpeg type): always -m, even if a device is set.
+        assert_eq!(
+            zmc_daemon_id(&MonitorType::Ffmpeg, "/dev/video0", 12),
+            "zmc -m 12"
+        );
+    }
+
+    #[test]
+    fn zmc_daemon_id_whitespace_device_falls_back_to_dash_m() {
+        // A spaced device would be re-split by parse_daemon_command and rejected
+        // by validate_daemon_spec, so we never emit the -d form for it.
+        assert_eq!(
+            zmc_daemon_id(&MonitorType::Local, "/dev/video 0", 3),
+            "zmc -m 3"
+        );
+    }
+
+    #[test]
+    fn zmc_daemon_id_roundtrips_through_validation() {
+        // The id `start` produces must parse + validate (so stop/status, which
+        // reconstruct from the same id, agree).
+        let id = zmc_daemon_id(&MonitorType::Local, "/dev/video0", 1);
+        let (cmd, parsed) = parse_daemon_command(&id, &[]);
+        assert_eq!(cmd, "zmc");
+        assert!(validate_daemon_spec(&cmd, &parsed).is_ok());
     }
 
     fn args(v: &[&str]) -> Vec<String> {
