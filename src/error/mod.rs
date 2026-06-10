@@ -265,13 +265,17 @@ impl AppError {
                 "INVALID_SESSION_ERROR".to_string(),
                 None,
                 vec![],
-                StatusCode::BAD_REQUEST,
+                // An invalid/expired session is an auth failure — clients must
+                // re-authenticate, not treat it as a malformed request.
+                StatusCode::UNAUTHORIZED,
             ),
             ConflictError(_err) => (
                 "CONFLICT_ERROR".to_string(),
                 None,
                 vec![],
-                StatusCode::INTERNAL_SERVER_ERROR,
+                // Semantic "already exists / duplicate" (e.g. a live session
+                // already running), not a server fault.
+                StatusCode::CONFLICT,
             ),
             UserNotActiveError(_err) => (
                 "USER_NOT_ACTIVE_ERROR".to_string(),
@@ -339,7 +343,9 @@ impl AppError {
                 "TYPE_HEADER_ERROR".to_string(),
                 None,
                 vec![],
-                StatusCode::INTERNAL_SERVER_ERROR,
+                // A malformed/typed-header rejection (e.g. a bad Authorization
+                // header) is a client error, not a server fault.
+                StatusCode::BAD_REQUEST,
             ),
         };
 
@@ -476,5 +482,25 @@ where
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // REVIEW_FIXES_PLAN §1.2: these variants previously mapped to misleading
+    // status codes (Conflict/InvalidSession → 5xx/400). Lock in the corrected
+    // semantics so a future edit can't silently regress them.
+    #[test]
+    fn conflict_error_maps_to_409() {
+        let (status, _) = AppError::ConflictError("dup".into()).response();
+        assert_eq!(status, StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn invalid_session_error_maps_to_401() {
+        let (status, _) = AppError::InvalidSessionError("nope".into()).response();
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 }
