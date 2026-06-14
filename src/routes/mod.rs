@@ -12,7 +12,7 @@ use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
 };
 use tower_http::compression::CompressionLayer;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
@@ -67,24 +67,60 @@ async fn fallback_handler(path: MatchedPath) -> &'static str {
     "Unknown route"
 }
 
-/// Build the CORS layer from the `ALLOWED_ORIGINS` environment variable.
-fn build_cors_layer() -> CorsLayer {
-    // Get frontend URL from environment variable or use default localhost addresses
-    let frontend_urls = std::env::var("ALLOWED_ORIGINS").unwrap_or_else(|_| {
-        "http://localhost:3000,http://localhost:5173,http://localhost:8000".to_string()
-    });
+/// One allowed-origin rule parsed from `ALLOWED_ORIGINS`.
+enum OriginRule {
+    /// Exact origin match, e.g. `https://app.example.com`.
+    Exact(HeaderValue),
+    /// A host with any explicit port, written `scheme://host:*` (e.g.
+    /// `http://localhost:*`). Matches `scheme://host:<digits>` only. This is
+    /// the dev convenience that avoids re-listing every Vite/CRA/preview port,
+    /// without resorting to a wildcard (illegal here — see below).
+    AnyPort { prefix: String },
+}
 
-    // Parse the URLs into a Vec of HeaderValues for CORS configuration
-    let origins = frontend_urls
-        .split(',')
-        .filter_map(|origin| origin.parse().ok())
-        .collect::<Vec<_>>();
+impl OriginRule {
+    fn matches(&self, origin: &HeaderValue) -> bool {
+        match self {
+            OriginRule::Exact(allowed) => allowed == origin,
+            OriginRule::AnyPort { prefix } => {
+                let o = origin.as_bytes();
+                let p = prefix.as_bytes();
+                // `scheme://host:` followed by a non-empty, all-digits port.
+                o.len() > p.len() && o.starts_with(p) && o[p.len()..].iter().all(u8::is_ascii_digit)
+            }
+        }
+    }
+}
+
+/// Build the CORS layer from the `ALLOWED_ORIGINS` environment variable.
+///
+/// `ALLOWED_ORIGINS` is a comma-separated list. Each entry is either an exact
+/// origin (`https://app.example.com`) or a host with a `:*` port wildcard
+/// (`http://localhost:*`) that matches that host on any port. The default
+/// (dev) allows any localhost / 127.0.0.1 port so new frontend dev ports don't
+/// need to be registered one by one.
+///
+/// Note: the layer sets `Access-Control-Allow-Credentials: true`, and the CORS
+/// spec forbids pairing credentials with a literal `*` origin (browsers reject
+/// it). So "all origins" is intentionally not offered; the `:*` rule reflects
+/// the specific matching origin back instead, which is credentials-safe and,
+/// for `localhost`, does not expose the API to other hosts. In production set
+/// `ALLOWED_ORIGINS` to the exact deployed front-end origin(s).
+fn build_cors_layer() -> CorsLayer {
+    let frontend_urls = std::env::var("ALLOWED_ORIGINS")
+        .unwrap_or_else(|_| "http://localhost:*,http://127.0.0.1:*".to_string());
+
+    let rules = parse_origin_rules(&frontend_urls);
 
     tracing::info!("Configuring CORS with allowed origins: {:?}", frontend_urls);
 
+    let allow_origin = AllowOrigin::predicate(move |origin: &HeaderValue, _req| {
+        rules.iter().any(|r| r.matches(origin))
+    });
+
     CorsLayer::new()
         // Allow frontend origins to access the API
-        .allow_origin(origins)
+        .allow_origin(allow_origin)
         // Allow common HTTP methods needed for a RESTful API
         .allow_methods([
             Method::GET,
@@ -103,6 +139,26 @@ fn build_cors_layer() -> CorsLayer {
             HeaderName::from_static("origin"),
         ])
         .allow_credentials(true)
+}
+
+/// Parse `ALLOWED_ORIGINS` into a set of [`OriginRule`]s. Entries ending in
+/// `:*` become any-port host rules; the rest are exact origins. Entries that
+/// are neither parseable as a header value nor a `:*` rule are skipped.
+fn parse_origin_rules(raw: &str) -> Vec<OriginRule> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .filter_map(|entry| {
+            if let Some(host) = entry.strip_suffix(":*") {
+                // Store the prefix including the colon, e.g. "http://localhost:".
+                Some(OriginRule::AnyPort {
+                    prefix: format!("{host}:"),
+                })
+            } else {
+                entry.parse::<HeaderValue>().ok().map(OriginRule::Exact)
+            }
+        })
+        .collect()
 }
 
 /// Apply the cross-cutting middleware stack to the fully-merged router.
@@ -389,4 +445,66 @@ pub fn create_router_app(state: AppState) -> Router {
         .fallback(any(fallback_handler));
 
     apply_common_middleware(app, cors).with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hv(s: &str) -> HeaderValue {
+        HeaderValue::from_str(s).unwrap()
+    }
+
+    fn allows(rules: &[OriginRule], origin: &str) -> bool {
+        let o = hv(origin);
+        rules.iter().any(|r| r.matches(&o))
+    }
+
+    #[test]
+    fn any_port_rule_matches_localhost_on_any_port() {
+        let rules = parse_origin_rules("http://localhost:*,http://127.0.0.1:*");
+        assert!(allows(&rules, "http://localhost:3000"));
+        assert!(allows(&rules, "http://localhost:5173"));
+        assert!(allows(&rules, "http://localhost:49152")); // ephemeral
+        assert!(allows(&rules, "http://127.0.0.1:8080"));
+    }
+
+    #[test]
+    fn any_port_rule_rejects_lookalikes_and_other_hosts() {
+        let rules = parse_origin_rules("http://localhost:*");
+        // Non-numeric / empty port must not match (so a forged
+        // "localhost:3000.evil.com"-style origin can't slip through).
+        assert!(!allows(&rules, "http://localhost:3000.evil.com"));
+        assert!(!allows(&rules, "http://localhost:"));
+        assert!(!allows(&rules, "http://localhost")); // bare host, no port
+                                                      // Different host, and the subdomain-confusion case.
+        assert!(!allows(&rules, "http://evil.com:3000"));
+        assert!(!allows(&rules, "http://localhost.evil.com:3000"));
+        // Scheme must match too.
+        assert!(!allows(&rules, "https://localhost:3000"));
+    }
+
+    #[test]
+    fn exact_rule_matches_only_that_origin() {
+        let rules = parse_origin_rules("https://app.example.com,http://localhost:3000");
+        assert!(allows(&rules, "https://app.example.com"));
+        assert!(allows(&rules, "http://localhost:3000"));
+        assert!(!allows(&rules, "https://app.example.com:8443"));
+        assert!(!allows(&rules, "http://localhost:3001"));
+    }
+
+    #[test]
+    fn mixed_exact_and_wildcard_entries() {
+        let rules = parse_origin_rules("https://prod.example.com, http://localhost:*");
+        assert!(allows(&rules, "https://prod.example.com"));
+        assert!(allows(&rules, "http://localhost:1234"));
+        assert!(!allows(&rules, "https://staging.example.com"));
+    }
+
+    #[test]
+    fn blank_and_unparseable_entries_are_skipped() {
+        let rules = parse_origin_rules(" , ,http://localhost:*, ");
+        assert_eq!(rules.len(), 1);
+        assert!(allows(&rules, "http://localhost:9999"));
+    }
 }
