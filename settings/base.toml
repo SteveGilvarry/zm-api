@@ -67,17 +67,17 @@ enabled = true
 default_protocol = "auto"
 
 [streaming.source]
-priority = ["fifo", "rtsp", "go2rtc"]
+priority = ["socket", "rtsp", "go2rtc"]
 prefer_direct_rtsp = false
 fallback_to_go2rtc = true
 cache_sdp_seconds = 300
 
 [streaming.zoneminder]
 enabled = true
-fifo_base_path = "/run/zm"
-video_fifo_suffix = "/video_fifo_"
-audio_fifo_suffix = "/audio_fifo_"
-fifo_read_timeout_ms = 5000
+# Directory holding zmc's per-monitor stream sockets (ZM_PATH_SOCKS):
+# {socks_path}/stream_{monitor_id}.sock
+socks_path = "/run/zm"
+read_timeout_ms = 10000
 reconnect_delay_ms = 1000
 
 [streaming.go2rtc]

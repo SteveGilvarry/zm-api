@@ -40,7 +40,7 @@ pub enum StreamingProtocol {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct SourceConfig {
-    pub priority: Vec<String>, // ["fifo", "rtsp", "go2rtc"]
+    pub priority: Vec<String>, // ["socket", "rtsp", "go2rtc"]
     pub prefer_direct_rtsp: bool,
     pub fallback_to_go2rtc: bool,
     pub cache_sdp_seconds: u32,
@@ -49,7 +49,11 @@ pub struct SourceConfig {
 impl Default for SourceConfig {
     fn default() -> Self {
         Self {
-            priority: vec!["fifo".to_string(), "rtsp".to_string(), "go2rtc".to_string()],
+            priority: vec![
+                "socket".to_string(),
+                "rtsp".to_string(),
+                "go2rtc".to_string(),
+            ],
             prefer_direct_rtsp: false,
             fallback_to_go2rtc: true,
             cache_sdp_seconds: 300,
@@ -61,10 +65,12 @@ impl Default for SourceConfig {
 #[serde(default)]
 pub struct ZoneMinderConfig {
     pub enabled: bool,
-    pub fifo_base_path: String,
-    pub video_fifo_suffix: String,
-    pub audio_fifo_suffix: String,
-    pub fifo_read_timeout_ms: u64,
+    /// Directory holding zmc's per-monitor stream sockets
+    /// (`stream_{monitor_id}.sock`) — ZoneMinder's `ZM_PATH_SOCKS`.
+    pub socks_path: String,
+    /// Stream-socket read timeout. zmc sends STATS every ~5s even when no
+    /// media flows, so this mostly guards against a wedged peer.
+    pub read_timeout_ms: u64,
     pub reconnect_delay_ms: u64,
     /// Path to ZoneMinder events directory
     pub events_dir: String,
@@ -74,10 +80,8 @@ impl Default for ZoneMinderConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            fifo_base_path: "/run/zm".to_string(),
-            video_fifo_suffix: "/video_fifo_".to_string(),
-            audio_fifo_suffix: "/audio_fifo_".to_string(),
-            fifo_read_timeout_ms: 5000,
+            socks_path: "/run/zm".to_string(),
+            read_timeout_ms: 10_000,
             reconnect_delay_ms: 1000,
             events_dir: "/var/lib/zoneminder/events".to_string(),
         }
@@ -238,7 +242,17 @@ mod tests {
         let config = StreamingConfig::default();
         assert!(config.enabled);
         assert_eq!(config.source.priority.len(), 3);
-        assert_eq!(config.source.priority[0], "fifo");
+        assert_eq!(config.source.priority[0], "socket");
+    }
+
+    #[test]
+    fn test_zoneminder_config_default() {
+        let config = ZoneMinderConfig::default();
+        assert!(config.enabled);
+        assert_eq!(config.socks_path, "/run/zm");
+        assert_eq!(config.read_timeout_ms, 10_000);
+        assert_eq!(config.reconnect_delay_ms, 1000);
+        assert_eq!(config.events_dir, "/var/lib/zoneminder/events");
     }
 
     #[test]

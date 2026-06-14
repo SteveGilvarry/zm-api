@@ -10,7 +10,7 @@ use std::sync::OnceLock;
 
 use dashmap::DashMap;
 
-use crate::streaming::source::fifo::VideoCodec;
+use crate::streaming::source::VideoCodec;
 
 /// Probed properties of a recorded event's video file.
 #[derive(Debug, Clone, Copy)]

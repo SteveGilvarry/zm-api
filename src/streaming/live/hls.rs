@@ -1,6 +1,6 @@
 //! HLS-specific live streaming functionality
 //!
-//! This module provides HLS streaming from FIFO sources. It uses the
+//! This module provides HLS streaming from stream-socket sources. It uses the
 //! existing HlsSessionManager and HlsSegmenter infrastructure but
 //! coordinates them through the LiveStreamCoordinator.
 

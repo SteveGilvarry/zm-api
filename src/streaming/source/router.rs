@@ -1,8 +1,8 @@
 //! Source Router for unified streaming source management
 //!
-//! Provides a unified abstraction over FIFO readers that serves all output protocols
-//! (WebRTC, HLS). Manages lazy initialization of monitor sources and handles
-//! both video and audio streams.
+//! Provides a unified abstraction over per-monitor stream-socket readers that
+//! serves all output protocols (WebRTC, HLS). Manages lazy initialization of
+//! monitor sources; one socket connection carries both video and audio.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,15 +12,17 @@ use tokio::sync::{broadcast, watch, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
-use super::fifo::{
-    extract_profile_level_id, h264_nal_type, FifoError, FifoPacket, VideoCodec, ZmFifoReader,
+use super::media::{
+    extract_profile_level_id, h264_nal_type, h265_nal_type, AudioCodec, AudioPacket, VideoCodec,
+    VideoPacket,
 };
+use super::stream_socket::{stream_socket_path, SocketEvent, SourceError, StreamSocketReader};
 use crate::configure::streaming::ZoneMinderConfig;
 
 /// Default broadcast channel capacity for source packets
 const DEFAULT_SOURCE_CAPACITY: usize = 100;
 
-/// Health state of the FIFO reader task.
+/// Health state of the stream-socket reader task.
 ///
 /// Subscribers (e.g. the coordinator's processing task) can watch this to
 /// detect reader failures instead of hanging on a broadcast channel that
@@ -29,45 +31,156 @@ const DEFAULT_SOURCE_CAPACITY: usize = 100;
 pub enum ReaderHealth {
     /// Reader not started yet
     Idle,
-    /// Attempting to open the FIFO
+    /// Attempting to connect to the stream socket
     Opening,
-    /// FIFO open and producing packets
+    /// Socket connected and producing packets
     Active,
-    /// FIFO closed or errored, attempting reconnect
+    /// Socket closed or errored, attempting reconnect
     Reconnecting,
     /// Reader task exited (watch sender dropped)
     Stopped,
 }
 
-/// Cached keyframe data (SPS + PPS + IDR) for fast WebRTC startup.
+/// Stream topology learned from the socket's connect handshake.
 ///
-/// When a reader is active, this is populated on each IDR arrival so that
-/// new WebRTC connections can skip codec detection and keyframe waits.
+/// zmc sends the per-stream HELLOs before any media, so once any media
+/// message has arrived the topology is final for that connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StreamInfo {
+    pub video_codec: VideoCodec,
+    /// `None` when the monitor has no audio stream.
+    pub audio_codec: Option<AudioCodec>,
+}
+
+/// Cached keyframe data for fast WebRTC startup.
+///
+/// When a reader is active, this is populated on each keyframe arrival so
+/// that new WebRTC connections can skip codec detection and keyframe waits.
+/// The injectable unit is `keyframe_au`: SPS+PPS+IDR for H.264,
+/// VPS+SPS+PPS+IRAP for H.265 — everything a decoder needs to initialise.
 #[derive(Debug, Clone)]
 pub struct CachedKeyframe {
     /// Raw SPS NAL (with Annex B start code)
     pub sps: Vec<u8>,
     /// Raw PPS NAL (with Annex B start code)
     pub pps: Vec<u8>,
-    /// SPS + PPS + IDR concatenated (Annex B), ready to inject as one AU
+    /// Parameter sets + keyframe concatenated (Annex B), ready to inject as
+    /// one AU. For H.265 this starts with the VPS.
     pub keyframe_au: Vec<u8>,
-    /// profile-level-id extracted from SPS (e.g. "4d0033")
+    /// profile-level-id extracted from the H.264 SPS (e.g. "4d0033").
+    /// Empty for H.265 — the H.265 SDP offer does not use it.
     pub profile_level_id: String,
-    /// Video codec (H264 for now)
+    /// Video codec
     pub codec: VideoCodec,
     /// Timestamp in microseconds (from reader's monotonic clock)
     pub timestamp_us: i64,
+}
+
+/// Tracks parameter sets across NALs so a complete [`CachedKeyframe`] can be
+/// assembled the moment a keyframe slice arrives. H.264 needs SPS+PPS;
+/// H.265 additionally needs the VPS. Re-created on each socket reconnect
+/// (fresh parameter sets are expected after a stream restart).
+#[derive(Default)]
+struct KeyframeCacheBuilder {
+    /// H.265 VPS (unused for H.264)
+    vps: Option<Vec<u8>>,
+    sps: Option<Vec<u8>>,
+    pps: Option<Vec<u8>>,
+    /// Extracted from the H.264 SPS (None for H.265)
+    profile_level_id: Option<String>,
+}
+
+impl KeyframeCacheBuilder {
+    /// Feed one NAL packet. Returns a complete cache entry when the packet
+    /// is a keyframe slice and all required parameter sets have been seen.
+    fn push(&mut self, packet: &VideoPacket) -> Option<CachedKeyframe> {
+        match packet.codec {
+            VideoCodec::H264 => match h264_nal_type(&packet.data)? {
+                7 => {
+                    self.sps = Some(packet.data.clone());
+                    self.profile_level_id = extract_profile_level_id(&packet.data);
+                    None
+                }
+                8 => {
+                    self.pps = Some(packet.data.clone());
+                    None
+                }
+                5 => {
+                    let (sps, pps, plid) = (
+                        self.sps.as_ref()?,
+                        self.pps.as_ref()?,
+                        self.profile_level_id.as_ref()?,
+                    );
+                    let mut keyframe_au =
+                        Vec::with_capacity(sps.len() + pps.len() + packet.data.len());
+                    keyframe_au.extend_from_slice(sps);
+                    keyframe_au.extend_from_slice(pps);
+                    keyframe_au.extend_from_slice(&packet.data);
+                    Some(CachedKeyframe {
+                        sps: sps.clone(),
+                        pps: pps.clone(),
+                        keyframe_au,
+                        profile_level_id: plid.clone(),
+                        codec: VideoCodec::H264,
+                        timestamp_us: packet.timestamp_us,
+                    })
+                }
+                _ => None,
+            },
+            VideoCodec::H265 => match h265_nal_type(&packet.data)? {
+                32 => {
+                    self.vps = Some(packet.data.clone());
+                    None
+                }
+                33 => {
+                    self.sps = Some(packet.data.clone());
+                    None
+                }
+                34 => {
+                    self.pps = Some(packet.data.clone());
+                    None
+                }
+                // IRAP pictures (BLA 16-18, IDR 19-20, CRA 21) are valid
+                // decoder entry points.
+                t if (16..=21).contains(&t) => {
+                    let (vps, sps, pps) =
+                        (self.vps.as_ref()?, self.sps.as_ref()?, self.pps.as_ref()?);
+                    let mut keyframe_au =
+                        Vec::with_capacity(vps.len() + sps.len() + pps.len() + packet.data.len());
+                    keyframe_au.extend_from_slice(vps);
+                    keyframe_au.extend_from_slice(sps);
+                    keyframe_au.extend_from_slice(pps);
+                    keyframe_au.extend_from_slice(&packet.data);
+                    Some(CachedKeyframe {
+                        sps: sps.clone(),
+                        pps: pps.clone(),
+                        keyframe_au,
+                        profile_level_id: String::new(),
+                        codec: VideoCodec::H265,
+                        timestamp_us: packet.timestamp_us,
+                    })
+                }
+                _ => None,
+            },
+            VideoCodec::Unknown => None,
+        }
+    }
 }
 
 /// Represents an active monitor source with video and optional audio streams
 pub struct MonitorSource {
     monitor_id: u32,
     /// Broadcast sender for video packets
-    video_tx: broadcast::Sender<FifoPacket>,
-    /// Broadcast sender for audio packets (if available)
-    audio_tx: Option<broadcast::Sender<AudioPacket>>,
+    video_tx: broadcast::Sender<VideoPacket>,
+    /// Broadcast sender for audio packets. Always present — whether the
+    /// monitor actually has audio is only known after the socket handshake
+    /// (see [`StreamInfo`]); a no-audio monitor's channel simply never
+    /// carries packets.
+    audio_tx: broadcast::Sender<AudioPacket>,
     /// Background reader task handle
     reader_handle: RwLock<Option<JoinHandle<()>>>,
+    /// Audio packets read since the source was created
+    audio_packets: Arc<std::sync::atomic::AtomicU64>,
     /// Detected video codec
     codec: RwLock<VideoCodec>,
     /// Whether the source is actively reading
@@ -76,6 +189,10 @@ pub struct MonitorSource {
     /// When the reader task exits, the sender is dropped and receivers get Err.
     reader_health_tx: watch::Sender<ReaderHealth>,
     reader_health_rx: watch::Receiver<ReaderHealth>,
+    /// Stream topology from the socket handshake; `None` until the reader
+    /// has seen the connect HELLOs confirmed by a first media message.
+    stream_info_tx: watch::Sender<Option<StreamInfo>>,
+    stream_info_rx: watch::Receiver<Option<StreamInfo>>,
     /// Cached keyframe (SPS+PPS+IDR) for fast WebRTC startup.
     /// Updated each time an IDR is seen by the reader task.
     keyframe_cache_tx: watch::Sender<Option<CachedKeyframe>>,
@@ -84,15 +201,11 @@ pub struct MonitorSource {
 
 impl MonitorSource {
     /// Create a new monitor source
-    fn new(monitor_id: u32, has_audio: bool) -> Self {
+    fn new(monitor_id: u32) -> Self {
         let (video_tx, _) = broadcast::channel(DEFAULT_SOURCE_CAPACITY);
-        let audio_tx = if has_audio {
-            let (tx, _) = broadcast::channel(DEFAULT_SOURCE_CAPACITY);
-            Some(tx)
-        } else {
-            None
-        };
+        let (audio_tx, _) = broadcast::channel(DEFAULT_SOURCE_CAPACITY);
         let (reader_health_tx, reader_health_rx) = watch::channel(ReaderHealth::Idle);
+        let (stream_info_tx, stream_info_rx) = watch::channel(None);
         let (keyframe_cache_tx, keyframe_cache_rx) = watch::channel(None);
 
         Self {
@@ -100,28 +213,60 @@ impl MonitorSource {
             video_tx,
             audio_tx,
             reader_handle: RwLock::new(None),
+            audio_packets: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             codec: RwLock::new(VideoCodec::Unknown),
             active: RwLock::new(false),
             reader_health_tx,
             reader_health_rx,
+            stream_info_tx,
+            stream_info_rx,
             keyframe_cache_tx,
             keyframe_cache_rx,
         }
     }
 
+    /// Number of audio packets read since the source was created
+    pub fn audio_packet_count(&self) -> u64 {
+        self.audio_packets
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Subscribe to receive video packets
-    pub fn subscribe_video(&self) -> broadcast::Receiver<FifoPacket> {
+    pub fn subscribe_video(&self) -> broadcast::Receiver<VideoPacket> {
         self.video_tx.subscribe()
     }
 
-    /// Subscribe to receive audio packets (if available)
-    pub fn subscribe_audio(&self) -> Option<broadcast::Receiver<AudioPacket>> {
-        self.audio_tx.as_ref().map(|tx| tx.subscribe())
+    /// Subscribe to receive audio packets. For a monitor without audio the
+    /// receiver simply never yields (check [`Self::has_audio`]).
+    pub fn subscribe_audio(&self) -> broadcast::Receiver<AudioPacket> {
+        self.audio_tx.subscribe()
     }
 
-    /// Check if audio is available for this source
+    /// Whether the socket handshake announced an audio stream.
     pub fn has_audio(&self) -> bool {
-        self.audio_tx.is_some()
+        self.audio_codec().is_some()
+    }
+
+    /// The audio codec, when the monitor has audio. `None` also while the
+    /// handshake has not completed yet — see [`Self::wait_for_stream_info`].
+    pub fn audio_codec(&self) -> Option<AudioCodec> {
+        self.stream_info_rx.borrow().as_ref()?.audio_codec
+    }
+
+    /// Stream topology, once the socket handshake has completed.
+    pub fn stream_info(&self) -> Option<StreamInfo> {
+        *self.stream_info_rx.borrow()
+    }
+
+    /// Wait until the socket handshake has revealed the stream topology, or
+    /// the timeout elapses (zmc not running / camera not delivering).
+    pub async fn wait_for_stream_info(&self, timeout: Duration) -> Option<StreamInfo> {
+        let mut rx = self.stream_info_rx.clone();
+        let result = tokio::time::timeout(timeout, rx.wait_for(|info| info.is_some())).await;
+        match result {
+            Ok(Ok(info)) => *info,
+            _ => None,
+        }
     }
 
     /// Get the monitor ID
@@ -168,39 +313,8 @@ impl MonitorSource {
     }
 
     /// Get the number of audio subscribers
-    pub fn audio_subscriber_count(&self) -> Option<usize> {
-        self.audio_tx.as_ref().map(|tx| tx.receiver_count())
-    }
-}
-
-/// Audio packet from FIFO
-#[derive(Debug, Clone)]
-pub struct AudioPacket {
-    pub monitor_id: u32,
-    pub timestamp_us: i64,
-    pub data: Vec<u8>,
-    pub codec: AudioCodec,
-}
-
-/// Audio codec types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AudioCodec {
-    Aac,
-    G711Alaw,
-    G711Ulaw,
-    Opus,
-    Unknown,
-}
-
-impl AudioCodec {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            AudioCodec::Aac => "AAC",
-            AudioCodec::G711Alaw => "G.711 A-law",
-            AudioCodec::G711Ulaw => "G.711 u-law",
-            AudioCodec::Opus => "Opus",
-            AudioCodec::Unknown => "Unknown",
-        }
+    pub fn audio_subscriber_count(&self) -> usize {
+        self.audio_tx.receiver_count()
     }
 }
 
@@ -210,20 +324,20 @@ pub enum RouterError {
     #[error("Monitor {0} source not available")]
     SourceNotAvailable(u32),
 
-    #[error("Monitor {0} FIFO not found")]
-    FifoNotFound(u32),
+    #[error("Monitor {0} stream socket not found")]
+    SocketNotFound(u32),
 
     #[error("Failed to start reader for monitor {0}: {1}")]
     ReaderStartFailed(u32, String),
 
-    #[error("FIFO error: {0}")]
-    FifoError(#[from] FifoError),
+    #[error("Source error: {0}")]
+    SourceError(#[from] SourceError),
 }
 
 /// Configuration for the source router
 #[derive(Debug, Clone)]
 pub struct RouterConfig {
-    /// ZoneMinder FIFO configuration
+    /// ZoneMinder stream-socket configuration
     pub zoneminder: ZoneMinderConfig,
     /// Broadcast channel capacity
     pub channel_capacity: usize,
@@ -254,7 +368,8 @@ impl RouterConfig {
     }
 }
 
-/// Unified source router that manages FIFO readers and serves all output protocols
+/// Unified source router that manages stream-socket readers and serves all
+/// output protocols
 pub struct SourceRouter {
     /// Active monitor sources
     active_sources: DashMap<u32, Arc<MonitorSource>>,
@@ -300,19 +415,14 @@ impl SourceRouter {
             return Err(RouterError::SourceNotAvailable(monitor_id));
         }
 
-        let reader = ZmFifoReader::new(monitor_id, self.config.zoneminder.clone());
-        if !reader.fifo_exists() {
-            return Err(RouterError::FifoNotFound(monitor_id));
+        if !self.is_available(monitor_id) {
+            return Err(RouterError::SocketNotFound(monitor_id));
         }
 
-        let has_audio = reader.audio_path().is_some_and(|p| p.exists());
-        let source = Arc::new(MonitorSource::new(monitor_id, has_audio));
+        let source = Arc::new(MonitorSource::new(monitor_id));
         self.active_sources.insert(monitor_id, source.clone());
 
-        info!(
-            "Created source for monitor {} (audio: {})",
-            monitor_id, has_audio
-        );
+        info!("Created source for monitor {}", monitor_id);
         Ok(source)
     }
 
@@ -376,40 +486,41 @@ impl SourceRouter {
         // Create and start the reader task
         let config = self.config.zoneminder.clone();
         let video_tx = source.video_tx.clone();
+        let audio_tx = source.audio_tx.clone();
+        let audio_packets = source.audio_packets.clone();
         let source_for_task = source.clone();
         // Clone the health sender into the task — when the task exits (or is
         // aborted), this sender is dropped and subscribers see Err from changed().
         let health_tx = source.reader_health_tx.clone();
-
+        let stream_info_tx = source.stream_info_tx.clone();
         let keyframe_cache_tx = source.keyframe_cache_tx.clone();
 
         let handle = tokio::spawn(async move {
-            info!("Starting FIFO reader task for monitor {}", monitor_id);
+            info!(
+                "Starting stream socket reader task for monitor {}",
+                monitor_id
+            );
 
-            // Outer loop: handles reconnection when FIFO closes or errors
+            // Outer loop: handles reconnection when the socket closes or errors
             loop {
-                let mut reader = ZmFifoReader::new(monitor_id, config.clone());
+                let mut reader = StreamSocketReader::new(monitor_id, config.clone());
                 let _ = health_tx.send(ReaderHealth::Opening);
 
-                // Keyframe cache state — tracks SPS/PPS/profile across NALs so we
-                // can assemble a complete CachedKeyframe when an IDR arrives.
-                // Re-initialized on each reconnect (new SPS/PPS expected).
-                // The watch channel is NOT cleared — old cache is still usable
-                // during brief reconnects.
-                let mut pending_sps: Option<Vec<u8>> = None;
-                let mut pending_pps: Option<Vec<u8>> = None;
-                let mut pending_profile_level_id: Option<String> = None;
+                // Keyframe cache state — tracks parameter sets across NALs so
+                // we can assemble a complete CachedKeyframe when a keyframe
+                // arrives. Re-initialized on each reconnect (new parameter
+                // sets expected). The watch channel is NOT cleared — old
+                // cache is still usable during brief reconnects.
+                let mut keyframe_cache_builder = KeyframeCacheBuilder::default();
 
-                // Open the FIFO (with O_RDWR this won't block)
-                match reader.open().await {
+                match reader.connect().await {
                     Ok(()) => {
-                        info!("FIFO opened for monitor {}", monitor_id);
                         *source_for_task.active.write().await = true;
                         let _ = health_tx.send(ReaderHealth::Active);
                     }
-                    Err(FifoError::NotFound { .. }) => {
+                    Err(SourceError::NotFound { .. }) => {
                         debug!(
-                            "FIFO not found for monitor {}, waiting to retry...",
+                            "Stream socket not found for monitor {}, waiting to retry...",
                             monitor_id
                         );
                         tokio::time::sleep(Duration::from_millis(config.reconnect_delay_ms * 5))
@@ -417,75 +528,59 @@ impl SourceRouter {
                         continue;
                     }
                     Err(e) => {
-                        error!("Failed to open FIFO for monitor {}: {}", monitor_id, e);
+                        error!(
+                            "Failed to connect stream socket for monitor {}: {}",
+                            monitor_id, e
+                        );
                         tokio::time::sleep(Duration::from_millis(config.reconnect_delay_ms)).await;
                         continue;
                     }
                 }
 
-                // Inner loop: read packets until FIFO closes or unrecoverable error
+                // Topology of this connection. zmc sends every stream's HELLO
+                // before any media, so the first media event confirms the
+                // handshake is complete and the audio answer is final.
+                let mut video_codec = VideoCodec::Unknown;
+                let mut audio_codec: Option<AudioCodec> = None;
+                let mut announced = false;
+
+                // Inner loop: read events until the socket closes or an
+                // unrecoverable error occurs
                 loop {
-                    match reader.read_packet().await {
-                        Ok(packet) => {
-                            // Update codec if detected
-                            if packet.codec != VideoCodec::Unknown {
-                                let mut codec_guard = source_for_task.codec.write().await;
-                                if *codec_guard == VideoCodec::Unknown {
-                                    *codec_guard = packet.codec;
-                                    info!(
-                                        "Detected codec for monitor {}: {}",
-                                        monitor_id,
-                                        packet.codec.as_str()
-                                    );
-                                }
+                    match reader.next_event().await {
+                        Ok(SocketEvent::VideoParams { codec }) => {
+                            video_codec = codec;
+                            let mut codec_guard = source_for_task.codec.write().await;
+                            if *codec_guard != codec {
+                                *codec_guard = codec;
+                                info!("Monitor {} video codec: {}", monitor_id, codec.as_str());
+                            }
+                        }
+                        Ok(SocketEvent::AudioParams { codec }) => {
+                            audio_codec = Some(codec);
+                            if announced {
+                                // Audio appeared after the initial handshake
+                                // (e.g. zmc primed it later) — update.
+                                let _ = stream_info_tx.send(Some(StreamInfo {
+                                    video_codec,
+                                    audio_codec,
+                                }));
+                            }
+                        }
+                        Ok(SocketEvent::Video(packet)) => {
+                            if !announced {
+                                announced = true;
+                                let _ = stream_info_tx.send(Some(StreamInfo {
+                                    video_codec,
+                                    audio_codec,
+                                }));
                             }
 
-                            // --- Keyframe cache: inspect H.264 NAL types ---
-                            if packet.codec == VideoCodec::H264 {
-                                if let Some(nal_type) = h264_nal_type(&packet.data) {
-                                    match nal_type {
-                                        7 => {
-                                            // SPS — cache it and extract profile-level-id
-                                            pending_sps = Some(packet.data.clone());
-                                            pending_profile_level_id =
-                                                extract_profile_level_id(&packet.data);
-                                        }
-                                        8 => {
-                                            // PPS — cache it
-                                            pending_pps = Some(packet.data.clone());
-                                        }
-                                        5 => {
-                                            // IDR — if we have SPS + PPS + profile, assemble cache
-                                            if let (Some(sps), Some(pps), Some(plid)) = (
-                                                &pending_sps,
-                                                &pending_pps,
-                                                &pending_profile_level_id,
-                                            ) {
-                                                let mut keyframe_au = Vec::with_capacity(
-                                                    sps.len() + pps.len() + packet.data.len(),
-                                                );
-                                                keyframe_au.extend_from_slice(sps);
-                                                keyframe_au.extend_from_slice(pps);
-                                                keyframe_au.extend_from_slice(&packet.data);
-
-                                                let cached = CachedKeyframe {
-                                                    sps: sps.clone(),
-                                                    pps: pps.clone(),
-                                                    keyframe_au,
-                                                    profile_level_id: plid.clone(),
-                                                    codec: VideoCodec::H264,
-                                                    timestamp_us: packet.timestamp_us,
-                                                };
-                                                let _ = keyframe_cache_tx.send(Some(cached));
-                                                debug!(
-                                                    "Updated keyframe cache for monitor {}",
-                                                    monitor_id
-                                                );
-                                            }
-                                        }
-                                        _ => {}
-                                    }
-                                }
+                            // --- Keyframe cache: assemble parameter sets +
+                            // keyframe per the packet's codec ---
+                            if let Some(cached) = keyframe_cache_builder.push(&packet) {
+                                let _ = keyframe_cache_tx.send(Some(cached));
+                                debug!("Updated keyframe cache for monitor {}", monitor_id);
                             }
 
                             // Broadcast the packet (ignore errors if no receivers)
@@ -494,20 +589,39 @@ impl SourceRouter {
                                 debug!("No receivers for monitor {}", monitor_id);
                             }
                         }
-                        Err(FifoError::Timeout { .. }) => {
-                            // Timeout is expected when no data is available
+                        Ok(SocketEvent::Audio(packet)) => {
+                            if !announced {
+                                announced = true;
+                                let _ = stream_info_tx.send(Some(StreamInfo {
+                                    video_codec,
+                                    audio_codec,
+                                }));
+                            }
+                            audio_packets.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            // No receivers is fine — nobody listening.
+                            let _ = audio_tx.send(packet);
+                        }
+                        Err(SourceError::Timeout { .. }) => {
+                            // Expected when no media is flowing (idle camera);
+                            // STATS messages keep a healthy connection chatty.
                             debug!("Read timeout for monitor {}, continuing...", monitor_id);
                             continue;
                         }
-                        Err(FifoError::Closed) => {
-                            warn!("FIFO closed for monitor {}, will reconnect...", monitor_id);
+                        Err(SourceError::Closed) => {
+                            warn!(
+                                "Stream socket closed for monitor {}, will reconnect...",
+                                monitor_id
+                            );
                             break; // Break inner loop to reconnect
                         }
                         Err(e) => {
-                            error!("Error reading from FIFO for monitor {}: {}", monitor_id, e);
+                            error!(
+                                "Error reading stream socket for monitor {}: {}",
+                                monitor_id, e
+                            );
                             tokio::time::sleep(Duration::from_millis(config.reconnect_delay_ms))
                                 .await;
-                            break; // Break inner loop to reconnect with fresh reader
+                            break; // Break inner loop to reconnect with fresh state
                         }
                     }
                 }
@@ -562,7 +676,7 @@ impl SourceRouter {
     pub async fn subscribe_video(
         &self,
         monitor_id: u32,
-    ) -> Result<broadcast::Receiver<FifoPacket>, RouterError> {
+    ) -> Result<broadcast::Receiver<VideoPacket>, RouterError> {
         let source = self.get_source(monitor_id).await?;
         Ok(source.subscribe_video())
     }
@@ -571,15 +685,16 @@ impl SourceRouter {
     pub async fn subscribe_audio(
         &self,
         monitor_id: u32,
-    ) -> Result<Option<broadcast::Receiver<AudioPacket>>, RouterError> {
+    ) -> Result<broadcast::Receiver<AudioPacket>, RouterError> {
         let source = self.get_source(monitor_id).await?;
         Ok(source.subscribe_audio())
     }
 
-    /// Check if a monitor's FIFO is available (without creating a source)
+    /// Check if a monitor's stream socket exists (without creating a source).
+    ///
+    /// The socket appears when zmc starts and survives camera reconnects.
     pub fn is_available(&self, monitor_id: u32) -> bool {
-        let reader = ZmFifoReader::new(monitor_id, self.config.zoneminder.clone());
-        reader.fifo_exists()
+        stream_socket_path(&self.config.zoneminder, monitor_id).exists()
     }
 
     /// Get the list of active monitor IDs
@@ -600,15 +715,7 @@ impl SourceRouter {
         let mut stats = Vec::new();
 
         for entry in self.active_sources.iter() {
-            let source = entry.value();
-            stats.push(SourceStats {
-                monitor_id: source.monitor_id,
-                codec: source.codec().await,
-                active: source.is_active().await,
-                video_subscribers: source.video_subscriber_count(),
-                audio_subscribers: source.audio_subscriber_count(),
-                has_audio: source.has_audio(),
-            });
+            stats.push(Self::source_stats(entry.value()).await);
         }
 
         stats
@@ -616,15 +723,20 @@ impl SourceRouter {
 
     /// Get statistics for a specific monitor
     pub async fn get_source_stats(&self, monitor_id: u32) -> Option<SourceStats> {
-        let source = self.active_sources.get(&monitor_id)?;
-        Some(SourceStats {
+        let source = self.active_sources.get(&monitor_id)?.clone();
+        Some(Self::source_stats(&source).await)
+    }
+
+    async fn source_stats(source: &MonitorSource) -> SourceStats {
+        SourceStats {
             monitor_id: source.monitor_id,
             codec: source.codec().await,
             active: source.is_active().await,
             video_subscribers: source.video_subscriber_count(),
             audio_subscribers: source.audio_subscriber_count(),
             has_audio: source.has_audio(),
-        })
+            audio_packets: source.audio_packet_count(),
+        }
     }
 }
 
@@ -641,22 +753,17 @@ pub struct SourceStats {
     pub codec: VideoCodec,
     pub active: bool,
     pub video_subscribers: usize,
-    pub audio_subscribers: Option<usize>,
+    pub audio_subscribers: usize,
     pub has_audio: bool,
-}
-
-// Implement Serialize for VideoCodec (needed for SourceStats)
-impl serde::Serialize for VideoCodec {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(self.as_str())
-    }
+    /// Audio packets read since the source was created
+    pub audio_packets: u64,
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::protocol::test_encode::*;
+    use super::super::protocol::FLAG_KEYFRAME;
+    use super::super::stream_socket::test_support::*;
     use super::*;
 
     #[test]
@@ -675,32 +782,18 @@ mod tests {
     }
 
     #[test]
-    fn test_audio_codec_as_str() {
-        assert_eq!(AudioCodec::Aac.as_str(), "AAC");
-        assert_eq!(AudioCodec::G711Alaw.as_str(), "G.711 A-law");
-        assert_eq!(AudioCodec::G711Ulaw.as_str(), "G.711 u-law");
-        assert_eq!(AudioCodec::Opus.as_str(), "Opus");
-        assert_eq!(AudioCodec::Unknown.as_str(), "Unknown");
-    }
-
-    #[test]
     fn test_monitor_source_creation() {
-        let source = MonitorSource::new(1, true);
+        let source = MonitorSource::new(1);
         assert_eq!(source.monitor_id(), 1);
-        assert!(source.has_audio());
-        assert_eq!(source.video_subscriber_count(), 0);
-    }
-
-    #[test]
-    fn test_monitor_source_without_audio() {
-        let source = MonitorSource::new(2, false);
+        // Audio presence is unknown until the socket handshake completes.
         assert!(!source.has_audio());
-        assert!(source.subscribe_audio().is_none());
+        assert!(source.stream_info().is_none());
+        assert_eq!(source.video_subscriber_count(), 0);
     }
 
     #[tokio::test]
     async fn test_monitor_source_initial_state() {
-        let source = MonitorSource::new(1, false);
+        let source = MonitorSource::new(1);
         assert!(!source.is_active().await);
         assert_eq!(source.codec().await, VideoCodec::Unknown);
     }
@@ -709,19 +802,133 @@ mod tests {
     fn test_is_available_nonexistent() {
         let router = SourceRouter::new();
         // This will return false for a non-existent monitor
-        // since the FIFO won't exist
+        // since the stream socket won't exist
         assert!(!router.is_available(99999));
     }
 
     #[test]
     fn test_monitor_source_cached_keyframe_initially_none() {
-        let source = MonitorSource::new(1, false);
+        let source = MonitorSource::new(1);
         assert!(source.cached_keyframe().is_none());
+    }
+
+    fn h264_packet(nal_byte: u8, payload: &[u8]) -> VideoPacket {
+        let mut data = vec![0x00, 0x00, 0x00, 0x01, nal_byte];
+        data.extend_from_slice(payload);
+        VideoPacket {
+            monitor_id: 1,
+            timestamp_us: 100,
+            data,
+            is_keyframe: (nal_byte & 0x1F) == 5,
+            codec: VideoCodec::H264,
+        }
+    }
+
+    fn h265_packet(nal_type: u8, payload: &[u8]) -> VideoPacket {
+        let mut data = vec![0x00, 0x00, 0x00, 0x01, nal_type << 1, 0x01];
+        data.extend_from_slice(payload);
+        VideoPacket {
+            monitor_id: 1,
+            timestamp_us: 100,
+            data,
+            is_keyframe: (16..=21).contains(&nal_type),
+            codec: VideoCodec::H265,
+        }
+    }
+
+    #[test]
+    fn test_keyframe_cache_builder_h264_assembles_on_idr() {
+        let mut builder = KeyframeCacheBuilder::default();
+
+        // SPS (Main 5.1), PPS — no cache yet
+        assert!(builder
+            .push(&h264_packet(0x67, &[0x4D, 0x00, 0x33]))
+            .is_none());
+        assert!(builder.push(&h264_packet(0x68, &[0xCE, 0x3C])).is_none());
+        // P-slice does not assemble
+        assert!(builder.push(&h264_packet(0x41, &[0x9A])).is_none());
+
+        // IDR assembles SPS+PPS+IDR
+        let ck = builder
+            .push(&h264_packet(0x65, &[0x88, 0x84]))
+            .expect("cache entry on IDR");
+        assert_eq!(ck.codec, VideoCodec::H264);
+        assert_eq!(ck.profile_level_id, "4d0033");
+        assert_eq!(ck.timestamp_us, 100);
+        let starts = ck
+            .keyframe_au
+            .windows(4)
+            .filter(|w| w == &[0, 0, 0, 1])
+            .count();
+        assert_eq!(starts, 3, "SPS+PPS+IDR expected in keyframe AU");
+    }
+
+    #[test]
+    fn test_keyframe_cache_builder_h264_requires_sps_and_pps() {
+        let mut builder = KeyframeCacheBuilder::default();
+        // IDR with no parameter sets seen — nothing to cache
+        assert!(builder.push(&h264_packet(0x65, &[0x88])).is_none());
+        // Only SPS — still nothing
+        assert!(builder
+            .push(&h264_packet(0x67, &[0x4D, 0x00, 0x33]))
+            .is_none());
+        assert!(builder.push(&h264_packet(0x65, &[0x88])).is_none());
+    }
+
+    #[test]
+    fn test_keyframe_cache_builder_h265_assembles_on_irap() {
+        let mut builder = KeyframeCacheBuilder::default();
+
+        // VPS (32), SPS (33), PPS (34)
+        assert!(builder.push(&h265_packet(32, &[0x0C, 0x01])).is_none());
+        assert!(builder.push(&h265_packet(33, &[0x01, 0x01])).is_none());
+        assert!(builder.push(&h265_packet(34, &[0xC1, 0x62])).is_none());
+        // TRAIL_R does not assemble
+        assert!(builder.push(&h265_packet(1, &[0x9A])).is_none());
+
+        // IDR_W_RADL (19) assembles VPS+SPS+PPS+IDR
+        let ck = builder
+            .push(&h265_packet(19, &[0x88]))
+            .expect("cache entry on IRAP");
+        assert_eq!(ck.codec, VideoCodec::H265);
+        // profile_level_id is an H.264 SDP concept; empty for H.265
+        assert!(ck.profile_level_id.is_empty());
+        let starts = ck
+            .keyframe_au
+            .windows(4)
+            .filter(|w| w == &[0, 0, 0, 1])
+            .count();
+        assert_eq!(starts, 4, "VPS+SPS+PPS+IDR expected in keyframe AU");
+        // VPS must come first — the decoder cannot init without it
+        assert_eq!((ck.keyframe_au[4] >> 1) & 0x3F, 32);
+    }
+
+    #[test]
+    fn test_keyframe_cache_builder_h265_requires_vps() {
+        let mut builder = KeyframeCacheBuilder::default();
+        // SPS + PPS but no VPS — IRAP must not assemble a cache entry
+        assert!(builder.push(&h265_packet(33, &[0x01])).is_none());
+        assert!(builder.push(&h265_packet(34, &[0xC1])).is_none());
+        assert!(builder.push(&h265_packet(19, &[0x88])).is_none());
+
+        // VPS arrives; next IRAP assembles
+        assert!(builder.push(&h265_packet(32, &[0x0C])).is_none());
+        assert!(builder.push(&h265_packet(19, &[0x88])).is_some());
+    }
+
+    #[test]
+    fn test_keyframe_cache_builder_h265_cra_assembles() {
+        // CRA (21) is an IRAP — a valid stream entry point worth caching.
+        let mut builder = KeyframeCacheBuilder::default();
+        assert!(builder.push(&h265_packet(32, &[0x0C])).is_none());
+        assert!(builder.push(&h265_packet(33, &[0x01])).is_none());
+        assert!(builder.push(&h265_packet(34, &[0xC1])).is_none());
+        assert!(builder.push(&h265_packet(21, &[0x88])).is_some());
     }
 
     #[test]
     fn test_cached_keyframe_populated_via_watch() {
-        let source = MonitorSource::new(1, false);
+        let source = MonitorSource::new(1);
 
         // Initially empty
         assert!(source.cached_keyframe().is_none());
@@ -754,7 +961,7 @@ mod tests {
 
     #[test]
     fn test_subscribe_keyframe_cache_receives_updates() {
-        let source = MonitorSource::new(1, false);
+        let source = MonitorSource::new(1);
         let rx = source.subscribe_keyframe_cache();
 
         // Initially None
@@ -789,6 +996,69 @@ mod tests {
         panic!("monitor {monitor_id} reader never reached active={want}");
     }
 
+    fn test_zm_config(dir: &std::path::Path) -> ZoneMinderConfig {
+        ZoneMinderConfig {
+            socks_path: dir.to_string_lossy().into_owned(),
+            ..ZoneMinderConfig::default()
+        }
+    }
+
+    const SPS: &[u8] = &[0x00, 0x00, 0x00, 0x01, 0x67, 0x4D, 0x00, 0x33];
+    const PPS: &[u8] = &[0x00, 0x00, 0x00, 0x01, 0x68, 0xCE, 0x3C, 0x80];
+
+    fn h264_extradata() -> Vec<u8> {
+        let mut e = SPS.to_vec();
+        e.extend_from_slice(PPS);
+        e
+    }
+
+    /// A canned zmc connect script: video HELLO (+ optional audio HELLO),
+    /// then a keyframe AU.
+    fn connect_script(with_audio: bool) -> Vec<u8> {
+        let mut script = Vec::new();
+        script.extend_from_slice(&encode_message(
+            0x01,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &hello_payload(h264_codec_id(), &h264_extradata()),
+        ));
+        if with_audio {
+            script.extend_from_slice(&encode_message(
+                0x01,
+                1,
+                0,
+                0,
+                0,
+                0,
+                &hello_payload(aac_codec_id(), &[0x14, 0x08]),
+            ));
+        }
+        script.extend_from_slice(&encode_message(
+            0x03,
+            0,
+            FLAG_KEYFRAME,
+            0,
+            0,
+            1_000_000,
+            &[0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x84, 0x00],
+        ));
+        if with_audio {
+            script.extend_from_slice(&encode_message(
+                0x02,
+                1,
+                0,
+                0,
+                0,
+                1_020_000,
+                &[0x21, 0x1B, 0x55],
+            ));
+        }
+        script
+    }
+
     /// Regression test: a source can outlive its reader task. `stop_reader`
     /// aborts the reader but leaves the `MonitorSource` registered, so a
     /// later `get_source` must restart the reader instead of handing back a
@@ -797,26 +1067,10 @@ mod tests {
     /// lives). This is the bug that froze WebRTC after the first keyframe.
     #[tokio::test]
     async fn test_get_source_restarts_dead_reader() {
-        use std::process::Command;
+        let dir = test_sock_dir("router_restart");
+        let server = spawn_fake_zmc(dir.join("stream_7.sock"), connect_script(false), false);
 
-        // A real FIFO in a temp dir, addressed via the "old custom format"
-        // (suffix not starting with `/video_fifo_`) so the path is ours.
-        let dir = std::env::temp_dir().join(format!("zm_router_test_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let fifo_path = dir.join("7.fifo");
-        let _ = std::fs::remove_file(&fifo_path);
-        let status = Command::new("mkfifo")
-            .arg(&fifo_path)
-            .status()
-            .expect("mkfifo should be available");
-        assert!(status.success(), "mkfifo failed");
-
-        let config = ZoneMinderConfig {
-            fifo_base_path: dir.to_string_lossy().into_owned(),
-            video_fifo_suffix: ".fifo".to_string(),
-            ..ZoneMinderConfig::default()
-        };
-        let router = SourceRouter::from_zoneminder_config(config);
+        let router = SourceRouter::from_zoneminder_config(test_zm_config(&dir));
 
         // First acquisition creates the source and starts the reader.
         router
@@ -842,7 +1096,89 @@ mod tests {
         await_active(&router, 7, true).await;
 
         let _ = router.stop_reader(7).await;
-        let _ = std::fs::remove_file(&fifo_path);
-        let _ = std::fs::remove_dir(&dir);
+        server.abort();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// End-to-end: a fake zmc with video + audio streams. The reader task
+    /// publishes stream info from the handshake, broadcasts ADTS-framed
+    /// audio, and populates the keyframe cache from the keyframe message.
+    #[tokio::test]
+    async fn test_reader_broadcasts_av_and_announces_topology() {
+        let dir = test_sock_dir("router_av");
+        let server = spawn_fake_zmc(dir.join("stream_8.sock"), connect_script(true), false);
+
+        let router = SourceRouter::from_zoneminder_config(test_zm_config(&dir));
+        let source = router.create_source(8).await.expect("create_source");
+
+        // Subscribe BEFORE starting the reader so nothing is missed.
+        let mut video_rx = source.subscribe_video();
+        let mut audio_rx = source.subscribe_audio();
+        router.start_reader(8).await.expect("start_reader");
+
+        // The handshake reveals the topology.
+        let info = source
+            .wait_for_stream_info(Duration::from_secs(5))
+            .await
+            .expect("stream info within 5s");
+        assert_eq!(info.video_codec, VideoCodec::H264);
+        assert_eq!(info.audio_codec, Some(AudioCodec::Aac));
+        assert!(source.has_audio());
+
+        // Video packets flow (extradata SPS/PPS prepended to the keyframe).
+        let first = tokio::time::timeout(Duration::from_secs(5), video_rx.recv())
+            .await
+            .expect("video packet within 5s")
+            .expect("video channel alive");
+        assert_eq!(first.monitor_id, 8);
+        assert_eq!(first.codec, VideoCodec::H264);
+
+        // Audio is ADTS-framed from the HELLO's ASC.
+        let audio = tokio::time::timeout(Duration::from_secs(5), audio_rx.recv())
+            .await
+            .expect("audio packet within 5s")
+            .expect("audio channel alive");
+        assert_eq!(audio.codec, AudioCodec::Aac);
+        assert!(super::super::media::AdtsHeader::parse(&audio.data).is_some());
+        assert_eq!(audio.timestamp_us, 20_000); // 20ms after the video keyframe
+        assert!(source.audio_packet_count() >= 1);
+
+        // The keyframe message populated the cache (SPS+PPS+IDR).
+        for _ in 0..200 {
+            if source.cached_keyframe().is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let ck = source.cached_keyframe().expect("keyframe cache populated");
+        assert_eq!(ck.codec, VideoCodec::H264);
+        assert_eq!(ck.profile_level_id, "4d0033");
+
+        let _ = router.stop_reader(8).await;
+        server.abort();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A monitor without audio: the handshake completes with no audio codec.
+    #[tokio::test]
+    async fn test_reader_announces_video_only_topology() {
+        let dir = test_sock_dir("router_vo");
+        let server = spawn_fake_zmc(dir.join("stream_9.sock"), connect_script(false), false);
+
+        let router = SourceRouter::from_zoneminder_config(test_zm_config(&dir));
+        let source = router.get_source(9).await.expect("get_source");
+
+        let info = source
+            .wait_for_stream_info(Duration::from_secs(5))
+            .await
+            .expect("stream info within 5s");
+        assert_eq!(info.video_codec, VideoCodec::H264);
+        assert_eq!(info.audio_codec, None);
+        assert!(!source.has_audio());
+        assert!(source.audio_codec().is_none());
+
+        let _ = router.stop_reader(9).await;
+        server.abort();
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

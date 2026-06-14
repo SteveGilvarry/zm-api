@@ -1,6 +1,6 @@
 //! Monitor snapshot service
 //!
-//! Captures H.264 or H.265 keyframes from the FIFO broadcast pipeline and
+//! Captures H.264 or H.265 keyframes from the live broadcast pipeline and
 //! converts them to JPEG images using libavcodec/libswscale (via
 //! `ffmpeg-next`). Per-monitor caching minimizes overhead for repeated
 //! requests.
@@ -14,7 +14,7 @@ use tracing::{debug, warn};
 
 use crate::streaming::source::router::RouterError;
 use crate::streaming::source::{
-    h264_nal_type, h265_nal_type, FifoPacket, SourceRouter, VideoCodec,
+    h264_nal_type, h265_nal_type, SourceRouter, VideoCodec, VideoPacket,
 };
 
 /// Default cache TTL for snapshots
@@ -110,23 +110,21 @@ impl SnapshotService {
         &self,
         monitor_id: u32,
     ) -> Result<(Vec<u8>, VideoCodec), SnapshotError> {
-        // Try to piggyback on an existing source first
-        let (source, created_temp) = if let Some(source) =
-            self.source_router.get_existing_source(monitor_id)
-        {
-            (source, false)
-        } else {
-            // Create a temporary source+reader
-            let source = self
-                .source_router
-                .get_source(monitor_id)
-                .await
-                .map_err(|e| match e {
-                    RouterError::FifoNotFound(_) => SnapshotError::SourceNotAvailable(monitor_id),
-                    other => SnapshotError::RouterError(other),
-                })?;
-            (source, true)
-        };
+        // Piggyback on an existing source when one is registered; otherwise a
+        // temporary one is created and torn down below. Either way the source
+        // is acquired through `get_source`, which restarts a dead reader: a
+        // registered source whose reader was reaped (idle watchdog) would
+        // otherwise never produce another packet, and the wait below would
+        // always end in `KeyframeTimeout`.
+        let created_temp = self.source_router.get_existing_source(monitor_id).is_none();
+        let source = self
+            .source_router
+            .get_source(monitor_id)
+            .await
+            .map_err(|e| match e {
+                RouterError::SocketNotFound(_) => SnapshotError::SourceNotAvailable(monitor_id),
+                other => SnapshotError::RouterError(other),
+            })?;
 
         let mut rx = source.subscribe_video();
 
@@ -479,9 +477,9 @@ enum ParameterSet {
 ///
 /// H.264 carries SPS (NAL type 7) and PPS (8); H.265 additionally carries a
 /// VPS (32), with SPS = 33 and PPS = 34. An `Unknown` codec is parsed as
-/// H.264 — the FIFO reader resolves the codec from the first NAL, so a real
+/// H.264 — the socket HELLO resolves the codec, so a real
 /// stream's packets always carry a concrete codec by the time one matters.
-fn parameter_set_kind(packet: &FifoPacket) -> Option<ParameterSet> {
+fn parameter_set_kind(packet: &VideoPacket) -> Option<ParameterSet> {
     match packet.codec {
         VideoCodec::H264 | VideoCodec::Unknown => match h264_nal_type(&packet.data) {
             Some(7) => Some(ParameterSet::Sps),
@@ -498,7 +496,7 @@ fn parameter_set_kind(packet: &FifoPacket) -> Option<ParameterSet> {
 }
 
 /// Assembles a complete, decodable keyframe access unit from the individual
-/// NAL units delivered by the FIFO broadcast channel.
+/// NAL units delivered by the source broadcast channel.
 ///
 /// ZoneMinder emits each NAL — every parameter set and every keyframe slice —
 /// as its own packet. Only the keyframe slices carry `is_keyframe`; the
@@ -536,7 +534,7 @@ impl KeyframeCollector {
     /// Feed one broadcast packet. Returns `Some(au)` once a full keyframe
     /// access unit has been assembled — signalled by a later packet whose
     /// timestamp has advanced past the keyframe's.
-    fn push(&mut self, packet: &FifoPacket) -> Option<Vec<u8>> {
+    fn push(&mut self, packet: &VideoPacket) -> Option<Vec<u8>> {
         // Parameter sets arrive as their own NAL units ahead of the keyframe
         // and are not flagged `is_keyframe`. Keep the latest of each so they
         // can be prepended — a keyframe slice is undecodable without them.
@@ -590,10 +588,10 @@ impl KeyframeCollector {
 mod tests {
     use super::*;
 
-    /// Build a single-NAL `FifoPacket`. `nal_type` is the raw NAL header byte
+    /// Build a single-NAL `VideoPacket`. `nal_type` is the raw NAL header byte
     /// (lower 5 bits select the type: 7 = SPS, 8 = PPS, 5 = IDR slice).
-    fn nal_packet(nal_type: u8, ts: i64, is_keyframe: bool) -> FifoPacket {
-        FifoPacket {
+    fn nal_packet(nal_type: u8, ts: i64, is_keyframe: bool) -> VideoPacket {
+        VideoPacket {
             monitor_id: 1,
             timestamp_us: ts,
             data: vec![0x00, 0x00, 0x00, 0x01, nal_type, 0xAA, 0xBB],
@@ -666,12 +664,12 @@ mod tests {
         }
     }
 
-    /// Build a single-NAL H.265 `FifoPacket`. `nal_type` is the 6-bit HEVC
+    /// Build a single-NAL H.265 `VideoPacket`. `nal_type` is the 6-bit HEVC
     /// NAL type (32 = VPS, 33 = SPS, 34 = PPS, 19 = IDR_W_RADL, 1 = non-IRAP).
-    fn h265_packet(nal_type: u8, ts: i64, is_keyframe: bool) -> FifoPacket {
+    fn h265_packet(nal_type: u8, ts: i64, is_keyframe: bool) -> VideoPacket {
         // HEVC's two-byte NAL header carries the type in bits 1–6 of byte 0.
         let header0 = (nal_type << 1) & 0x7E;
-        FifoPacket {
+        VideoPacket {
             monitor_id: 1,
             timestamp_us: ts,
             data: vec![0x00, 0x00, 0x00, 0x01, header0, 0x01, 0xAA, 0xBB],
@@ -820,6 +818,82 @@ mod tests {
         }
     }
 
+    /// Regression: the idle reaper (`stop_reader`) aborts a session's reader
+    /// but leaves the `MonitorSource` registered. A later snapshot that
+    /// piggybacks on that stale source must restart the reader instead of
+    /// subscribing to a producer-less broadcast channel and timing out.
+    #[tokio::test]
+    async fn test_capture_keyframe_revives_reaped_reader() {
+        use crate::configure::streaming::ZoneMinderConfig;
+        use crate::streaming::source::protocol::test_encode::*;
+        use crate::streaming::source::protocol::FLAG_KEYFRAME;
+        use crate::streaming::source::router::RouterConfig;
+        use crate::streaming::source::stream_socket::test_support::*;
+
+        let dir = test_sock_dir("snap_revive");
+
+        // Fake zmc connect script: HELLO carrying SPS+PPS extradata, the
+        // cached KEYFRAME (reader prepends the parameter sets), then a
+        // P-slice at a later pts — the packet that lets the collector close
+        // the keyframe access unit.
+        let sps = [0x00, 0x00, 0x00, 0x01, 0x67, 0x4D, 0x00, 0x33];
+        let pps = [0x00, 0x00, 0x00, 0x01, 0x68, 0xCE, 0x3C, 0x80];
+        let mut extradata = sps.to_vec();
+        extradata.extend_from_slice(&pps);
+        let idr = [0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x84, 0x00];
+        let p_slice = [0x00, 0x00, 0x00, 0x01, 0x41, 0x9A, 0x21];
+
+        let mut script = Vec::new();
+        script.extend_from_slice(&encode_message(
+            0x01,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &hello_payload(h264_codec_id(), &extradata),
+        ));
+        script.extend_from_slice(&encode_message(
+            0x03,
+            0,
+            FLAG_KEYFRAME,
+            0,
+            0,
+            1_000_000,
+            &idr,
+        ));
+        script.extend_from_slice(&encode_message(0x02, 0, 0, 1, 0, 1_100_000, &p_slice));
+        let server = spawn_fake_zmc(dir.join("stream_42.sock"), script, false);
+
+        let config = RouterConfig {
+            zoneminder: ZoneMinderConfig {
+                socks_path: dir.to_string_lossy().into_owned(),
+                ..ZoneMinderConfig::default()
+            },
+            ..RouterConfig::default()
+        };
+        let router = Arc::new(SourceRouter::with_config(config));
+
+        // A live session ran and was idle-reaped: the source stays registered
+        // while its reader task is aborted.
+        router.get_source(42).await.expect("get_source");
+        router.stop_reader(42).await.expect("stop_reader");
+
+        let service = SnapshotService::with_defaults(Arc::clone(&router));
+        let (au, codec) = service
+            .capture_keyframe(42)
+            .await
+            .expect("snapshot must revive the reaped reader, not time out");
+        assert_eq!(codec, VideoCodec::H264);
+        assert!(
+            au.windows(5).any(|w| w == [0x00, 0x00, 0x00, 0x01, 0x65]),
+            "assembled AU must contain the IDR slice"
+        );
+
+        server.abort();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[tokio::test]
     async fn test_decode_to_jpeg_with_invalid_data() {
         ffmpeg_next::init().ok();
@@ -836,7 +910,7 @@ mod tests {
 
         let config = RouterConfig {
             zoneminder: ZoneMinderConfig {
-                fifo_base_path: "/tmp/zm_snapshot_test_nonexistent".to_string(),
+                socks_path: "/tmp/zm_snapshot_test_nonexistent".to_string(),
                 ..ZoneMinderConfig::default()
             },
             ..RouterConfig::default()
@@ -861,7 +935,7 @@ mod tests {
         // Wait for TTL to expire
         tokio::time::sleep(Duration::from_millis(150)).await;
 
-        // After TTL, cache miss triggers capture which will fail (no FIFO)
+        // After TTL, cache miss triggers capture which will fail (no socket)
         let result = service.get_snapshot(1).await;
         assert!(result.is_err());
     }
@@ -957,7 +1031,7 @@ mod tests {
 
         let config = RouterConfig {
             zoneminder: ZoneMinderConfig {
-                fifo_base_path: "/tmp/zm_snapshot_test_nonexistent2".to_string(),
+                socks_path: "/tmp/zm_snapshot_test_nonexistent2".to_string(),
                 ..ZoneMinderConfig::default()
             },
             ..RouterConfig::default()
@@ -965,12 +1039,12 @@ mod tests {
         let router = Arc::new(SourceRouter::with_config(config));
         let service = SnapshotService::with_defaults(Arc::clone(&router));
 
-        // Fresh monitor with no cache — should fail because FIFO doesn't exist
+        // Fresh monitor with no cache — should fail because the stream socket doesn't exist
         let result = service.get_snapshot(999).await;
         assert!(result.is_err());
         match result.unwrap_err() {
             SnapshotError::SourceNotAvailable(id) => assert_eq!(id, 999),
-            SnapshotError::RouterError(RouterError::FifoNotFound(id)) => assert_eq!(id, 999),
+            SnapshotError::RouterError(RouterError::SocketNotFound(id)) => assert_eq!(id, 999),
             other => panic!("Unexpected error: {:?}", other),
         }
     }

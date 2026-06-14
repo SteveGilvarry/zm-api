@@ -1,7 +1,7 @@
 //! Live streaming HTTP handlers
 //!
 //! Provides unified endpoints for live streaming via HLS and WebRTC,
-//! both backed by the FIFO-based source router.
+//! both backed by the stream-socket source router.
 
 use axum::{
     body::Body,
@@ -22,11 +22,12 @@ use tracing::{debug, error, info, warn};
 
 use crate::error::{AppError, AppResponseError, AppResult};
 use crate::server::state::AppState;
+use crate::streaming::live::audio::AacToOpusTranscoder;
 use crate::streaming::live::webrtc::{
-    AccessUnitAssembler, AssembledAccessUnit, WebRtcLiveConfig, WebRtcLiveManager,
+    AccessUnitAssembler, AssembledAccessUnit, AudioTrackKind, WebRtcLiveConfig, WebRtcLiveManager,
 };
 use crate::streaming::live::{CoordinatorError, LiveStreamConfig};
-use crate::streaming::source::{CachedKeyframe, MonitorSource, VideoCodec};
+use crate::streaming::source::{AudioCodec, CachedKeyframe, MonitorSource, VideoCodec};
 
 // ============================================================================
 // DTOs
@@ -150,7 +151,10 @@ pub async fn start_live_stream(
                     resource_type: crate::error::ResourceType::Monitor,
                     details: vec![
                         ("monitor_id".to_string(), monitor_id.to_string()),
-                        ("reason".to_string(), "FIFO not available".to_string()),
+                        (
+                            "reason".to_string(),
+                            "stream socket not available".to_string(),
+                        ),
                     ],
                 })
             }
@@ -548,6 +552,9 @@ pub enum WebRtcSignalingMessage {
     Ready {
         session_id: String,
         monitor_id: u32,
+        /// Whether the session carries an audio track (G.711 pass-through
+        /// or AAC transcoded to Opus) alongside the video track
+        has_audio: bool,
     },
     /// Error message
     Error {
@@ -578,8 +585,9 @@ pub enum WebRtcSignalingMessage {
 /// 3. **Both directions** `{"type":"icecandidate","session_id":"<id>",`
 ///    `"candidate":"candidate:...","sdpMid":"0","sdpMLineIndex":0}` — trickled
 ///    as discovered.
-/// 4. **Server → client** `{"type":"ready","session_id":"<id>","monitor_id":N}`
-///    once media is flowing.
+/// 4. **Server → client** `{"type":"ready","session_id":"<id>","monitor_id":N,`
+///    `"has_audio":false}` once media is flowing. `has_audio` tells the client
+///    whether an audio track accompanies the video.
 /// 5. **Errors** arrive as `{"type":"error","message":"..."}`.
 /// 6. **Keepalive**: either side may send `{"type":"ping"}`; the peer replies
 ///    `{"type":"pong"}`.
@@ -620,7 +628,10 @@ pub async fn webrtc_websocket_handler(
             resource_type: crate::error::ResourceType::Monitor,
             details: vec![
                 ("monitor_id".to_string(), monitor_id.to_string()),
-                ("reason".to_string(), "FIFO not available".to_string()),
+                (
+                    "reason".to_string(),
+                    "stream socket not available".to_string(),
+                ),
             ],
         }));
     }
@@ -640,7 +651,7 @@ pub async fn webrtc_websocket_handler(
 /// immediately instead of waiting a full GOP for the next natural IDR.
 ///
 /// Crucially this re-reads the source's keyframe cache **live**. On a cold
-/// start the cache is empty when signaling begins, but the FIFO reader almost
+/// start the cache is empty when signaling begins, but the socket reader almost
 /// always populates it during the seconds of ICE/DTLS negotiation. The old code
 /// injected the snapshot captured *before* signaling (`pre_signaling`), which on
 /// a cold start was `None` — throwing away the freshly-cached keyframe and
@@ -705,7 +716,7 @@ async fn handle_webrtc_websocket(
         (ck.codec, Some(ck.profile_level_id.clone()))
     } else {
         // Cold path: no cached keyframe yet (first viewer since the reader
-        // started). Determine the codec from the source — the FIFO reader sets
+        // started). Determine the codec from the source — the socket HELLO sets
         // it as soon as it parses a packet; give it a brief grace period, then
         // default to H.264.
         //
@@ -729,9 +740,42 @@ async fn handle_webrtc_websocket(
         (codec, None)
     };
 
+    // Decide the audio track for the offer. G.711 passes through unchanged
+    // (a mandatory WebRTC codec); AAC is transcoded to Opus — browsers do
+    // not implement AAC over RTP. The transcoder is created up front so a
+    // missing libopus downgrades the offer to video-only instead of
+    // advertising an audio m-line that could never carry media.
+    let mut audio_transcoder: Option<AacToOpusTranscoder> = None;
+    let audio_kind = match source.audio_codec() {
+        Some(AudioCodec::G711Ulaw) => Some(AudioTrackKind::Pcmu),
+        Some(AudioCodec::G711Alaw) => Some(AudioTrackKind::Pcma),
+        Some(AudioCodec::Aac) => match AacToOpusTranscoder::new() {
+            Ok(t) => {
+                audio_transcoder = Some(t);
+                Some(AudioTrackKind::Opus)
+            }
+            Err(e) => {
+                warn!(
+                    "Monitor {} has AAC audio but transcoding is unavailable ({}); \
+                     offering video-only",
+                    monitor_id, e
+                );
+                None
+            }
+        },
+        Some(other) => {
+            debug!(
+                "Monitor {} audio codec {:?} not supported over WebRTC; video-only",
+                monitor_id, other
+            );
+            None
+        }
+        None => None,
+    };
+
     // Create WebRTC session with offer and state watch channel
     let (session_id, offer, mut pc_state_rx) = match webrtc_manager
-        .create_session(monitor_id, codec, profile_level_id.as_deref())
+        .create_session(monitor_id, codec, profile_level_id.as_deref(), audio_kind)
         .await
     {
         Ok(result) => result,
@@ -766,7 +810,10 @@ async fn handle_webrtc_websocket(
     // Subscribe to video packets for streaming
     let mut video_rx = source.subscribe_video();
 
-    // Watch the FIFO reader's health. If the reader task exits, the watch
+    // Subscribe to audio when the offer carries an audio track
+    let mut audio_rx = audio_kind.is_some().then(|| source.subscribe_audio());
+
+    // Watch the stream-socket reader's health. If the reader task exits, the watch
     // sender is dropped and `changed()` returns Err — the broadcast channel
     // would then never yield another packet (and never close, since the
     // MonitorSource keeps the Sender alive), so the session must end rather
@@ -842,6 +889,7 @@ async fn handle_webrtc_websocket(
                                                     let ready_msg = WebRtcSignalingMessage::Ready {
                                                         session_id: session_id.clone(),
                                                         monitor_id,
+                                                        has_audio: audio_kind.is_some(),
                                                     };
                                                     if let Ok(json) = serde_json::to_string(&ready_msg) {
                                                         let _ = ws_sender.send(Message::Text(json.into())).await;
@@ -915,6 +963,7 @@ async fn handle_webrtc_websocket(
                                 let ready_msg = WebRtcSignalingMessage::Ready {
                                     session_id: session_id.clone(),
                                     monitor_id,
+                                    has_audio: audio_kind.is_some(),
                                 };
                                 if let Ok(json) = serde_json::to_string(&ready_msg) {
                                     let _ = ws_sender.send(Message::Text(json.into())).await;
@@ -995,7 +1044,72 @@ async fn handle_webrtc_websocket(
                 }
             }
 
-            // Reader health: detect a dead FIFO reader so the session ends
+            // Handle audio packets. The branch pends forever for video-only
+            // sessions; packets arriving before DTLS completes are dropped
+            // (the receiver must keep draining so the broadcast channel
+            // doesn't lag).
+            result = async {
+                match audio_rx.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                match result {
+                    Ok(packet) if streaming_started => match packet.codec {
+                        AudioCodec::G711Alaw | AudioCodec::G711Ulaw => {
+                            // G.711: 8 kHz, one byte per sample — pass through.
+                            let duration = Duration::from_micros(
+                                packet.data.len() as u64 * 1_000_000 / 8_000,
+                            );
+                            if let Err(e) = webrtc_manager
+                                .write_audio_sample(&session_id, &packet.data, duration)
+                                .await
+                            {
+                                debug!("Failed to write audio sample: {}", e);
+                            }
+                        }
+                        AudioCodec::Aac => {
+                            // ADTS AAC → Opus. Sub-millisecond per frame, so
+                            // inline in the async loop is fine.
+                            if let Some(transcoder) = audio_transcoder.as_mut() {
+                                match transcoder.transcode(&packet.data) {
+                                    Ok(frames) => {
+                                        for frame in frames {
+                                            if let Err(e) = webrtc_manager
+                                                .write_audio_sample(
+                                                    &session_id,
+                                                    &frame.data,
+                                                    frame.duration,
+                                                )
+                                                .await
+                                            {
+                                                debug!("Failed to write Opus frame: {}", e);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        debug!(
+                                            "AAC→Opus transcode error for session {}: {}",
+                                            session_id, e
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    },
+                    Ok(_) => {} // pre-DTLS audio: drained and dropped
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        debug!("WebRTC session {} audio lagged {} packets", session_id, n);
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        info!("Audio source closed for WebRTC session {}", session_id);
+                        audio_rx = None;
+                    }
+                }
+            }
+
+            // Reader health: detect a dead socket reader so the session ends
             // instead of waiting forever on a broadcast channel that never
             // closes. A `Reconnecting` transition is transient (the reader
             // retries on its own) and is only logged; `Err` means the reader
@@ -1011,7 +1125,7 @@ async fn handle_webrtc_websocket(
                     }
                     Err(_) => {
                         error!(
-                            "FIFO reader task exited for monitor {}, ending WebRTC session {}",
+                            "Reader task exited for monitor {}, ending WebRTC session {}",
                             monitor_id, session_id
                         );
                         let error_msg = WebRtcSignalingMessage::Error {

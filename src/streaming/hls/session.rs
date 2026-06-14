@@ -14,7 +14,8 @@ use super::playlist::{MediaPlaylist, PlaylistGenerator, SegmentRef};
 use super::segmenter::{FMP4Segment, HlsSegmenter, InitSegment};
 use super::storage::{HlsStorage, StorageConfig, StorageError};
 use crate::configure::streaming::HlsConfig;
-use crate::streaming::source::fifo::FifoPacket;
+use crate::streaming::source::VideoPacket;
+use crate::streaming::source::{AudioCodec, AudioPacket};
 
 /// HLS session for a single monitor
 pub struct HlsSession {
@@ -37,9 +38,14 @@ pub struct HlsSession {
 
 impl HlsSession {
     /// Create a new HLS session
-    pub fn new(monitor_id: u32, config: &HlsConfig, base_url: &str) -> Self {
+    ///
+    /// `has_audio` declares whether the source delivers an audio stream;
+    /// when true, init-segment generation waits (bounded) for the first AAC
+    /// frame so the audio track is muxed in.
+    pub fn new(monitor_id: u32, config: &HlsConfig, base_url: &str, has_audio: bool) -> Self {
         let target_duration = Duration::from_secs(config.segment_duration_seconds as u64);
-        let segmenter = HlsSegmenter::new(monitor_id, target_duration);
+        let mut segmenter = HlsSegmenter::new(monitor_id, target_duration);
+        segmenter.set_expect_audio(has_audio);
 
         let mut playlist_generator = PlaylistGenerator::new(
             monitor_id,
@@ -81,8 +87,8 @@ impl HlsSession {
         self.last_access.lock().unwrap().elapsed()
     }
 
-    /// Process a packet from FIFO
-    pub fn process_packet(&mut self, packet: &FifoPacket) -> Option<FMP4Segment> {
+    /// Process a packet from the live source
+    pub fn process_packet(&mut self, packet: &VideoPacket) -> Option<FMP4Segment> {
         // Update codec if detected
         if self.segmenter.sequence() == 0 {
             self.segmenter.set_codec(packet.codec);
@@ -102,6 +108,19 @@ impl HlsSession {
         // Process NAL unit
         self.segmenter
             .process_nal(&packet.data, timestamp_us, packet.is_keyframe)
+    }
+
+    /// Process an audio packet from the live source. Only AAC can be muxed into
+    /// fMP4 directly; other codecs are skipped (G.711 needs a transcode —
+    /// see docs/AUDIO_TASKS.md Phase 4).
+    pub fn process_audio(&mut self, packet: &AudioPacket) {
+        if packet.codec != AudioCodec::Aac {
+            return;
+        }
+        let Ok(timestamp_us) = u64::try_from(packet.timestamp_us) else {
+            return;
+        };
+        self.segmenter.process_audio(&packet.data, timestamp_us);
     }
 
     /// Handle a completed segment
@@ -140,7 +159,11 @@ impl HlsSession {
             // SPS bytes (without start code): [nal_type, profile_idc, constraint_flags, level_idc, ...]
             if sps.len() >= 4 {
                 let profile_level_id = format!("{:02x}{:02x}{:02x}", sps[1], sps[2], sps[3]);
-                self.playlist_generator.codec = Some(format!("avc1.{profile_level_id}"));
+                let video = format!("avc1.{profile_level_id}");
+                self.playlist_generator.codec = match init.audio_object_type {
+                    Some(aot) => Some(format!("{video},mp4a.40.{aot}")),
+                    None => Some(video),
+                };
             }
         }
 
@@ -249,7 +272,7 @@ impl HlsSessionManager {
     }
 
     /// Start an HLS session for a monitor
-    pub async fn start_session(&self, monitor_id: u32) -> Result<(), HlsError> {
+    pub async fn start_session(&self, monitor_id: u32, has_audio: bool) -> Result<(), HlsError> {
         let mut sessions = self.sessions.write().await;
 
         if sessions.contains_key(&monitor_id) {
@@ -262,7 +285,7 @@ impl HlsSessionManager {
 
         // Create session with per-monitor base URL including /hls/ prefix
         let session_base_url = format!("{}/{}/hls", self.base_url, monitor_id);
-        let session = HlsSession::new(monitor_id, &self.config, &session_base_url);
+        let session = HlsSession::new(monitor_id, &self.config, &session_base_url, has_audio);
         sessions.insert(monitor_id, session);
 
         info!("Started HLS session for monitor {}", monitor_id);
@@ -291,7 +314,7 @@ impl HlsSessionManager {
     }
 
     /// Process a packet for a session
-    pub async fn process_packet(&self, packet: &FifoPacket) -> Result<(), HlsError> {
+    pub async fn process_packet(&self, packet: &VideoPacket) -> Result<(), HlsError> {
         let monitor_id = packet.monitor_id;
 
         let segment = {
@@ -332,6 +355,18 @@ impl HlsSessionManager {
             }
         }
 
+        Ok(())
+    }
+
+    /// Process an audio packet for a session. Audio never completes a
+    /// segment (video keyframes drive boundaries), so there is nothing to
+    /// store here.
+    pub async fn process_audio_packet(&self, packet: &AudioPacket) -> Result<(), HlsError> {
+        let mut sessions = self.sessions.write().await;
+        let session = sessions
+            .get_mut(&packet.monitor_id)
+            .ok_or(HlsError::SessionNotFound(packet.monitor_id))?;
+        session.process_audio(packet);
         Ok(())
     }
 
@@ -555,7 +590,7 @@ mod tests {
     #[test]
     fn test_session_creation() {
         let config = test_config();
-        let session = HlsSession::new(1, &config, "/api/v3/live/1/hls");
+        let session = HlsSession::new(1, &config, "/api/v3/live/1/hls", false);
 
         assert_eq!(session.monitor_id(), 1);
         assert_eq!(session.segment_count, 0);
@@ -564,7 +599,7 @@ mod tests {
     #[test]
     fn test_session_stats() {
         let config = test_config();
-        let session = HlsSession::new(1, &config, "/api/v3/live/1/hls");
+        let session = HlsSession::new(1, &config, "/api/v3/live/1/hls", false);
 
         let stats = session.stats();
         assert_eq!(stats.monitor_id, 1);
@@ -575,7 +610,7 @@ mod tests {
     #[test]
     fn test_playlist_generation() {
         let config = test_config();
-        let session = HlsSession::new(1, &config, "/api/v3/live/1/hls");
+        let session = HlsSession::new(1, &config, "/api/v3/live/1/hls", false);
 
         let playlist = session.generate_playlist();
         assert!(playlist.contains("#EXTM3U"));
@@ -600,8 +635,8 @@ mod tests {
         config.storage.path = tmp.path().to_string_lossy().into_owned();
         let manager = HlsSessionManager::new(config, "/api/v3/live");
 
-        manager.start_session(1).await.unwrap();
-        manager.start_session(2).await.unwrap();
+        manager.start_session(1, false).await.unwrap();
+        manager.start_session(2, false).await.unwrap();
 
         // A huge threshold excludes freshly-started sessions...
         assert!(manager
@@ -626,7 +661,7 @@ mod tests {
         config.storage.path = tmp.path().to_string_lossy().into_owned();
         let manager = HlsSessionManager::new(config, "/api/v3/live");
 
-        manager.start_session(7).await.unwrap();
+        manager.start_session(7, false).await.unwrap();
         let _ = manager.get_playlist(7).await.unwrap();
         assert!(manager
             .idle_sessions(Duration::from_secs(100_000))

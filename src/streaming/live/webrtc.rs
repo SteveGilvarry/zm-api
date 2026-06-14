@@ -1,4 +1,4 @@
-//! WebRTC live streaming from FIFO sources
+//! WebRTC live streaming from per-monitor stream-socket sources
 //!
 //! This module provides WebRTC streaming using the webrtc-rs crate.
 //! It uses `TrackLocalStaticSample` which handles RTP packetization,
@@ -32,7 +32,9 @@ use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSampl
 use webrtc::track::track_local::TrackLocal;
 use webrtc_media::Sample;
 
-use crate::streaming::source::{h264_nal_type, slice_starts_picture, FifoPacket, VideoCodec};
+use crate::streaming::source::{
+    h264_nal_type, h265_nal_type, slice_starts_picture, VideoCodec, VideoPacket,
+};
 
 // Re-export for consumers that imported from here
 pub use crate::streaming::source::extract_profile_level_id;
@@ -47,18 +49,45 @@ fn is_h264_vcl(nal_type: u8) -> bool {
     (1..=5).contains(&nal_type)
 }
 
+/// Check if an H.265 NAL unit is a VCL unit. HEVC reserves types 0–31 for
+/// coded slice segments (trailing, leading, and IRAP pictures).
+fn is_h265_vcl(nal_type: u8) -> bool {
+    nal_type <= 31
+}
+
+/// Per-NAL classification the assembler needs, resolved per the packet's
+/// codec: the NAL unit type, whether it is a VCL (slice) NAL, and whether it
+/// delimits the start of a new access unit (parameter sets and AUD).
+fn classify_nal(data: &[u8], codec: VideoCodec) -> Option<(u8, bool, bool)> {
+    match codec {
+        VideoCodec::H265 => {
+            let t = h265_nal_type(data)?;
+            // VPS (32), SPS (33), PPS (34) and AUD (35) delimit a new AU —
+            // the HEVC analogue of H.264's SPS/PPS/AUD.
+            Some((t, is_h265_vcl(t), (32..=35).contains(&t)))
+        }
+        // Unknown is treated as H.264, matching `slice_starts_picture`.
+        VideoCodec::H264 | VideoCodec::Unknown => {
+            let t = h264_nal_type(data)?;
+            // SPS (7), PPS (8) and AUD (9) delimit a new AU.
+            Some((t, is_h264_vcl(t), (7..=9).contains(&t)))
+        }
+    }
+}
+
 /// Assembles individual NAL units into complete Access Units (frames).
 ///
-/// The FIFO reader emits one NAL unit per `FifoPacket`. WebRTC's H264
-/// payloader works correctly with Annex B data containing multiple NALs,
-/// but each `write_sample()` call gets a distinct RTP timestamp. For
+/// The socket reader emits one NAL unit per `VideoPacket`. WebRTC's H.264 and
+/// H.265 payloaders work correctly with Annex B data containing multiple
+/// NALs, but each `write_sample()` call gets a distinct RTP timestamp. For
 /// correct decoding, all NALs belonging to the same picture must share
-/// one timestamp. This assembler buffers non-VCL NALs (SPS, PPS, SEI)
+/// one timestamp. This assembler buffers non-VCL NALs (parameter sets, SEI)
 /// and emits a complete AU when it sees the first VCL NAL of the *next*
-/// picture — a slice whose `first_mb_in_slice` is 0. Continuation slices
-/// of a multi-slice picture (`first_mb_in_slice > 0`) are kept in the same
-/// AU so the RTP packetizer assigns the whole frame one timestamp and a
-/// single trailing marker bit.
+/// picture — an H.264 slice with `first_mb_in_slice == 0`, or an H.265
+/// slice segment with `first_slice_segment_in_pic_flag` set. Continuation
+/// slices of a multi-slice picture are kept in the same AU so the RTP
+/// packetizer assigns the whole frame one timestamp and a single trailing
+/// marker bit. The codec is taken per-packet from `VideoPacket::codec`.
 pub struct AccessUnitAssembler {
     /// Buffered Annex B data for the current access unit being assembled
     buf: Vec<u8>,
@@ -90,18 +119,18 @@ impl AccessUnitAssembler {
         }
     }
 
-    /// Feed a NAL unit (FifoPacket) into the assembler.
+    /// Feed a NAL unit (VideoPacket) into the assembler.
     ///
     /// Returns `Some(assembled_au)` when a complete access unit is ready
     /// to be sent to the WebRTC track. The returned bytes are Annex B
     /// formatted (start codes included), suitable for the H264 payloader.
-    pub fn push(&mut self, packet: &FifoPacket) -> Option<AssembledAccessUnit> {
+    pub fn push(&mut self, packet: &VideoPacket) -> Option<AssembledAccessUnit> {
         if packet.data.is_empty() {
             return None;
         }
 
-        let nal_type = match h264_nal_type(&packet.data) {
-            Some(t) => t,
+        let (nal_type, vcl, starts_new_au) = match classify_nal(&packet.data, packet.codec) {
+            Some(c) => c,
             None => {
                 // Not a recognizable NAL — append to current buffer and continue
                 self.buf.extend_from_slice(&packet.data);
@@ -119,12 +148,10 @@ impl AccessUnitAssembler {
             );
         }
 
-        let vcl = is_h264_vcl(nal_type);
-        // SPS (7), PPS (8) and AUD (9) all delimit the start of a new access
-        // unit. Flush any buffered VCL data when one arrives so it begins a
-        // fresh AU — SPS/PPS group with the following keyframe, not with the
-        // preceding slice.
-        let starts_new_au = nal_type == 7 || nal_type == 8 || nal_type == 9;
+        // Parameter sets (H.264 SPS/PPS, H.265 VPS/SPS/PPS) and AUDs all
+        // delimit the start of a new access unit. Flush any buffered VCL data
+        // when one arrives so it begins a fresh AU — parameter sets group
+        // with the following keyframe, not with the preceding slice.
 
         if starts_new_au && self.has_vcl {
             let au = self.flush();
@@ -225,6 +252,57 @@ pub struct AssembledAccessUnit {
     pub is_keyframe: bool,
 }
 
+/// The audio codec a session's audio track carries on the wire.
+///
+/// WebRTC's mandatory audio codecs are Opus and G.711 — G.711 cameras pass
+/// through untouched (PCMU/PCMA), AAC cameras are transcoded to Opus
+/// upstream of the track (see `streaming::live::audio`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioTrackKind {
+    /// G.711 µ-law pass-through (8 kHz mono, payload type 0)
+    Pcmu,
+    /// G.711 A-law pass-through (8 kHz mono, payload type 8)
+    Pcma,
+    /// Opus (48 kHz, payload type 111) — AAC sources transcoded upstream
+    Opus,
+}
+
+impl AudioTrackKind {
+    fn capability(&self) -> RTCRtpCodecCapability {
+        match self {
+            AudioTrackKind::Pcmu => RTCRtpCodecCapability {
+                mime_type: "audio/PCMU".to_string(),
+                clock_rate: 8000,
+                channels: 1,
+                sdp_fmtp_line: String::new(),
+                rtcp_feedback: vec![],
+            },
+            AudioTrackKind::Pcma => RTCRtpCodecCapability {
+                mime_type: "audio/PCMA".to_string(),
+                clock_rate: 8000,
+                channels: 1,
+                sdp_fmtp_line: String::new(),
+                rtcp_feedback: vec![],
+            },
+            AudioTrackKind::Opus => RTCRtpCodecCapability {
+                mime_type: "audio/opus".to_string(),
+                clock_rate: 48000,
+                channels: 2,
+                sdp_fmtp_line: "minptime=10;useinbandfec=1".to_string(),
+                rtcp_feedback: vec![],
+            },
+        }
+    }
+
+    fn payload_type(&self) -> u8 {
+        match self {
+            AudioTrackKind::Pcmu => 0,
+            AudioTrackKind::Pcma => 8,
+            AudioTrackKind::Opus => 111,
+        }
+    }
+}
+
 // ============================================================================
 // WebRTC Session
 // ============================================================================
@@ -258,6 +336,9 @@ pub struct WebRtcLiveSession {
     pub state: RwLock<WebRtcSessionState>,
     pub peer_connection: Arc<RTCPeerConnection>,
     pub video_track: Arc<TrackLocalStaticSample>,
+    /// Audio track — present when the monitor delivers audio the session
+    /// can carry (G.711 pass-through or transcoded Opus)
+    pub audio_track: Option<Arc<TrackLocalStaticSample>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     packets_sent: AtomicU64,
     bytes_sent: AtomicU64,
@@ -317,6 +398,37 @@ impl WebRtcLiveSession {
         self.packets_sent.fetch_add(1, Ordering::Relaxed);
         self.bytes_sent
             .fetch_add(au.data.len() as u64, Ordering::Relaxed);
+
+        Ok(())
+    }
+
+    /// Write one audio sample (a G.711 chunk or one Opus frame) to the
+    /// session's audio track. `duration` drives the RTP timestamp advance.
+    pub async fn write_audio_sample(
+        &self,
+        data: &[u8],
+        duration: Duration,
+    ) -> Result<(), WebRtcLiveError> {
+        let Some(track) = &self.audio_track else {
+            return Ok(());
+        };
+        if data.is_empty() {
+            return Ok(());
+        }
+
+        let sample = Sample {
+            data: bytes::Bytes::copy_from_slice(data),
+            duration,
+            ..Default::default()
+        };
+
+        track.write_sample(&sample).await.map_err(|e| {
+            WebRtcLiveError::WebRtcError(format!("Failed to write audio sample: {}", e))
+        })?;
+
+        self.packets_sent.fetch_add(1, Ordering::Relaxed);
+        self.bytes_sent
+            .fetch_add(data.len() as u64, Ordering::Relaxed);
 
         Ok(())
     }
@@ -455,6 +567,7 @@ impl WebRtcLiveManager {
         monitor_id: u32,
         codec: VideoCodec,
         profile_level_id: Option<&str>,
+        audio: Option<AudioTrackKind>,
     ) -> Result<
         (
             String,
@@ -496,11 +609,19 @@ impl WebRtcLiveManager {
                     })
                     .collect()
             }
+            // H.265 fmtp per RFC 7798 §7.1: Main profile (profile-id=1),
+            // Main tier — what surveillance cameras emit. Same pass-through
+            // philosophy as H.264 above: advertise what the *decoder*
+            // accepts and send the camera's real bitstream. level-id=120
+            // (Level 4) is a conservative negotiation value; hardware
+            // decoders handle the camera's true level regardless. Adjust
+            // against Safari's actual answer when the browser test loop
+            // exists (HEVC_WEBRTC_TASKS §1.3).
             VideoCodec::H265 => vec![RTCRtpCodecCapability {
                 mime_type: "video/H265".to_string(),
                 clock_rate: 90000,
                 channels: 0,
-                sdp_fmtp_line: String::new(),
+                sdp_fmtp_line: "profile-id=1;tier-flag=0;level-id=120".to_string(),
                 rtcp_feedback: vec![],
             }],
             VideoCodec::Unknown => {
@@ -524,6 +645,20 @@ impl WebRtcLiveManager {
                         ..Default::default()
                     },
                     webrtc::rtp_transceiver::rtp_codec::RTPCodecType::Video,
+                )
+                .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
+        }
+
+        // Register the audio codec when the session carries audio.
+        if let Some(kind) = audio {
+            media_engine
+                .register_codec(
+                    webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecParameters {
+                        capability: kind.capability(),
+                        payload_type: kind.payload_type(),
+                        ..Default::default()
+                    },
+                    webrtc::rtp_transceiver::rtp_codec::RTPCodecType::Audio,
                 )
                 .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
         }
@@ -656,6 +791,28 @@ impl WebRtcLiveManager {
             .await
             .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
 
+        // Audio track (sendonly), when the monitor has audio
+        let audio_track = if let Some(kind) = audio {
+            let track = Arc::new(TrackLocalStaticSample::new(
+                kind.capability(),
+                "audio".to_string(),
+                format!("zm-live-{}", monitor_id),
+            ));
+            peer_connection
+                .add_transceiver_from_track(
+                    Arc::clone(&track) as Arc<dyn TrackLocal + Send + Sync>,
+                    Some(RTCRtpTransceiverInit {
+                        direction: RTCRtpTransceiverDirection::Sendonly,
+                        send_encodings: vec![],
+                    }),
+                )
+                .await
+                .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
+            Some(track)
+        } else {
+            None
+        };
+
         // Create offer
         let offer = peer_connection
             .create_offer(None)
@@ -692,6 +849,7 @@ impl WebRtcLiveManager {
             state: RwLock::new(WebRtcSessionState::New),
             peer_connection: Arc::new(peer_connection),
             video_track,
+            audio_track,
             created_at: chrono::Utc::now(),
             packets_sent: AtomicU64::new(0),
             bytes_sent: AtomicU64::new(0),
@@ -785,6 +943,23 @@ impl WebRtcLiveManager {
 
         let session = session_lock.read().await;
         session.write_access_unit(au).await
+    }
+
+    /// Write an audio sample to a session's audio track (no-op when the
+    /// session is video-only).
+    pub async fn write_audio_sample(
+        &self,
+        session_id: &str,
+        data: &[u8],
+        duration: Duration,
+    ) -> Result<(), WebRtcLiveError> {
+        let session_lock = self
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| WebRtcLiveError::SessionNotFound(session_id.to_string()))?;
+
+        let session = session_lock.read().await;
+        session.write_audio_sample(data, duration).await
     }
 
     /// Get stats for a session
@@ -925,13 +1100,73 @@ mod tests {
         assert_eq!(manager.session_count(), 0);
     }
 
+    /// Manager with no STUN servers: ICE gathering completes instantly with
+    /// host candidates only, so session-creation tests run offline.
+    fn lan_only_manager() -> WebRtcLiveManager {
+        WebRtcLiveManager::new(WebRtcLiveConfig {
+            stun_servers: vec![],
+            ..WebRtcLiveConfig::default()
+        })
+    }
+
+    #[tokio::test]
+    async fn test_session_with_audio_offers_audio_m_line() {
+        let manager = lan_only_manager();
+        let (_, offer, _) = manager
+            .create_session(1, VideoCodec::H264, None, Some(AudioTrackKind::Opus))
+            .await
+            .expect("session with audio");
+        assert!(offer.sdp.contains("m=video"), "video m-line expected");
+        assert!(offer.sdp.contains("m=audio"), "audio m-line expected");
+        assert!(offer.sdp.contains("opus"), "opus codec expected in SDP");
+    }
+
+    #[tokio::test]
+    async fn test_session_with_g711_offers_pcma() {
+        let manager = lan_only_manager();
+        let (_, offer, _) = manager
+            .create_session(1, VideoCodec::H264, None, Some(AudioTrackKind::Pcma))
+            .await
+            .expect("session with G.711 audio");
+        assert!(offer.sdp.contains("m=audio"));
+        assert!(offer.sdp.contains("PCMA"), "PCMA codec expected in SDP");
+    }
+
+    #[tokio::test]
+    async fn test_video_only_session_has_no_audio_m_line() {
+        let manager = lan_only_manager();
+        let (_, offer, _) = manager
+            .create_session(1, VideoCodec::H264, None, None)
+            .await
+            .expect("video-only session");
+        assert!(offer.sdp.contains("m=video"));
+        assert!(
+            !offer.sdp.contains("m=audio"),
+            "video-only offer must not advertise audio"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_h265_session_offers_h265_with_fmtp() {
+        let manager = lan_only_manager();
+        let (_, offer, _) = manager
+            .create_session(1, VideoCodec::H265, None, None)
+            .await
+            .expect("H.265 session");
+        assert!(offer.sdp.contains("H265"), "H265 codec expected in SDP");
+        assert!(
+            offer.sdp.contains("profile-id=1"),
+            "RFC 7798 fmtp expected in SDP"
+        );
+    }
+
     // --- AccessUnitAssembler tests ---
 
-    /// Build a single-NAL `FifoPacket`. For VCL slice NAL types a slice-header
+    /// Build a single-NAL `VideoPacket`. For VCL slice NAL types a slice-header
     /// byte with `first_mb_in_slice == 0` (MSB set) is inserted right after the
     /// NAL header, so the packet reads as the *start* of a coded picture. Use
     /// `make_continuation_slice` for slices that continue a multi-slice picture.
-    fn make_nal(nal_type: u8, extra: &[u8]) -> FifoPacket {
+    fn make_nal(nal_type: u8, extra: &[u8]) -> VideoPacket {
         let raw = nal_type & 0x1F;
         let is_keyframe = raw == 5; // IDR
         let mut data = vec![0x00, 0x00, 0x00, 0x01, nal_type];
@@ -940,7 +1175,7 @@ mod tests {
             data.push(0x80);
         }
         data.extend_from_slice(extra);
-        FifoPacket {
+        VideoPacket {
             monitor_id: 1,
             timestamp_us: 0,
             data,
@@ -951,12 +1186,12 @@ mod tests {
 
     /// Build a continuation slice of a multi-slice picture: a VCL NAL whose
     /// `first_mb_in_slice` is greater than 0 (MSB of the slice header clear).
-    fn make_continuation_slice(nal_type: u8) -> FifoPacket {
+    fn make_continuation_slice(nal_type: u8) -> VideoPacket {
         let raw = nal_type & 0x1F;
         let is_keyframe = raw == 5;
         // 0x00 slice-header byte → leading Exp-Golomb bit clear → MB index > 0.
         let data = vec![0x00, 0x00, 0x00, 0x01, nal_type, 0x00, 0xAA];
-        FifoPacket {
+        VideoPacket {
             monitor_id: 1,
             timestamp_us: 0,
             data,
@@ -968,7 +1203,7 @@ mod tests {
     /// Build a slice NAL whose slice header opens with `first_mb_in_slice`,
     /// Exp-Golomb (`ue(v)`) encoded as a real encoder would — so continuation
     /// slices carry the large macroblock indices a 4K picture produces.
-    fn make_slice(nal_type: u8, first_mb_in_slice: u32) -> FifoPacket {
+    fn make_slice(nal_type: u8, first_mb_in_slice: u32) -> VideoPacket {
         let code = first_mb_in_slice as u64 + 1;
         let significant = 64 - code.leading_zeros();
         let leading_zeros = significant - 1;
@@ -990,7 +1225,7 @@ mod tests {
             }
             data.push(byte);
         }
-        FifoPacket {
+        VideoPacket {
             monitor_id: 1,
             timestamp_us: 0,
             data,
@@ -1219,7 +1454,7 @@ mod tests {
     #[test]
     fn test_au_assembler_empty_packet_ignored() {
         let mut asm = AccessUnitAssembler::new();
-        let empty = FifoPacket {
+        let empty = VideoPacket {
             monitor_id: 1,
             timestamp_us: 0,
             data: vec![],
@@ -1313,5 +1548,136 @@ mod tests {
         let au = asm.push(&make_nal(0x41, &[0x03])); // flush P2
         assert!(au.is_some());
         assert!(!au.unwrap().is_keyframe);
+    }
+
+    // --- AccessUnitAssembler H.265 tests ---
+
+    /// Build a single-NAL H.265 `VideoPacket`. The two-byte HEVC NAL header is
+    /// `(type << 1)` followed by `0x01` (layer 0, temporal_id_plus1 = 1). For
+    /// VCL NAL types (0–31) a slice-segment-header byte with
+    /// `first_slice_segment_in_pic_flag` set (MSB) is inserted, so the packet
+    /// reads as the *start* of a coded picture.
+    fn make_h265_nal(nal_type: u8, extra: &[u8]) -> VideoPacket {
+        let mut data = vec![0x00, 0x00, 0x00, 0x01, nal_type << 1, 0x01];
+        if nal_type <= 31 {
+            data.push(0x80);
+        }
+        data.extend_from_slice(extra);
+        VideoPacket {
+            monitor_id: 1,
+            timestamp_us: 0,
+            data,
+            is_keyframe: (16..=21).contains(&nal_type), // IRAP range
+            codec: VideoCodec::H265,
+        }
+    }
+
+    /// Build a continuation slice segment of a multi-slice H.265 picture:
+    /// `first_slice_segment_in_pic_flag` clear (MSB of the slice header 0).
+    fn make_h265_continuation_slice(nal_type: u8) -> VideoPacket {
+        let data = vec![0x00, 0x00, 0x00, 0x01, nal_type << 1, 0x01, 0x00, 0xAA];
+        VideoPacket {
+            monitor_id: 1,
+            timestamp_us: 0,
+            data,
+            is_keyframe: (16..=21).contains(&nal_type),
+            codec: VideoCodec::H265,
+        }
+    }
+
+    #[test]
+    fn test_h265_au_assembler_vps_sps_pps_idr_grouped() {
+        let mut asm = AccessUnitAssembler::new();
+
+        // VPS (32), SPS (33), PPS (34) — non-VCL, buffered
+        assert!(asm.push(&make_h265_nal(32, &[0x0C, 0x01])).is_none());
+        assert!(asm.push(&make_h265_nal(33, &[0x01, 0x01])).is_none());
+        assert!(asm.push(&make_h265_nal(34, &[0xC1, 0x62])).is_none());
+        // IDR_W_RADL (19) — first VCL, buffered
+        assert!(asm.push(&make_h265_nal(19, &[0x88])).is_none());
+
+        // Next picture (TRAIL_R, type 1) flushes the keyframe AU
+        let au = asm
+            .push(&make_h265_nal(1, &[0x9A]))
+            .expect("keyframe AU expected");
+        assert!(au.is_keyframe);
+        // VPS + SPS + PPS + IDR = 4 NAL start codes in one AU
+        let starts = au.data.windows(4).filter(|w| w == &[0, 0, 0, 1]).count();
+        assert_eq!(starts, 4, "expected VPS+SPS+PPS+IDR in keyframe AU");
+    }
+
+    #[test]
+    fn test_h265_au_assembler_4k_multi_slice_single_au() {
+        // Multi-slice H.265 keyframe: only the first slice segment carries
+        // first_slice_segment_in_pic_flag == 1; continuation segments must
+        // stay in the SAME access unit.
+        let mut asm = AccessUnitAssembler::new();
+
+        asm.push(&make_h265_nal(32, &[0x0C])); // VPS
+        asm.push(&make_h265_nal(33, &[0x01])); // SPS
+        asm.push(&make_h265_nal(34, &[0xC1])); // PPS
+
+        assert!(asm.push(&make_h265_nal(19, &[0x88])).is_none());
+        for s in 1..24 {
+            assert!(
+                asm.push(&make_h265_continuation_slice(19)).is_none(),
+                "continuation slice {s} must not flush the access unit"
+            );
+        }
+
+        // The next picture's first slice flushes the 24-slice keyframe AU.
+        let au = asm
+            .push(&make_h265_nal(1, &[0x9A]))
+            .expect("multi-slice keyframe AU expected");
+        assert!(au.is_keyframe);
+        // VPS + SPS + PPS + 24 IDR slices = 27 NAL start codes, one AU.
+        let starts = au.data.windows(4).filter(|w| w == &[0, 0, 0, 1]).count();
+        assert_eq!(
+            starts, 27,
+            "the whole 4K H.265 picture must emit as a single access unit"
+        );
+    }
+
+    #[test]
+    fn test_h265_au_assembler_drops_until_keyframe() {
+        let mut asm = AccessUnitAssembler::new();
+
+        // TRAIL_R pictures before any keyframe are dropped
+        assert!(asm.push(&make_h265_nal(1, &[0x01])).is_none()); // buffered
+        assert!(asm.push(&make_h265_nal(1, &[0x02])).is_none()); // flush → dropped
+
+        // Parameter sets flush the buffered P (dropped) and start a fresh AU
+        assert!(asm.push(&make_h265_nal(32, &[0x0C])).is_none()); // VPS
+        assert!(asm.push(&make_h265_nal(33, &[0x01])).is_none()); // SPS
+        assert!(asm.push(&make_h265_nal(34, &[0xC1])).is_none()); // PPS
+        assert!(asm.push(&make_h265_nal(19, &[0x88])).is_none()); // IDR
+
+        // Next picture flushes [VPS+SPS+PPS+IDR]; keyframe passes the gate
+        let au = asm.push(&make_h265_nal(1, &[0x03])).expect("keyframe AU");
+        assert!(au.is_keyframe);
+
+        // Subsequent P-frames flow normally
+        let au = asm.push(&make_h265_nal(1, &[0x04])).expect("P-frame AU");
+        assert!(!au.is_keyframe);
+    }
+
+    #[test]
+    fn test_h265_au_assembler_cra_is_keyframe() {
+        // CRA (type 21) is an IRAP picture — must pass the keyframe gate.
+        let mut asm = AccessUnitAssembler::new();
+        assert!(asm.push(&make_h265_nal(21, &[0x88])).is_none());
+        let au = asm.push(&make_h265_nal(1, &[0x01])).expect("CRA AU");
+        assert!(au.is_keyframe);
+    }
+
+    #[test]
+    fn test_h265_aud_delimits_access_unit() {
+        // An Access Unit Delimiter (type 35) flushes the buffered picture.
+        let mut asm = AccessUnitAssembler::new();
+        asm.push(&make_h265_nal(19, &[0x88])); // IDR slice buffered
+        let au = asm
+            .push(&make_h265_nal(35, &[0x50]))
+            .expect("AUD flushes keyframe AU");
+        assert!(au.is_keyframe);
     }
 }

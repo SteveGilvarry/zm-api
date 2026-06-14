@@ -11,6 +11,7 @@ Keep it practical: commands that work, where code lives, and project-specific co
 - ORM: SeaORM v1.1 (current app config builds a `mysql://...` URL)
 - API docs: Utoipa v5.4.0 + Swagger UI (`/api-docs/openapi.json`, `/swagger-ui`)
 - Live streaming is WebRTC + HLS (the earlier MSE scaffolding was removed in commit `ab731fc`). Treat streaming as product code: don’t refactor broadly unless the task requires it.
+- Live media comes from zmc’s per-monitor **stream socket** (`{ZM_PATH_SOCKS}/stream_{id}.sock`, one connection carrying video + audio with a HELLO codec handshake — see ZoneMinder’s `docs/stream_socket.rst`). The old media FIFOs are gone; `src/streaming/source/` holds the protocol parser (`protocol.rs`), reader (`stream_socket.rs`), shared media helpers (`media.rs`) and router. The zm_api service user must be in ZoneMinder’s `ZM_STREAM_SOCKET_GROUP` (socket mode 0660).
 
 ## Guardrails (Important)
 
@@ -58,6 +59,8 @@ APP_PROFILE=test-db cargo test --test '*' -- --include-ignored
 
 - **PTZ Control System** – `docs/PTZ_TASKS.md` – Rust-based PTZ control API with Perl bridge fallback, phased implementation from immediate Perl proxy to native protocol implementations (ONVIF, Dahua, HikVision, Reolink, serial protocols).
 - **Review Fixes (2026-06)** – `docs/REVIEW_FIXES_PLAN.md` – Phased fixes from the full API review: password hashing, event-playback ACL, WebRTC startup latency (keyframe re-read, trickle ICE), HLS session lifecycle, daemon-ID unification, housekeeping.
+- **Live Audio** – `docs/AUDIO_TASKS.md` – Phases 1–3 implemented (HLS AAC mux, WebRTC G.711 pass-through + AAC→Opus); audio now arrives on the stream socket with shared-clock pts and HELLO extradata (the raw-AAC ASC-recovery stretch goal is obsolete — the socket reader ADTS-frames raw AAC from the HELLO ASC). Remaining: browser/camera verification and Phase 4 stretch (G.711→AAC for HLS, VOD audio).
+- **HEVC over WebRTC** – `docs/HEVC_WEBRTC_TASKS.md` – Phase 1 (server correctness: H.265 AU assembly, keyframe cache, RFC 7798 fmtp) implemented. Remaining: Safari verification, mobile apps; HLS remains the fallback.
 
 ## Fast Commands
 

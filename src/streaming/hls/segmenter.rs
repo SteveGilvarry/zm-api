@@ -5,9 +5,11 @@
 
 use bytes::{BufMut, BytesMut};
 use std::time::Duration;
+use tracing::warn;
 
 use super::h264;
-use crate::streaming::source::fifo::{slice_starts_picture, VideoCodec};
+use crate::streaming::source::AdtsHeader;
+use crate::streaming::source::{slice_starts_picture, VideoCodec};
 
 /// fMP4 initialization segment containing ftyp and moov boxes
 #[derive(Debug, Clone)]
@@ -17,6 +19,10 @@ pub struct InitSegment {
     pub width: u32,
     pub height: u32,
     pub timescale: u32,
+    /// MPEG-4 Audio Object Type of the muxed audio track (2 = AAC-LC), or
+    /// `None` when the init segment is video-only. Drives the playlist
+    /// CODECS attribute (`mp4a.40.{aot}`).
+    pub audio_object_type: Option<u8>,
 }
 
 /// fMP4 media segment containing moof and mdat boxes
@@ -85,6 +91,32 @@ struct PendingFrame {
     is_keyframe: bool,
 }
 
+/// Audio track parameters, derived from the first ADTS header seen.
+#[derive(Debug, Clone, Copy)]
+struct AudioParams {
+    /// MPEG-4 Audio Object Type (2 = AAC-LC)
+    object_type: u8,
+    /// Sample rate in Hz; doubles as the audio track timescale, so one AAC
+    /// frame is exactly 1024 ticks — no rounding drift.
+    sample_rate: u32,
+    channels: u8,
+    /// 2-byte AudioSpecificConfig for the esds box
+    asc: [u8; 2],
+}
+
+/// One AAC frame, ADTS header stripped, timestamp in audio-timescale ticks.
+struct AudioSample {
+    data: Vec<u8>,
+    timestamp: u64,
+}
+
+/// Video samples to accumulate before giving up the wait for audio
+/// parameters and generating a video-only init segment (~4 s at 25 fps).
+/// The init segment is immutable once served, so when a source is expected
+/// to carry audio, init generation waits for the first ADTS frame to
+/// describe the track — but never indefinitely.
+const AUDIO_PARAMS_WAIT_SAMPLES: u64 = 100;
+
 /// HLS Segmenter for generating fMP4 segments
 pub struct HlsSegmenter {
     monitor_id: u32,
@@ -109,6 +141,24 @@ pub struct HlsSegmenter {
     /// near zero. This avoids problems with hls.js PTS normalization when
     /// cameras have been running for many hours (large absolute timestamps).
     base_timestamp_us: Option<u64>,
+    /// Whether the source is expected to deliver audio (the stream-socket
+    /// handshake announced an audio stream). Gates init-segment generation on
+    /// audio parameters so the audio track is described in the init that
+    /// clients cache.
+    expect_audio: bool,
+    /// Audio track parameters from the first ADTS frame
+    audio_params: Option<AudioParams>,
+    /// Whether the generated init segment includes the audio track. Audio
+    /// arriving after a video-only init was served must be dropped — the
+    /// init cannot be changed retroactively.
+    init_has_audio: bool,
+    /// Audio samples accumulated for the current segment
+    current_segment_audio: Vec<AudioSample>,
+    /// Count of video samples processed, for the audio-params wait deadline
+    video_samples_seen: u64,
+    /// One-shot warning latches for non-muxable audio
+    warned_non_adts: bool,
+    warned_late_audio: bool,
 }
 
 impl HlsSegmenter {
@@ -131,6 +181,13 @@ impl HlsSegmenter {
             target_duration,
             received_keyframe: false,
             base_timestamp_us: None,
+            expect_audio: false,
+            audio_params: None,
+            init_has_audio: false,
+            current_segment_audio: Vec::new(),
+            video_samples_seen: 0,
+            warned_non_adts: false,
+            warned_late_audio: false,
         }
     }
 
@@ -143,6 +200,13 @@ impl HlsSegmenter {
     /// Set the codec
     pub fn set_codec(&mut self, codec: VideoCodec) {
         self.codec = codec;
+    }
+
+    /// Declare that the source delivers audio. Must be called before the
+    /// init segment is generated; it makes init generation wait (bounded)
+    /// for the first ADTS frame so the audio track is included.
+    pub fn set_expect_audio(&mut self, expect_audio: bool) {
+        self.expect_audio = expect_audio;
     }
 
     /// Process a NAL unit and potentially produce a segment
@@ -211,6 +275,7 @@ impl HlsSegmenter {
                     timestamp: pending.timestamp,
                     is_keyframe: pending.is_keyframe,
                 });
+                self.video_samples_seen += 1;
 
                 // Check if we should finalize segment (on keyframe after target duration)
                 if is_keyframe && self.current_segment_samples.len() > 1 {
@@ -280,6 +345,74 @@ impl HlsSegmenter {
             u64::from(self.timescale) / 30
         };
         self.finalize_segment(last_ts + frame_dur)
+    }
+
+    /// Process one audio packet (an ADTS-framed AAC frame from the source).
+    ///
+    /// Audio never produces a segment — video keyframes drive segment
+    /// boundaries — it accumulates and is muxed into the next segment's
+    /// audio `traf`. Frames are dropped when:
+    /// * the data is not ADTS (raw RTSP AAC carries no codec parameters and
+    ///   cannot be described in an fMP4 `esds`),
+    /// * the first video keyframe has not arrived yet (segments start at a
+    ///   keyframe; earlier audio belongs to no segment),
+    /// * the init segment was already generated without an audio track.
+    pub fn process_audio(&mut self, data: &[u8], timestamp_us: u64) {
+        let Some(header) = AdtsHeader::parse(data) else {
+            if !self.warned_non_adts {
+                self.warned_non_adts = true;
+                warn!(
+                    "Monitor {}: audio is not ADTS-framed (raw AAC?); cannot derive \
+                     AudioSpecificConfig — skipping HLS audio for this session",
+                    self.monitor_id
+                );
+            }
+            return;
+        };
+
+        if self.audio_params.is_none() {
+            self.audio_params = Some(AudioParams {
+                object_type: header.audio_object_type,
+                sample_rate: header.sample_rate,
+                channels: header.channel_configuration,
+                asc: header.audio_specific_config(),
+            });
+        }
+
+        // Init already served without audio — too late to add the track.
+        if self.init_segment.is_some() && !self.init_has_audio {
+            if !self.warned_late_audio {
+                self.warned_late_audio = true;
+                warn!(
+                    "Monitor {}: first audio frame arrived after a video-only init \
+                     segment was generated; HLS audio disabled for this session",
+                    self.monitor_id
+                );
+            }
+            return;
+        }
+
+        // Segments start at the first video keyframe; drop earlier audio.
+        if !self.received_keyframe {
+            return;
+        }
+        let Some(base_us) = self.base_timestamp_us else {
+            return;
+        };
+
+        let sample_rate = self
+            .audio_params
+            .expect("audio_params set above")
+            .sample_rate;
+        let normalized_us = timestamp_us.saturating_sub(base_us);
+        let timestamp = normalized_us * u64::from(sample_rate) / 1_000_000;
+
+        // Strip the ADTS header — fMP4 carries raw AAC frames.
+        let end = header.frame_len.min(data.len());
+        self.current_segment_audio.push(AudioSample {
+            data: data[header.header_len..end].to_vec(),
+            timestamp,
+        });
     }
 
     /// Extract SPS/PPS/VPS from NAL units
@@ -374,6 +507,27 @@ impl HlsSegmenter {
             return None;
         }
 
+        // The init segment is cached by clients and cannot change once
+        // served. When audio is expected, hold init generation until the
+        // first ADTS frame supplies the track parameters — but only for a
+        // bounded number of video samples, so a silent/broken audio
+        // stream cannot stall the video.
+        if self.expect_audio
+            && self.audio_params.is_none()
+            && self.video_samples_seen < AUDIO_PARAMS_WAIT_SAMPLES
+        {
+            return None;
+        }
+        if self.expect_audio && self.audio_params.is_none() {
+            warn!(
+                "Monitor {}: no usable audio after {} video samples; \
+                 generating video-only init segment",
+                self.monitor_id, AUDIO_PARAMS_WAIT_SAMPLES
+            );
+        }
+
+        self.init_has_audio = self.audio_params.is_some();
+
         let data = match self.codec {
             VideoCodec::H264 => self.generate_h264_init(),
             VideoCodec::H265 => self.generate_h265_init(),
@@ -386,6 +540,7 @@ impl HlsSegmenter {
             width: self.width,
             height: self.height,
             timescale: self.timescale,
+            audio_object_type: self.audio_params.map(|p| p.object_type),
         };
 
         self.init_segment = Some(init.clone());
@@ -450,6 +605,14 @@ impl HlsSegmenter {
         let trak = self.build_trak_h264();
         moov.write_box(b"trak", &trak);
 
+        // audio trak (track 2), when the init includes audio
+        if self.init_has_audio {
+            if let Some(params) = self.audio_params {
+                let trak = self.build_trak_audio(&params);
+                moov.write_box(b"trak", &trak);
+            }
+        }
+
         // mvex (movie extends - for fragmented MP4)
         let mvex = self.build_mvex();
         moov.write_box(b"mvex", &mvex);
@@ -468,6 +631,14 @@ impl HlsSegmenter {
         // trak
         let trak = self.build_trak_h265();
         moov.write_box(b"trak", &trak);
+
+        // audio trak (track 2), when the init includes audio
+        if self.init_has_audio {
+            if let Some(params) = self.audio_params {
+                let trak = self.build_trak_audio(&params);
+                moov.write_box(b"trak", &trak);
+            }
+        }
 
         // mvex
         let mvex = self.build_mvex();
@@ -623,6 +794,185 @@ impl HlsSegmenter {
         }
         data.put_slice(b"VideoHandler\0"); // name
         data.to_vec()
+    }
+
+    /// Build the audio trak (track 2): AAC in fMP4.
+    fn build_trak_audio(&self, params: &AudioParams) -> Vec<u8> {
+        let mut trak = BoxBuilder::new();
+
+        // tkhd — flags 7 (enabled | in_movie | in_preview)
+        let tkhd = Self::build_tkhd_audio();
+        trak.write_full_box(b"tkhd", 0, 0x000007, &tkhd);
+
+        // mdia
+        let mdia = self.build_mdia_audio(params);
+        trak.write_box(b"mdia", &mdia);
+
+        trak.into_bytes()
+    }
+
+    /// Build tkhd box data for the audio track
+    fn build_tkhd_audio() -> Vec<u8> {
+        let mut data = BytesMut::with_capacity(80);
+        data.put_u32(0); // creation_time
+        data.put_u32(0); // modification_time
+        data.put_u32(2); // track_ID
+        data.put_u32(0); // reserved
+        data.put_u32(0); // duration
+        data.put_u64(0); // reserved
+        data.put_u16(0); // layer
+        data.put_u16(0); // alternate_group
+        data.put_u16(0x0100); // volume = 1.0 (audio)
+        data.put_u16(0); // reserved
+                         // Matrix (identity)
+        data.put_u32(0x00010000);
+        data.put_u32(0);
+        data.put_u32(0);
+        data.put_u32(0);
+        data.put_u32(0x00010000);
+        data.put_u32(0);
+        data.put_u32(0);
+        data.put_u32(0);
+        data.put_u32(0x40000000);
+        data.put_u32(0); // width (0 for audio)
+        data.put_u32(0); // height (0 for audio)
+        data.to_vec()
+    }
+
+    /// Build mdia box for the audio track
+    fn build_mdia_audio(&self, params: &AudioParams) -> Vec<u8> {
+        let mut mdia = BoxBuilder::new();
+
+        // mdhd — the audio track's timescale is its sample rate, making one
+        // AAC frame exactly 1024 ticks.
+        let mut mdhd = BytesMut::with_capacity(20);
+        mdhd.put_u32(0); // creation_time
+        mdhd.put_u32(0); // modification_time
+        mdhd.put_u32(params.sample_rate); // timescale
+        mdhd.put_u32(0); // duration
+        mdhd.put_u16(0x55C4); // language = 'und'
+        mdhd.put_u16(0); // pre_defined
+        mdia.write_full_box(b"mdhd", 0, 0, &mdhd);
+
+        // hdlr
+        let mut hdlr = BytesMut::with_capacity(32);
+        hdlr.put_u32(0); // pre_defined
+        hdlr.put_slice(b"soun"); // handler_type
+        for _ in 0..3 {
+            hdlr.put_u32(0); // reserved
+        }
+        hdlr.put_slice(b"SoundHandler\0"); // name
+        mdia.write_full_box(b"hdlr", 0, 0, &hdlr);
+
+        // minf
+        let mut minf = BoxBuilder::new();
+
+        // smhd (sound media header)
+        let mut smhd = BytesMut::with_capacity(4);
+        smhd.put_u16(0); // balance
+        smhd.put_u16(0); // reserved
+        minf.write_full_box(b"smhd", 0, 0, &smhd);
+
+        // dinf (same self-contained data reference as video)
+        let dinf = self.build_dinf();
+        minf.write_box(b"dinf", &dinf);
+
+        // stbl
+        let stbl = self.build_stbl_audio(params);
+        minf.write_box(b"stbl", &stbl);
+
+        mdia.write_box(b"minf", &minf.into_bytes());
+
+        mdia.into_bytes()
+    }
+
+    /// Build stbl box for the audio track (empty sample tables — samples
+    /// live in fragments)
+    fn build_stbl_audio(&self, params: &AudioParams) -> Vec<u8> {
+        let mut stbl = BoxBuilder::new();
+
+        // stsd with the mp4a sample entry
+        let mut stsd = BytesMut::with_capacity(128);
+        stsd.put_u32(1); // entry_count
+        let mp4a = Self::build_mp4a(params);
+        stsd.put_slice(&mp4a);
+        stbl.write_full_box(b"stsd", 0, 0, &stsd);
+
+        // Empty stts, stsc, stsz, stco
+        stbl.write_full_box(b"stts", 0, 0, &[0u8; 4]);
+        stbl.write_full_box(b"stsc", 0, 0, &[0u8; 4]);
+        stbl.write_full_box(b"stsz", 0, 0, &[0u8; 8]);
+        stbl.write_full_box(b"stco", 0, 0, &[0u8; 4]);
+
+        stbl.into_bytes()
+    }
+
+    /// Build the complete mp4a sample entry box (including esds)
+    fn build_mp4a(params: &AudioParams) -> Vec<u8> {
+        let mut entry = BytesMut::with_capacity(96);
+
+        // SampleEntry header
+        entry.put_slice(&[0u8; 6]); // reserved
+        entry.put_u16(1); // data_reference_index
+
+        // AudioSampleEntry
+        entry.put_u64(0); // reserved
+        entry.put_u16(u16::from(params.channels)); // channelcount
+        entry.put_u16(16); // samplesize
+        entry.put_u16(0); // pre_defined
+        entry.put_u16(0); // reserved
+        entry.put_u32(params.sample_rate << 16); // samplerate, 16.16 fixed
+
+        // esds (MPEG-4 Elementary Stream Descriptor)
+        let esds = Self::build_esds(params);
+        entry.put_u32(12 + esds.len() as u32); // full box size
+        entry.put_slice(b"esds");
+        entry.put_u32(0); // version + flags
+        entry.put_slice(&esds);
+
+        let mut boxed = BoxBuilder::new();
+        boxed.write_box(b"mp4a", &entry);
+        boxed.into_bytes()
+    }
+
+    /// Build the esds descriptor chain (ISO 14496-1 §7.2.6).
+    ///
+    /// All descriptor payloads are tiny, so single-byte lengths suffice.
+    fn build_esds(params: &AudioParams) -> Vec<u8> {
+        let asc = params.asc;
+
+        // DecoderSpecificInfo (tag 0x05): the AudioSpecificConfig
+        let dsi_len = asc.len() as u8; // 2
+
+        // DecoderConfigDescriptor (tag 0x04)
+        let dcd_len = 13 + 2 + dsi_len; // fixed fields + nested DSI
+
+        // ES_Descriptor (tag 0x03)
+        let esd_len = 3 + 2 + dcd_len + 2 + 1; // ES fields + DCD + SLConfig
+
+        let mut d = BytesMut::with_capacity(64);
+        d.put_u8(0x03); // ES_Descriptor tag
+        d.put_u8(esd_len);
+        d.put_u16(2); // ES_ID (track 2)
+        d.put_u8(0); // flags
+
+        d.put_u8(0x04); // DecoderConfigDescriptor tag
+        d.put_u8(dcd_len);
+        d.put_u8(0x40); // objectTypeIndication: MPEG-4 Audio
+        d.put_u8(0x15); // streamType audio (0x05 << 2) | reserved 1
+        d.put_slice(&[0, 0, 0]); // bufferSizeDB
+        d.put_u32(0); // maxBitrate (unknown)
+        d.put_u32(0); // avgBitrate (unknown)
+
+        d.put_u8(0x05); // DecoderSpecificInfo tag
+        d.put_u8(dsi_len);
+        d.put_slice(&asc);
+
+        d.put_u8(0x06); // SLConfigDescriptor tag
+        d.put_u8(1);
+        d.put_u8(0x02); // predefined: MP4
+
+        d.to_vec()
     }
 
     /// Build minf box for H.264
@@ -939,6 +1289,17 @@ impl HlsSegmenter {
 
         mvex.write_full_box(b"trex", 0, 0, &trex);
 
+        // trex for the audio track
+        if self.init_has_audio {
+            let mut trex = BytesMut::with_capacity(20);
+            trex.put_u32(2); // track_ID
+            trex.put_u32(1); // default_sample_description_index
+            trex.put_u32(0); // default_sample_duration
+            trex.put_u32(0); // default_sample_size
+            trex.put_u32(0); // default_sample_flags
+            mvex.write_full_box(b"trex", 0, 0, &trex);
+        }
+
         mvex.into_bytes()
     }
 
@@ -962,21 +1323,48 @@ impl HlsSegmenter {
         let duration_ticks = next_start.saturating_sub(start_time);
         let duration = Duration::from_micros(duration_ticks * 1_000_000 / self.timescale as u64);
 
-        // Calculate data_offset: offset from start of moof box to first sample byte in mdat.
-        // moof box = 8 (header) + 16 (mfhd) + 8 (traf header) + 16 (tfhd) + 20 (tfdt)
-        //          + 12 (trun header) + 8 (sample_count + data_offset) + N*12 (per-sample)
-        // = 88 + N*12
-        // data_offset = moof_box_size + 8 (mdat header) = 96 + N*12
+        // Audio rides along only when the init segment described track 2.
+        let n_audio = if self.init_has_audio {
+            self.current_segment_audio.len()
+        } else {
+            0
+        };
+
+        // Calculate data offsets (relative to moof start, per
+        // default-base-is-moof):
+        //   video traf = 8 (traf) + 16 (tfhd) + 20 (tfdt)
+        //              + 12 (trun hdr) + 8 + Nv*12   = 64 + Nv*12
+        //   audio traf = 8 (traf) + 16 (tfhd) + 20 (tfdt)
+        //              + 12 (trun hdr) + 8 + Na*8    = 64 + Na*8
+        //   moof = 8 (header) + 16 (mfhd) + trafs
+        // Video samples are written to mdat first, then audio samples.
         let n = self.current_segment_samples.len();
-        let data_offset = (96 + n * 12) as u32;
+        let video_traf_size = 64 + n * 12;
+        let audio_traf_size = if n_audio > 0 { 64 + n_audio * 8 } else { 0 };
+        let moof_size = 24 + video_traf_size + audio_traf_size;
+
+        let video_mdat_len: usize = self
+            .current_segment_samples
+            .iter()
+            .flat_map(|s| s.nals.iter())
+            .map(|nal| 4 + nal.len() - self.nal_start_code_len(nal))
+            .sum();
+
+        let video_data_offset = (moof_size + 8) as u32;
+        let audio_data_offset = (moof_size + 8 + video_mdat_len) as u32;
 
         // Build moof + mdat
         let mut builder = BoxBuilder::new();
 
-        let moof = self.build_moof(start_time, data_offset, next_start);
+        let moof = self.build_moof(
+            start_time,
+            video_data_offset,
+            next_start,
+            (n_audio > 0).then_some(audio_data_offset),
+        );
         builder.write_box(b"moof", &moof);
 
-        let mdat = self.build_mdat_data();
+        let mdat = self.build_mdat_data(n_audio > 0);
         builder.write_box(b"mdat", &mdat);
 
         let segment = FMP4Segment {
@@ -989,13 +1377,20 @@ impl HlsSegmenter {
 
         self.sequence += 1;
         self.current_segment_samples.clear();
+        self.current_segment_audio.clear();
         self.segment_start_time = None;
 
         Some(segment)
     }
 
     /// Build moof box
-    fn build_moof(&self, base_time: u64, data_offset: u32, next_start: u64) -> Vec<u8> {
+    fn build_moof(
+        &self,
+        base_time: u64,
+        data_offset: u32,
+        next_start: u64,
+        audio_data_offset: Option<u32>,
+    ) -> Vec<u8> {
         let mut moof = BoxBuilder::new();
 
         // mfhd
@@ -1007,7 +1402,50 @@ impl HlsSegmenter {
         let traf = self.build_traf(base_time, data_offset, next_start);
         moof.write_box(b"traf", &traf);
 
+        // audio traf
+        if let Some(audio_offset) = audio_data_offset {
+            let traf = self.build_traf_audio(audio_offset);
+            moof.write_box(b"traf", &traf);
+        }
+
         moof.into_bytes()
+    }
+
+    /// Build traf box for the audio track.
+    ///
+    /// Audio sample durations are a constant 1024 ticks: the track timescale
+    /// is the sample rate, and an AAC frame is 1024 samples. Each fragment's
+    /// tfdt re-anchors the track, so rounding never accumulates.
+    fn build_traf_audio(&self, data_offset: u32) -> Vec<u8> {
+        let mut traf = BoxBuilder::new();
+
+        // tfhd — default-base-is-moof, track 2
+        let mut tfhd = BytesMut::with_capacity(4);
+        tfhd.put_u32(2); // track_ID
+        traf.write_full_box(b"tfhd", 0, 0x020000, &tfhd);
+
+        // tfdt — first audio sample's decode time
+        let base_time = self
+            .current_segment_audio
+            .first()
+            .map(|s| s.timestamp)
+            .unwrap_or(0);
+        let mut tfdt = BytesMut::with_capacity(8);
+        tfdt.put_u64(base_time);
+        traf.write_full_box(b"tfdt", 1, 0, &tfdt);
+
+        // trun — flags 0x000301: data-offset + sample-duration + sample-size
+        let sample_count = self.current_segment_audio.len();
+        let mut trun = BytesMut::with_capacity(16 + sample_count * 8);
+        trun.put_u32(sample_count as u32);
+        trun.put_u32(data_offset);
+        for sample in &self.current_segment_audio {
+            trun.put_u32(1024); // sample_duration (AAC frame, timescale = rate)
+            trun.put_u32(sample.data.len() as u32); // sample_size
+        }
+        traf.write_full_box(b"trun", 0, 0x000301, &trun);
+
+        traf.into_bytes()
     }
 
     /// Build traf box
@@ -1124,8 +1562,10 @@ impl HlsSegmenter {
         }
     }
 
-    /// Build mdat box inner data (length-prefixed NAL units)
-    fn build_mdat_data(&self) -> Vec<u8> {
+    /// Build mdat box inner data: length-prefixed video NAL units, followed
+    /// by raw AAC frames when `include_audio` is set (matching the audio
+    /// traf's data offset).
+    fn build_mdat_data(&self, include_audio: bool) -> Vec<u8> {
         let mut mdat = BytesMut::with_capacity(65536);
 
         for sample in &self.current_segment_samples {
@@ -1136,6 +1576,12 @@ impl HlsSegmenter {
                 // Write length-prefixed NAL unit (Annex B → AVCC)
                 mdat.put_u32(nal_content.len() as u32);
                 mdat.put_slice(nal_content);
+            }
+        }
+
+        if include_audio {
+            for sample in &self.current_segment_audio {
+                mdat.put_slice(&sample.data);
             }
         }
 
@@ -2035,5 +2481,204 @@ mod tests {
             offset += size;
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod audio_tests {
+    use super::*;
+
+    /// Minimal ADTS frame: AAC-LC, 16 kHz (index 8) mono, `payload_len` body bytes.
+    fn adts_frame(payload_len: usize) -> Vec<u8> {
+        let frame_len = 7 + payload_len;
+        let mut f = vec![0u8; frame_len];
+        f[0] = 0xFF;
+        f[1] = 0xF1;
+        f[2] = (1 << 6) | (8 << 2);
+        f[3] = (1 << 6) | ((frame_len >> 11) as u8 & 0x03);
+        f[4] = (frame_len >> 3) as u8;
+        f[5] = ((frame_len as u8 & 0x07) << 5) | 0x1F;
+        f[6] = 0xFC;
+        for (i, b) in f.iter_mut().enumerate().skip(7) {
+            *b = 0xA0 | (i as u8 & 0x0F);
+        }
+        f
+    }
+
+    fn count_pattern(haystack: &[u8], needle: &[u8]) -> usize {
+        haystack
+            .windows(needle.len())
+            .filter(|w| w == &needle)
+            .count()
+    }
+
+    fn feed_video_preamble(segmenter: &mut HlsSegmenter) {
+        let sps = vec![0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1E, 0xAB, 0x40];
+        let pps = vec![0x00, 0x00, 0x00, 0x01, 0x68, 0xCE, 0x3C, 0x80];
+        segmenter.process_nal(&sps, 0, false);
+        segmenter.process_nal(&pps, 1000, false);
+    }
+
+    #[test]
+    fn test_init_waits_for_audio_params_then_includes_track() {
+        let mut segmenter = HlsSegmenter::new(1, Duration::from_secs(2));
+        segmenter.set_codec(VideoCodec::H264);
+        segmenter.set_expect_audio(true);
+        feed_video_preamble(&mut segmenter);
+
+        // SPS+PPS present, but audio params are pending — init must wait.
+        assert!(segmenter.generate_init_segment().is_none());
+
+        // First ADTS frame supplies the params (even before any keyframe).
+        segmenter.process_audio(&adts_frame(16), 0);
+
+        let init = segmenter.generate_init_segment().expect("init with audio");
+        assert_eq!(init.audio_object_type, Some(2)); // AAC-LC
+        assert_eq!(count_pattern(&init.data, b"mp4a"), 1);
+        assert_eq!(count_pattern(&init.data, b"smhd"), 1);
+        assert_eq!(count_pattern(&init.data, b"soun"), 1);
+        assert_eq!(count_pattern(&init.data, b"esds"), 1);
+        assert_eq!(count_pattern(&init.data, b"trex"), 2, "one trex per track");
+        assert_eq!(count_pattern(&init.data, b"trak"), 2, "video + audio traks");
+    }
+
+    #[test]
+    fn test_video_only_init_when_audio_never_arrives() {
+        let mut segmenter = HlsSegmenter::new(1, Duration::from_secs(2));
+        segmenter.set_codec(VideoCodec::H264);
+        segmenter.set_expect_audio(true);
+        feed_video_preamble(&mut segmenter);
+
+        // Run past the bounded wait without any audio.
+        let idr = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x80, 0x40];
+        segmenter.process_nal(&idr, 100_000, true);
+        for i in 1..=(AUDIO_PARAMS_WAIT_SAMPLES + 2) {
+            let p = vec![0x00, 0x00, 0x00, 0x01, 0x41, 0x9A, (i & 0xFF) as u8];
+            segmenter.process_nal(&p, 100_000 + i * 40_000, false);
+        }
+
+        let init = segmenter
+            .generate_init_segment()
+            .expect("video-only init after deadline");
+        assert_eq!(init.audio_object_type, None);
+        assert_eq!(count_pattern(&init.data, b"mp4a"), 0);
+        assert_eq!(count_pattern(&init.data, b"trex"), 1);
+    }
+
+    #[test]
+    fn test_segment_muxes_audio_traf_and_mdat() {
+        let mut segmenter = HlsSegmenter::new(1, Duration::from_secs(2));
+        segmenter.set_codec(VideoCodec::H264);
+        segmenter.set_expect_audio(true);
+        feed_video_preamble(&mut segmenter);
+
+        // Audio frame before the keyframe sets the params; its sample is
+        // dropped (no segment exists yet).
+        segmenter.process_audio(&adts_frame(16), 0);
+        segmenter.generate_init_segment().expect("init with audio");
+
+        // Keyframe starts the segment.
+        let idr = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x80, 0x40];
+        segmenter.process_nal(&idr, 100_000, true);
+
+        // Audio frames during the segment: 16 kHz → one frame per 64 ms.
+        let f1 = adts_frame(20);
+        let f2 = adts_frame(24);
+        segmenter.process_audio(&f1, 100_000);
+        segmenter.process_audio(&f2, 164_000);
+
+        // Video P-frames past target duration, then a keyframe finalizes.
+        for i in 1..=10u64 {
+            let p = vec![0x00, 0x00, 0x00, 0x01, 0x41, 0x9A, i as u8];
+            segmenter.process_nal(&p, 100_000 + i * 300_000, false);
+        }
+        let idr2 = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x80, 0x41];
+        let segment = segmenter
+            .process_nal(&idr2, 100_000 + 11 * 300_000, true)
+            .expect("segment");
+
+        let data = &segment.data;
+        assert_eq!(count_pattern(data, b"traf"), 2, "video + audio trafs");
+
+        // The audio payloads (ADTS stripped) are the tail of the mdat.
+        let mut audio_payload = f1[7..].to_vec();
+        audio_payload.extend_from_slice(&f2[7..]);
+        assert!(
+            data.ends_with(&audio_payload),
+            "mdat must end with the raw AAC frames"
+        );
+
+        // The audio trun's data_offset must point exactly at those bytes.
+        let audio_trun_idx = data
+            .windows(4)
+            .enumerate()
+            .filter(|(_, w)| w == b"trun")
+            .map(|(i, _)| i)
+            .nth(1)
+            .expect("second trun (audio)");
+        let off_pos = audio_trun_idx + 12; // type + verflags + sample_count
+        let audio_offset = u32::from_be_bytes([
+            data[off_pos],
+            data[off_pos + 1],
+            data[off_pos + 2],
+            data[off_pos + 3],
+        ]) as usize;
+        assert_eq!(audio_offset, data.len() - audio_payload.len());
+
+        // Audio tfdt: first audio sample at segment start → 0 ticks.
+        // Per-sample duration is 1024 ticks (timescale = sample rate).
+        let audio_sample_count = u32::from_be_bytes([
+            data[audio_trun_idx + 8],
+            data[audio_trun_idx + 9],
+            data[audio_trun_idx + 10],
+            data[audio_trun_idx + 11],
+        ]);
+        assert_eq!(audio_sample_count, 2);
+
+        // Next segment starts with cleared audio accumulation.
+        let p = vec![0x00, 0x00, 0x00, 0x01, 0x41, 0x9A, 0xFE];
+        segmenter.process_nal(&p, 100_000 + 12 * 300_000, false);
+        // (no panic / no stale audio — structural smoke check)
+    }
+
+    #[test]
+    fn test_non_adts_audio_is_skipped() {
+        let mut segmenter = HlsSegmenter::new(1, Duration::from_secs(2));
+        segmenter.set_codec(VideoCodec::H264);
+        segmenter.set_expect_audio(true);
+        feed_video_preamble(&mut segmenter);
+
+        // Raw AAC (no syncword) — cannot derive params.
+        segmenter.process_audio(&[0x21, 0x1B, 0x80, 0x00], 0);
+        assert!(segmenter.audio_params.is_none());
+        // Init is still gated (bounded) — params never arrive, so after the
+        // wait the init is video-only (covered by the deadline test above).
+    }
+
+    #[test]
+    fn test_audio_after_video_only_init_is_dropped() {
+        let mut segmenter = HlsSegmenter::new(1, Duration::from_secs(2));
+        segmenter.set_codec(VideoCodec::H264);
+        // expect_audio NOT set: init generates video-only immediately.
+        feed_video_preamble(&mut segmenter);
+        let init = segmenter.generate_init_segment().expect("video-only init");
+        assert_eq!(init.audio_object_type, None);
+
+        // Late audio cannot be added to a served init — dropped.
+        let idr = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x80, 0x40];
+        segmenter.process_nal(&idr, 100_000, true);
+        segmenter.process_audio(&adts_frame(16), 100_000);
+        assert!(segmenter.current_segment_audio.is_empty());
+
+        // Segment stays single-traf.
+        for i in 1..=10u64 {
+            let p = vec![0x00, 0x00, 0x00, 0x01, 0x41, 0x9A, i as u8];
+            segmenter.process_nal(&p, 100_000 + i * 300_000, false);
+        }
+        let idr2 = vec![0x00, 0x00, 0x00, 0x01, 0x65, 0x88, 0x80, 0x41];
+        let segment = segmenter
+            .process_nal(&idr2, 100_000 + 11 * 300_000, true)
+            .expect("segment");
+        assert_eq!(count_pattern(&segment.data, b"traf"), 1);
     }
 }

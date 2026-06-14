@@ -9,7 +9,7 @@
 //! # Architecture
 //!
 //! ```text
-//! FIFO/RTSP Source → Segmenter → Storage → HTTP Handlers
+//! Stream Socket Source → Segmenter → Storage → HTTP Handlers
 //!                         ↓
 //!                   Playlist Generator
 //! ```

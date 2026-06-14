@@ -145,8 +145,6 @@ pub struct MonitorStats {
     pub alarm_x: i32,
     pub alarm_y: i32,
     pub alarm_cause: String,
-    pub video_fifo_path: String,
-    pub audio_fifo_path: String,
     pub image_count: i32,
     pub last_write_index: i32,
     pub last_read_index: i32,
@@ -198,10 +196,15 @@ struct SharedData {
     last_analysis_viewed_time: i64, // +160
     control_state: [u8; 256],       // +168
     alarm_cause: [u8; 256],         // +424
-    video_fifo_path: [u8; 64],      // +680
-    audio_fifo_path: [u8; 64],      // +744
-    janus_pin: [u8; 64],            // +808
-                                    // = 872 total
+    // Formerly video_fifo_path/audio_fifo_path. The media FIFOs were
+    // replaced by the per-monitor stream socket (its path is the documented
+    // convention PATH_SOCKS/stream_{monitor_id}.sock, not published via
+    // shm); zmc keeps these as zeroed reserved padding so the layout and
+    // total size are unchanged.
+    _reserved_path1: [u8; 64], // +680
+    _reserved_path2: [u8; 64], // +744
+    janus_pin: [u8; 64],       // +808
+                               // = 872 total
 }
 
 const SHARED_DATA_SIZE: usize = 872;
@@ -460,16 +463,6 @@ impl MonitorShm {
         bytes_to_string(&self.shared_data().alarm_cause)
     }
 
-    /// Get the video FIFO path.
-    pub fn get_video_fifo_path(&self) -> String {
-        bytes_to_string(&self.shared_data().video_fifo_path)
-    }
-
-    /// Get the audio FIFO path.
-    pub fn get_audio_fifo_path(&self) -> String {
-        bytes_to_string(&self.shared_data().audio_fifo_path)
-    }
-
     /// Get the heartbeat timestamp.
     pub fn get_heartbeat_time(&self) -> Option<SystemTime> {
         let ts = self.shared_data().heartbeat_time;
@@ -500,8 +493,6 @@ impl MonitorShm {
             alarm_x: sd.alarm_x,
             alarm_y: sd.alarm_y,
             alarm_cause: bytes_to_string(&sd.alarm_cause),
-            video_fifo_path: bytes_to_string(&sd.video_fifo_path),
-            audio_fifo_path: bytes_to_string(&sd.audio_fifo_path),
             image_count: sd.image_count,
             last_write_index: sd.last_write_index,
             last_read_index: sd.last_read_index,

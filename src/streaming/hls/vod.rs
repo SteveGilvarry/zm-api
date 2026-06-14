@@ -17,7 +17,7 @@ use tokio::sync::Mutex;
 
 use crate::streaming::hls::segmenter::{FMP4Segment, HlsSegmenter};
 use crate::streaming::probe::MediaInfo;
-use crate::streaming::source::fifo::VideoCodec;
+use crate::streaming::source::media::{avcc_to_annexb, parse_extradata};
 
 /// Target VOD segment duration. Recorded clips are short, so a small value
 /// keeps seek granularity reasonable without producing too many segments.
@@ -153,118 +153,6 @@ fn read_extradata(params: &ffmpeg_next::codec::Parameters) -> Vec<u8> {
     }
 }
 
-/// Convert a length-prefixed (AVCC) sample into Annex B NAL units.
-fn avcc_to_annexb(data: &[u8], length_size: usize) -> Vec<Vec<u8>> {
-    let mut nals = Vec::new();
-    let mut i = 0;
-    while i + length_size <= data.len() {
-        let mut len = 0usize;
-        for &b in &data[i..i + length_size] {
-            len = (len << 8) | b as usize;
-        }
-        i += length_size;
-        if len == 0 || i + len > data.len() {
-            break;
-        }
-        let mut nal = vec![0x00, 0x00, 0x00, 0x01];
-        nal.extend_from_slice(&data[i..i + len]);
-        nals.push(nal);
-        i += len;
-    }
-    nals
-}
-
-/// Parse SPS/PPS(/VPS) parameter sets and the NAL length size from avcC/hvcC.
-/// Returns Annex B-framed parameter-set NALs and the AVCC length-prefix size.
-fn parse_extradata(extradata: &[u8], codec: VideoCodec) -> Result<(Vec<Vec<u8>>, usize), String> {
-    match codec {
-        VideoCodec::H264 => parse_avcc(extradata),
-        VideoCodec::H265 => parse_hvcc(extradata),
-        VideoCodec::Unknown => Err("unknown codec".to_string()),
-    }
-}
-
-fn annexb(nal: &[u8]) -> Vec<u8> {
-    let mut v = vec![0x00, 0x00, 0x00, 0x01];
-    v.extend_from_slice(nal);
-    v
-}
-
-/// Parse an AVCDecoderConfigurationRecord (avcC).
-fn parse_avcc(d: &[u8]) -> Result<(Vec<Vec<u8>>, usize), String> {
-    if d.len() < 7 {
-        return Err("avcC too short".to_string());
-    }
-    let length_size = (d[4] & 0x03) as usize + 1;
-    let mut nals = Vec::new();
-    let mut i = 5;
-    let num_sps = (d[i] & 0x1f) as usize;
-    i += 1;
-    for _ in 0..num_sps {
-        if i + 2 > d.len() {
-            return Err("avcC SPS truncated".to_string());
-        }
-        let len = ((d[i] as usize) << 8) | d[i + 1] as usize;
-        i += 2;
-        if i + len > d.len() {
-            return Err("avcC SPS truncated".to_string());
-        }
-        nals.push(annexb(&d[i..i + len]));
-        i += len;
-    }
-    if i >= d.len() {
-        return Err("avcC PPS missing".to_string());
-    }
-    let num_pps = d[i] as usize;
-    i += 1;
-    for _ in 0..num_pps {
-        if i + 2 > d.len() {
-            return Err("avcC PPS truncated".to_string());
-        }
-        let len = ((d[i] as usize) << 8) | d[i + 1] as usize;
-        i += 2;
-        if i + len > d.len() {
-            return Err("avcC PPS truncated".to_string());
-        }
-        nals.push(annexb(&d[i..i + len]));
-        i += len;
-    }
-    Ok((nals, length_size))
-}
-
-/// Parse an HEVCDecoderConfigurationRecord (hvcC).
-fn parse_hvcc(d: &[u8]) -> Result<(Vec<Vec<u8>>, usize), String> {
-    if d.len() < 23 {
-        return Err("hvcC too short".to_string());
-    }
-    let length_size = (d[21] & 0x03) as usize + 1;
-    let num_arrays = d[22] as usize;
-    let mut nals = Vec::new();
-    let mut i = 23;
-    for _ in 0..num_arrays {
-        if i + 3 > d.len() {
-            return Err("hvcC array header truncated".to_string());
-        }
-        // d[i]: array_completeness(1) | reserved(1) | NAL_unit_type(6)
-        i += 1; // NAL_unit_type not needed: any of VPS/SPS/PPS goes to the stream
-        let num_nalus = ((d[i] as usize) << 8) | d[i + 1] as usize;
-        i += 2;
-        for _ in 0..num_nalus {
-            if i + 2 > d.len() {
-                return Err("hvcC nalu length truncated".to_string());
-            }
-            let len = ((d[i] as usize) << 8) | d[i + 1] as usize;
-            i += 2;
-            if i + len > d.len() {
-                return Err("hvcC nalu truncated".to_string());
-            }
-            nals.push(annexb(&d[i..i + len]));
-            i += len;
-        }
-    }
-    Ok((nals, length_size))
-}
-
 /// Build a VOD media playlist (#EXT-X-PLAYLIST-TYPE:VOD) referencing the init
 /// segment and the media segments by sequence index.
 fn build_playlist(segments: &[FMP4Segment], target: Duration) -> String {
@@ -295,63 +183,7 @@ fn build_playlist(segments: &[FMP4Segment], target: Duration) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn avcc_splits_length_prefixed_nals() {
-        // Two NALs: [00 00 00 03][AA BB CC] [00 00 00 02][DD EE]
-        let data = [0, 0, 0, 3, 0xAA, 0xBB, 0xCC, 0, 0, 0, 2, 0xDD, 0xEE];
-        let nals = avcc_to_annexb(&data, 4);
-        assert_eq!(nals.len(), 2);
-        assert_eq!(nals[0], vec![0, 0, 0, 1, 0xAA, 0xBB, 0xCC]);
-        assert_eq!(nals[1], vec![0, 0, 0, 1, 0xDD, 0xEE]);
-    }
-
-    #[test]
-    fn avcc_stops_on_truncation() {
-        // Declares length 9 but only 3 bytes follow.
-        let data = [0, 0, 0, 9, 0xAA, 0xBB, 0xCC];
-        assert!(avcc_to_annexb(&data, 4).is_empty());
-    }
-
-    #[test]
-    fn parse_avcc_extracts_sps_pps() {
-        // version, profile, compat, level, 0xFF (lenSize=4), 0xE1 (1 SPS),
-        // SPS len=2 [67 42], 1 PPS, PPS len=2 [68 CE]
-        let avcc = [
-            1, 0x42, 0, 0x1f, 0xff, 0xe1, 0, 2, 0x67, 0x42, 1, 0, 2, 0x68, 0xce,
-        ];
-        let (nals, ls) = parse_avcc(&avcc).unwrap();
-        assert_eq!(ls, 4);
-        assert_eq!(nals.len(), 2);
-        assert_eq!(nals[0], vec![0, 0, 0, 1, 0x67, 0x42]);
-        assert_eq!(nals[1], vec![0, 0, 0, 1, 0x68, 0xce]);
-    }
-
-    #[test]
-    fn parse_hvcc_extracts_vps_sps_pps() {
-        // 21 bytes of config header, then byte 21 = lengthSizeMinusOne (0xFF ->
-        // length_size 4), byte 22 = num_arrays (3). Each array: NAL-type byte,
-        // num_nalus (u16), then [len(u16)][data] per nalu. Three arrays carry
-        // one VPS (0x40 01), SPS (0x42 01) and PPS (0x44 01) respectively.
-        let mut hvcc = vec![0u8; 21];
-        hvcc.push(0xFF);
-        hvcc.push(3);
-        hvcc.extend_from_slice(&[0x20, 0x00, 0x01, 0x00, 0x02, 0x40, 0x01]); // VPS
-        hvcc.extend_from_slice(&[0x21, 0x00, 0x01, 0x00, 0x02, 0x42, 0x01]); // SPS
-        hvcc.extend_from_slice(&[0x22, 0x00, 0x01, 0x00, 0x02, 0x44, 0x01]); // PPS
-
-        let (nals, ls) = parse_hvcc(&hvcc).unwrap();
-        assert_eq!(ls, 4);
-        assert_eq!(nals.len(), 3);
-        assert_eq!(nals[0], vec![0, 0, 0, 1, 0x40, 0x01]);
-        assert_eq!(nals[1], vec![0, 0, 0, 1, 0x42, 0x01]);
-        assert_eq!(nals[2], vec![0, 0, 0, 1, 0x44, 0x01]);
-    }
-
-    #[test]
-    fn parse_hvcc_rejects_short_record() {
-        assert!(parse_hvcc(&[0u8; 10]).is_err());
-    }
+    use crate::streaming::source::VideoCodec;
 
     fn seg(duration: Duration) -> FMP4Segment {
         FMP4Segment {

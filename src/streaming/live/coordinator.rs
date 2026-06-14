@@ -113,9 +113,15 @@ pub enum CoordinatorError {
     HlsError(String),
 }
 
-/// Coordinates live streaming from FIFO sources to output protocols
+/// Maximum time to wait for the stream-socket handshake to reveal the
+/// monitor's stream topology (video codec, audio presence) when starting a
+/// session. The HELLOs arrive immediately after connect when zmc is up.
+const STREAM_INFO_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Coordinates live streaming from per-monitor stream sockets to output
+/// protocols
 pub struct LiveStreamCoordinator {
-    /// Source router for FIFO access
+    /// Source router for stream-socket access
     source_router: Arc<SourceRouter>,
     /// HLS session manager
     hls_manager: Option<Arc<HlsSessionManager>>,
@@ -143,7 +149,7 @@ impl LiveStreamCoordinator {
     /// Spawn the idle-session reaper. Every `check_interval` it asks the HLS
     /// manager which sessions have gone untouched for at least `idle_timeout`
     /// and fully tears each one down (`stop_session`: reader + segmenter +
-    /// storage). Without this, a viewer who closes their tab leaves the FIFO
+    /// storage). Without this, a viewer who closes their tab leaves the stream-socket
     /// reader and segmenter running forever (sessions otherwise end only via an
     /// explicit `DELETE /stop`).
     ///
@@ -224,9 +230,10 @@ impl LiveStreamCoordinator {
 
         // Subscribe BEFORE starting the reader — guarantees we see all packets
         let video_rx = source.subscribe_video();
+        let audio_rx = Some(source.subscribe_audio());
         let reader_health_rx = source.subscribe_reader_health();
 
-        // NOW start the FIFO reader
+        // NOW start the stream-socket reader
         self.source_router
             .start_reader(monitor_id)
             .await
@@ -235,8 +242,17 @@ impl LiveStreamCoordinator {
         // Start HLS session if enabled
         if config.enable_hls {
             if let Some(hls_manager) = &self.hls_manager {
+                // Whether the monitor has audio is only known once the
+                // socket's connect handshake completes (HELLOs precede all
+                // media). Normally that is near-instant; on timeout (zmc not
+                // delivering yet) start video-only — the segmenter tolerates
+                // a late audio track by warning and disabling it.
+                let has_audio = source
+                    .wait_for_stream_info(STREAM_INFO_TIMEOUT)
+                    .await
+                    .is_some_and(|info| info.audio_codec.is_some());
                 hls_manager
-                    .start_session(monitor_id)
+                    .start_session(monitor_id, has_audio)
                     .await
                     .map_err(|e| CoordinatorError::HlsError(e.to_string()))?;
             }
@@ -253,7 +269,7 @@ impl LiveStreamCoordinator {
 
         // Start processing task with pre-subscribed receivers
         let task_handle =
-            self.start_processing_task(monitor_id, config, video_rx, reader_health_rx);
+            self.start_processing_task(monitor_id, config, video_rx, audio_rx, reader_health_rx);
 
         // Store the task handle
         {
@@ -269,7 +285,7 @@ impl LiveStreamCoordinator {
 
     /// Start the packet processing task with a pre-subscribed receiver.
     ///
-    /// The receiver must be created BEFORE the FIFO reader starts to guarantee
+    /// The receiver must be created BEFORE the stream-socket reader starts to guarantee
     /// no packets (especially initial SPS/PPS) are lost.
     ///
     /// The task transitions the session from Starting → Active on first packet,
@@ -278,11 +294,12 @@ impl LiveStreamCoordinator {
         &self,
         monitor_id: u32,
         config: LiveStreamConfig,
-        video_rx: tokio::sync::broadcast::Receiver<crate::streaming::source::fifo::FifoPacket>,
+        video_rx: tokio::sync::broadcast::Receiver<crate::streaming::source::VideoPacket>,
+        audio_rx: Option<tokio::sync::broadcast::Receiver<crate::streaming::source::AudioPacket>>,
         reader_health_rx: tokio::sync::watch::Receiver<ReaderHealth>,
     ) -> JoinHandle<()> {
         /// Maximum time to wait for the first video packet before marking the
-        /// session as errored. Covers FIFO open retries + ZoneMinder startup.
+        /// session as errored. Covers socket connect retries + ZoneMinder startup.
         const STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
 
         let hls_manager = self.hls_manager.clone();
@@ -291,13 +308,14 @@ impl LiveStreamCoordinator {
         tokio::spawn(async move {
             info!("Starting packet processing task for monitor {}", monitor_id);
             let mut video_rx = video_rx;
+            let mut audio_rx = audio_rx;
             let mut reader_health_rx = reader_health_rx;
             let mut received_first_packet = false;
             let startup_deadline = tokio::time::Instant::now() + STARTUP_TIMEOUT;
 
             loop {
                 // Until the first packet arrives, race recv against a startup
-                // timeout so we detect dead readers (missing FIFO, ZM not running).
+                // timeout so we detect dead readers (zmc not running).
                 // Also monitor reader health — if the watch sender is dropped
                 // (reader task exited), we stop instead of hanging forever on the
                 // broadcast channel (which never closes while MonitorSource lives).
@@ -345,6 +363,43 @@ impl LiveStreamCoordinator {
                 } else {
                     tokio::select! {
                         result = video_rx.recv() => result,
+                        // Audio rides alongside video once the stream is up.
+                        // The branch pends forever when the monitor has no
+                        // audio (or its channel closed).
+                        audio = async {
+                            match audio_rx.as_mut() {
+                                Some(rx) => rx.recv().await,
+                                None => std::future::pending().await,
+                            }
+                        } => {
+                            match audio {
+                                Ok(packet) => {
+                                    if config.enable_hls {
+                                        if let Some(hls) = &hls_manager {
+                                            if let Err(e) =
+                                                hls.process_audio_packet(&packet).await
+                                            {
+                                                debug!(
+                                                    "HLS audio process error for monitor {}: {}",
+                                                    monitor_id, e
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                                    debug!(
+                                        "Audio lagged {} packets for monitor {}",
+                                        n, monitor_id
+                                    );
+                                }
+                                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                                    // Audio producer gone; stop polling it.
+                                    audio_rx = None;
+                                }
+                            }
+                            continue;
+                        }
                         health = reader_health_rx.changed() => {
                             match health {
                                 Ok(()) => {

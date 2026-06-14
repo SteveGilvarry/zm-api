@@ -89,7 +89,7 @@ impl AppState {
                 hls_session_manager.clone(),
             ));
             // Reap HLS sessions abandoned by viewers who navigated away, so the
-            // FIFO reader + segmenter don't run forever (§3.2). Disabled when
+            // socket reader + segmenter don't run forever (§3.2). Disabled when
             // idle_timeout_seconds is 0.
             if let Some(hls) = &hls_session_manager {
                 coordinator.start_idle_watchdog(hls.idle_timeout(), Duration::from_secs(15));
