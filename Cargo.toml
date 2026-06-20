@@ -66,6 +66,9 @@ tracing-bunyan-formatter = "0.3"
 tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", features = ["registry", "env-filter"] }
 sentry = "0.48"
+# ONVIF SOAP client: XML envelope build/parse and WS-Security SHA-1 digest.
+quick-xml = "0.37"
+sha1 = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 strum = { version = "0.28", features = ["derive"] }
@@ -139,6 +142,19 @@ mockall = "0.14"
 tower = "0.5"
 # Temporary directories for tests
 tempfile = "3"
+
+# jemalloc as the process-wide allocator. The server is a long-running,
+# allocation-bursty media workload; glibc malloc retains freed buffers in its
+# arenas rather than returning them to the OS, so RSS sits at its high-water
+# mark. jemalloc returns pages aggressively, keeping RSS near the live set.
+# Gated off MSVC, where jemalloc is unavailable. Wired up in src/lib.rs.
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.6"
+
+# Query jemalloc's runtime stats to assert the global allocator is wired up
+# (see tests/jemalloc.rs).
+[target.'cfg(not(target_env = "msvc"))'.dev-dependencies]
+tikv-jemalloc-ctl = { version = "0.6", features = ["stats"] }
 
 [package.metadata.deb]
 maintainer = "Steve Gilvarry <SteveGilvarry@users.noreply.github.com>"
