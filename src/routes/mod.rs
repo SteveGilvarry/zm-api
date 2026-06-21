@@ -24,6 +24,7 @@ pub mod control_presets; // Control Presets
 pub mod controls; // Controls
 pub mod daemon; // Daemon control
 pub mod devices; // Devices
+#[cfg(feature = "onvif-discovery")]
 pub mod discovery; // ONVIF camera discovery
 pub mod event_data; // Event Data
 pub mod event_summaries; // Event Summaries (pre-calculated counts)
@@ -330,14 +331,6 @@ pub fn create_router_app(state: AppState) -> Router {
     );
 
     let device_routes = protect(devices::add_device_routes(Router::new()), Feature::Devices);
-    // ONVIF discovery feeds monitor creation; gate it like monitor management.
-    // The probe/inspect endpoints have no `{monitor_id}` path param, so no
-    // row-level `monitor_path_guard` is needed — the handlers' own
-    // `scope.is_restricted()` check is the row-level gate.
-    let discovery_routes = protect(
-        discovery::add_discovery_routes(Router::new()),
-        Feature::Monitors,
-    );
     let manufacturer_routes = protect(
         manufacturers::add_manufacturer_routes(Router::new()),
         Feature::Devices,
@@ -404,9 +397,17 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(snapshot_routes)
         .merge(snapshot_event_routes);
 
+    // Build the served OpenAPI document, merging in feature-gated fragments
+    // (utoipa's derive cannot `#[cfg]` individual path/schema entries, so the
+    // ONVIF discovery fragment is composed here at runtime).
+    #[allow(unused_mut)]
+    let mut openapi = ApiDoc::openapi();
+    #[cfg(feature = "onvif-discovery")]
+    openapi.merge(crate::handlers::discovery::DiscoveryApiDoc::openapi());
+
     // Regular JSON API endpoints — safe to gzip/brotli compress.
     let api = Router::new()
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi))
         .merge(server_routes)
         .merge(auth_routes)
         .merge(monitors_routes)
@@ -425,7 +426,6 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(control_routes)
         .merge(control_preset_routes)
         .merge(device_routes)
-        .merge(discovery_routes)
         .merge(monitor_preset_routes)
         .merge(montage_layout_routes)
         .merge(tag_routes)
@@ -446,8 +446,21 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(event_summary_routes)
         .merge(event_tag_routes)
         .merge(daemon_routes) // Daemon control
-        .merge(ptz_routes) // PTZ control
-        .layer(CompressionLayer::new());
+        .merge(ptz_routes); // PTZ control
+
+    // ONVIF discovery (feature-gated). Feeds monitor creation, so gated like
+    // monitor management; merged before the compression layer so its JSON
+    // responses are compressed like the rest of the API. The probe/inspect
+    // endpoints have no `{monitor_id}` path param, so no row-level
+    // `monitor_path_guard` is needed — the handlers' own `scope.is_restricted()`
+    // check is the row-level gate.
+    #[cfg(feature = "onvif-discovery")]
+    let api = api.merge(protect(
+        discovery::add_discovery_routes(Router::new()),
+        Feature::Monitors,
+    ));
+
+    let api = api.layer(CompressionLayer::new());
 
     let app = Router::new()
         .merge(api)

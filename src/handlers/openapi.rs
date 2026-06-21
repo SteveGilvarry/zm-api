@@ -239,10 +239,6 @@ use crate::util::claim::UserClaims;
         crate::handlers::ptz::move_absolute,
         crate::handlers::ptz::move_relative,
 
-        // ONVIF discovery
-        crate::handlers::discovery::probe,
-        crate::handlers::discovery::inspect,
-
         // reports
         crate::handlers::reports::create_report,
         crate::handlers::reports::delete_report,
@@ -521,11 +517,6 @@ use crate::util::claim::UserClaims;
             crate::dto::response::ptz::PtzCapabilitiesResponse,
             crate::dto::response::ptz::PtzProtocolListResponse,
             crate::dto::response::ptz::PtzProtocolInfo,
-            crate::dto::request::discovery::ProbeRequest,
-            crate::dto::request::discovery::InspectRequest,
-            crate::service::discovery::CameraCandidate,
-            crate::service::discovery::InspectResult,
-            crate::service::discovery::InspectProfile,
             crate::ptz::capabilities::PtzCapabilities,
             crate::ptz::capabilities::PowerCapabilities,
             crate::ptz::capabilities::PanTiltCapabilities,

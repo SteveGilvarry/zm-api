@@ -30,6 +30,7 @@ pub mod enum_traits;
 pub mod error;
 pub mod handlers;
 pub mod migration;
+#[cfg(feature = "onvif-core")]
 pub mod onvif;
 pub mod ptz;
 pub mod repo;

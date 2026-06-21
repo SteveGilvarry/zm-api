@@ -197,6 +197,7 @@ impl AppState {
     /// URL. Each listener subscribes, long-polls `PullMessages`, and translates
     /// alarm on/off notifications into ZoneMinder events, quiescing with the
     /// daemon manager on shutdown. No-op when the daemon manager is disabled.
+    #[cfg(feature = "onvif-events")]
     pub async fn spawn_onvif_event_listeners(&self) {
         let Some(manager) = self.daemon_manager.clone() else {
             return;
@@ -250,6 +251,7 @@ impl AppState {
 
 /// Join an ONVIF base URL with an events service path, tolerating an empty path
 /// (returns the base) and avoiding duplicate slashes at the join.
+#[cfg(feature = "onvif-events")]
 fn join_onvif_url(base: &str, path: &str) -> String {
     let path = path.trim();
     if path.is_empty() {

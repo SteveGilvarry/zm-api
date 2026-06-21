@@ -42,7 +42,9 @@ impl PtzManager {
     /// Create a manager with the default registry: the native ONVIF factory
     /// registered, with the Perl bridge as fallback for all other protocols.
     pub fn with_defaults() -> Self {
+        #[allow(unused_mut)]
         let mut registry = PtzRegistry::default();
+        #[cfg(feature = "onvif-ptz")]
         registry.register_native(Arc::new(super::protocols::onvif::OnvifControlFactory::new()));
         Self::new(registry)
     }

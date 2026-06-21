@@ -3,6 +3,7 @@ pub mod control_presets;
 pub mod controls;
 pub mod daemon;
 pub mod devices;
+#[cfg(feature = "onvif-discovery")]
 pub mod discovery;
 pub mod event_data;
 pub mod events;

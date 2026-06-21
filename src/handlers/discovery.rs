@@ -26,8 +26,28 @@ use crate::error::AppResult;
 use crate::onvif::types::Credentials;
 use crate::server::state::AppState;
 use crate::service;
-use crate::service::discovery::{CameraCandidate, InspectResult};
+use crate::service::discovery::{CameraCandidate, InspectProfile, InspectResult};
 use crate::service::monitor_acl::MonitorScope;
+
+/// OpenAPI fragment for the ONVIF discovery endpoints.
+///
+/// Kept separate from the main [`crate::handlers::openapi::ApiDoc`] (which
+/// cannot `#[cfg]` individual macro entries) and merged into the served
+/// document at runtime only when the `onvif-discovery` feature is enabled — see
+/// `crate::routes::create_router_app`.
+#[derive(utoipa::OpenApi)]
+#[openapi(
+    paths(probe, inspect),
+    components(schemas(
+        ProbeRequest,
+        InspectRequest,
+        CameraCandidate,
+        InspectResult,
+        InspectProfile,
+    )),
+    tags((name = "Discovery", description = "ONVIF camera discovery endpoints"))
+)]
+pub struct DiscoveryApiDoc;
 
 /// Run a WS-Discovery probe and return the discovered ONVIF cameras.
 ///

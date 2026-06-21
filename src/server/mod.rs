@@ -103,6 +103,7 @@ impl AppServer {
         // Spawn ONVIF PullPoint event listeners for monitors that enable them
         // (no-op when the daemon manager is disabled). Done after the daemon
         // manager has started so the listeners can observe its shutdown signal.
+        #[cfg(feature = "onvif-events")]
         self.state.spawn_onvif_event_listeners().await;
 
         // Capture the daemon manager before `self.state` is consumed by the

@@ -14,10 +14,15 @@ pub mod security;
 pub mod transport;
 pub mod types;
 
+#[cfg(feature = "onvif-device")]
 pub mod device;
+#[cfg(feature = "onvif-discovery")]
 pub mod discovery;
+#[cfg(feature = "onvif-events")]
 pub mod events;
+#[cfg(feature = "onvif-media")]
 pub mod media;
+#[cfg(feature = "onvif-ptz")]
 pub mod ptz;
 
 pub use error::{OnvifError, OnvifResult};

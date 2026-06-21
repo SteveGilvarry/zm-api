@@ -16,7 +16,30 @@ default-run = "zm_api"
 
 # Features
 [features]
-default = []
+default = ["onvif"]
+
+# ONVIF client capabilities, gated per ONVIF Device Test Specification category
+# (see docs/ONVIF_TASKS.md). `onvif-core` is the always-required SOAP transport
+# + WS-Security foundation; every other onvif-* feature pulls it in.
+onvif-core = []
+onvif-device = ["onvif-core"]
+onvif-media = ["onvif-core"]
+onvif-ptz = ["onvif-core"]
+onvif-events = ["onvif-core"]
+# The discovery *service* layer queries Device + Media to inspect a candidate,
+# so the feature composes them.
+onvif-discovery = ["onvif-core", "onvif-device", "onvif-media"]
+
+# ONVIF profile umbrellas (the capability set a deployment targets). media2,
+# imaging, recording/replay and analytics are not yet implemented, so the T/G/M
+# umbrellas currently map to the implemented subset.
+onvif-profile-s = ["onvif-device", "onvif-media", "onvif-ptz", "onvif-events", "onvif-discovery"]
+onvif-profile-t = ["onvif-profile-s"]
+onvif-profile-g = ["onvif-device"]
+onvif-profile-m = ["onvif-device", "onvif-events"]
+
+# Convenience: everything currently implemented (the default).
+onvif = ["onvif-profile-s"]
 
 # Maintenance tool: scan for and clean up leaked `Test_run_*` integration-test
 # fixture rows. See src/bin/fixture_doctor.rs.

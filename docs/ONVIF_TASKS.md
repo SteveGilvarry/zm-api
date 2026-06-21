@@ -82,18 +82,37 @@ factory; spawn event listeners), `Cargo.toml` (`quick-xml`, `sha1`).
 
 ## Phases
 
-- **Phase 1 — Foundation.** `error`, `types`, `transport`, `security` + module
-  stubs so the crate compiles. WS-Security known-answer test. Gates green; commit.
-- **Phase 2 — Service clients (parallel).** `device`, `media`, `ptz`, `events`,
-  `discovery` — each a self-contained module + fixture tests against the
-  committed foundation.
-- **Phase 3 — Integration.** `ptz/protocols/onvif.rs`, `service/discovery.rs`,
-  DTOs, handler, route, `daemon/onvif_event_listener.rs`; wire `lib.rs`,
-  `routes/mod.rs`, `state.rs`. Full gate (fmt/clippy/test + release build).
-- **Phase 4 — Adversarial verification.** Independent review of WS-Security,
-  SOAP envelope correctness, XML parser robustness, SSRF surface.
+- **Phase 1 — Foundation.** ✅ `error`, `types`, `transport`, `security` + module
+  stubs. WS-Security known-answer test (OASIS oracle). Committed `d72114f`.
+- **Phase 2 — Service clients.** ✅ `device`, `media`, `ptz`, `events`,
+  `discovery` — each a self-contained module + fixture tests.
+- **Phase 3 — Integration.** ✅ `ptz/protocols/onvif.rs`, `service/discovery.rs`,
+  DTOs, handler, route, `daemon/onvif_event_listener.rs`; wired into `lib.rs`,
+  `routes/mod.rs`, `state.rs` (event-listener spawn at startup), OpenAPI.
+  Green: fmt/clippy/686 tests/release. Committed `6e763e9`.
+- **Phase 3.5 — Feature gating.** ✅ Per-capability Cargo features
+  (`onvif-core/device/media/ptz/events/discovery`) + profile umbrellas
+  (`onvif-profile-s/t/g/m`), `default = ["onvif"]`. Verified: ONVIF fully off
+  (`--no-default-features`), each capability standalone, and all-on all compile.
+  OpenAPI discovery fragment (`DiscoveryApiDoc`) merged at runtime under
+  `onvif-discovery` since utoipa can't `#[cfg]` macro entries.
+- **Phase 4 — Adversarial verification.** ⏳ Independent review of WS-Security,
+  SOAP envelope correctness, XML parser robustness, SSRF surface. Plus replace
+  agent-constructed fixtures with ONVIF Device Test Spec-derived vectors.
 - **Phase 5 (later) — Live event push.** SSE/webhook from the event listener to
   API clients (no push mechanism exists today). Out of the initial build.
+
+### Follow-ups / known gaps
+
+- **CI matrix:** add `cargo check --no-default-features` and a per-profile
+  build (`--features onvif-profile-s|g|m`) to `.github/workflows/test.yml` so no
+  feature combo bit-rots. Not yet wired.
+- **Richer discovery candidates:** the agent also produced a `host`/`port`/
+  `already_monitor` projection (removed as a duplicate `dto/response/discovery`).
+  Folding `already_monitor` (cross-reference existing monitors) into
+  `service::discovery::CameraCandidate` is a worthwhile enhancement.
+- **media2/imaging/recording/replay/analytics** features are declared in the
+  profile umbrellas' intent but not yet implemented (Profile T/G/M are partial).
 
 ## Feature gating (ONVIF capabilities → Cargo features)
 
