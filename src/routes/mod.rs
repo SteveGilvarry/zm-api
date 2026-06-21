@@ -24,6 +24,7 @@ pub mod control_presets; // Control Presets
 pub mod controls; // Controls
 pub mod daemon; // Daemon control
 pub mod devices; // Devices
+pub mod discovery; // ONVIF camera discovery
 pub mod event_data; // Event Data
 pub mod event_summaries; // Event Summaries (pre-calculated counts)
 pub mod events; // Add events module
@@ -329,6 +330,14 @@ pub fn create_router_app(state: AppState) -> Router {
     );
 
     let device_routes = protect(devices::add_device_routes(Router::new()), Feature::Devices);
+    // ONVIF discovery feeds monitor creation; gate it like monitor management.
+    // The probe/inspect endpoints have no `{monitor_id}` path param, so no
+    // row-level `monitor_path_guard` is needed — the handlers' own
+    // `scope.is_restricted()` check is the row-level gate.
+    let discovery_routes = protect(
+        discovery::add_discovery_routes(Router::new()),
+        Feature::Monitors,
+    );
     let manufacturer_routes = protect(
         manufacturers::add_manufacturer_routes(Router::new()),
         Feature::Devices,
@@ -416,6 +425,7 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(control_routes)
         .merge(control_preset_routes)
         .merge(device_routes)
+        .merge(discovery_routes)
         .merge(monitor_preset_routes)
         .merge(montage_layout_routes)
         .merge(tag_routes)

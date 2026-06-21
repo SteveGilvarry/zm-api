@@ -8,6 +8,7 @@ pub mod bridge;
 pub mod capabilities;
 pub mod error;
 pub mod manager;
+pub mod protocols;
 pub mod registry;
 pub mod traits;
 
@@ -15,5 +16,6 @@ pub mod traits;
 pub use capabilities::PtzCapabilities;
 pub use error::PtzError;
 pub use manager::PtzManager;
+pub use protocols::onvif::{OnvifControl, OnvifControlFactory};
 pub use registry::PtzRegistry;
 pub use traits::{PtzCommand, PtzControl};

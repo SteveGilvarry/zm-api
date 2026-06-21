@@ -3,6 +3,7 @@ pub mod control_presets;
 pub mod controls;
 pub mod daemon;
 pub mod devices;
+pub mod discovery;
 pub mod event_data;
 pub mod event_summaries;
 pub mod events_tags;

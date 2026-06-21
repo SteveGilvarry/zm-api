@@ -10,6 +10,7 @@ pub mod config;
 pub mod daemons;
 pub mod ipc;
 pub mod manager;
+pub mod onvif_event_listener;
 pub mod process;
 pub mod stats;
 

@@ -39,9 +39,12 @@ impl PtzManager {
         }
     }
 
-    /// Create a manager with default registry (Perl fallback enabled)
+    /// Create a manager with the default registry: the native ONVIF factory
+    /// registered, with the Perl bridge as fallback for all other protocols.
     pub fn with_defaults() -> Self {
-        Self::new(PtzRegistry::default())
+        let mut registry = PtzRegistry::default();
+        registry.register_native(Arc::new(super::protocols::onvif::OnvifControlFactory::new()));
+        Self::new(registry)
     }
 
     /// Get or create a PTZ control instance for a monitor

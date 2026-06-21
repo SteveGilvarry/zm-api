@@ -191,4 +191,76 @@ impl AppState {
     pub fn ptz_manager(&self) -> &PtzManager {
         &self.ptz_manager
     }
+
+    /// Spawn one ONVIF PullPoint event listener per monitor that has the ONVIF
+    /// event listener enabled (`onvif_event_listener != 0`) and a usable ONVIF
+    /// URL. Each listener subscribes, long-polls `PullMessages`, and translates
+    /// alarm on/off notifications into ZoneMinder events, quiescing with the
+    /// daemon manager on shutdown. No-op when the daemon manager is disabled.
+    pub async fn spawn_onvif_event_listeners(&self) {
+        let Some(manager) = self.daemon_manager.clone() else {
+            return;
+        };
+        let monitors = match crate::repo::monitors::find_all(self.db(), None).await {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!("ONVIF event listeners: failed to load monitors: {e}");
+                return;
+            }
+        };
+
+        let mut spawned = 0usize;
+        for m in monitors {
+            if m.onvif_event_listener == 0 || m.onvif_url.trim().is_empty() {
+                continue;
+            }
+            // Events service endpoint = onvif_url joined with onvif_events_path.
+            let events_xaddr = join_onvif_url(&m.onvif_url, &m.onvif_events_path);
+            let creds = (!m.onvif_username.is_empty()).then(|| {
+                crate::onvif::types::Credentials::new(
+                    m.onvif_username.clone(),
+                    m.onvif_password.clone(),
+                )
+            });
+            let transport = crate::onvif::transport::OnvifTransport::new(self.http.clone());
+            let client = crate::onvif::events::EventsClient::new(transport, events_xaddr, creds);
+            let alarm_cause = m
+                .onvif_alarm_text
+                .clone()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| "ONVIF Alarm".to_string());
+
+            crate::daemon::onvif_event_listener::spawn_monitor_event_listener(
+                self.clone(),
+                m.id,
+                m.name.clone(),
+                alarm_cause,
+                client,
+                manager.clone(),
+                crate::daemon::onvif_event_listener::OnvifEventListenerConfig::default(),
+            );
+            spawned += 1;
+        }
+
+        if spawned > 0 {
+            tracing::info!("Spawned {spawned} ONVIF event listener(s)");
+        }
+    }
+}
+
+/// Join an ONVIF base URL with an events service path, tolerating an empty path
+/// (returns the base) and avoiding duplicate slashes at the join.
+fn join_onvif_url(base: &str, path: &str) -> String {
+    let path = path.trim();
+    if path.is_empty() {
+        return base.to_string();
+    }
+    if path.starts_with("http://") || path.starts_with("https://") {
+        return path.to_string();
+    }
+    format!(
+        "{}/{}",
+        base.trim_end_matches('/'),
+        path.trim_start_matches('/')
+    )
 }
