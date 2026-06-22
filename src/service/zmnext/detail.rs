@@ -95,6 +95,23 @@ impl DescriptionDetail {
     }
 }
 
+/// `recording_opening` (0x0304) `json_detail` — emitted when `store_event`
+/// begins a segment and needs an event id + target path assigned. `clip_token`
+/// is store_event's opaque correlation handle, echoed back in the reply.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct RecordingOpeningDetail {
+    #[serde(default)]
+    pub clip_token: String,
+    #[serde(default)]
+    pub trigger: Option<String>,
+}
+
+impl RecordingOpeningDetail {
+    pub fn parse(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
+}
+
 /// `recording_saved` (0x0303) `json_detail` — the `store_event` `EventClip`.
 ///
 /// Only the fields zm-api indexes are modelled; `store_event` may emit more
@@ -104,6 +121,11 @@ pub struct RecordingSavedDetail {
     /// Absolute path of the written `.mp4` clip.
     #[serde(default)]
     pub path: String,
+    /// The event id zm-api assigned at `recording_opening`, echoed back so the
+    /// exact row is finalized. `None` only for clips written without the
+    /// handshake (legacy / pre-assignment).
+    #[serde(default)]
+    pub event_id: Option<u64>,
     /// Clip duration in seconds.
     #[serde(default)]
     pub duration: Option<f64>,
@@ -189,5 +211,23 @@ mod tests {
     fn recording_saved_empty_path_has_no_filename() {
         let r = RecordingSavedDetail::default();
         assert_eq!(r.file_name(), "");
+    }
+
+    #[test]
+    fn recording_opening_parses_clip_token() {
+        let o = RecordingOpeningDetail::parse(r#"{"clip_token":"abc-123","trigger":"detection"}"#)
+            .unwrap();
+        assert_eq!(o.clip_token, "abc-123");
+        assert_eq!(o.trigger.as_deref(), Some("detection"));
+    }
+
+    #[test]
+    fn recording_saved_echoes_assigned_event_id() {
+        let r = RecordingSavedDetail::parse(
+            r#"{"event":"EventClip","event_id":512,"path":"/e/3/d/512/512-video.mp4","duration":9.0}"#,
+        )
+        .unwrap();
+        assert_eq!(r.event_id, Some(512));
+        assert_eq!(r.file_name(), "512-video.mp4");
     }
 }

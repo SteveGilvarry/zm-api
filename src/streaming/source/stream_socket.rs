@@ -32,6 +32,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use tokio::io::AsyncReadExt;
+use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::UnixStream;
 use tracing::{debug, info, warn};
 
@@ -115,7 +116,12 @@ pub struct StreamSocketReader {
     monitor_id: u32,
     path: PathBuf,
     config: ZoneMinderConfig,
-    stream: Option<UnixStream>,
+    /// Read half of the connection. The write half ([`Self::take_writer`]) is
+    /// handed to the router task so it can send control replies (the
+    /// id-assignment handshake) on the same connection without contending with
+    /// the read loop for `&mut self`.
+    read: Option<OwnedReadHalf>,
+    write: Option<OwnedWriteHalf>,
     /// Accumulation buffer of raw socket bytes awaiting a complete message.
     buf: Vec<u8>,
     /// Events decoded from messages, awaiting emission (one message can
@@ -139,7 +145,8 @@ impl StreamSocketReader {
             monitor_id,
             path,
             config,
-            stream: None,
+            read: None,
+            write: None,
             buf: Vec::with_capacity(64 * 1024),
             pending: VecDeque::new(),
             video: VideoState::default(),
@@ -155,6 +162,14 @@ impl StreamSocketReader {
 
     pub fn socket_path(&self) -> &Path {
         &self.path
+    }
+
+    /// Take the connection's write half for sending control replies. Available
+    /// after [`Self::connect`]; returns `None` if already taken or not
+    /// connected. The router task owns it for the connection's lifetime and
+    /// drops it on reconnect (a fresh `connect` produces a new write half).
+    pub fn take_writer(&mut self) -> Option<OwnedWriteHalf> {
+        self.write.take()
     }
 
     /// Whether zmc has created the monitor's socket (it appears when zmc
@@ -179,7 +194,9 @@ impl StreamSocketReader {
         );
 
         let stream = UnixStream::connect(&self.path).await?;
-        self.stream = Some(stream);
+        let (read, write) = stream.into_split();
+        self.read = Some(read);
+        self.write = Some(write);
         self.buf.clear();
         self.pending.clear();
         self.video = VideoState::default();
@@ -229,8 +246,8 @@ impl StreamSocketReader {
 
             // 3. Need more bytes. `read_buf` appends to the buffer and is
             //    cancel-safe: if the caller's timeout fires, no data is lost.
-            let stream = self.stream.as_mut().ok_or(SourceError::NotConnected)?;
-            let n = stream.read_buf(&mut self.buf).await?;
+            let read = self.read.as_mut().ok_or(SourceError::NotConnected)?;
+            let n = read.read_buf(&mut self.buf).await?;
             if n == 0 {
                 return Err(SourceError::Closed);
             }
@@ -532,6 +549,42 @@ pub(crate) mod test_support {
                 });
             }
         })
+    }
+
+    /// Like [`spawn_fake_zmc`] but captures bytes the client writes back (the
+    /// control-channel replies), forwarding each read chunk on the returned
+    /// channel. Holds the connection open. Used to assert the id-assignment
+    /// handshake reaches the worker.
+    pub fn spawn_fake_zmc_capturing(
+        path: PathBuf,
+        script: Vec<u8>,
+    ) -> (
+        tokio::task::JoinHandle<()>,
+        tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+    ) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let listener = UnixListener::bind(&path).expect("bind fake zmc socket");
+        let handle = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let script = script.clone();
+                let tx = tx.clone();
+                tokio::spawn(async move {
+                    let _ = stream.write_all(&script).await;
+                    use tokio::io::AsyncReadExt;
+                    let mut buf = [0u8; 4096];
+                    while let Ok(n) = stream.read(&mut buf).await {
+                        if n == 0 {
+                            break;
+                        }
+                        let _ = tx.send(buf[..n].to_vec());
+                    }
+                });
+            }
+        });
+        (handle, rx)
     }
 
     /// A temp dir for a test's socket, cleaned by the caller.

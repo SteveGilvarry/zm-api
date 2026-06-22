@@ -4,10 +4,12 @@
 //! serves all output protocols (WebRTC, HLS). Manages lazy initialization of
 //! monitor sources; one socket connection carries both video and audio.
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use dashmap::DashMap;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::{broadcast, mpsc, watch, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
@@ -16,17 +18,50 @@ use super::media::{
     extract_profile_level_id, h264_nal_type, h265_nal_type, AudioCodec, AudioPacket, VideoCodec,
     VideoPacket,
 };
-use super::protocol::MonitorEvent;
+use super::protocol::{self, MonitorEvent};
 use super::stream_socket::{stream_socket_path, SocketEvent, SourceError, StreamSocketReader};
 use crate::configure::streaming::ZoneMinderConfig;
 
 /// A monitor EVENT decoded off a stream socket, tagged with its monitor, ready
 /// for DB ingest. The reader task forwards these to the router's event sink
 /// (when one is registered); media flows unaffected.
+///
+/// `reply` lets the ingest side answer the worker on the *same* connection —
+/// the id-assignment handshake replies to a `recording_opening` EVENT with the
+/// allocated event id and target path.
 #[derive(Debug, Clone)]
 pub struct MonitorEventEnvelope {
     pub monitor_id: u32,
     pub event: MonitorEvent,
+    pub reply: ControlReply,
+}
+
+/// Cloneable handle for sending client→server control messages on one monitor's
+/// stream-socket connection. Messages are queued to the reader task, which owns
+/// the connection's write half and flushes them. Best-effort by design: if the
+/// connection has closed (queue full or receiver gone) the send is dropped, so
+/// ingest never blocks or stalls on a dead worker.
+#[derive(Debug, Clone)]
+pub struct ControlReply {
+    tx: mpsc::Sender<Vec<u8>>,
+    seq: Arc<AtomicU32>,
+}
+
+impl ControlReply {
+    fn new(tx: mpsc::Sender<Vec<u8>>) -> Self {
+        Self {
+            tx,
+            seq: Arc::new(AtomicU32::new(0)),
+        }
+    }
+
+    /// Queue a `0x11 Command` with a JSON payload for the worker. Returns
+    /// whether it was queued (false ⇒ connection gone / queue full).
+    pub fn send_command_json(&self, json: &str) -> bool {
+        let seq = self.seq.fetch_add(1, Ordering::Relaxed);
+        let msg = protocol::build_control_message(protocol::MSG_TYPE_COMMAND, seq, json.as_bytes());
+        self.tx.try_send(msg).is_ok()
+    }
 }
 
 /// Default broadcast channel capacity for source packets
@@ -563,6 +598,15 @@ impl SourceRouter {
                     }
                 }
 
+                // Per-connection control channel for the id-assignment
+                // handshake: ingest queues replies here and the reader task
+                // writes them to this connection's write half. Recreated each
+                // reconnect; the old channel + writer drop with the old socket.
+                let mut writer = reader.take_writer();
+                let (cmd_tx, mut cmd_rx) = mpsc::channel::<Vec<u8>>(8);
+                let control_reply = ControlReply::new(cmd_tx.clone());
+                let _cmd_keepalive = cmd_tx; // hold the channel open for this connection
+
                 // Topology of this connection. zmc sends every stream's HELLO
                 // before any media, so the first media event confirms the
                 // handshake is complete and the audio answer is final.
@@ -571,9 +615,23 @@ impl SourceRouter {
                 let mut announced = false;
 
                 // Inner loop: read events until the socket closes or an
-                // unrecoverable error occurs
+                // unrecoverable error occurs. `select!` also drains queued
+                // control replies, writing them on this connection (biased so a
+                // pending id-assignment is flushed before the next read).
                 loop {
-                    match reader.next_event().await {
+                    tokio::select! {
+                        biased;
+                        Some(bytes) = cmd_rx.recv() => {
+                            if let Some(w) = writer.as_mut() {
+                                if let Err(e) = w.write_all(&bytes).await {
+                                    warn!("Monitor {}: control write failed: {}", monitor_id, e);
+                                } else {
+                                    let _ = w.flush().await;
+                                }
+                            }
+                        }
+                        result = reader.next_event() => {
+                    match result {
                         Ok(SocketEvent::VideoParams { codec }) => {
                             video_codec = codec;
                             let mut codec_guard = source_for_task.codec.write().await;
@@ -631,10 +689,13 @@ impl SourceRouter {
                             // Forward to DB ingest. `try_send` keeps the media
                             // reader non-blocking: if ingest is backed up or
                             // absent we drop the event rather than stall video.
+                            // `reply` lets ingest answer on this connection.
                             if let Some(sink) = &event_sink {
-                                if let Err(e) =
-                                    sink.try_send(MonitorEventEnvelope { monitor_id, event })
-                                {
+                                if let Err(e) = sink.try_send(MonitorEventEnvelope {
+                                    monitor_id,
+                                    event,
+                                    reply: control_reply.clone(),
+                                }) {
                                     warn!(
                                         "Monitor {}: dropping EVENT, ingest sink unavailable: {}",
                                         monitor_id, e
@@ -663,6 +724,8 @@ impl SourceRouter {
                             tokio::time::sleep(Duration::from_millis(config.reconnect_delay_ms))
                                 .await;
                             break; // Break inner loop to reconnect with fresh state
+                        }
+                    }
                         }
                     }
                 }
@@ -1196,6 +1259,77 @@ mod tests {
         assert_eq!(ck.profile_level_id, "4d0033");
 
         let _ = router.stop_reader(8).await;
+        server.abort();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The id-assignment handshake round-trips over a real socket: the worker
+    /// emits a recording_opening EVENT, the consumer replies via the EVENT
+    /// envelope, and the reply lands back on the same connection as a 0x11
+    /// Command — exercising the reader's write half and ControlReply encoding.
+    #[tokio::test]
+    async fn test_control_reply_round_trips_to_worker() {
+        use super::super::protocol::{
+            parse_header, EVENT_RECORDING_OPENING, HEADER_SIZE, MSG_TYPE_COMMAND,
+        };
+        use super::super::stream_socket::test_support::spawn_fake_zmc_capturing;
+
+        let dir = test_sock_dir("router_control");
+        // Script: video HELLO, then a recording_opening EVENT on the monitor
+        // stream carrying a clip_token.
+        let mut script = encode_message(
+            0x01,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &hello_payload(h264_codec_id(), &h264_extradata()),
+        );
+        let opening = event_payload(
+            EVENT_RECORDING_OPENING,
+            &tlv(0x10, br#"{"clip_token":"tok-1"}"#),
+        );
+        script.extend_from_slice(&encode_message(0x06, 2, 0, 0, 0, 0, &opening));
+        let (server, mut captured) = spawn_fake_zmc_capturing(dir.join("stream_20.sock"), script);
+
+        let mut router = SourceRouter::from_zoneminder_config(test_zm_config(&dir));
+        let (ev_tx, mut ev_rx) = mpsc::channel(8);
+        router.set_event_sink(ev_tx);
+        router.get_source(20).await.expect("get_source");
+
+        // Receive the EVENT envelope and reply on its connection.
+        let env = tokio::time::timeout(Duration::from_secs(5), ev_rx.recv())
+            .await
+            .expect("event within 5s")
+            .expect("envelope");
+        assert_eq!(env.monitor_id, 20);
+        assert_eq!(env.event.code, EVENT_RECORDING_OPENING);
+        assert!(env
+            .reply
+            .send_command_json(r#"{"cmd":"assign_recording","event_id":42}"#));
+
+        // The worker reads the reply: a 0x11 Command framing our JSON.
+        let mut buf = Vec::new();
+        for _ in 0..50 {
+            if let Ok(Some(chunk)) =
+                tokio::time::timeout(Duration::from_millis(200), captured.recv()).await
+            {
+                buf.extend_from_slice(&chunk);
+                if buf.len() >= HEADER_SIZE {
+                    break;
+                }
+            }
+        }
+        let header = parse_header(buf[..HEADER_SIZE].try_into().unwrap()).expect("valid header");
+        assert_eq!(header.msg_type, MSG_TYPE_COMMAND);
+        assert_eq!(header.stream, 2); // Monitor
+        let payload = &buf[HEADER_SIZE..HEADER_SIZE + header.payload_len];
+        let json: serde_json::Value = serde_json::from_slice(payload).expect("json payload");
+        assert_eq!(json["cmd"], "assign_recording");
+        assert_eq!(json["event_id"], 42);
+
+        let _ = router.stop_reader(20).await;
         server.abort();
         let _ = std::fs::remove_dir_all(&dir);
     }

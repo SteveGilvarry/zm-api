@@ -112,6 +112,13 @@ pub const EVENT_STATE_CHANGED: u16 = 0x0201;
 pub const EVENT_DETECTION: u16 = 0x0301; // motion / object detection
 pub const EVENT_DESCRIPTION: u16 = 0x0302; // VLM scene description
 pub const EVENT_RECORDING_SAVED: u16 = 0x0303; // a clip was written to storage
+pub const EVENT_RECORDING_OPENING: u16 = 0x0304; // a clip segment opened; awaits an event-id assignment
+
+/// Client→server control message type for the id-assignment handshake (the
+/// `0x11 Command` of zm-next's control extension). zm-api is the client; the
+/// canonical media producer (zmc) ignores inbound bytes, while zm-next's worker
+/// consumes this to learn the event id + target path for a recording segment.
+pub const MSG_TYPE_COMMAND: u8 = 0x11;
 
 // EVENT TLV tags
 const TLV_WALL_CLOCK_US: u8 = 0x01; // u64, unix-epoch microseconds
@@ -330,6 +337,24 @@ pub fn parse_event(data: &[u8]) -> Result<MonitorEvent, ProtocolError> {
 
 fn read_u64(buf: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(buf[at..at + 8].try_into().expect("8 bytes"))
+}
+
+/// Serialize a client→server control message (header + raw payload) for
+/// sending back up the stream socket. Control messages ride the Monitor stream
+/// with their own sequence counter; `generation` and `pts` are unused (0).
+/// Used for the `0x11 Command` id-assignment reply, whose payload is UTF-8 JSON.
+pub fn build_control_message(msg_type: u8, sequence: u32, payload: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(HEADER_SIZE + payload.len());
+    out.extend_from_slice(&(HEADER_LENGTH_BYTES + payload.len() as u32).to_le_bytes());
+    out.push(PROTOCOL_VERSION);
+    out.push(msg_type);
+    out.push(StreamId::Monitor as u8); // 2 — control rides the monitor stream
+    out.push(0); // flags
+    out.extend_from_slice(&sequence.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes()); // generation (unused)
+    out.extend_from_slice(&0u64.to_le_bytes()); // pts_us (unused)
+    out.extend_from_slice(payload);
+    out
 }
 
 /// Parse a STATS payload: u64 messages sent, u64 messages dropped for this
@@ -639,6 +664,20 @@ mod tests {
         assert_eq!(parse_event(&payload), Err(ProtocolError::TruncatedEventTlv));
         // Empty payload still has no code.
         assert_eq!(parse_event(&[]), Err(ProtocolError::ShortPayload("EVENT")));
+    }
+
+    #[test]
+    fn control_message_round_trips_through_header() {
+        let json = br#"{"cmd":"assign_recording","event_id":512}"#;
+        let msg = build_control_message(MSG_TYPE_COMMAND, 3, json);
+        let header = parse_header(msg[..HEADER_SIZE].try_into().unwrap()).unwrap();
+        assert_eq!(header.msg_type, MSG_TYPE_COMMAND);
+        assert_eq!(header.stream, 2); // Monitor
+        assert_eq!(header.sequence, 3);
+        assert_eq!(header.payload_len, json.len());
+        assert_eq!(&msg[HEADER_SIZE..], json);
+        // The control type is not a media/parse type — consumers skip it.
+        assert_eq!(MessageType::from_u8(header.msg_type), None);
     }
 
     #[test]

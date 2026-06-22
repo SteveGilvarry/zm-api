@@ -62,30 +62,38 @@ zm-core --monitor-id <N> --pipeline <dir>/monitor_<N>.json --socket <socks>/stre
 * Supervision/backoff/watchdog/reconcile are the shared `ManagedProcess` paths.
 * Flipping the flag tears the other daemon down on the next `start_monitor`.
 
-## Correlation & storage contract (read before going to production)
+## Event-id assignment handshake (correlation + clip path)
 
-Two integration contracts are **best-effort** in this pass and need validation
-against a live zm-next:
+The event id is owned by zm-api end to end and handed to `store_event` at
+clip-open, so clips land natively in ZoneMinder's tree — no schema change, no
+file relocation. The contract `store_event` (zm-next) must implement:
 
-1. **Event correlation.** EVENT frames carry no event id, so ingest correlates
-   per monitor as a *session*: first `detection`/`description` opens an `Events`
-   row, detections append alarm `Frames` + bump scores, `recording_saved`
-   finalizes it (file name, duration, end time) and closes the session. One open
-   event per monitor at a time. If zm-next can run overlapping events per
-   monitor, this needs revisiting.
+1. **Open** — when `store_event` begins a segment it emits an EVENT (0x06), code
+   **`0x0304 recording_opening`** on the Monitor stream, with `wall_clock_us` =
+   start and `json_detail`:
+   ```json
+   { "clip_token": "<opaque store_event handle>", "trigger": "detection" }
+   ```
+2. **Assign** — zm-api allocates (or adopts) the `Events` row, computes the
+   Medium-scheme location `{Storage.Path}/{monitor}/{YYYY-MM-DD}/{event_id}` +
+   `{event_id}-video.mp4`, sets `Scheme=Medium`/`DefaultVideo`, and replies with
+   a **`0x11 Command`** (JSON) on the same connection:
+   ```json
+   { "cmd": "assign_recording", "clip_token": "<echoed>",
+     "event_id": 512, "dir": ".../3/2026-06-22/512", "video_name": "512-video.mp4" }
+   ```
+   `store_event` **stages then renames**: record to a temp file immediately, then
+   move to `dir/video_name` once the assignment arrives (before emitting
+   `recording_saved`) — never blocks capture, tolerates reply latency.
+3. **Save** — on close, `recording_saved` (0x0303) echoes **`"event_id": 512`**
+   in its `json_detail` so zm-api finalizes the exact row (duration, end time).
 
-2. **Clip path.** `Events.DefaultVideo` stores only the file name; ZoneMinder
-   derives the full path from `Storage.Path` + `Scheme` + event id. zm-next's
-   `store_event` therefore **must** write its clip where ZM expects it, or
-   playback won't resolve. The generator points `store_event.root` at the
-   monitor's storage path; the per-event subdirectory layout (event id is
-   assigned by zm-api on the opening detection, not known at pipeline-generation
-   time) is the open item to nail down with the fork owner — options: zm-next
-   names by timestamp and zm-api stores an absolute path (needs a schema/path
-   column), or zm-api moves the clip into the scheme location on
-   `recording_saved`. The reported absolute path is currently logged.
+ZoneMinder's playback then derives the same path; the clip is fully native.
+One event is open per monitor at a time; `detection`/`description` decorate the
+open row (and open one themselves if they arrive before `recording_opening`,
+which then adopts it).
 
-## Open coordination items (ZoneMinder fork)
+## Open coordination items (ZoneMinder fork / zm-next)
 
 * **`Monitors.UseZmNext TINYINT NOT NULL DEFAULT 0`** — owned by the fork's
   migrations. Until it ships, `repo::monitors::use_zmnext` degrades to `false`
@@ -93,7 +101,9 @@ against a live zm-next:
   automatically once the column exists. **Do not** add `UseZmNext` to the
   `monitors` SeaORM entity — that widens the base `SELECT` and breaks every
   monitor query on pre-migration databases.
-* The clip-path contract above.
+* **`store_event` handshake (above)** — emit `recording_opening`, consume
+  `assign_recording` (stage-then-rename), and echo `event_id` in
+  `recording_saved`. This is the one zm-next change the integration requires.
 
 ## Per-camera migration (Task 6)
 
