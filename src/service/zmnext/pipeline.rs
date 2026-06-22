@@ -3,10 +3,13 @@
 //! zm-next consumes a recursive plugin tree — `{id, kind, cfg, children}` under
 //! a top-level `{name, root, plugins}` — and never reads the database itself;
 //! zm-api is the sole DB reader and hands the worker a fully-resolved pipeline
-//! file via `--pipeline`. The shape is `capture_rtsp_multi → decode_detect →
-//! {store[, output_mqtt]}`, where `store` is zm-next's merged recorder (it
-//! folded the old `store_filesystem` + `store_event` into one mode-switched
-//! plugin).
+//! file via `--pipeline`. The shape is a `capture_rtsp_multi` root with
+//! `decode_detect`, `store`, and (optionally) `output_mqtt` as **siblings**
+//! under it. `store` is zm-next's merged recorder (it folded the old
+//! `store_filesystem` + `store_event` into one mode-switched plugin); it hangs
+//! off `capture` — not under `decode_detect` — so it records the captured main
+//! stream rather than the detector's substream (triggers reach it over
+//! zm-next's process-global event bus regardless of tree position).
 //!
 //! The Monitor's `Path` column already holds the full RTSP URL (credentials
 //! embedded) that zm-api uses everywhere else, so it is used verbatim as the
@@ -142,14 +145,29 @@ pub fn generate_pipeline(
         store_cfg["max_buffer_sec"] = json!(cfg.max_buffer_sec);
         store_cfg["trigger_types"] = json!(cfg.trigger_types);
     }
-    let mut detect_children = vec![json!({
-        "id": "record",
-        "kind": "store",
-        "cfg": store_cfg,
-        "queue_depth": 120,
-    })];
+
+    // `store` and `output_mqtt` are siblings of `decode_detect` under `capture`,
+    // not children of it: in zm-next, EVENTs (triggers, assign_recording) flow
+    // on a process-global bus regardless of tree position, while tree position
+    // only decides which FRAMES a plugin sees. `store` must record the captured
+    // (main) stream, so it hangs off `capture`; were it under `decode_detect` it
+    // would record whatever that stage is fed (the low-res substream).
+    let mut capture_children = vec![
+        json!({
+            "id": "detect",
+            "kind": "decode_detect",
+            "cfg": detect_cfg,
+            "queue_depth": 2,
+        }),
+        json!({
+            "id": "record",
+            "kind": "store",
+            "cfg": store_cfg,
+            "queue_depth": 120,
+        }),
+    ];
     if let Some((host, port)) = mqtt_host_port(cfg.mqtt_url.as_deref()) {
-        detect_children.push(json!({
+        capture_children.push(json!({
             "id": "notify",
             "kind": "output_mqtt",
             "cfg": { "host": host, "port": port, "base_topic": "zm-next" },
@@ -171,13 +189,7 @@ pub fn generate_pipeline(
                     "max_retry_attempts": -1,
                 }],
             },
-            "children": [{
-                "id": "detect",
-                "kind": "decode_detect",
-                "cfg": detect_cfg,
-                "queue_depth": 2,
-                "children": detect_children,
-            }],
+            "children": capture_children,
         }],
     })
 }
@@ -296,15 +308,18 @@ mod tests {
             "rtsp://admin:pw@cam:554/Streaming/Channels/101"
         );
 
+        // detect, store, (mqtt) are siblings under capture. detect is first and
+        // has no children of its own.
         let detect = &capture["children"][0];
         assert_eq!(detect["kind"], "decode_detect");
+        assert!(detect.get("children").is_none());
         // The active zone is translated onto the detect stage.
         assert_eq!(detect["cfg"]["zones"][0]["name"], "Front");
         assert_eq!(detect["cfg"]["zones"][0]["points"][1], json!([640, 0]));
         assert_eq!(detect["cfg"]["zones"][0]["min_pixel_threshold"], 25);
 
         // One merged `store` plugin in event mode: roll/trigger keys, no max_secs.
-        let record = &detect["children"][0];
+        let record = &capture["children"][1];
         assert_eq!(record["kind"], "store");
         assert_eq!(record["cfg"]["mode"], "event");
         assert_eq!(record["cfg"]["root"], "/var/lib/zm/events");
@@ -315,8 +330,8 @@ mod tests {
         assert_eq!(record["cfg"]["max_buffer_sec"], 15);
         assert_eq!(record["cfg"]["trigger_types"][0], "detection");
         assert!(record["cfg"].get("max_secs").is_none());
-        // No MQTT broker configured → no output_mqtt child.
-        assert_eq!(detect["children"].as_array().unwrap().len(), 1);
+        // No MQTT broker configured → just detect + store under capture.
+        assert_eq!(capture["children"].as_array().unwrap().len(), 2);
     }
 
     #[test]
@@ -340,7 +355,7 @@ mod tests {
         );
 
         let cfg = test_cfg();
-        // store lives at capture → detect → store.
+        // store is a sibling of detect under capture: plugins[0].children[1].
         // Continuous: segment key present, event keys absent.
         let cont = generate_pipeline(
             1,
@@ -350,7 +365,8 @@ mod tests {
             StoreMode::Continuous,
             Path::new("/e"),
         );
-        let store = &cont["plugins"][0]["children"][0]["children"][0]["cfg"];
+        let store = &cont["plugins"][0]["children"][1]["cfg"];
+        assert_eq!(cont["plugins"][0]["children"][1]["kind"], "store");
         assert_eq!(store["mode"], "continuous");
         assert_eq!(store["max_secs"], 300);
         assert!(store.get("pre_roll_sec").is_none());
@@ -358,7 +374,7 @@ mod tests {
 
         // Both: segment AND event keys present.
         let both = generate_pipeline(1, "rtsp://c", &[], &cfg, StoreMode::Both, Path::new("/e"));
-        let store = &both["plugins"][0]["children"][0]["children"][0]["cfg"];
+        let store = &both["plugins"][0]["children"][1]["cfg"];
         assert_eq!(store["mode"], "both");
         assert_eq!(store["max_secs"], 300);
         assert_eq!(store["post_roll_sec"], 10);
@@ -378,11 +394,15 @@ mod tests {
             StoreMode::Continuous,
             Path::new("/events"),
         );
-        let detect = &p["plugins"][0]["children"][0];
-        let children = detect["children"].as_array().unwrap();
-        assert_eq!(children.len(), 2);
-        assert_eq!(children[1]["kind"], "output_mqtt");
-        assert_eq!(children[1]["cfg"]["port"], 1883);
+        let capture = &p["plugins"][0];
+        let children = capture["children"].as_array().unwrap();
+        // capture's children: detect, store, output_mqtt (all siblings).
+        assert_eq!(children.len(), 3);
+        assert_eq!(children[0]["kind"], "decode_detect");
+        assert_eq!(children[1]["kind"], "store");
+        assert_eq!(children[2]["kind"], "output_mqtt");
+        assert_eq!(children[2]["cfg"]["port"], 1883);
+        let detect = &children[0];
         // No zones supplied → the detect cfg omits the zones key entirely.
         assert!(detect["cfg"].get("zones").is_none());
     }
