@@ -3,9 +3,10 @@
 //! zm-next consumes a recursive plugin tree — `{id, kind, cfg, children}` under
 //! a top-level `{name, root, plugins}` — and never reads the database itself;
 //! zm-api is the sole DB reader and hands the worker a fully-resolved pipeline
-//! file via `--pipeline`. The shape mirrors the worker's own templates
-//! (`pipelines/*.template.json`): `capture_rtsp_multi → decode_detect →
-//! {store_event[, output_mqtt]}`.
+//! file via `--pipeline`. The shape is `capture_rtsp_multi → decode_detect →
+//! {store[, output_mqtt]}`, where `store` is zm-next's merged recorder (it
+//! folded the old `store_filesystem` + `store_event` into one mode-switched
+//! plugin).
 //!
 //! The Monitor's `Path` column already holds the full RTSP URL (credentials
 //! embedded) that zm-api uses everywhere else, so it is used verbatim as the
@@ -23,8 +24,49 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 use crate::configure::zmnext::PipelineConfig;
-use crate::entity::sea_orm_active_enums::ZoneType;
+use crate::entity::sea_orm_active_enums::{Function, ZoneType};
 use crate::entity::zones;
+
+/// Recording mode for the merged `store` plugin, derived from the monitor's
+/// ZoneMinder function.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoreMode {
+    /// Gapless segment recording (ZM `Record`).
+    Continuous,
+    /// Triggered pre/post-roll clips only (ZM `Modect`/`Nodect`).
+    Event,
+    /// Both continuous segments and triggered clips (ZM `Mocord`).
+    Both,
+}
+
+impl StoreMode {
+    /// Map a monitor's `Function` to a store mode. Non-recording functions
+    /// (`Monitor`/`None`) default to continuous, matching the worker default.
+    pub fn from_function(function: &Function) -> Self {
+        match function {
+            Function::Modect | Function::Nodect => StoreMode::Event,
+            Function::Mocord => StoreMode::Both,
+            // Record, Monitor, None
+            _ => StoreMode::Continuous,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            StoreMode::Continuous => "continuous",
+            StoreMode::Event => "event",
+            StoreMode::Both => "both",
+        }
+    }
+
+    fn records_continuous(self) -> bool {
+        matches!(self, StoreMode::Continuous | StoreMode::Both)
+    }
+
+    fn records_events(self) -> bool {
+        matches!(self, StoreMode::Event | StoreMode::Both)
+    }
+}
 
 /// A ZoneMinder zone reduced to what the detect stage needs.
 #[derive(Debug, Clone, PartialEq)]
@@ -54,13 +96,19 @@ pub fn zone_specs_from_models(zones: &[zones::Model]) -> Vec<ZoneSpec> {
 /// Build the pipeline JSON document for one monitor.
 ///
 /// * `source_url` — the capture RTSP URL (the monitor's `Path`).
-/// * `events_root` — directory the `store_event` stage writes clips under
-///   (the monitor's storage path, resolved from the Storage row by the caller).
+/// * `mode` — recording mode for the merged `store` plugin (from the monitor's
+///   function).
+/// * `events_root` — media root the `store` plugin writes under. **Must be on
+///   the same filesystem as the directory zm-api hands back in
+///   `assign_recording`**, because the worker renames the in-progress file into
+///   that directory with an open fd (a cross-fs target fails and the clip keeps
+///   the worker's own name).
 pub fn generate_pipeline(
     monitor_id: u32,
     source_url: &str,
     zones: &[ZoneSpec],
     cfg: &PipelineConfig,
+    mode: StoreMode,
     events_root: &Path,
 ) -> Value {
     let mut detect_cfg = json!({
@@ -75,17 +123,29 @@ pub fn generate_pipeline(
         detect_cfg["zones"] = Value::Array(zone_specs);
     }
 
-    // store_event is always present; output_mqtt only when a broker is set.
+    // The merged `store` plugin (zm-next folded store_filesystem + store_event
+    // into one). Common keys always; segment / event keys only for the modes
+    // that use them. Every segment and every clip is one ZM event and runs the
+    // id-assignment handshake.
+    let mut store_cfg = json!({
+        "mode": mode.as_str(),
+        "root": events_root.to_string_lossy(),
+        "monitor_id": monitor_id,
+        "stream_filter": [0],
+    });
+    if mode.records_continuous() {
+        store_cfg["max_secs"] = json!(cfg.segment_max_secs);
+    }
+    if mode.records_events() {
+        store_cfg["pre_roll_sec"] = json!(cfg.pre_roll_sec);
+        store_cfg["post_roll_sec"] = json!(cfg.post_roll_sec);
+        store_cfg["max_buffer_sec"] = json!(cfg.max_buffer_sec);
+        store_cfg["trigger_types"] = json!(cfg.trigger_types);
+    }
     let mut detect_children = vec![json!({
         "id": "record",
-        "kind": "store_event",
-        "cfg": {
-            "root": events_root.to_string_lossy(),
-            "monitor_id": monitor_id,
-            "trigger_types": ["detection"],
-            "pre_roll_sec": 5,
-            "post_roll_sec": 10,
-        },
+        "kind": "store",
+        "cfg": store_cfg,
         "queue_depth": 120,
     })];
     if let Some((host, port)) = mqtt_host_port(cfg.mqtt_url.as_deref()) {
@@ -223,6 +283,7 @@ mod tests {
             "rtsp://admin:pw@cam:554/Streaming/Channels/101",
             &zones,
             &cfg,
+            StoreMode::Event,
             Path::new("/var/lib/zm/events"),
         );
 
@@ -242,12 +303,65 @@ mod tests {
         assert_eq!(detect["cfg"]["zones"][0]["points"][1], json!([640, 0]));
         assert_eq!(detect["cfg"]["zones"][0]["min_pixel_threshold"], 25);
 
+        // One merged `store` plugin in event mode: roll/trigger keys, no max_secs.
         let record = &detect["children"][0];
-        assert_eq!(record["kind"], "store_event");
+        assert_eq!(record["kind"], "store");
+        assert_eq!(record["cfg"]["mode"], "event");
         assert_eq!(record["cfg"]["root"], "/var/lib/zm/events");
         assert_eq!(record["cfg"]["monitor_id"], 7);
+        assert_eq!(record["cfg"]["stream_filter"], json!([0]));
+        assert_eq!(record["cfg"]["pre_roll_sec"], 5);
+        assert_eq!(record["cfg"]["post_roll_sec"], 10);
+        assert_eq!(record["cfg"]["max_buffer_sec"], 15);
+        assert_eq!(record["cfg"]["trigger_types"][0], "detection");
+        assert!(record["cfg"].get("max_secs").is_none());
         // No MQTT broker configured → no output_mqtt child.
         assert_eq!(detect["children"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn store_mode_maps_from_function_and_emits_right_keys() {
+        assert_eq!(
+            StoreMode::from_function(&Function::Record),
+            StoreMode::Continuous
+        );
+        assert_eq!(StoreMode::from_function(&Function::Mocord), StoreMode::Both);
+        assert_eq!(
+            StoreMode::from_function(&Function::Modect),
+            StoreMode::Event
+        );
+        assert_eq!(
+            StoreMode::from_function(&Function::Nodect),
+            StoreMode::Event
+        );
+        assert_eq!(
+            StoreMode::from_function(&Function::Monitor),
+            StoreMode::Continuous
+        );
+
+        let cfg = test_cfg();
+        // store lives at capture → detect → store.
+        // Continuous: segment key present, event keys absent.
+        let cont = generate_pipeline(
+            1,
+            "rtsp://c",
+            &[],
+            &cfg,
+            StoreMode::Continuous,
+            Path::new("/e"),
+        );
+        let store = &cont["plugins"][0]["children"][0]["children"][0]["cfg"];
+        assert_eq!(store["mode"], "continuous");
+        assert_eq!(store["max_secs"], 300);
+        assert!(store.get("pre_roll_sec").is_none());
+        assert!(store.get("trigger_types").is_none());
+
+        // Both: segment AND event keys present.
+        let both = generate_pipeline(1, "rtsp://c", &[], &cfg, StoreMode::Both, Path::new("/e"));
+        let store = &both["plugins"][0]["children"][0]["children"][0]["cfg"];
+        assert_eq!(store["mode"], "both");
+        assert_eq!(store["max_secs"], 300);
+        assert_eq!(store["post_roll_sec"], 10);
     }
 
     #[test]
@@ -256,7 +370,14 @@ mod tests {
             mqtt_url: Some("mqtt://localhost:1883".to_string()),
             ..PipelineConfig::default()
         };
-        let p = generate_pipeline(1, "rtsp://cam/stream", &[], &cfg, Path::new("/events"));
+        let p = generate_pipeline(
+            1,
+            "rtsp://cam/stream",
+            &[],
+            &cfg,
+            StoreMode::Continuous,
+            Path::new("/events"),
+        );
         let detect = &p["plugins"][0]["children"][0];
         let children = detect["children"].as_array().unwrap();
         assert_eq!(children.len(), 2);

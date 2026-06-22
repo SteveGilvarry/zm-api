@@ -62,31 +62,67 @@ zm-core --monitor-id <N> --pipeline <dir>/monitor_<N>.json --socket <socks>/stre
 * Supervision/backoff/watchdog/reconcile are the shared `ManagedProcess` paths.
 * Flipping the flag tears the other daemon down on the next `start_monitor`.
 
+## Recorder pipeline (merged `store` plugin)
+
+zm-next folded `store_filesystem` + `store_event` into one `store` plugin with a
+`mode`. The generator emits a single `store` stage and maps the monitor's
+ZoneMinder function to the mode:
+
+| ZM function | `store.mode` |
+|-------------|--------------|
+| `Record` | `continuous` |
+| `Mocord` | `both` |
+| `Modect`, `Nodect` | `event` |
+| `Monitor`/`None` | `continuous` (default) |
+
+`continuous`/`both` emit `max_secs`; `event`/`both` emit `pre_roll_sec`,
+`post_roll_sec`, `max_buffer_sec`, `trigger_types` (all tunable in
+`[zmnext.pipeline]`). Every segment (continuous) and every clip (event) is one
+ZM event and runs the handshake below.
+
+> **Same-filesystem requirement:** the `store` `root` and the `dir` zm-api hands
+> back in `assign_recording` must be on the **same mount** — the worker renames
+> the in-progress file into `dir` with an open fd, and a cross-fs target fails
+> (the clip then keeps the worker's own name). The generator points `store.root`
+> at the monitor's storage path, which is also what zm-api derives `dir` from, so
+> they align by construction as long as the storage tree is one filesystem.
+
 ## Event-id assignment handshake (correlation + clip path)
 
-The event id is owned by zm-api end to end and handed to `store_event` at
+The event id is owned by zm-api end to end and handed to the `store` plugin at
 clip-open, so clips land natively in ZoneMinder's tree — no schema change, no
-file relocation. The contract `store_event` (zm-next) must implement:
+file relocation. The contract zm-next must implement:
 
-1. **Open** — when `store_event` begins a segment it emits an EVENT (0x06), code
-   **`0x0304 recording_opening`** on the Monitor stream, with `wall_clock_us` =
-   start and `json_detail`:
+1. **Open** — when the `store` plugin begins a segment it emits an EVENT (0x06),
+   code **`0x0304 recording_opening`** on the Monitor stream, with
+   `wall_clock_us` = start and `json_detail`:
    ```json
-   { "clip_token": "<opaque store_event handle>", "trigger": "detection" }
+   { "event": "RecordingOpening", "clip_token": "<opaque handle>", "trigger": "continuous" }
    ```
-2. **Assign** — zm-api allocates (or adopts) the `Events` row, computes the
-   Medium-scheme location `{Storage.Path}/{monitor}/{YYYY-MM-DD}/{event_id}` +
-   `{event_id}-video.mp4`, sets `Scheme=Medium`/`DefaultVideo`, and replies with
-   a **`0x11 Command`** (JSON) on the same connection:
+   `trigger` is `"continuous"` for a continuous segment, else the trigger type
+   (`"detection"`, `"motion"`, `"audio_event"`, `"tracked_detection"`, …); zm-api
+   maps it to the event `Cause`.
+2. **Assign** — zm-api allocates (or adopts) the `Events` row, sets `Cause` from
+   `trigger`, computes the Medium-scheme location
+   `{Storage.Path}/{monitor}/{YYYY-MM-DD}/{event_id}` + `{event_id}-video.mp4`,
+   sets `Scheme=Medium`/`DefaultVideo`, and replies (fire-and-forget) with a
+   **`0x11 Command`** (JSON) on the same connection:
    ```json
-   { "cmd": "assign_recording", "clip_token": "<echoed>",
+   { "cmd": "assign_recording", "clip_token": "<echoed verbatim>",
      "event_id": 512, "dir": ".../3/2026-06-22/512", "video_name": "512-video.mp4" }
    ```
-   `store_event` **stages then renames**: record to a temp file immediately, then
+   The worker **stages then renames**: record to a temp file immediately, then
    move to `dir/video_name` once the assignment arrives (before emitting
    `recording_saved`) — never blocks capture, tolerates reply latency.
-3. **Save** — on close, `recording_saved` (0x0303) echoes **`"event_id": 512`**
-   in its `json_detail` so zm-api finalizes the exact row (duration, end time).
+3. **Save** — on close, `recording_saved` (0x0303) `json_detail`:
+   ```json
+   { "event": "EventClip", "event_id": 512, "path": "<final path>",
+     "cause": "<cause>", "duration": 12.5, "frames": 300 }
+   ```
+   `duration` is **seconds**. zm-api finalizes the row by `event_id` (end time,
+   frames, duration, stored video name). `event_id` is `0` (or absent) if the
+   clip closed before the assignment arrived — zm-api then falls back to the open
+   session, or creates a row from the clip.
 
 ZoneMinder's playback then derives the same path; the clip is fully native.
 One event is open per monitor at a time; `detection`/`description` decorate the
@@ -101,9 +137,10 @@ which then adopts it).
   automatically once the column exists. **Do not** add `UseZmNext` to the
   `monitors` SeaORM entity — that widens the base `SELECT` and breaks every
   monitor query on pre-migration databases.
-* **`store_event` handshake (above)** — emit `recording_opening`, consume
-  `assign_recording` (stage-then-rename), and echo `event_id` in
-  `recording_saved`. This is the one zm-next change the integration requires.
+* **`store` plugin handshake (above)** — emit `recording_opening`, consume
+  `assign_recording` (stage-then-rename, same-filesystem `dir`), and echo
+  `event_id` in `recording_saved`. This is the one zm-next change the
+  integration requires.
 
 ## Per-camera migration (Task 6)
 

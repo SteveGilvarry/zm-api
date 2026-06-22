@@ -247,10 +247,13 @@ impl EventIngestor {
             .and_then(|j| RecordingOpeningDetail::parse(j).ok())
             .unwrap_or_default();
         let when = event_time(ev);
+        let cause = cause_from_trigger(detail.trigger.as_deref());
 
         // Adopt an event already opened by an earlier detection, else create
         // one now. Either way the id is what store_event will name the clip.
-        let event_id = self.ensure_open_event(monitor_id, when, None).await?;
+        let event_id = self
+            .ensure_open_event(monitor_id, when, Some(cause.clone()))
+            .await?;
         let start = self.open.get(&monitor_id).map(|o| o.start).unwrap_or(when);
         let dims = self.monitor_dims(monitor_id).await?;
 
@@ -262,9 +265,12 @@ impl EventIngestor {
             return Ok(());
         };
 
-        // Record the Medium-scheme video name so playback derives the same path.
+        // Record the Medium-scheme video name + the cause so playback derives
+        // the same path (Cause is set here even when the row was opened by an
+        // earlier detection, so it reflects the recording trigger).
         events::ActiveModel {
             id: Set(event_id),
+            cause: Set(Some(cause)),
             scheme: Set(Scheme::Medium),
             default_video: Set(video_name.clone()),
             ..Default::default()
@@ -303,15 +309,19 @@ impl EventIngestor {
             .unwrap_or_default();
         let end = event_time(ev);
 
-        // Prefer the echoed event id from the handshake; fall back to the open
-        // session, or index a standalone clip if neither is available (e.g.
-        // zm-api restarted mid-event).
+        // Prefer the echoed event id from the handshake (treating 0/absent as
+        // "no assignment"); fall back to the open session, or index a standalone
+        // clip if neither is available (clip closed before assign / zm-api
+        // restarted mid-event).
         let event_id = match detail
-            .event_id
+            .assigned_event_id()
             .or_else(|| self.open.get(&monitor_id).map(|o| o.event_id))
         {
             Some(id) => id,
-            None => self.ensure_open_event(monitor_id, end, None).await?,
+            None => {
+                let cause = detail.cause.clone().map(|c| cause_from_trigger(Some(&c)));
+                self.ensure_open_event(monitor_id, end, cause).await?
+            }
         };
 
         let mut model = events::ActiveModel {
@@ -461,6 +471,26 @@ fn decimal_seconds(seconds: f64) -> Decimal {
     Decimal::from_f64_retain(seconds.max(0.0)).unwrap_or(Decimal::ZERO)
 }
 
+/// Map a `recording_opening` trigger to a ZoneMinder `Cause` string:
+/// "continuous" → "Continuous", motion/detection triggers to their familiar ZM
+/// causes, anything else passed through (capitalized). Absent → "Event".
+fn cause_from_trigger(trigger: Option<&str>) -> String {
+    match trigger.map(str::trim).unwrap_or("") {
+        "" => "Event".to_string(),
+        "continuous" => "Continuous".to_string(),
+        "motion" => "Motion".to_string(),
+        "detection" | "tracked_detection" => "Detection".to_string(),
+        "audio_event" => "Audio".to_string(),
+        other => {
+            let mut c = other.chars();
+            match c.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + c.as_str(),
+                None => "Event".to_string(),
+            }
+        }
+    }
+}
+
 fn non_empty(s: String) -> Option<String> {
     if s.trim().is_empty() {
         None
@@ -506,6 +536,19 @@ mod tests {
     fn non_empty_filters_blank() {
         assert_eq!(non_empty("  ".to_string()), None);
         assert_eq!(non_empty("x".to_string()), Some("x".to_string()));
+    }
+
+    #[test]
+    fn cause_from_trigger_maps_known_and_unknown() {
+        assert_eq!(cause_from_trigger(Some("continuous")), "Continuous");
+        assert_eq!(cause_from_trigger(Some("motion")), "Motion");
+        assert_eq!(cause_from_trigger(Some("detection")), "Detection");
+        assert_eq!(cause_from_trigger(Some("tracked_detection")), "Detection");
+        assert_eq!(cause_from_trigger(Some("audio_event")), "Audio");
+        // Unknown trigger is passed through, capitalized.
+        assert_eq!(cause_from_trigger(Some("linecross")), "Linecross");
+        assert_eq!(cause_from_trigger(None), "Event");
+        assert_eq!(cause_from_trigger(Some("  ")), "Event");
     }
 
     #[test]

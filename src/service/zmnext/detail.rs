@@ -6,7 +6,8 @@
 //!
 //! * `0x0301 detection`   → [`DetectionDetail`]   (object list + source frame)
 //! * `0x0302 description` → [`DescriptionDetail`] (the raw `describe_vlm` event)
-//! * `0x0303 recording_saved` → [`RecordingSavedDetail`] (the `store_event`
+//! * `0x0304 recording_opening` → [`RecordingOpeningDetail`] (id-assignment request)
+//! * `0x0303 recording_saved` → [`RecordingSavedDetail`] (the `store` plugin's
 //!   `EventClip` document)
 //!
 //! Every field is optional / defaulted: zm-next is free to add keys (the wire
@@ -95,9 +96,11 @@ impl DescriptionDetail {
     }
 }
 
-/// `recording_opening` (0x0304) `json_detail` — emitted when `store_event`
+/// `recording_opening` (0x0304) `json_detail` — emitted when the `store` plugin
 /// begins a segment and needs an event id + target path assigned. `clip_token`
-/// is store_event's opaque correlation handle, echoed back in the reply.
+/// is its opaque correlation handle, echoed back in the reply. `trigger` is
+/// `"continuous"` for a continuous segment, else the trigger type
+/// (`"detection"`, `"motion"`, `"audio_event"`, `"tracked_detection"`, …).
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct RecordingOpeningDetail {
     #[serde(default)]
@@ -112,20 +115,24 @@ impl RecordingOpeningDetail {
     }
 }
 
-/// `recording_saved` (0x0303) `json_detail` — the `store_event` `EventClip`.
+/// `recording_saved` (0x0303) `json_detail` — the `store` plugin's `EventClip`.
 ///
-/// Only the fields zm-api indexes are modelled; `store_event` may emit more
+/// Only the fields zm-api indexes are modelled; the worker may emit more
 /// (kept forward-compatible by ignoring unknown keys).
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct RecordingSavedDetail {
-    /// Absolute path of the written `.mp4` clip.
+    /// Absolute path of the written `.mp4` clip (the assigned target if the
+    /// rename succeeded, else the worker's own-naming path).
     #[serde(default)]
     pub path: String,
     /// The event id zm-api assigned at `recording_opening`, echoed back so the
-    /// exact row is finalized. `None` only for clips written without the
-    /// handshake (legacy / pre-assignment).
+    /// exact row is finalized. `0` (or absent) means the clip closed before the
+    /// assignment arrived — see [`Self::assigned_event_id`].
     #[serde(default)]
     pub event_id: Option<u64>,
+    /// Cause string the worker recorded the clip under.
+    #[serde(default)]
+    pub cause: Option<String>,
     /// Clip duration in seconds.
     #[serde(default)]
     pub duration: Option<f64>,
@@ -142,6 +149,12 @@ pub struct RecordingSavedDetail {
 impl RecordingSavedDetail {
     pub fn parse(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
+    }
+
+    /// The assigned event id, treating `0`/absent as "not assigned" (the clip
+    /// closed before zm-api's `assign_recording` reached the worker).
+    pub fn assigned_event_id(&self) -> Option<u64> {
+        self.event_id.filter(|&id| id != 0)
     }
 
     /// The clip's file name (what ZoneMinder stores in `Events.DefaultVideo`),

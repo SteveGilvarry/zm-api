@@ -52,6 +52,15 @@ pub struct PipelineConfig {
     pub rtsp_transport: String,
     /// Optional MQTT broker URL; when set, an `output_mqtt` stage is appended.
     pub mqtt_url: Option<String>,
+    /// Continuous-segment rotation length, seconds (`store` `max_secs`).
+    pub segment_max_secs: u64,
+    /// Event-clip pre/post-roll, seconds (`store` `pre_roll_sec`/`post_roll_sec`).
+    pub pre_roll_sec: u64,
+    pub post_roll_sec: u64,
+    /// Event-clip ring-buffer bound, seconds (`store` `max_buffer_sec`).
+    pub max_buffer_sec: u64,
+    /// Trigger types the event recorder records on (`store` `trigger_types`).
+    pub trigger_types: Vec<String>,
 }
 
 /// How decoded EVENTs are mapped onto Events/Frames rows.
@@ -89,6 +98,16 @@ impl Default for PipelineConfig {
             detect_conf_threshold: 0.35,
             rtsp_transport: "tcp".to_string(),
             mqtt_url: None,
+            segment_max_secs: 300,
+            pre_roll_sec: 5,
+            post_roll_sec: 10,
+            max_buffer_sec: 15,
+            trigger_types: vec![
+                "detection".to_string(),
+                "motion".to_string(),
+                "audio_event".to_string(),
+                "tracked_detection".to_string(),
+            ],
         }
     }
 }

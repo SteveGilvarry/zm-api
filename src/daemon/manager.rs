@@ -1754,12 +1754,14 @@ impl DaemonManager {
         let zone_specs = pipeline::zone_specs_from_models(&zones);
         let events_root = self.zmnext_events_root(monitor).await;
         let source_url = monitor.path.clone().unwrap_or_default();
+        let mode = pipeline::StoreMode::from_function(&monitor.function);
 
         let value = pipeline::generate_pipeline(
             monitor_id,
             &source_url,
             &zone_specs,
             &rt.config.pipeline,
+            mode,
             &events_root,
         );
         pipeline::write_pipeline_file(&rt.config.pipeline.dir, monitor_id, &value).map_err(|e| {
@@ -1769,7 +1771,7 @@ impl DaemonManager {
         })
     }
 
-    /// Resolve the directory the worker's `store_event` stage writes clips to:
+    /// Resolve the directory the worker's `store` plugin writes clips to:
     /// the monitor's storage path, else the default (lowest-id) storage, else a
     /// conventional fallback.
     async fn zmnext_events_root(&self, monitor: &monitors::Model) -> PathBuf {
