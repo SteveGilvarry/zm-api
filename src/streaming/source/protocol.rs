@@ -40,6 +40,9 @@ pub enum MessageType {
     Keyframe,
     Stats,
     Bye,
+    /// Monitor lifecycle / analysis event (see [`MonitorEvent`]). Carried on
+    /// [`StreamId::Monitor`]; payload is a u16 code plus a TLV tail.
+    Event,
 }
 
 impl MessageType {
@@ -50,6 +53,10 @@ impl MessageType {
             0x03 => Some(MessageType::Keyframe),
             0x04 => Some(MessageType::Stats),
             0x05 => Some(MessageType::Bye),
+            0x06 => Some(MessageType::Event),
+            // 0x10..=0x13 are the optional client→server control extension
+            // (Subscribe/Command/Response/Talkback); canonical consumers never
+            // send them and skip them on the wire like any other unknown type.
             _ => None,
         }
     }
@@ -59,6 +66,8 @@ impl MessageType {
 pub enum StreamId {
     Video,
     Audio,
+    /// Neither video nor audio: monitor lifecycle / analysis EVENT frames.
+    Monitor,
 }
 
 impl StreamId {
@@ -66,6 +75,7 @@ impl StreamId {
         match v {
             0 => Some(StreamId::Video),
             1 => Some(StreamId::Audio),
+            2 => Some(StreamId::Monitor),
             _ => None,
         }
     }
@@ -86,6 +96,40 @@ const TLV_CHANNELS: u8 = 0x08; // u32
 const TLV_PROFILE: u8 = 0x09; // u32
 const TLV_LEVEL: u8 = 0x0A; // u32
 
+// EVENT codes. Lifecycle codes are canonical (also emitted by stock zmc on the
+// `feature/stream-socket-events` branch); the 0x03xx range is zm-next's
+// additive analysis/AI extension. Unknown codes are surfaced verbatim, never
+// errored.
+pub const EVENT_SNAPSHOT: u16 = 0x0001; // current health+state, replayed on connect
+pub const EVENT_CONNECTION_FAILED: u16 = 0x0101;
+pub const EVENT_CONNECTION_RESTORED: u16 = 0x0102;
+pub const EVENT_PRIME_CAPTURE_FAILED: u16 = 0x0103;
+pub const EVENT_PRIME_CAPTURE_RESTORED: u16 = 0x0104;
+pub const EVENT_CAPTURE_FAILED: u16 = 0x0105;
+pub const EVENT_CAPTURE_RESUMED: u16 = 0x0106;
+pub const EVENT_STATE_CHANGED: u16 = 0x0201;
+// zm-next analysis/AI extension codes (reserved 0x03xx range):
+pub const EVENT_DETECTION: u16 = 0x0301; // motion / object detection
+pub const EVENT_DESCRIPTION: u16 = 0x0302; // VLM scene description
+pub const EVENT_RECORDING_SAVED: u16 = 0x0303; // a clip was written to storage
+pub const EVENT_RECORDING_OPENING: u16 = 0x0304; // a clip segment opened; awaits an event-id assignment
+
+/// Client→server control message type for the id-assignment handshake (the
+/// `0x11 Command` of zm-next's control extension). zm-api is the client; the
+/// canonical media producer (zmc) ignores inbound bytes, while zm-next's worker
+/// consumes this to learn the event id + target path for a recording segment.
+pub const MSG_TYPE_COMMAND: u8 = 0x11;
+
+// EVENT TLV tags
+const TLV_WALL_CLOCK_US: u8 = 0x01; // u64, unix-epoch microseconds
+const TLV_MESSAGE: u8 = 0x02; // utf8, human-readable detail
+const TLV_STATE_ID: u8 = 0x03; // u32, current monitor state
+const TLV_PREV_STATE_ID: u8 = 0x04; // u32, previous state (state_changed)
+const TLV_DETAIL: u8 = 0x05; // u32, errno / ffmpeg error code
+const TLV_STATE_NAME: u8 = 0x06; // utf8, "Idle"/"Alarm"/...
+const TLV_HEALTH_CODE: u8 = 0x07; // u16, active fault code in a snapshot (0 = healthy)
+const TLV_JSON_DETAIL: u8 = 0x10; // utf8 JSON, zm-next structured analysis/AI detail
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ProtocolError {
     #[error("unsupported stream socket protocol version {0}")]
@@ -102,6 +146,9 @@ pub enum ProtocolError {
 
     #[error("payload too short for {0} message")]
     ShortPayload(&'static str),
+
+    #[error("truncated TLV in EVENT payload")]
+    TruncatedEventTlv,
 }
 
 /// A parsed message header. `msg_type` and `stream` are kept raw so unknown
@@ -214,6 +261,102 @@ pub fn parse_hello(data: &[u8]) -> Result<HelloInfo, ProtocolError> {
     Ok(info)
 }
 
+/// Decoded EVENT payload. A field is `Some`/non-empty only when its TLV tag
+/// was present on the wire; producers omit tags that do not apply to the code.
+/// `code` is always present (it is the fixed u16 prefix).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MonitorEvent {
+    /// One of the `EVENT_*` codes. Unknown codes are surfaced, not errored —
+    /// consumers map what they understand and ignore the rest.
+    pub code: u16,
+    /// Unix-epoch microseconds — the timestamp to surface for this event.
+    pub wall_clock_us: Option<u64>,
+    /// Human-readable detail.
+    pub message: Option<String>,
+    /// Current monitor state id.
+    pub state_id: Option<u32>,
+    /// Previous monitor state id (state_changed).
+    pub prev_state_id: Option<u32>,
+    /// errno / ffmpeg error code accompanying a fault.
+    pub detail: Option<u32>,
+    /// Current state name ("Idle"/"Alarm"/...).
+    pub state_name: Option<String>,
+    /// Active fault code in a snapshot (0 = healthy).
+    pub health_code: Option<u16>,
+    /// zm-next extension: structured analysis/AI detail as a UTF-8 JSON
+    /// document (detection object list, description text, recording metadata).
+    pub json_detail: Option<String>,
+}
+
+/// Parse an EVENT payload: a u16 `code` followed by a TLV tail of
+/// (u8 tag, u16 length, value). Unknown tags are skipped per the protocol
+/// spec, exactly like HELLO. Fails only when the fixed code or a TLV header
+/// runs past the end of the payload.
+pub fn parse_event(data: &[u8]) -> Result<MonitorEvent, ProtocolError> {
+    if data.len() < 2 {
+        return Err(ProtocolError::ShortPayload("EVENT"));
+    }
+    let mut ev = MonitorEvent {
+        code: u16::from_le_bytes([data[0], data[1]]),
+        ..MonitorEvent::default()
+    };
+
+    let mut i = 2usize;
+    while i < data.len() {
+        if i + 3 > data.len() {
+            return Err(ProtocolError::TruncatedEventTlv);
+        }
+        let tag = data[i];
+        let len = u16::from_le_bytes([data[i + 1], data[i + 2]]) as usize;
+        i += 3;
+        if i + len > data.len() {
+            return Err(ProtocolError::TruncatedEventTlv);
+        }
+        let value = &data[i..i + len];
+        i += len;
+
+        match tag {
+            TLV_WALL_CLOCK_US if len == 8 => {
+                ev.wall_clock_us = Some(read_u64(value, 0));
+            }
+            TLV_MESSAGE => ev.message = Some(String::from_utf8_lossy(value).into_owned()),
+            TLV_STATE_ID if len == 4 => ev.state_id = Some(read_u32(value, 0)),
+            TLV_PREV_STATE_ID if len == 4 => ev.prev_state_id = Some(read_u32(value, 0)),
+            TLV_DETAIL if len == 4 => ev.detail = Some(read_u32(value, 0)),
+            TLV_STATE_NAME => ev.state_name = Some(String::from_utf8_lossy(value).into_owned()),
+            TLV_HEALTH_CODE if len == 2 => {
+                ev.health_code = Some(u16::from_le_bytes([value[0], value[1]]));
+            }
+            TLV_JSON_DETAIL => ev.json_detail = Some(String::from_utf8_lossy(value).into_owned()),
+            // Unknown tag, or a known tag with an unexpected length: skip.
+            _ => {}
+        }
+    }
+    Ok(ev)
+}
+
+fn read_u64(buf: &[u8], at: usize) -> u64 {
+    u64::from_le_bytes(buf[at..at + 8].try_into().expect("8 bytes"))
+}
+
+/// Serialize a client→server control message (header + raw payload) for
+/// sending back up the stream socket. Control messages ride the Monitor stream
+/// with their own sequence counter; `generation` and `pts` are unused (0).
+/// Used for the `0x11 Command` id-assignment reply, whose payload is UTF-8 JSON.
+pub fn build_control_message(msg_type: u8, sequence: u32, payload: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(HEADER_SIZE + payload.len());
+    out.extend_from_slice(&(HEADER_LENGTH_BYTES + payload.len() as u32).to_le_bytes());
+    out.push(PROTOCOL_VERSION);
+    out.push(msg_type);
+    out.push(StreamId::Monitor as u8); // 2 — control rides the monitor stream
+    out.push(0); // flags
+    out.extend_from_slice(&sequence.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes()); // generation (unused)
+    out.extend_from_slice(&0u64.to_le_bytes()); // pts_us (unused)
+    out.extend_from_slice(payload);
+    out
+}
+
 /// Parse a STATS payload: u64 messages sent, u64 messages dropped for this
 /// consumer.
 pub fn parse_stats(data: &[u8]) -> Result<(u64, u64), ProtocolError> {
@@ -286,6 +429,21 @@ pub(crate) mod test_encode {
 
     pub fn tlv_u32(tag: u8, value: u32) -> Vec<u8> {
         tlv(tag, &value.to_le_bytes())
+    }
+
+    pub fn tlv_u64(tag: u8, value: u64) -> Vec<u8> {
+        tlv(tag, &value.to_le_bytes())
+    }
+
+    pub fn tlv_u16(tag: u8, value: u16) -> Vec<u8> {
+        tlv(tag, &value.to_le_bytes())
+    }
+
+    /// Build an EVENT payload: the u16 code followed by a pre-built TLV tail.
+    pub fn event_payload(code: u16, tlv_tail: &[u8]) -> Vec<u8> {
+        let mut p = code.to_le_bytes().to_vec();
+        p.extend_from_slice(tlv_tail);
+        p
     }
 
     /// Build a HELLO payload with a codec id and optional extradata.
@@ -372,9 +530,14 @@ mod tests {
         assert_eq!(MessageType::from_u8(0x03), Some(MessageType::Keyframe));
         assert_eq!(MessageType::from_u8(0x04), Some(MessageType::Stats));
         assert_eq!(MessageType::from_u8(0x05), Some(MessageType::Bye));
+        assert_eq!(MessageType::from_u8(0x06), Some(MessageType::Event));
         assert_eq!(MessageType::from_u8(0x77), None);
+        // The client→server control extension is "unknown" to canonical
+        // consumers and must skip, not resolve.
+        assert_eq!(MessageType::from_u8(0x10), None);
         assert_eq!(StreamId::from_u8(1), Some(StreamId::Audio));
-        assert_eq!(StreamId::from_u8(2), None);
+        assert_eq!(StreamId::from_u8(2), Some(StreamId::Monitor));
+        assert_eq!(StreamId::from_u8(3), None);
     }
 
     #[test]
@@ -431,6 +594,90 @@ mod tests {
         );
         // Empty payload.
         assert_eq!(parse_hello(&[]), Err(ProtocolError::MissingCodecId));
+    }
+
+    #[test]
+    fn event_parses_lifecycle_state_change() {
+        // state_changed: wall clock + state ids + names.
+        let mut tail = tlv_u64(0x01, 1_700_000_000_000_000);
+        tail.extend_from_slice(&tlv_u32(0x03, 2));
+        tail.extend_from_slice(&tlv_u32(0x04, 1));
+        tail.extend_from_slice(&tlv(0x06, b"Alarm"));
+        tail.extend_from_slice(&tlv(0x02, b"motion in zone 1"));
+        let payload = event_payload(EVENT_STATE_CHANGED, &tail);
+
+        let ev = parse_event(&payload).unwrap();
+        assert_eq!(ev.code, EVENT_STATE_CHANGED);
+        assert_eq!(ev.wall_clock_us, Some(1_700_000_000_000_000));
+        assert_eq!(ev.state_id, Some(2));
+        assert_eq!(ev.prev_state_id, Some(1));
+        assert_eq!(ev.state_name.as_deref(), Some("Alarm"));
+        assert_eq!(ev.message.as_deref(), Some("motion in zone 1"));
+        assert_eq!(ev.health_code, None);
+        assert_eq!(ev.json_detail, None);
+    }
+
+    #[test]
+    fn event_parses_zmnext_detection_json() {
+        let json = r#"{"objects":[{"label":"person","confidence":0.91}],"frame_pts_us":42}"#;
+        let mut tail = tlv_u64(0x01, 1_700_000_000_000_000);
+        tail.extend_from_slice(&tlv(0x10, json.as_bytes()));
+        let payload = event_payload(EVENT_DETECTION, &tail);
+
+        let ev = parse_event(&payload).unwrap();
+        assert_eq!(ev.code, EVENT_DETECTION);
+        assert_eq!(ev.json_detail.as_deref(), Some(json));
+        assert_eq!(ev.wall_clock_us, Some(1_700_000_000_000_000));
+    }
+
+    #[test]
+    fn event_parses_snapshot_health_code() {
+        let tail = tlv_u16(0x07, 0x0105); // capture_failed health code, healthy=0
+        let payload = event_payload(EVENT_SNAPSHOT, &tail);
+        let ev = parse_event(&payload).unwrap();
+        assert_eq!(ev.code, EVENT_SNAPSHOT);
+        assert_eq!(ev.health_code, Some(0x0105));
+    }
+
+    #[test]
+    fn event_skips_unknown_tags_and_surfaces_unknown_codes() {
+        // An unknown code (future lifecycle event) with an unknown tag mixed
+        // in among known ones — both must be tolerated.
+        let mut tail = tlv(0x7F, &[1, 2, 3]); // unknown tag
+        tail.extend_from_slice(&tlv(0x02, b"hi"));
+        let payload = event_payload(0x09FF, &tail); // unknown code
+        let ev = parse_event(&payload).unwrap();
+        assert_eq!(ev.code, 0x09FF);
+        assert_eq!(ev.message.as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn event_rejects_short_code_and_truncated_tlv() {
+        // Fewer than the 2 fixed code bytes.
+        assert_eq!(
+            parse_event(&[0x01]),
+            Err(ProtocolError::ShortPayload("EVENT"))
+        );
+        // Code present, TLV header claims more value than remains.
+        let mut payload = 0x0301u16.to_le_bytes().to_vec();
+        payload.extend_from_slice(&[0x02, 0xFF, 0x00, 0xAA]); // claims 255 bytes
+        assert_eq!(parse_event(&payload), Err(ProtocolError::TruncatedEventTlv));
+        // Empty payload still has no code.
+        assert_eq!(parse_event(&[]), Err(ProtocolError::ShortPayload("EVENT")));
+    }
+
+    #[test]
+    fn control_message_round_trips_through_header() {
+        let json = br#"{"cmd":"assign_recording","event_id":512}"#;
+        let msg = build_control_message(MSG_TYPE_COMMAND, 3, json);
+        let header = parse_header(msg[..HEADER_SIZE].try_into().unwrap()).unwrap();
+        assert_eq!(header.msg_type, MSG_TYPE_COMMAND);
+        assert_eq!(header.stream, 2); // Monitor
+        assert_eq!(header.sequence, 3);
+        assert_eq!(header.payload_len, json.len());
+        assert_eq!(&msg[HEADER_SIZE..], json);
+        // The control type is not a media/parse type — consumers skip it.
+        assert_eq!(MessageType::from_u8(header.msg_type), None);
     }
 
     #[test]

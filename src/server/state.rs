@@ -81,9 +81,25 @@ impl AppState {
         // Initialize source router and live coordinator
         let (source_router, live_coordinator) = if config.streaming.enabled {
             tracing::info!("Live streaming enabled, initializing source router and coordinator");
-            let router = Arc::new(SourceRouter::from_zoneminder_config(
-                config.streaming.zoneminder.clone(),
-            ));
+            let mut router =
+                SourceRouter::from_zoneminder_config(config.streaming.zoneminder.clone());
+
+            // zm-next event ingest: the router forwards decoded monitor EVENTs
+            // to a bounded channel drained by a background ingest task that
+            // writes Events/Frames rows. Only wired when zm-next is enabled.
+            if config.zmnext.enabled {
+                let (event_tx, event_rx) =
+                    tokio::sync::mpsc::channel(config.zmnext.ingest.channel_capacity);
+                router.set_event_sink(event_tx);
+                let ingestor = crate::service::zmnext::EventIngestor::new(
+                    db.clone(),
+                    config.zmnext.ingest.clone(),
+                );
+                tokio::spawn(ingestor.run(event_rx));
+                tracing::info!("zm-next event ingest enabled");
+            }
+
+            let router = Arc::new(router);
             let coordinator = Arc::new(LiveStreamCoordinator::new(
                 Arc::clone(&router),
                 hls_session_manager.clone(),
@@ -108,11 +124,17 @@ impl AppState {
         // Initialize daemon manager if enabled
         let daemon_manager = if config.daemon.enabled {
             tracing::info!("Daemon controller enabled, initializing manager");
-            Some(Arc::new(DaemonManager::with_database(
+            let mut manager = DaemonManager::with_database(
                 config.daemon.clone(),
                 None, // Server ID can be set from DB config later
                 db.clone(),
-            )))
+            );
+            // Enable zm-next worker control (no-op unless [zmnext].enabled).
+            manager.set_zmnext(
+                config.zmnext.clone(),
+                config.streaming.zoneminder.socks_path.clone(),
+            );
+            Some(Arc::new(manager))
         } else {
             tracing::info!("Daemon controller disabled in configuration");
             None

@@ -61,6 +61,7 @@ APP_PROFILE=test-db cargo test --test '*' -- --include-ignored
 - **Review Fixes (2026-06)** – `docs/REVIEW_FIXES_PLAN.md` – Phased fixes from the full API review: password hashing, event-playback ACL, WebRTC startup latency (keyframe re-read, trickle ICE), HLS session lifecycle, daemon-ID unification, housekeeping.
 - **Live Audio** – `docs/AUDIO_TASKS.md` – Phases 1–3 implemented (HLS AAC mux, WebRTC G.711 pass-through + AAC→Opus); audio now arrives on the stream socket with shared-clock pts and HELLO extradata (the raw-AAC ASC-recovery stretch goal is obsolete — the socket reader ADTS-frames raw AAC from the HELLO ASC). Remaining: browser/camera verification and Phase 4 stretch (G.711→AAC for HLS, VOD audio).
 - **HEVC over WebRTC** – `docs/HEVC_WEBRTC_TASKS.md` – Phase 1 (server correctness: H.265 AU assembly, keyframe cache, RFC 7798 fmtp) implemented. Remaining: Safari verification, mobile apps; HLS remains the fallback.
+- **zm-next Worker Integration** – `docs/ZMNEXT_TASKS.md` – Drive + ingest the per-monitor `zm-core` worker over the stream socket: EVENT (0x06) parsing, Events/Frames ingest, daemon spawn/supervision, pipeline-JSON generation, per-monitor `UseZmNext` flag. Off by default; reversible per camera. Open items: the `Monitors.UseZmNext` column (ZoneMinder fork migration) and the clip storage-path contract.
 
 ## Fast Commands
 
