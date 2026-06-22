@@ -12,8 +12,11 @@ pub use media::{
 // Re-export stream-socket reader types
 pub use stream_socket::{stream_socket_path, SocketEvent, SourceError, StreamSocketReader};
 
+// Re-export the monitor EVENT type for DB ingest consumers.
+pub use protocol::MonitorEvent;
+
 // Re-export router types
 pub use router::{
-    CachedKeyframe, MonitorSource, ReaderHealth, RouterConfig, RouterError, SourceRouter,
-    SourceStats, StreamInfo,
+    CachedKeyframe, MonitorEventEnvelope, MonitorSource, ReaderHealth, RouterConfig, RouterError,
+    SourceRouter, SourceStats, StreamInfo,
 };

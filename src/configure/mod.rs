@@ -8,7 +8,7 @@ use crate::util::dir::get_project_root;
 
 use self::{
     daemon::DaemonConfig, db::DatabaseConfig, http::HttpClientConfig, secret::SecretConfig,
-    sentry::SentryConfig, server::ServerConfig, streaming::StreamingConfig,
+    sentry::SentryConfig, server::ServerConfig, streaming::StreamingConfig, zmnext::ZmNextConfig,
 };
 
 pub mod daemon;
@@ -21,6 +21,7 @@ pub mod server;
 pub mod streaming;
 pub mod tracing;
 pub mod zmconf;
+pub mod zmnext;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
@@ -33,6 +34,10 @@ pub struct AppConfig {
     pub streaming: StreamingConfig,
     #[serde(default)]
     pub daemon: DaemonConfig,
+    /// zm-next worker integration (spawn + pipeline + ingest). Defaults to a
+    /// disabled, zero-impact configuration when the `[zmnext]` block is absent.
+    #[serde(default)]
+    pub zmnext: ZmNextConfig,
 }
 
 impl AppConfig {

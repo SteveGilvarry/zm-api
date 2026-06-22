@@ -44,5 +44,6 @@ pub mod token;
 pub mod triggers_x10;
 pub mod user_preferences;
 pub mod users;
+pub mod zmnext;
 pub mod zone_presets;
 pub mod zones;

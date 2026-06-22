@@ -150,3 +150,32 @@ where
     let monitor = entity::monitors::Entity::find_by_id(id).one(conn).await?;
     Ok(monitor)
 }
+
+/// Read a monitor's `UseZmNext` flag.
+///
+/// Deliberately a standalone raw query rather than a column on the generated
+/// `monitors` entity: SeaORM selects every modelled column, so adding
+/// `UseZmNext` to the entity would break *every* monitor query against a DB
+/// whose schema lacks it. The ZoneMinder fork owns that migration and has not
+/// shipped it yet, so this query degrades to `false` (legacy capture) on a
+/// missing column, missing row, or any other DB error — and starts returning
+/// the real value automatically once the column exists.
+pub async fn use_zmnext<C>(conn: &C, monitor_id: u32) -> bool
+where
+    C: ConnectionTrait,
+{
+    use sea_orm::{DbBackend, Statement};
+
+    let stmt = Statement::from_sql_and_values(
+        DbBackend::MySql,
+        "SELECT `UseZmNext` AS use_zm_next FROM `Monitors` WHERE `Id` = ?",
+        [monitor_id.into()],
+    );
+    match conn.query_one(stmt).await {
+        Ok(Some(row)) => row
+            .try_get::<i8>("", "use_zm_next")
+            .map(|v| v != 0)
+            .unwrap_or(false),
+        _ => false,
+    }
+}

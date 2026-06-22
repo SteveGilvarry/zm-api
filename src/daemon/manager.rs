@@ -5,23 +5,37 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use std::path::PathBuf;
+
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    QueryOrder,
 };
 use tokio::process::Command;
 use tokio::sync::{mpsc, Notify, RwLock};
 use tracing::{debug, error, info, warn};
 
+use crate::configure::zmnext::ZmNextConfig;
 use crate::daemon::config::DaemonConfig;
 use crate::daemon::daemons::DaemonDefinition;
 use crate::daemon::ipc::{DaemonResponse, ProcessStatus, SystemStats, SystemStatus};
 use crate::daemon::process::{ManagedProcess, ProcessState};
 use crate::daemon::stats;
 use crate::entity::sea_orm_active_enums::{Capturing, Function, MonitorType, Status};
-use crate::entity::{filters, monitors, servers};
+use crate::entity::{filters, monitors, servers, storage, zones};
 use crate::error::AppResult;
+use crate::service::zmnext::pipeline;
+
+/// Runtime context the manager needs to drive zm-next workers: the validated
+/// config plus the stream-socket directory (from the streaming config) used to
+/// build each worker's `--socket` path.
+#[derive(Debug, Clone)]
+struct ZmNextRuntime {
+    config: ZmNextConfig,
+    socks_path: String,
+}
 
 /// Internal command for the daemon manager.
 #[derive(Debug)]
@@ -62,6 +76,9 @@ pub struct DaemonManager {
     running: Arc<RwLock<bool>>,
     /// Database connection for querying monitors
     db: Option<Arc<DatabaseConnection>>,
+    /// zm-next worker runtime; `None` (the default) means every monitor stays
+    /// on legacy zmc/zma regardless of any per-monitor flag.
+    zmnext: Option<Arc<ZmNextRuntime>>,
 }
 
 impl DaemonManager {
@@ -76,12 +93,23 @@ impl DaemonManager {
             server_id,
             running: Arc::new(RwLock::new(false)),
             db: None,
+            zmnext: None,
         }
     }
 
     /// Set the database connection for querying monitors.
     pub fn set_database(&mut self, db: Arc<DatabaseConnection>) {
         self.db = Some(db);
+    }
+
+    /// Enable zm-next worker control. Call before `startup()` when
+    /// `[zmnext].enabled` is set; `socks_path` is the streaming stream-socket
+    /// directory used to build each worker's `--socket` path. A disabled config
+    /// is ignored, keeping every monitor on legacy zmc/zma.
+    pub fn set_zmnext(&mut self, config: ZmNextConfig, socks_path: String) {
+        if config.enabled {
+            self.zmnext = Some(Arc::new(ZmNextRuntime { config, socks_path }));
+        }
     }
 
     /// Create a new daemon manager with database connection.
@@ -99,6 +127,7 @@ impl DaemonManager {
             server_id,
             running: Arc::new(RwLock::new(false)),
             db: Some(db),
+            zmnext: None,
         }
     }
 
@@ -483,6 +512,31 @@ impl DaemonManager {
 
     /// Send SIGHUP to reload daemon configuration.
     pub async fn reload_daemon(&self, id: &str) -> AppResult<DaemonResponse> {
+        // zm-next has no live config reload: "reload" means regenerate the
+        // pipeline JSON from the current DB rows and restart the worker so it
+        // re-reads the file. SIGHUP would be a no-op for it.
+        if let Some(monitor_id) = zmnext_monitor_id_from_id(id) {
+            let Some(rt) = self.zmnext.clone() else {
+                return Ok(DaemonResponse::error("zm-next is not configured"));
+            };
+            let monitor = match &self.db {
+                Some(db) => {
+                    monitors::Entity::find_by_id(monitor_id)
+                        .one(db.as_ref())
+                        .await?
+                }
+                None => None,
+            };
+            let Some(monitor) = monitor else {
+                return Ok(DaemonResponse::error(format!(
+                    "Monitor {monitor_id} not found for zm-next reload"
+                )));
+            };
+            self.write_zmnext_pipeline(&monitor, &rt).await?;
+            info!("Regenerated zm-next pipeline for monitor {monitor_id}, restarting worker");
+            return self.restart_daemon(id, &[]).await;
+        }
+
         let processes = self.processes.read().await;
 
         let process = match processes.get(id) {
@@ -809,6 +863,37 @@ impl DaemonManager {
             let monitor_id = monitor.id;
             let function = &monitor.function;
             let monitor_type = &monitor.r#type;
+
+            // zm-next monitors run a single self-contained worker (capture +
+            // analysis + record) instead of zmc/zma/zmcontrol. PTZ for these is
+            // handled out-of-band via zm-api's ONVIF client, not a daemon.
+            if self.use_zmnext(monitor_id).await {
+                match self.start_zmnext_worker(monitor).await {
+                    Ok(resp) if resp.success => {
+                        started += 1;
+                        info!("Started zm-next worker for monitor {}", monitor_id);
+                    }
+                    Ok(resp) => {
+                        if !resp.message.contains("already running") {
+                            failed += 1;
+                            errors.push(format!("zm-core[{}]: {}", monitor_id, resp.message));
+                            warn!(
+                                "Failed to start zm-next worker for monitor {}: {}",
+                                monitor_id, resp.message
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        failed += 1;
+                        errors.push(format!("zm-core[{}]: {}", monitor_id, e));
+                        error!(
+                            "Error starting zm-next worker for monitor {}: {}",
+                            monitor_id, e
+                        );
+                    }
+                }
+                continue;
+            }
 
             // Determine if we need analysis daemon (motion detection)
             let needs_analysis = matches!(function, Function::Modect | Function::Mocord);
@@ -1607,6 +1692,114 @@ impl DaemonManager {
         format!("zmc -m {}", monitor_id)
     }
 
+    /// Whether this monitor should run on a zm-next worker instead of legacy
+    /// zmc/zma: requires zm-next to be enabled in config AND the per-monitor
+    /// `UseZmNext` flag to be set. The flag read is isolated so the column's
+    /// absence (the ZoneMinder fork has not added it yet) degrades to `false`.
+    async fn use_zmnext(&self, monitor_id: u32) -> bool {
+        if self.zmnext.is_none() {
+            return false;
+        }
+        match &self.db {
+            Some(db) => crate::repo::monitors::use_zmnext(db.as_ref(), monitor_id).await,
+            None => false,
+        }
+    }
+
+    /// Generate the monitor's pipeline JSON and (re)start its `zm-core` worker.
+    /// The worker is keyed by the stable id `zm-core --monitor-id N`; the
+    /// generated `--pipeline`/`--socket` paths ride as extra args so stop and
+    /// restart can re-derive the id without recomputing them.
+    async fn start_zmnext_worker(&self, monitor: &monitors::Model) -> AppResult<DaemonResponse> {
+        let Some(rt) = self.zmnext.clone() else {
+            return Ok(DaemonResponse::error("zm-next is not configured"));
+        };
+        let monitor_id = monitor.id;
+
+        let pipeline_path = self.write_zmnext_pipeline(monitor, &rt).await?;
+        let socket_path = format!(
+            "{}/stream_{}.sock",
+            rt.socks_path.trim_end_matches('/'),
+            monitor_id
+        );
+        let id = zmnext_daemon_id(monitor_id);
+        let extra = vec![
+            "--pipeline".to_string(),
+            pipeline_path.to_string_lossy().into_owned(),
+            "--socket".to_string(),
+            socket_path,
+        ];
+        self.start_daemon(&id, &extra).await
+    }
+
+    /// (Re)generate the monitor's pipeline JSON from its current Monitors/Zones
+    /// rows and write it to the configured pipeline directory, returning the
+    /// file path. This is the unit of "reload" for zm-next — the worker has no
+    /// live config reload, so a restart re-reads the regenerated file.
+    async fn write_zmnext_pipeline(
+        &self,
+        monitor: &monitors::Model,
+        rt: &ZmNextRuntime,
+    ) -> AppResult<PathBuf> {
+        let monitor_id = monitor.id;
+        let zones = match &self.db {
+            Some(db) => {
+                zones::Entity::find()
+                    .filter(zones::Column::MonitorId.eq(monitor_id))
+                    .all(db.as_ref())
+                    .await?
+            }
+            None => Vec::new(),
+        };
+        let zone_specs = pipeline::zone_specs_from_models(&zones);
+        let events_root = self.zmnext_events_root(monitor).await;
+        let source_url = monitor.path.clone().unwrap_or_default();
+
+        let value = pipeline::generate_pipeline(
+            monitor_id,
+            &source_url,
+            &zone_specs,
+            &rt.config.pipeline,
+            &events_root,
+        );
+        pipeline::write_pipeline_file(&rt.config.pipeline.dir, monitor_id, &value).map_err(|e| {
+            crate::error::AppError::InternalServerError(format!(
+                "Failed to write zm-next pipeline for monitor {monitor_id}: {e}"
+            ))
+        })
+    }
+
+    /// Resolve the directory the worker's `store_event` stage writes clips to:
+    /// the monitor's storage path, else the default (lowest-id) storage, else a
+    /// conventional fallback.
+    async fn zmnext_events_root(&self, monitor: &monitors::Model) -> PathBuf {
+        if let Some(db) = &self.db {
+            let by_id = match monitor.storage_id {
+                Some(sid) if sid != 0 => storage::Entity::find_by_id(sid)
+                    .one(db.as_ref())
+                    .await
+                    .ok()
+                    .flatten(),
+                _ => None,
+            };
+            let resolved = match by_id {
+                Some(s) => Some(s),
+                None => storage::Entity::find()
+                    .order_by_asc(storage::Column::Id)
+                    .one(db.as_ref())
+                    .await
+                    .ok()
+                    .flatten(),
+            };
+            if let Some(s) = resolved {
+                if !s.path.is_empty() {
+                    return PathBuf::from(s.path);
+                }
+            }
+        }
+        PathBuf::from("/var/lib/zm/events")
+    }
+
     pub async fn start_monitor(&self, monitor_id: u32) -> AppResult<DaemonResponse> {
         let db = match &self.db {
             Some(db) => db.clone(),
@@ -1628,8 +1821,24 @@ impl DaemonManager {
                 })
             })?;
 
+        // zm-next monitors run a single worker instead of zmc/zma. Tear down
+        // any legacy daemons first so flipping the flag swaps cleanly.
+        if self.use_zmnext(monitor_id).await {
+            let _ = self
+                .stop_daemon(&zmc_daemon_id(&monitor.r#type, &monitor.device, monitor_id))
+                .await;
+            let _ = self.stop_daemon(&format!("zma -m {}", monitor_id)).await;
+            return self.start_zmnext_worker(&monitor).await;
+        }
+
         let mut started = Vec::new();
         let mut errors = Vec::new();
+
+        // Not a zm-next monitor: tear down any stale worker before starting the
+        // legacy daemons (handles flipping the flag back off).
+        if self.zmnext.is_some() {
+            let _ = self.stop_daemon(&zmnext_daemon_id(monitor_id)).await;
+        }
 
         // Start zmc (capture daemon). Use the shared id derivation so Local
         // monitors get the same `-d <device>` key that stop/status expect.
@@ -1734,6 +1943,23 @@ impl DaemonManager {
             }
         }
 
+        // Stop any zm-next worker (no-op when the monitor is on legacy capture).
+        if self.zmnext.is_some() {
+            match self.stop_daemon(&zmnext_daemon_id(monitor_id)).await {
+                Ok(resp) if resp.success => {
+                    stopped.push("zm-core".to_string());
+                    info!("Stopped zm-next worker for monitor {}", monitor_id);
+                }
+                Ok(resp) => {
+                    if !resp.message.contains("not found") && !resp.message.contains("not running")
+                    {
+                        errors.push(format!("zm-core: {}", resp.message));
+                    }
+                }
+                Err(e) => errors.push(format!("zm-core: {}", e)),
+            }
+        }
+
         if errors.is_empty() {
             Ok(DaemonResponse::ok(format!(
                 "Stopped monitor {}: {}",
@@ -1777,16 +2003,22 @@ impl DaemonManager {
 
     /// Check if a specific monitor's daemons are running.
     ///
-    /// Returns true if at least zmc is running for the monitor.
+    /// Returns true if the monitor's primary capture daemon is running — the
+    /// `zm-core` worker for a zm-next monitor, otherwise `zmc`. Keying off the
+    /// flag-appropriate daemon lets reconciliation swap them when the flag
+    /// flips: the now-correct daemon reads as "not running", so `start_monitor`
+    /// fires and tears down the other.
     pub async fn is_monitor_running(&self, monitor_id: u32) -> bool {
-        let zmc_id = self.zmc_id_for_monitor(monitor_id).await;
-        let processes = self.processes.read().await;
-
-        if let Some(process) = processes.get(&zmc_id) {
-            process.is_running()
+        let id = if self.use_zmnext(monitor_id).await {
+            zmnext_daemon_id(monitor_id)
         } else {
-            false
-        }
+            self.zmc_id_for_monitor(monitor_id).await
+        };
+        let processes = self.processes.read().await;
+        processes
+            .get(&id)
+            .map(|process| process.is_running())
+            .unwrap_or(false)
     }
 
     /// Get status of a specific monitor's daemons.
@@ -1887,9 +2119,38 @@ fn validate_daemon_spec(command: &str, args: &[String]) -> Result<(), String> {
             [m, id] if m == "-m" && int_arg(id) => Ok(()),
             _ => Err(format!("zmtrack.pl args invalid: {:?}", args)),
         },
+        // zm-next worker: `--monitor-id <int> --pipeline <abs path> --socket
+        // <abs path>` in any order. zm-api generates these paths itself; the
+        // validator still enforces them as absolute and traversal-free so a
+        // forwarded IPC/HTTP request can't smuggle arbitrary args.
+        "zm-core" => validate_zmnext_args(args),
         _ => Err(format!("unknown daemon: {:?}", command)),
     };
     result
+}
+
+/// Validate the `zm-core` worker arg list (order-independent). Requires exactly
+/// `--monitor-id`, `--pipeline` and `--socket`, each with a valid value.
+fn validate_zmnext_args(args: &[String]) -> Result<(), String> {
+    let safe_path = |p: &str| p.starts_with('/') && !p.contains("..");
+    let (mut have_monitor, mut have_pipeline, mut have_socket) = (false, false, false);
+    let mut chunks = args.chunks_exact(2);
+    for pair in chunks.by_ref() {
+        match (pair[0].as_str(), pair[1].as_str()) {
+            ("--monitor-id", v) if v.parse::<u32>().is_ok() => have_monitor = true,
+            ("--pipeline", v) if safe_path(v) => have_pipeline = true,
+            ("--socket", v) if safe_path(v) => have_socket = true,
+            _ => return Err(format!("zm-core args invalid: {:?}", args)),
+        }
+    }
+    if !chunks.remainder().is_empty() {
+        return Err(format!("zm-core args must be flag/value pairs: {:?}", args));
+    }
+    if have_monitor && have_pipeline && have_socket {
+        Ok(())
+    } else {
+        Err(format!("zm-core missing required args: {:?}", args))
+    }
 }
 
 /// Compute the "extras" — args present on a `ManagedProcess` that are NOT
@@ -1992,13 +2253,31 @@ struct StartupGates {
 fn extract_monitor_id(args: &[String]) -> Option<u32> {
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
-        if arg == "-m" {
+        // `-m N` (zmc/zma) or `--monitor-id N` (zm-core worker).
+        if arg == "-m" || arg == "--monitor-id" {
             if let Some(id_str) = iter.next() {
                 return id_str.parse().ok();
             }
         }
     }
     None
+}
+
+/// Stable process-map id for a monitor's zm-next worker. The generated
+/// `--pipeline`/`--socket` paths ride as extra args, not in the id, so every
+/// call site derives the same key without recomputing those paths.
+fn zmnext_daemon_id(monitor_id: u32) -> String {
+    format!("zm-core --monitor-id {monitor_id}")
+}
+
+/// Recover the monitor id from a `zm-core --monitor-id N` daemon id, or `None`
+/// when `id` is not a zm-next worker id.
+fn zmnext_monitor_id_from_id(id: &str) -> Option<u32> {
+    let parts: Vec<&str> = id.split_whitespace().collect();
+    match parts.as_slice() {
+        ["zm-core", "--monitor-id", n] => n.parse().ok(),
+        _ => None,
+    }
 }
 
 /// Spawn a daemon process with PR_SET_PDEATHSIG on Linux.
@@ -2173,6 +2452,95 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_zmnext_worker_spec() {
+        // Valid, order-independent.
+        assert!(validate_daemon_spec(
+            "zm-core",
+            &args(&[
+                "--monitor-id",
+                "7",
+                "--pipeline",
+                "/var/lib/zm_api/pipelines/monitor_7.json",
+                "--socket",
+                "/run/zm/stream_7.sock",
+            ])
+        )
+        .is_ok());
+        assert!(validate_daemon_spec(
+            "zm-core",
+            &args(&[
+                "--socket",
+                "/run/zm/stream_7.sock",
+                "--pipeline",
+                "/p/monitor_7.json",
+                "--monitor-id",
+                "7",
+            ])
+        )
+        .is_ok());
+
+        // Path traversal and relative paths are rejected.
+        assert!(validate_daemon_spec(
+            "zm-core",
+            &args(&[
+                "--monitor-id",
+                "7",
+                "--pipeline",
+                "/p/../../etc/passwd",
+                "--socket",
+                "/run/zm/stream_7.sock",
+            ])
+        )
+        .is_err());
+        assert!(validate_daemon_spec(
+            "zm-core",
+            &args(&[
+                "--monitor-id",
+                "7",
+                "--pipeline",
+                "relative.json",
+                "--socket",
+                "/s.sock"
+            ])
+        )
+        .is_err());
+
+        // Missing a required flag, non-numeric id, and odd arg count all fail.
+        assert!(validate_daemon_spec(
+            "zm-core",
+            &args(&["--monitor-id", "7", "--pipeline", "/p.json"])
+        )
+        .is_err());
+        assert!(validate_daemon_spec(
+            "zm-core",
+            &args(&[
+                "--monitor-id",
+                "x",
+                "--pipeline",
+                "/p.json",
+                "--socket",
+                "/s.sock"
+            ])
+        )
+        .is_err());
+        assert!(validate_daemon_spec("zm-core", &args(&["--monitor-id"])).is_err());
+    }
+
+    #[test]
+    fn test_zmnext_daemon_id_round_trips() {
+        let id = zmnext_daemon_id(42);
+        assert_eq!(id, "zm-core --monitor-id 42");
+        assert_eq!(zmnext_monitor_id_from_id(&id), Some(42));
+        // Non-worker ids are rejected.
+        assert_eq!(zmnext_monitor_id_from_id("zmc -m 42"), None);
+        assert_eq!(zmnext_monitor_id_from_id("zm-core -m 42"), None);
+        // The worker id parses back to the same exec arg list.
+        let (command, parsed) = parse_daemon_command(&id, &[]);
+        assert_eq!(command, "zm-core");
+        assert_eq!(parsed, vec!["--monitor-id".to_string(), "42".to_string()]);
+    }
+
+    #[test]
     fn test_validate_daemon_spec_rejects_injection_attempts() {
         // Absolute paths are the main attack vector against PathBuf::join
         assert!(validate_daemon_spec("/bin/bash", &args(&["-c", "id"])).is_err());
@@ -2264,6 +2632,16 @@ mod tests {
         assert_eq!(
             extract_monitor_id(&["-d".to_string(), "/dev/video0".to_string()]),
             None
+        );
+        // The zm-core worker uses the long flag form.
+        assert_eq!(
+            extract_monitor_id(&[
+                "--monitor-id".to_string(),
+                "9".to_string(),
+                "--pipeline".to_string(),
+                "/p.json".to_string(),
+            ]),
+            Some(9)
         );
         assert_eq!(extract_monitor_id(&[]), None);
     }

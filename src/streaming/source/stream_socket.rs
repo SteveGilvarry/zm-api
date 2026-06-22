@@ -40,7 +40,7 @@ use super::media::{
     AdtsWrapper, AudioCodec, AudioPacket, VideoCodec, VideoPacket,
 };
 use super::protocol::{
-    self, Header, MessageType, ProtocolError, StreamId, FLAG_KEYFRAME, HEADER_SIZE,
+    self, Header, MessageType, MonitorEvent, ProtocolError, StreamId, FLAG_KEYFRAME, HEADER_SIZE,
 };
 use crate::configure::streaming::ZoneMinderConfig;
 
@@ -78,6 +78,10 @@ pub enum SocketEvent {
     Video(VideoPacket),
     /// One audio frame.
     Audio(AudioPacket),
+    /// A monitor lifecycle / analysis EVENT (zm-next or stock zmc). Carries no
+    /// media; routed to DB ingest rather than the media sinks. EVENTs use their
+    /// own per-monitor sequence counter, independent of the media streams.
+    MonitorEvent(MonitorEvent),
 }
 
 /// The documented-convention socket path for a monitor:
@@ -242,6 +246,22 @@ impl StreamSocketReader {
             );
             return Ok(());
         };
+
+        // EVENT frames ride the Monitor stream and carry no media; handle them
+        // before resolving a media stream id. A malformed EVENT is skipped (not
+        // fatal): the header already framed the payload, so one bad event does
+        // not desync the byte stream, and media must keep flowing.
+        if msg_type == MessageType::Event {
+            match protocol::parse_event(&payload) {
+                Ok(ev) => self.pending.push_back(SocketEvent::MonitorEvent(ev)),
+                Err(e) => debug!(
+                    "Monitor {}: skipping malformed EVENT payload: {e}",
+                    self.monitor_id
+                ),
+            }
+            return Ok(());
+        }
+
         let Some(stream_id) = StreamId::from_u8(header.stream) else {
             debug!(
                 "Monitor {}: skipping unknown stream id {}",
@@ -249,12 +269,22 @@ impl StreamSocketReader {
             );
             return Ok(());
         };
+        // Media / HELLO on the Monitor stream is meaningless — only EVENT is
+        // valid there. Skip rather than misinterpret it as video/audio.
+        if stream_id == StreamId::Monitor {
+            debug!(
+                "Monitor {}: skipping {:?} on the monitor stream",
+                self.monitor_id, msg_type
+            );
+            return Ok(());
+        }
 
         match msg_type {
             MessageType::Hello => self.handle_hello(stream_id, header, &payload)?,
             MessageType::Media | MessageType::Keyframe => {
                 self.handle_media(stream_id, header, payload)
             }
+            MessageType::Event => unreachable!("EVENT handled above"),
             MessageType::Stats => {
                 if let Ok((sent, dropped)) = protocol::parse_stats(&payload) {
                     if dropped > self.last_reported_drops {
@@ -361,6 +391,8 @@ impl StreamSocketReader {
                 );
                 self.pending.push_back(SocketEvent::AudioParams { codec });
             }
+            // Guarded out in handle_message; only video/audio HELLOs reach here.
+            StreamId::Monitor => unreachable!("monitor stream has no HELLO"),
         }
         Ok(())
     }
@@ -371,6 +403,7 @@ impl StreamSocketReader {
         let next_seq = match stream_id {
             StreamId::Video => &mut self.video.next_sequence,
             StreamId::Audio => &mut self.audio.next_sequence,
+            StreamId::Monitor => unreachable!("monitor stream carries no media"),
         };
         if let Some(expected) = *next_seq {
             if header.sequence != expected {
@@ -443,6 +476,7 @@ impl StreamSocketReader {
                     codec,
                 }));
             }
+            StreamId::Monitor => unreachable!("monitor stream carries no media"),
         }
     }
 }
@@ -511,6 +545,7 @@ pub(crate) mod test_support {
 #[cfg(test)]
 mod tests {
     use super::super::protocol::test_encode::*;
+    use super::super::protocol::{EVENT_DETECTION, EVENT_SNAPSHOT};
     use super::test_support::*;
     use super::*;
 
@@ -846,7 +881,7 @@ mod tests {
         ));
         script.extend_from_slice(&encode_message(0x04, 0, 0, 0, 0, 0, &stats_payload));
         script.extend_from_slice(&encode_message(0x7E, 0, 0, 0, 0, 0, &[1, 2, 3])); // unknown type
-        script.extend_from_slice(&encode_message(0x02, 2, 0, 0, 0, 0, &[4, 5])); // unknown stream
+        script.extend_from_slice(&encode_message(0x02, 3, 0, 0, 0, 0, &[4, 5])); // unknown stream id
         script.extend_from_slice(&encode_message(
             0x02,
             0,
@@ -864,6 +899,69 @@ mod tests {
         // STATS / unknown messages produce no events; media still flows.
         let events = collect_events(&mut reader, 4).await;
         assert!(matches!(events[0], SocketEvent::VideoParams { .. }));
+        assert!(matches!(events[3], SocketEvent::Video(_)));
+
+        server.abort();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn monitor_events_are_surfaced_between_media() {
+        let dir = test_sock_dir("events");
+        let sock = dir.join("stream_10.sock");
+
+        // HELLO, a snapshot EVENT replayed on connect, a detection EVENT, then
+        // a keyframe — media and events interleave on the one connection.
+        let snapshot = event_payload(EVENT_SNAPSHOT, &tlv_u16(0x07, 0));
+        let detection_json = r#"{"objects":[{"label":"car","confidence":0.8}]}"#;
+        let mut det_tail = tlv_u64(0x01, 1_700_000_000_000_000);
+        det_tail.extend_from_slice(&tlv(0x10, detection_json.as_bytes()));
+        let detection = event_payload(EVENT_DETECTION, &det_tail);
+
+        let mut script = Vec::new();
+        script.extend_from_slice(&encode_message(
+            0x01,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &hello_payload(h264_codec_id(), &extradata()),
+        ));
+        // EVENT: type 0x06 on the monitor stream (id 2), own sequence counter.
+        script.extend_from_slice(&encode_message(0x06, 2, 0, 0, 0, 0, &snapshot));
+        script.extend_from_slice(&encode_message(0x06, 2, 0, 1, 0, 0, &detection));
+        script.extend_from_slice(&encode_message(
+            0x03,
+            0,
+            FLAG_KEYFRAME,
+            5,
+            0,
+            9_000_000,
+            &idr_au(),
+        ));
+
+        let server = spawn_fake_zmc(sock, script, false);
+        let mut reader = StreamSocketReader::new(10, test_config(&dir));
+        reader.connect().await.expect("connect");
+
+        // VideoParams, snapshot event, detection event, then 3 keyframe NALs.
+        let events = collect_events(&mut reader, 6).await;
+        assert!(matches!(events[0], SocketEvent::VideoParams { .. }));
+
+        let SocketEvent::MonitorEvent(snap) = &events[1] else {
+            panic!("expected snapshot MonitorEvent, got {:?}", events[1]);
+        };
+        assert_eq!(snap.code, EVENT_SNAPSHOT);
+        assert_eq!(snap.health_code, Some(0));
+
+        let SocketEvent::MonitorEvent(det) = &events[2] else {
+            panic!("expected detection MonitorEvent, got {:?}", events[2]);
+        };
+        assert_eq!(det.code, EVENT_DETECTION);
+        assert_eq!(det.json_detail.as_deref(), Some(detection_json));
+
+        // Media still flows after the events.
         assert!(matches!(events[3], SocketEvent::Video(_)));
 
         server.abort();

@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use dashmap::DashMap;
-use tokio::sync::{broadcast, watch, RwLock};
+use tokio::sync::{broadcast, mpsc, watch, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
@@ -16,8 +16,18 @@ use super::media::{
     extract_profile_level_id, h264_nal_type, h265_nal_type, AudioCodec, AudioPacket, VideoCodec,
     VideoPacket,
 };
+use super::protocol::MonitorEvent;
 use super::stream_socket::{stream_socket_path, SocketEvent, SourceError, StreamSocketReader};
 use crate::configure::streaming::ZoneMinderConfig;
+
+/// A monitor EVENT decoded off a stream socket, tagged with its monitor, ready
+/// for DB ingest. The reader task forwards these to the router's event sink
+/// (when one is registered); media flows unaffected.
+#[derive(Debug, Clone)]
+pub struct MonitorEventEnvelope {
+    pub monitor_id: u32,
+    pub event: MonitorEvent,
+}
 
 /// Default broadcast channel capacity for source packets
 const DEFAULT_SOURCE_CAPACITY: usize = 100;
@@ -375,6 +385,11 @@ pub struct SourceRouter {
     active_sources: DashMap<u32, Arc<MonitorSource>>,
     /// Configuration
     config: RouterConfig,
+    /// Optional sink for monitor EVENTs decoded off the stream sockets. When
+    /// `Some`, each reader task forwards `MonitorEventEnvelope`s here (via
+    /// `try_send`, so a slow/backed-up ingest never stalls the media reader).
+    /// `None` means events are simply not ingested (e.g. tests, or DB absent).
+    event_sink: Option<mpsc::Sender<MonitorEventEnvelope>>,
 }
 
 impl SourceRouter {
@@ -388,7 +403,17 @@ impl SourceRouter {
         Self {
             active_sources: DashMap::new(),
             config,
+            event_sink: None,
         }
+    }
+
+    /// Register a sink to receive monitor EVENTs decoded off the stream
+    /// sockets. Call before any reader starts (i.e. before wrapping the router
+    /// in an `Arc` / handing it to the coordinator). Readers started after this
+    /// forward events to `sink`; without a sink, EVENTs are dropped after
+    /// decoding.
+    pub fn set_event_sink(&mut self, sink: mpsc::Sender<MonitorEventEnvelope>) {
+        self.event_sink = Some(sink);
     }
 
     /// Create a source router from ZoneMinder configuration
@@ -494,6 +519,7 @@ impl SourceRouter {
         let health_tx = source.reader_health_tx.clone();
         let stream_info_tx = source.stream_info_tx.clone();
         let keyframe_cache_tx = source.keyframe_cache_tx.clone();
+        let event_sink = self.event_sink.clone();
 
         let handle = tokio::spawn(async move {
             info!(
@@ -600,6 +626,21 @@ impl SourceRouter {
                             audio_packets.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             // No receivers is fine — nobody listening.
                             let _ = audio_tx.send(packet);
+                        }
+                        Ok(SocketEvent::MonitorEvent(event)) => {
+                            // Forward to DB ingest. `try_send` keeps the media
+                            // reader non-blocking: if ingest is backed up or
+                            // absent we drop the event rather than stall video.
+                            if let Some(sink) = &event_sink {
+                                if let Err(e) =
+                                    sink.try_send(MonitorEventEnvelope { monitor_id, event })
+                                {
+                                    warn!(
+                                        "Monitor {}: dropping EVENT, ingest sink unavailable: {}",
+                                        monitor_id, e
+                                    );
+                                }
+                            }
                         }
                         Err(SourceError::Timeout { .. }) => {
                             // Expected when no media is flowing (idle camera);
