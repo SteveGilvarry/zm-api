@@ -228,11 +228,19 @@ fn services_to_urls(services: &[Service], device_fallback: &str) -> ServiceUrls 
         let (Some(ns), Some(addr)) = (s.namespace.as_deref(), s.xaddr.clone()) else {
             continue;
         };
-        // Namespaces look like `http://www.onvif.org/ver10/media/wsdl`.
+        // Namespaces look like `http://www.onvif.org/ver10/media/wsdl` (Media)
+        // or `http://www.onvif.org/ver20/media/wsdl` (Media2, Profile T). Both
+        // contain `/media/wsdl`, so match the version explicitly: the current
+        // `MediaClient` speaks the ver10 protocol, so ver10 is always preferred
+        // for `urls.media` and ver20/unversioned is only a fallback.
         if ns.contains("/device/wsdl") {
             urls.device = addr;
-        } else if ns.contains("/media/wsdl") || ns.contains("/media2/wsdl") {
+        } else if ns.contains("/ver10/media/wsdl") {
             urls.media = Some(addr);
+        } else if ns.contains("/ver20/media/wsdl") || ns.contains("/media/wsdl") {
+            if urls.media.is_none() {
+                urls.media = Some(addr);
+            }
         } else if ns.contains("/ptz/wsdl") {
             urls.ptz = Some(addr);
         } else if ns.contains("/events/wsdl") {
@@ -721,6 +729,43 @@ mod tests {
         assert_eq!(
             urls.events.as_deref(),
             Some("http://192.168.1.10/onvif/event_service")
+        );
+    }
+
+    #[test]
+    fn services_prefer_ver10_media_over_media2() {
+        // A Profile-T device advertises both ver10 Media and ver20 Media2 (both
+        // namespaces contain `/media/wsdl`). `urls.media` drives the ver10
+        // MediaClient, so it must resolve to the ver10 XAddr regardless of the
+        // order the services appear in.
+        let svc = |ns: &str, addr: &str| Service {
+            namespace: Some(ns.to_string()),
+            xaddr: Some(addr.to_string()),
+        };
+        let media10 = "http://cam/onvif/Media";
+        let media20 = "http://cam/onvif/Media2";
+
+        for order in [
+            vec![
+                svc("http://www.onvif.org/ver20/media/wsdl", media20),
+                svc("http://www.onvif.org/ver10/media/wsdl", media10),
+            ],
+            vec![
+                svc("http://www.onvif.org/ver10/media/wsdl", media10),
+                svc("http://www.onvif.org/ver20/media/wsdl", media20),
+            ],
+        ] {
+            let urls = services_to_urls(&order, "http://fallback");
+            assert_eq!(urls.media.as_deref(), Some(media10));
+        }
+
+        // Media2-only device: fall back to the ver20 XAddr.
+        let only20 = vec![svc("http://www.onvif.org/ver20/media/wsdl", media20)];
+        assert_eq!(
+            services_to_urls(&only20, "http://fallback")
+                .media
+                .as_deref(),
+            Some(media20)
         );
     }
 

@@ -96,14 +96,36 @@ factory; spawn event listeners), `Cargo.toml` (`quick-xml`, `sha1`).
   (`--no-default-features`), each capability standalone, and all-on all compile.
   OpenAPI discovery fragment (`DiscoveryApiDoc`) merged at runtime under
   `onvif-discovery` since utoipa can't `#[cfg]` macro entries.
-- **Phase 4 — Adversarial verification.** ⏳ Independent review of WS-Security,
-  SOAP envelope correctness, XML parser robustness, SSRF surface. Plus replace
-  agent-constructed fixtures with ONVIF Device Test Spec-derived vectors.
+- **Phase 4 — Adversarial verification.** ✅ (review) 6-agent verify workflow.
+  WS-Security digest verified correct vs OASIS (no defects). Fixed:
+  - **WS-Addressing** now emitted (`wsa:To`/`Action`/`MessageID`/`ReplyTo`) on
+    every call — required by the Events service (the `WSA_NS` removal during
+    integration *was* a regression). `src/onvif/transport.rs`.
+  - **SOAP fault Subcode** extracted + preferred (deepest wins), so
+    `ter:NotAuthorized` is surfaced and auth faults map to 401 regardless of
+    Reason language. `transport.rs`.
+  - **HTTP 401/403** with no SOAP body → `OnvifError::Auth` (was 503).
+  - **Media2 classification**: ver10 vs ver20 media namespaces disambiguated
+    (the `/media2/wsdl` branch was dead code). `src/onvif/device.rs`.
+  - **IPv6 SSRF gate**: typed `url::Host` match so IPv6 camera literals aren't
+    universally rejected; SSRF docstring corrected (no probe-allowlist exists).
+    `src/service/discovery.rs`.
+  - **Renew timing**: `tokio::select!` races the pull vs a renew deadline so
+    renew can't be starved by the long-poll. `src/daemon/onvif_event_listener.rs`.
+  - Deferred LOW: Reason multi-lang preference; URI split across CDATA fragments.
+  - Conformance test vectors (11 recommended) not yet folded in — see below.
 - **Phase 5 (later) — Live event push.** SSE/webhook from the event listener to
   API clients (no push mechanism exists today). Out of the initial build.
 
 ### Follow-ups / known gaps
 
+- **Conformance vectors:** the Phase 4 conformance agent produced 11
+  spec-cited sample-response vectors (GetDeviceInformation, GetCapabilities/
+  GetServices, GetProfiles, GetStreamUri, PTZ moves/GetStatus, PullMessages,
+  ProbeMatches) to replace hand-built fixtures. Fold into `src/onvif/*` tests.
+- **Deferred LOW parser items:** accumulate text across CDATA/comment fragments
+  in `media.rs::parse_media_uri`; prefer `xml:lang="en"` Reason text in the SOAP
+  fault parser.
 - **CI matrix:** add `cargo check --no-default-features` and a per-profile
   build (`--features onvif-profile-s|g|m`) to `.github/workflows/test.yml` so no
   feature combo bit-rots. Not yet wired.

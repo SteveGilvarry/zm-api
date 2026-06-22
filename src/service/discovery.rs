@@ -20,29 +20,25 @@
 //!    which bounds the length, rejects control characters/CR-LF, and restricts
 //!    the scheme to `http`/`https`/`rtsp`/`rtsps` (blocking `file://`,
 //!    `unix://`, `gopher://`, …).
-//! 2. **Destination gate** — the resolved host must be either an RFC1918 /
-//!    loopback / link-local *private* address, **or** an address that a prior
-//!    probe actually surfaced. This stops a caller from coercing the server
-//!    into reaching arbitrary public hosts or cloud metadata endpoints
-//!    (`169.254.169.254` is link-local and therefore allowed only because it is
-//!    also the cloud-metadata address — callers on a hardened deployment should
-//!    additionally restrict via network policy; here we permit private ranges
-//!    by design because that is exactly where cameras live).
+//! 2. **Destination gate** — the host must be a private IP *literal*: RFC1918 /
+//!    loopback / link-local (IPv4) or ULA / loopback / link-local (IPv6). This
+//!    stops a caller from coercing the server into reaching arbitrary public
+//!    hosts. We deliberately do **not** perform DNS resolution (to avoid
+//!    DNS-rebinding TOCTOU), so a non-literal hostname is **always rejected** —
+//!    even if it would resolve to a private address.
 //!
-//! The destination gate accepts a hostname only when it resolves (lexically,
-//! without DNS) to a private literal — we deliberately do **not** perform DNS
-//! resolution here, to avoid DNS-rebinding TOCTOU. A bare hostname that is not
-//! an IP literal is only accepted when it exactly matches a probe-surfaced
-//! XAddr host.
+//! Caveat: `169.254.169.254` (the cloud-metadata endpoint) is link-local and
+//! therefore permitted, because link-local is exactly where cameras live;
+//! hardened deployments should additionally restrict via network policy.
 
 #![allow(clippy::result_large_err)]
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tracing::{info, instrument, warn};
-use url::Url;
+use url::{Host, Url};
 use utoipa::ToSchema;
 
 use crate::dto::request::monitor::is_safe_onvif_url;
@@ -273,34 +269,27 @@ fn ensure_inspect_target_allowed(xaddr: &str) -> AppResult<()> {
     let url = Url::parse(xaddr)
         .map_err(|e| AppError::BadRequestError(format!("invalid ONVIF inspect URL: {e}")))?;
 
-    let host = url
-        .host_str()
-        .ok_or_else(|| AppError::BadRequestError("ONVIF inspect URL has no host".to_string()))?;
-
     // Gate 2: destination must be a private/loopback IP literal. We refuse to
     // resolve DNS here (rebinding TOCTOU); a non-literal host is rejected so a
-    // caller cannot point us at an arbitrary public name.
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        if is_private_ip(ip) {
-            return Ok(());
-        }
-        return Err(AppError::PermissionDeniedError(format!(
-            "ONVIF inspect target {host} is not a private (RFC1918/loopback/link-local) address"
-        )));
-    }
-
-    Err(AppError::PermissionDeniedError(format!(
-        "ONVIF inspect target {host} is not an IP literal; only private addresses or \
-         probe-surfaced devices may be inspected"
-    )))
-}
-
-/// Whether `ip` is in a private / loopback / link-local range — the only
-/// addresses an `inspect` is permitted to reach (cameras live on the LAN).
-fn is_private_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => is_private_v4(v4),
-        IpAddr::V6(v6) => is_private_v6(v6),
+    // caller cannot point us at an arbitrary public name. Match on the typed
+    // `url::Host` so IPv6 literals (which `host_str()` returns bracketed, e.g.
+    // `[fe80::1]`, defeating `IpAddr::from_str`) classify correctly.
+    match url.host() {
+        Some(Host::Ipv4(v4)) if is_private_v4(v4) => Ok(()),
+        Some(Host::Ipv6(v6)) if is_private_v6(v6) => Ok(()),
+        Some(Host::Ipv4(v4)) => Err(AppError::PermissionDeniedError(format!(
+            "ONVIF inspect target {v4} is not a private (RFC1918/loopback/link-local) address"
+        ))),
+        Some(Host::Ipv6(v6)) => Err(AppError::PermissionDeniedError(format!(
+            "ONVIF inspect target {v6} is not a private (ULA/loopback/link-local) address"
+        ))),
+        Some(Host::Domain(d)) => Err(AppError::PermissionDeniedError(format!(
+            "ONVIF inspect target {d} is not an IP literal; only private/loopback/link-local \
+             IP literals may be inspected (hostnames are rejected to avoid DNS rebinding)"
+        ))),
+        None => Err(AppError::BadRequestError(
+            "ONVIF inspect URL has no host".to_string(),
+        )),
     }
 }
 
@@ -408,6 +397,28 @@ mod tests {
     #[test]
     fn inspect_target_rejects_public_address() {
         let err = ensure_inspect_target_allowed("http://8.8.8.8/onvif").unwrap_err();
+        assert!(matches!(err, AppError::PermissionDeniedError(_)), "{err:?}");
+    }
+
+    #[test]
+    fn inspect_target_allows_private_ipv6_device() {
+        // host_str() returns these bracketed (e.g. "[fe80::1]"); the typed
+        // url::Host classification must still accept them.
+        for u in [
+            "http://[fe80::1]/onvif/device_service", // link-local
+            "http://[::1]/onvif",                    // loopback
+            "http://[fd00::1234]:8080/onvif",        // ULA
+        ] {
+            assert!(
+                ensure_inspect_target_allowed(u).is_ok(),
+                "{u} should be allowed"
+            );
+        }
+    }
+
+    #[test]
+    fn inspect_target_rejects_public_ipv6() {
+        let err = ensure_inspect_target_allowed("http://[2001:4860:4860::8888]/onvif").unwrap_err();
         assert!(matches!(err, AppError::PermissionDeniedError(_)), "{err:?}");
     }
 

@@ -212,26 +212,33 @@ impl MonitorEventListener {
                 return Ok(());
             }
 
-            // Renew before the subscription would lapse.
-            if last_renew.elapsed() >= self.config.renew_interval {
-                self.client
-                    .renew(&address, SUBSCRIPTION_TERMINATION)
-                    .await?;
-                last_renew = tokio::time::Instant::now();
-                debug!(monitor_id = self.monitor_id, "renewed ONVIF subscription");
-            }
-
-            let resp = self
-                .client
-                .pull_messages(
+            // Race the long-poll against the renew deadline. Renew must not be
+            // gated behind `PullMessages` returning — on a quiet camera a pull
+            // only completes every `pull_timeout`, so a deadline-after-pull
+            // check would first fire at `renew_interval + pull_timeout`, which
+            // can exceed the subscription lifetime and let it lapse mid-poll.
+            // `select!` cancels the in-flight pull when the renew fires; no
+            // messages are lost because PullPoint queues them on the device
+            // until the next successful pull.
+            let renew_at = last_renew + self.config.renew_interval;
+            tokio::select! {
+                _ = tokio::time::sleep_until(renew_at) => {
+                    self.client
+                        .renew(&address, SUBSCRIPTION_TERMINATION)
+                        .await?;
+                    last_renew = tokio::time::Instant::now();
+                    debug!(monitor_id = self.monitor_id, "renewed ONVIF subscription");
+                }
+                resp = self.client.pull_messages(
                     &address,
                     &self.config.pull_timeout,
                     self.config.message_limit,
-                )
-                .await?;
-
-            for msg in &resp.messages {
-                self.handle_notification(msg, tracker).await;
+                ) => {
+                    let resp = resp?;
+                    for msg in &resp.messages {
+                        self.handle_notification(msg, tracker).await;
+                    }
+                }
             }
         }
     }

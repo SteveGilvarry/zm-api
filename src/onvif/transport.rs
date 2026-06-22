@@ -40,14 +40,21 @@ impl OnvifTransport {
         creds: Option<&Credentials>,
         timeout: Duration,
     ) -> OnvifResult<String> {
-        let header_xml = match creds {
+        // WS-Addressing headers. ONVIF (WS-BaseNotification, used by the Events
+        // service) requires wsa:To/Action/MessageID; many devices also read the
+        // action from the wsa:Action header rather than the Content-Type param.
+        // Emitted for every call (harmless for Device/Media/PTZ, mandatory for
+        // Events). MessageID is a fresh urn:uuid per request.
+        let message_id = format!("urn:uuid:{}", uuid::Uuid::new_v4());
+        let wsa = wsa_headers(service_url, soap_action, &message_id);
+        let security = match creds {
             Some(c) => {
                 let (nonce, created) = generate_nonce_created();
                 wsse_username_token(c, &nonce, &created)
             }
             None => String::new(),
         };
-        let payload = envelope(&header_xml, body_xml);
+        let payload = envelope(&format!("{wsa}{security}"), body_xml);
 
         // SOAP 1.2 carries the action in the Content-Type parameter.
         let content_type = format!("application/soap+xml; charset=utf-8; action=\"{soap_action}\"");
@@ -84,6 +91,15 @@ impl OnvifTransport {
         }
 
         if !status.is_success() {
+            // Many cameras reject bad credentials with a bare HTTP 401/403 and
+            // an empty (non-SOAP) body — they enforce HTTP-level auth alongside
+            // or instead of WS-Security. Surface that as an auth error so it
+            // maps to 401, not a generic "device unavailable".
+            if status == reqwest::StatusCode::UNAUTHORIZED
+                || status == reqwest::StatusCode::FORBIDDEN
+            {
+                return Err(OnvifError::Auth);
+            }
             return Err(OnvifError::Parse(format!(
                 "http {status} with no SOAP fault: {}",
                 truncate(&text, 512)
@@ -96,10 +112,34 @@ impl OnvifTransport {
 
 /// SOAP 1.2 envelope namespace.
 const SOAP_ENV_NS: &str = "http://www.w3.org/2003/05/soap-envelope";
+/// WS-Addressing 1.0 namespace.
+const WSA_NS: &str = "http://www.w3.org/2005/08/addressing";
+
+/// Build the WS-Addressing SOAP header block (To / Action / MessageID / ReplyTo).
+///
+/// `xmlns:wsa` and the `s:` prefix are declared on the envelope (see
+/// [`envelope`]), so the elements here reference them without redeclaring.
+fn wsa_headers(to: &str, action: &str, message_id: &str) -> String {
+    format!(
+        concat!(
+            "<wsa:To s:mustUnderstand=\"1\">{to}</wsa:To>",
+            "<wsa:Action s:mustUnderstand=\"1\">{action}</wsa:Action>",
+            "<wsa:MessageID>{mid}</wsa:MessageID>",
+            "<wsa:ReplyTo><wsa:Address>",
+            "http://www.w3.org/2005/08/addressing/anonymous",
+            "</wsa:Address></wsa:ReplyTo>",
+        ),
+        to = xml_escape(to),
+        action = xml_escape(action),
+        mid = xml_escape(message_id),
+    )
+}
 
 /// Build a SOAP 1.2 envelope around an optional header and a body.
 ///
-/// `header_xml` may be empty (no `<s:Header>` is emitted in that case).
+/// `header_xml` may be empty (no `<s:Header>` is emitted in that case). The
+/// envelope declares both the SOAP and WS-Addressing namespaces so header
+/// fragments (WS-Addressing, WS-Security) can use the `s:` and `wsa:` prefixes.
 pub fn envelope(header_xml: &str, body_xml: &str) -> String {
     let header = if header_xml.is_empty() {
         String::new()
@@ -109,15 +149,25 @@ pub fn envelope(header_xml: &str, body_xml: &str) -> String {
     format!(
         concat!(
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
-            "<s:Envelope xmlns:s=\"{ns}\">",
+            "<s:Envelope xmlns:s=\"{ns}\" xmlns:wsa=\"{wsa}\">",
             "{header}",
             "<s:Body>{body}</s:Body>",
             "</s:Envelope>",
         ),
         ns = SOAP_ENV_NS,
+        wsa = WSA_NS,
         header = header,
         body = body_xml,
     )
+}
+
+/// Minimal XML text/attribute escaper for values interpolated into the SOAP
+/// header (service URLs and action URIs can contain `&`).
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 /// Extract a SOAP 1.2 Fault `(code, reason)` from a response body, if present.
@@ -133,10 +183,14 @@ fn parse_soap_fault(xml: &str) -> Option<(String, String)> {
 
     let mut in_fault = false;
     let mut in_code_value = false;
+    let mut in_subcode_value = false;
     let mut in_reason_text = false;
-    // Track whether the current Value is directly under Code (the top-level
-    // fault code) vs. nested under a Subcode; we accept the first Value.
+    // The top-level Code/Value (e.g. `s:Sender`) is the generic SOAP class; the
+    // ONVIF machine-readable discriminator (e.g. `ter:NotAuthorized`) lives in
+    // the nested Subcode/Value. Capture both and prefer the deepest Subcode so
+    // callers can key on the specific ONVIF code regardless of Reason language.
     let mut code: Option<String> = None;
+    let mut subcode: Option<String> = None;
     let mut reason: Option<String> = None;
     // Local-name stack to interpret Value/Text context.
     let mut stack: Vec<String> = Vec::new();
@@ -150,6 +204,9 @@ fn parse_soap_fault(xml: &str) -> Option<(String, String)> {
                     "Value" if in_fault && parent_is(&stack, "Code") => {
                         in_code_value = true;
                     }
+                    "Value" if in_fault && parent_is(&stack, "Subcode") => {
+                        in_subcode_value = true;
+                    }
                     "Text" if in_fault && parent_is(&stack, "Reason") => {
                         in_reason_text = true;
                     }
@@ -159,7 +216,11 @@ fn parse_soap_fault(xml: &str) -> Option<(String, String)> {
             }
             Ok(Event::Text(t)) => {
                 if in_code_value && code.is_none() {
+                    // Top-level code: first (outermost) Value wins.
                     code = Some(t.unescape().unwrap_or_default().into_owned());
+                } else if in_subcode_value {
+                    // Subcode: last (innermost / most specific) Value wins.
+                    subcode = Some(t.unescape().unwrap_or_default().into_owned());
                 } else if in_reason_text && reason.is_none() {
                     reason = Some(t.unescape().unwrap_or_default().into_owned());
                 }
@@ -167,7 +228,10 @@ fn parse_soap_fault(xml: &str) -> Option<(String, String)> {
             Ok(Event::End(e)) => {
                 let local = local_name(e.name().as_ref());
                 match local.as_str() {
-                    "Value" => in_code_value = false,
+                    "Value" => {
+                        in_code_value = false;
+                        in_subcode_value = false;
+                    }
                     "Text" => in_reason_text = false,
                     "Fault" => in_fault = false,
                     _ => {}
@@ -180,6 +244,8 @@ fn parse_soap_fault(xml: &str) -> Option<(String, String)> {
         }
     }
 
+    // Prefer the specific ONVIF Subcode over the generic SOAP class.
+    let code = subcode.or(code);
     if code.is_some() || reason.is_some() {
         Some((
             code.unwrap_or_else(|| "unknown".to_string()),
@@ -269,20 +335,76 @@ mod tests {
     }
 
     #[test]
-    fn fault_with_subcode_takes_top_level_code() {
-        // The top-level Code/Value is "Sender"; the Subcode/Value is the more
-        // specific ONVIF code. We accept the first (top-level) Value.
+    fn fault_prefers_specific_subcode_over_top_level_code() {
+        // The top-level Code/Value is the generic SOAP class `s:Sender`; the
+        // ONVIF discriminator `ter:NotAuthorized` is in the Subcode. We must
+        // surface the Subcode so auth detection works regardless of the Reason
+        // language (here German).
         let xml = r#"<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
           <s:Body><s:Fault>
             <s:Code>
               <s:Value>s:Sender</s:Value>
               <s:Subcode><s:Value>ter:NotAuthorized</s:Value></s:Subcode>
             </s:Code>
-            <s:Reason><s:Text>Sender not authorized</s:Text></s:Reason>
+            <s:Reason><s:Text xml:lang="de">Zugriff verweigert</s:Text></s:Reason>
           </s:Fault></s:Body></s:Envelope>"#;
         let (code, reason) = parse_soap_fault(xml).expect("fault parsed");
-        assert_eq!(code, "s:Sender");
-        assert_eq!(reason, "Sender not authorized");
+        assert_eq!(code, "ter:NotAuthorized");
+        assert_eq!(reason, "Zugriff verweigert");
+    }
+
+    #[test]
+    fn fault_uses_innermost_nested_subcode() {
+        // SOAP 1.2 Subcodes nest recursively; the innermost is the most
+        // specific and must win.
+        let xml = r#"<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
+          <s:Body><s:Fault>
+            <s:Code>
+              <s:Value>s:Sender</s:Value>
+              <s:Subcode>
+                <s:Value>ter:InvalidArgVal</s:Value>
+                <s:Subcode><s:Value>ter:InvalidArgs</s:Value></s:Subcode>
+              </s:Subcode>
+            </s:Code>
+            <s:Reason><s:Text>bad</s:Text></s:Reason>
+          </s:Fault></s:Body></s:Envelope>"#;
+        let (code, _) = parse_soap_fault(xml).expect("fault parsed");
+        assert_eq!(code, "ter:InvalidArgs");
+    }
+
+    #[test]
+    fn fault_without_subcode_uses_top_level_code() {
+        let xml = r#"<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
+          <s:Body><s:Fault>
+            <s:Code><s:Value>s:Receiver</s:Value></s:Code>
+            <s:Reason><s:Text>boom</s:Text></s:Reason>
+          </s:Fault></s:Body></s:Envelope>"#;
+        let (code, _) = parse_soap_fault(xml).expect("fault parsed");
+        assert_eq!(code, "s:Receiver");
+    }
+
+    #[test]
+    fn envelope_declares_wsa_namespace() {
+        let xml = envelope("", "<x/>");
+        assert!(xml.contains("xmlns:wsa=\"http://www.w3.org/2005/08/addressing\""));
+    }
+
+    #[test]
+    fn wsa_headers_carry_to_action_and_messageid() {
+        // A subscription address with a query string must be XML-escaped.
+        let h = wsa_headers(
+            "http://cam/onvif/Subscription?id=0&x=1",
+            "http://www.onvif.org/ver10/events/wsdl/PullMessages",
+            "urn:uuid:abc",
+        );
+        assert!(h.contains(
+            "<wsa:To s:mustUnderstand=\"1\">http://cam/onvif/Subscription?id=0&amp;x=1</wsa:To>"
+        ));
+        assert!(h.contains(
+            "<wsa:Action s:mustUnderstand=\"1\">http://www.onvif.org/ver10/events/wsdl/PullMessages</wsa:Action>"
+        ));
+        assert!(h.contains("<wsa:MessageID>urn:uuid:abc</wsa:MessageID>"));
+        assert!(h.contains("addressing/anonymous"));
     }
 
     #[test]
