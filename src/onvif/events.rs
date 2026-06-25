@@ -422,18 +422,17 @@ fn parse_pull_messages(xml: &str) -> OnvifResult<PullMessagesResponse> {
                     "NotificationMessage" => {
                         current = Some(NotificationMessage::default());
                     }
-                    "Topic" => {
+                    "Topic"
                         // A self-closing <Topic/> has no text; only consume the
                         // element body for a real Start (avoids over-reading the
                         // following sibling).
-                        if !is_empty {
+                        if !is_empty => {
                             let text = non_empty(read_text(&mut reader));
                             if let Some(msg) = current.as_mut() {
                                 msg.topic = text;
                             }
                             continue;
                         }
-                    }
                     // The inner `tt:Message` carries UtcTime / PropertyOperation
                     // as attributes. The outer WS-Notification `Message` wrapper
                     // has no such attributes, so reading them is harmless.
@@ -510,12 +509,10 @@ fn parse_renew(xml: &str) -> Option<String> {
 
     loop {
         match reader.read_event() {
-            Ok(Event::Start(e)) => {
-                if local_name(e.name().as_ref()) == "TerminationTime" {
-                    let v = non_empty(read_text(&mut reader));
-                    if v.is_some() {
-                        return v;
-                    }
+            Ok(Event::Start(e)) if local_name(e.name().as_ref()) == "TerminationTime" => {
+                let v = non_empty(read_text(&mut reader));
+                if v.is_some() {
+                    return v;
                 }
             }
             Ok(Event::Eof) | Err(_) => break,
@@ -559,15 +556,11 @@ fn read_text(reader: &mut Reader<&[u8]>) -> String {
     let mut out = String::new();
     loop {
         match reader.read_event() {
-            Ok(Event::Text(t)) => {
-                if depth == 0 {
-                    out.push_str(&t.unescape().unwrap_or_default());
-                }
+            Ok(Event::Text(t)) if depth == 0 => {
+                out.push_str(&t.unescape().unwrap_or_default());
             }
-            Ok(Event::CData(t)) => {
-                if depth == 0 {
-                    out.push_str(&String::from_utf8_lossy(t.as_ref()));
-                }
+            Ok(Event::CData(t)) if depth == 0 => {
+                out.push_str(&String::from_utf8_lossy(t.as_ref()));
             }
             Ok(Event::Start(_)) => depth += 1,
             Ok(Event::End(_)) => {

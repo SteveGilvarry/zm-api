@@ -282,10 +282,11 @@ fn apply_text(m: &mut ProbeMatch, stack: &[String], text: &str) {
     };
     match local {
         // The endpoint reference address lives under `EndpointReference`.
-        "Address" => {
-            if stack.iter().any(|s| s == "EndpointReference") && m.endpoint_reference.is_empty() {
-                m.endpoint_reference = text.trim().to_string();
-            }
+        "Address"
+            if stack.iter().any(|s| s == "EndpointReference")
+                && m.endpoint_reference.is_empty() =>
+        {
+            m.endpoint_reference = text.trim().to_string();
         }
         // XAddrs is a space-separated list of transport URLs.
         "XAddrs" => {

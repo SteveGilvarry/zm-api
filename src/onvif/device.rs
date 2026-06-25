@@ -267,15 +267,11 @@ fn read_text(reader: &mut Reader<&[u8]>) -> String {
     let mut out = String::new();
     loop {
         match reader.read_event() {
-            Ok(Event::Text(t)) => {
-                if depth == 0 {
-                    out.push_str(&t.unescape().unwrap_or_default());
-                }
+            Ok(Event::Text(t)) if depth == 0 => {
+                out.push_str(&t.unescape().unwrap_or_default());
             }
-            Ok(Event::CData(t)) => {
-                if depth == 0 {
-                    out.push_str(&String::from_utf8_lossy(t.as_ref()));
-                }
+            Ok(Event::CData(t)) if depth == 0 => {
+                out.push_str(&String::from_utf8_lossy(t.as_ref()));
             }
             Ok(Event::Start(_)) => depth += 1,
             Ok(Event::End(_)) => {
@@ -413,11 +409,9 @@ fn parse_services(xml: &str) -> OnvifResult<Vec<Service>> {
                     _ => {}
                 }
             }
-            Ok(Event::End(e)) => {
-                if local_name(e.name().as_ref()) == "Service" {
-                    if let Some(s) = current.take() {
-                        services.push(s);
-                    }
+            Ok(Event::End(e)) if local_name(e.name().as_ref()) == "Service" => {
+                if let Some(s) = current.take() {
+                    services.push(s);
                 }
             }
             Ok(Event::Eof) => break,

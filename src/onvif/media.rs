@@ -338,16 +338,12 @@ fn assign_profile_field(p: &mut MediaProfile, stack: &[String], local: &str, tex
     match local {
         // `<Name>` directly inside the profile (not inside a nested config's
         // own Name). We only take it when its parent is the profile element.
-        "Name" if parent_is(stack, &["Profiles", "Profile"]) => {
-            if p.name.is_none() {
-                p.name = Some(text.to_string());
-            }
+        "Name" if parent_is(stack, &["Profiles", "Profile"]) && p.name.is_none() => {
+            p.name = Some(text.to_string());
         }
         // `<Encoding>` inside a VideoEncoderConfiguration.
-        "Encoding" if ancestor_is(stack, "VideoEncoderConfiguration") => {
-            if p.encoding.is_none() {
-                p.encoding = Some(text.to_string());
-            }
+        "Encoding" if ancestor_is(stack, "VideoEncoderConfiguration") && p.encoding.is_none() => {
+            p.encoding = Some(text.to_string());
         }
         // `<Width>` / `<Height>` inside a Resolution (which itself is inside the
         // VideoEncoderConfiguration). Guard on the Resolution ancestor so we
@@ -405,11 +401,9 @@ fn parse_media_uri(xml: &str) -> OnvifResult<MediaUri> {
                     // ignore whitespace
                 } else if let Some(local) = stack.last() {
                     match local.as_str() {
-                        "Uri" => {
-                            if !found_uri {
-                                out.uri = text;
-                                found_uri = true;
-                            }
+                        "Uri" if !found_uri => {
+                            out.uri = text;
+                            found_uri = true;
                         }
                         "InvalidAfterConnect" => {
                             out.invalid_after_connect = parse_bool(&text);

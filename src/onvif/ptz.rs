@@ -373,15 +373,11 @@ fn read_text(reader: &mut Reader<&[u8]>) -> String {
     let mut out = String::new();
     loop {
         match reader.read_event() {
-            Ok(Event::Text(t)) => {
-                if depth == 0 {
-                    out.push_str(&t.unescape().unwrap_or_default());
-                }
+            Ok(Event::Text(t)) if depth == 0 => {
+                out.push_str(&t.unescape().unwrap_or_default());
             }
-            Ok(Event::CData(t)) => {
-                if depth == 0 {
-                    out.push_str(&String::from_utf8_lossy(t.as_ref()));
-                }
+            Ok(Event::CData(t)) if depth == 0 => {
+                out.push_str(&String::from_utf8_lossy(t.as_ref()));
             }
             Ok(Event::Start(_)) => depth += 1,
             Ok(Event::End(_)) => {
@@ -569,19 +565,15 @@ fn parse_configurations(xml: &str) -> OnvifResult<Vec<PtzConfiguration>> {
             }
             // Empty-element form `<PTZConfiguration token="..."/>` arrives as a
             // single `Empty` event (no separate Start/End). Capture it in full.
-            Ok(Event::Empty(e)) => {
-                if local_name(e.name().as_ref()) == "PTZConfiguration" {
-                    configs.push(PtzConfiguration {
-                        token: attr_str(&e, "token"),
-                        ..Default::default()
-                    });
-                }
+            Ok(Event::Empty(e)) if local_name(e.name().as_ref()) == "PTZConfiguration" => {
+                configs.push(PtzConfiguration {
+                    token: attr_str(&e, "token"),
+                    ..Default::default()
+                });
             }
-            Ok(Event::End(e)) => {
-                if local_name(e.name().as_ref()) == "PTZConfiguration" {
-                    if let Some(c) = current.take() {
-                        configs.push(c);
-                    }
+            Ok(Event::End(e)) if local_name(e.name().as_ref()) == "PTZConfiguration" => {
+                if let Some(c) = current.take() {
+                    configs.push(c);
                 }
             }
             Ok(Event::Eof) => break,
