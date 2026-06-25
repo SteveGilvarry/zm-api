@@ -3,8 +3,9 @@
 //! **Anti-recompute rule:** this module never decodes the source clip or re-runs
 //! detection. Every pixel comes from the pre-rendered cutout/plate JPEGs the
 //! manifest references. It only does compositing — drawing premultiplied cutouts
-//! over a time-appropriate background plate, using the per-sample mask (polygon
-//! or RLE) for a clean alpha edge.
+//! over a time-appropriate background plate, using the per-sample mask — a soft
+//! per-pixel `alpha` matte by default, else a `polygon`/`rle` fallback — for a
+//! clean alpha edge.
 //!
 //! The P1 "composite still" stamps one representative cutout per tube onto a
 //! single plate; the P3 video renderer reuses [`composite_cutout`] /
@@ -89,6 +90,11 @@ pub fn build_plate_canvas(
 pub fn rasterize_mask(mask: Option<&Mask>, bbox: [i32; 4], cw: u32, ch: u32) -> Vec<f32> {
     let (cw, ch) = (cw as usize, ch as usize);
     match mask {
+        // Soft per-pixel matte (the default from detect_seg): base64 of a `w*h`
+        // 8-bit bbox-local buffer, bilinearly stretched to the cutout size.
+        Some(Mask::Alpha { w, h, data }) => {
+            decode_soft_alpha(data, *w as usize, *h as usize, cw, ch)
+        }
         Some(Mask::Polygon { points }) if points.len() >= 3 => {
             // Polygon points are in source coords; shift to cutout-local.
             let local: Vec<[f32; 2]> = points
@@ -103,6 +109,47 @@ pub fn rasterize_mask(mask: Option<&Mask>, bbox: [i32; 4], cw: u32, ch: u32) -> 
         // Mismatched RLE dims, polygon too small, Unknown, or absent → no mask.
         _ => Vec::new(),
     }
+}
+
+/// Decode a soft-alpha mask: base64 → a `sw × sh` 8-bit buffer, bilinearly
+/// upsampled to a `cw × ch` `[0,1]` alpha buffer. Empty (→ luma-key fallback) on
+/// any malformation, so a bad mask never poisons the render.
+fn decode_soft_alpha(data: &str, sw: usize, sh: usize, cw: usize, ch: usize) -> Vec<f32> {
+    use base64::Engine as _;
+    if sw == 0 || sh == 0 || cw == 0 || ch == 0 {
+        return Vec::new();
+    }
+    let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data.as_bytes()) else {
+        return Vec::new();
+    };
+    if bytes.len() < sw * sh {
+        return Vec::new();
+    }
+    let mut out = vec![0.0f32; cw * ch];
+    let sample = |x: usize, y: usize| bytes[y.min(sh - 1) * sw + x.min(sw - 1)] as f32;
+    for (y, row) in out.chunks_mut(cw).enumerate() {
+        // Map dest pixel centre back into source space (clamped bilinear).
+        let fy = if ch > 1 {
+            y as f32 * (sh - 1) as f32 / (ch - 1) as f32
+        } else {
+            0.0
+        };
+        let y0 = fy.floor() as usize;
+        let dy = fy - y0 as f32;
+        for (x, px) in row.iter_mut().enumerate() {
+            let fx = if cw > 1 {
+                x as f32 * (sw - 1) as f32 / (cw - 1) as f32
+            } else {
+                0.0
+            };
+            let x0 = fx.floor() as usize;
+            let dx = fx - x0 as f32;
+            let top = sample(x0, y0) + (sample(x0 + 1, y0) - sample(x0, y0)) * dx;
+            let bot = sample(x0, y0 + 1) + (sample(x0 + 1, y0 + 1) - sample(x0, y0 + 1)) * dx;
+            *px = ((top + (bot - top) * dy) / 255.0).clamp(0.0, 1.0);
+        }
+    }
+    out
 }
 
 /// Even-odd scanline polygon fill → a `cw × ch` alpha buffer (1.0 inside).
@@ -443,6 +490,28 @@ mod tests {
         assert_eq!(safe_asset_path(base, "../../etc/passwd"), None);
         assert_eq!(safe_asset_path(base, "/etc/passwd"), None);
         assert_eq!(safe_asset_path(base, ""), None);
+    }
+
+    #[test]
+    fn soft_alpha_decodes_and_bilinearly_upsamples() {
+        use base64::Engine as _;
+        // 2x2 source matte: TL=0, TR=255, BL=255, BR=0.
+        let data = base64::engine::general_purpose::STANDARD.encode([0u8, 255, 255, 0]);
+        let mask = Mask::Alpha { w: 2, h: 2, data };
+        let a = rasterize_mask(Some(&mask), [0, 0, 4, 4], 4, 4);
+        assert_eq!(a.len(), 16);
+        assert!((a[0] - 0.0).abs() < 1e-6, "top-left ≈ 0");
+        assert!((a[3] - 1.0).abs() < 1e-6, "top-right ≈ 1");
+        assert!((a[12] - 1.0).abs() < 1e-6, "bottom-left ≈ 1");
+        assert!((a[15] - 0.0).abs() < 1e-6, "bottom-right ≈ 0");
+
+        // Malformed base64 → empty (caller luma-keys the premultiplied cutout).
+        let bad = Mask::Alpha {
+            w: 2,
+            h: 2,
+            data: "!!!not base64!!!".to_string(),
+        };
+        assert!(rasterize_mask(Some(&bad), [0, 0, 4, 4], 4, 4).is_empty());
     }
 
     #[test]

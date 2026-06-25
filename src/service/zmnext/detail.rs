@@ -280,11 +280,27 @@ pub struct TubeSample {
     pub mask: Option<Mask>,
 }
 
-/// A per-sample alpha mask. `polygon` points are in **source** coords (offset by
-/// `bbox`); `rle` counts are **bbox-local**.
+/// A per-sample alpha mask.
+///
+/// * `alpha` (default, from `detect_seg`'s `emit_soft_mask`): a soft per-pixel
+///   matte — base64 of a `w*h` row-major 8-bit buffer, **bbox-local**, bilinearly
+///   stretched across the cutout to get the compositing alpha. Rides compactly in
+///   the manifest (≤~4 KB/object); there is no separate alpha image file.
+/// * `polygon` (fallback): points in **source** coords (offset by `bbox`),
+///   rasterised inside the cutout for a hard alpha.
+/// * `rle`: counts are **bbox-local**.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "format", rename_all = "lowercase")]
 pub enum Mask {
+    Alpha {
+        #[serde(default)]
+        w: u32,
+        #[serde(default)]
+        h: u32,
+        /// base64 of a `w*h` row-major 8-bit alpha buffer (bbox-local).
+        #[serde(default)]
+        data: String,
+    },
     Polygon {
         #[serde(default)]
         points: Vec<[f32; 2]>,
@@ -488,6 +504,21 @@ mod tests {
         let m = TubeManifest::parse(json).unwrap();
         assert_eq!(m.assigned_event_id(), None);
         assert_eq!(m.clip_token, "tok-1");
+    }
+
+    #[test]
+    fn manifest_parses_soft_alpha_mask() {
+        // base64("AP//AA==") = [0x00, 0xFF, 0xFF, 0x00] — the default P4 matte.
+        let json = r#"{"type":"review_assets","tubes":[{"samples":[
+            {"mask":{"format":"alpha","w":2,"h":2,"data":"AP//AA=="}}]}]}"#;
+        let m = TubeManifest::parse(json).unwrap();
+        match m.tubes[0].samples[0].mask.as_ref().unwrap() {
+            Mask::Alpha { w, h, data } => {
+                assert_eq!((*w, *h), (2, 2));
+                assert_eq!(data, "AP//AA==");
+            }
+            other => panic!("expected alpha, got {other:?}"),
+        }
     }
 
     #[test]

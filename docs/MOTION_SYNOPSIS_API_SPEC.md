@@ -86,18 +86,23 @@ The discriminator is **`type`** (matches `WorkerLink::map_event_code`, which swi
           "bbox": [840,120,96,220],            // source coords
           "cutout": "t17/000001.jpg",          // premultiplied RGB JPEG, relative to path_base
           "cutout_w": 96, "cutout_h": 220,
-          "mask": { "format": "polygon", "points": [[x,y], …] }  // source coords
-          //  or  { "format": "rle", "w": 96, "h": 220, "counts": [..] }  // bbox-local
+          "mask": { "format": "alpha", "w": 28, "h": 64, "data": "<base64 8-bit, bbox-local>" }
+          //  DEFAULT: soft per-pixel alpha (detect_seg emit_soft_mask). base64 of a w*h row-major
+          //  8-bit buffer; bilinearly stretch w×h across the cutout to get the compositing alpha.
+          //  FALLBACK: { "format": "polygon", "points": [[x,y], …] } (source coords) when the
+          //  soft mask is unavailable — rasterise inside the cutout for a hard alpha.
         }
       ] }
   ]
 }
 ```
-Renderer notes: cutouts are **premultiplied JPEGs** (background → black), so `mask` is only needed
-for a clean alpha edge — rasterise the polygon (source coords, offset by `bbox`) or decode the RLE
-(bbox-local) to per-pixel alpha. There is **no separate alpha image and no WebP** — true alpha is
-a P4 upgrade (zm-next will then write a soft-mask side file). Plate `w/h` differ from
-`source_w/h` — **rescale the plate to `source_w × source_h`** before compositing. Resolve all
+Renderer notes: cutouts are **premultiplied JPEGs** (background → black). For the compositing alpha,
+prefer the **soft alpha** (`mask.format=="alpha"`: base64-decode the `w*h` 8-bit buffer and
+bilinearly stretch it across the cutout — this is the true per-pixel matte from detect_seg,
+implemented); fall back to rasterising the **polygon** (source coords, offset by `bbox`) for a hard
+alpha when only that is present. There is **no separate alpha image file and no WebP** — the soft
+alpha rides compactly in the manifest. Plate `w/h` differ from `source_w/h` — **rescale the plate to
+`source_w × source_h`** before compositing. Resolve all
 relative paths under the event dir and **reject `..`** exactly like `resolve_event_storage_path`
 (`src/handlers/events_playback.rs:231-259`).
 
