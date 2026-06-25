@@ -7,6 +7,7 @@ use webrtc::api::APIBuilder;
 use webrtc::api::API;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::ice_transport::ice_server::RTCIceServer;
+use webrtc::peer_connection::certificate::RTCCertificate;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 use webrtc::peer_connection::RTCPeerConnection;
@@ -24,6 +25,12 @@ pub struct WebRtcEngine {
     #[allow(dead_code)]
     config: WebRtcConfig,
     ice_servers: Vec<RTCIceServer>,
+    /// One self-signed DTLS certificate, generated once and reused for every
+    /// peer connection. Generating a fresh cert per session (the webrtc-rs
+    /// default when `RTCConfiguration.certificates` is empty) added avoidable
+    /// startup latency; the browser never validates it — only the SDP
+    /// fingerprint must match, which the crate derives from this cert.
+    certificate: RTCCertificate,
 }
 
 /// Parameters for creating a new peer connection
@@ -55,6 +62,8 @@ pub enum EngineError {
     AddIceCandidate(String),
     #[error("Invalid SDP: {0}")]
     InvalidSdp(String),
+    #[error("Failed to generate DTLS certificate: {0}")]
+    Certificate(String),
 }
 
 impl WebRtcEngine {
@@ -91,10 +100,18 @@ impl WebRtcEngine {
         // Parse ICE servers from config
         let ice_servers = Self::parse_ice_servers(&config)?;
 
+        // Generate one self-signed DTLS certificate up front and reuse it for
+        // every peer connection (see the field doc). Default keypair is ECDSA
+        // P-256 — cheap, and now off the per-session startup path entirely.
+        let key_pair = rcgen::KeyPair::generate()
+            .map_err(|e| EngineError::Certificate(format!("keypair: {e}")))?;
+        let certificate = RTCCertificate::from_key_pair(key_pair)
+            .map_err(|e| EngineError::Certificate(e.to_string()))?;
+
         tracing::info!(
             stun_servers = ?config.stun_servers,
             turn_enabled = config.turn.as_ref().map(|t| t.enabled).unwrap_or(false),
-            "WebRTC engine initialized with {} ICE servers",
+            "WebRTC engine initialized with {} ICE servers and a shared DTLS certificate",
             ice_servers.len()
         );
 
@@ -102,6 +119,7 @@ impl WebRtcEngine {
             api,
             config,
             ice_servers,
+            certificate,
         })
     }
 
@@ -149,9 +167,12 @@ impl WebRtcEngine {
             "Creating peer connection"
         );
 
-        // Create RTCConfiguration
+        // Create RTCConfiguration. Reusing a pre-generated certificate skips the
+        // per-session DTLS keypair/cert generation that webrtc-rs performs when
+        // `certificates` is left empty.
         let rtc_config = RTCConfiguration {
             ice_servers: self.ice_servers.clone(),
+            certificates: vec![self.certificate.clone()],
             ..Default::default()
         };
 
@@ -512,5 +533,53 @@ mod tests {
         let config = WebRtcConfig::default();
         let result = WebRtcEngine::new(config);
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn reuses_dtls_certificate_across_peer_connections() {
+        // Two peer connections from the same engine must advertise the *same*
+        // DTLS fingerprint — proof they share the one cached certificate rather
+        // than each generating its own.
+        let engine = WebRtcEngine::new(WebRtcConfig::default()).expect("engine");
+        let pc1 = engine
+            .create_peer_connection(PeerConnectionParams {
+                monitor_id: 1,
+                enable_audio: false,
+            })
+            .await
+            .expect("pc1");
+        let pc2 = engine
+            .create_peer_connection(PeerConnectionParams {
+                monitor_id: 2,
+                enable_audio: false,
+            })
+            .await
+            .expect("pc2");
+
+        let offer1 = engine
+            .create_offer(&pc1.peer_connection)
+            .await
+            .expect("offer1");
+        let offer2 = engine
+            .create_offer(&pc2.peer_connection)
+            .await
+            .expect("offer2");
+
+        let fingerprint = |sdp: &str| -> Option<String> {
+            sdp.lines()
+                .map(str::trim)
+                .find(|l| l.starts_with("a=fingerprint:"))
+                .map(str::to_string)
+        };
+        let f1 = fingerprint(&offer1);
+        assert!(f1.is_some(), "offer must carry a DTLS fingerprint");
+        assert_eq!(
+            f1,
+            fingerprint(&offer2),
+            "both peer connections must share the cached certificate's fingerprint"
+        );
+
+        let _ = pc1.peer_connection.close().await;
+        let _ = pc2.peer_connection.close().await;
     }
 }

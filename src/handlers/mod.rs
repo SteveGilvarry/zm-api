@@ -45,3 +45,4 @@ pub mod events_playback;
 pub mod live;
 pub mod monitor;
 pub mod server;
+pub mod synopsis;

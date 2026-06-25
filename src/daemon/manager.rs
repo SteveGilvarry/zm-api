@@ -35,6 +35,8 @@ use crate::service::zmnext::pipeline;
 struct ZmNextRuntime {
     config: ZmNextConfig,
     socks_path: String,
+    /// Monitor ids whose pipeline emits motion-synopsis ingredients.
+    synopsis_monitors: std::collections::HashSet<u32>,
 }
 
 /// Internal command for the daemon manager.
@@ -106,9 +108,18 @@ impl DaemonManager {
     /// `[zmnext].enabled` is set; `socks_path` is the streaming stream-socket
     /// directory used to build each worker's `--socket` path. A disabled config
     /// is ignored, keeping every monitor on legacy zmc/zma.
-    pub fn set_zmnext(&mut self, config: ZmNextConfig, socks_path: String) {
+    pub fn set_zmnext(
+        &mut self,
+        config: ZmNextConfig,
+        socks_path: String,
+        synopsis_monitors: std::collections::HashSet<u32>,
+    ) {
         if config.enabled {
-            self.zmnext = Some(Arc::new(ZmNextRuntime { config, socks_path }));
+            self.zmnext = Some(Arc::new(ZmNextRuntime {
+                config,
+                socks_path,
+                synopsis_monitors,
+            }));
         }
     }
 
@@ -1756,6 +1767,7 @@ impl DaemonManager {
         let source_url = monitor.path.clone().unwrap_or_default();
         let mode = pipeline::StoreMode::from_function(&monitor.function);
 
+        let synopsis = rt.synopsis_monitors.contains(&monitor_id);
         let value = pipeline::generate_pipeline(
             monitor_id,
             &source_url,
@@ -1763,6 +1775,7 @@ impl DaemonManager {
             &rt.config.pipeline,
             mode,
             &events_root,
+            synopsis,
         );
         pipeline::write_pipeline_file(&rt.config.pipeline.dir, monitor_id, &value).map_err(|e| {
             crate::error::AppError::InternalServerError(format!(

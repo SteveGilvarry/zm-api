@@ -55,6 +55,17 @@ impl ControlReply {
         }
     }
 
+    /// A reply handle with no live connection behind it: every send is dropped
+    /// (returns `false`). Models a genuinely one-way EVENT (e.g. `review_assets`,
+    /// which never replies) and lets ingest be driven in tests without a socket.
+    pub fn detached() -> Self {
+        // The receiver is dropped immediately, so `try_send` always errors and
+        // `send_command_json` reports `false` — exactly the "connection gone"
+        // best-effort semantics.
+        let (tx, _rx) = mpsc::channel(1);
+        Self::new(tx)
+    }
+
     /// Queue a `0x11 Command` with a JSON payload for the worker. Returns
     /// whether it was queued (false ⇒ connection gone / queue full).
     pub fn send_command_json(&self, json: &str) -> bool {
@@ -425,6 +436,21 @@ pub struct SourceRouter {
     /// `try_send`, so a slow/backed-up ingest never stalls the media reader).
     /// `None` means events are simply not ingested (e.g. tests, or DB absent).
     event_sink: Option<mpsc::Sender<MonitorEventEnvelope>>,
+    /// Most-recent WebRTC startup timing per monitor, recorded by the signaling
+    /// handler and surfaced on `/live/{id}/stats` to confirm cold-vs-warm.
+    webrtc_startup: DashMap<u32, WebRtcStartupTiming>,
+}
+
+/// Server-side WebRTC startup profile for a monitor's most recent session.
+#[derive(Debug, Clone, Default)]
+pub struct WebRtcStartupTiming {
+    /// WS connect → SDP offer sent, milliseconds.
+    pub offer_ms: Option<u64>,
+    /// WS connect → first video RTP written to the track, milliseconds.
+    pub first_rtp_ms: Option<u64>,
+    /// Whether the keyframe cache was warm at connect (no cold codec detect, and
+    /// a keyframe ready to inject).
+    pub warm_start: bool,
 }
 
 impl SourceRouter {
@@ -439,6 +465,7 @@ impl SourceRouter {
             active_sources: DashMap::new(),
             config,
             event_sink: None,
+            webrtc_startup: DashMap::new(),
         }
     }
 
@@ -801,6 +828,84 @@ impl SourceRouter {
         stream_socket_path(&self.config.zoneminder, monitor_id).exists()
     }
 
+    /// Record the WS-connect → offer-sent time for a monitor's WebRTC session,
+    /// starting a fresh startup profile (the previous `first_rtp_ms` is cleared).
+    pub fn record_webrtc_offer(&self, monitor_id: u32, offer_ms: u64, warm_start: bool) {
+        self.webrtc_startup.insert(
+            monitor_id,
+            WebRtcStartupTiming {
+                offer_ms: Some(offer_ms),
+                first_rtp_ms: None,
+                warm_start,
+            },
+        );
+    }
+
+    /// Record the WS-connect → first-video-RTP time (only the first per session).
+    pub fn record_webrtc_first_rtp(&self, monitor_id: u32, first_rtp_ms: u64) {
+        if let Some(mut t) = self.webrtc_startup.get_mut(&monitor_id) {
+            if t.first_rtp_ms.is_none() {
+                t.first_rtp_ms = Some(first_rtp_ms);
+            }
+        }
+    }
+
+    /// The most-recent WebRTC startup profile for a monitor, if any.
+    pub fn webrtc_startup(&self, monitor_id: u32) -> Option<WebRtcStartupTiming> {
+        self.webrtc_startup.get(&monitor_id).map(|t| t.clone())
+    }
+
+    /// Ensure a monitor's reader is running, creating the source if needed.
+    /// Idempotent; skips silently when the socket isn't present yet. Returns
+    /// whether the reader is now (or already was) being kept warm.
+    pub async fn ensure_warm(&self, monitor_id: u32) -> bool {
+        if !self.is_available(monitor_id) {
+            debug!("prewarm: monitor {monitor_id} socket not present yet; will retry");
+            return false;
+        }
+        if let Err(e) = self.create_source(monitor_id).await {
+            warn!("prewarm: create_source({monitor_id}) failed: {e}");
+            return false;
+        }
+        if let Err(e) = self.start_reader(monitor_id).await {
+            warn!("prewarm: start_reader({monitor_id}) failed: {e}");
+            return false;
+        }
+        true
+    }
+
+    /// Spawn the warm-keeper: every `interval` it re-ensures each monitor in
+    /// `monitors` has a live reader (restarting any stopped by the HLS reaper or
+    /// a crash, and starting them once their socket appears). This keeps the
+    /// keyframe cache hot so the first viewer skips cold spin-up. A `Weak` ref
+    /// lets the task exit when the router is dropped. No-op when the list is
+    /// empty or `interval` is zero.
+    pub fn spawn_prewarm_task(self: &Arc<Self>, monitors: Vec<u32>, interval: Duration) {
+        if monitors.is_empty() || interval.is_zero() {
+            info!("source pre-warming disabled");
+            return;
+        }
+        info!(
+            "source pre-warming enabled for monitors {:?} (every {:?})",
+            monitors, interval
+        );
+        let weak = Arc::downgrade(self);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                ticker.tick().await;
+                let Some(router) = weak.upgrade() else { break };
+                for &monitor_id in &monitors {
+                    router.ensure_warm(monitor_id).await;
+                }
+                // Release the strong ref before sleeping so it never pins the
+                // router across the interval.
+                drop(router);
+            }
+        });
+    }
+
     /// Get the list of active monitor IDs
     pub fn active_monitor_ids(&self) -> Vec<u32> {
         self.active_sources
@@ -908,6 +1013,31 @@ mod tests {
         // This will return false for a non-existent monitor
         // since the stream socket won't exist
         assert!(!router.is_available(99999));
+    }
+
+    #[test]
+    fn webrtc_startup_timing_records_offer_then_first_rtp() {
+        let router = SourceRouter::new();
+        assert!(router.webrtc_startup(3).is_none(), "no session yet");
+
+        // A new session records the offer time and warm flag, clearing first-rtp.
+        router.record_webrtc_offer(3, 120, true);
+        let t = router.webrtc_startup(3).unwrap();
+        assert_eq!(t.offer_ms, Some(120));
+        assert_eq!(t.first_rtp_ms, None);
+        assert!(t.warm_start);
+
+        // First RTP is recorded once; later writes don't overwrite it.
+        router.record_webrtc_first_rtp(3, 350);
+        router.record_webrtc_first_rtp(3, 999);
+        assert_eq!(router.webrtc_startup(3).unwrap().first_rtp_ms, Some(350));
+
+        // A fresh session resets the profile (new offer clears first-rtp).
+        router.record_webrtc_offer(3, 80, false);
+        let t = router.webrtc_startup(3).unwrap();
+        assert_eq!(t.offer_ms, Some(80));
+        assert_eq!(t.first_rtp_ms, None);
+        assert!(!t.warm_start);
     }
 
     #[test]
@@ -1200,6 +1330,43 @@ mod tests {
         await_active(&router, 7, true).await;
 
         let _ = router.stop_reader(7).await;
+        server.abort();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn ensure_warm_starts_reader_only_when_socket_present() {
+        let dir = test_sock_dir("router_ensure_warm");
+        let router = SourceRouter::from_zoneminder_config(test_zm_config(&dir));
+
+        // No socket yet → warming is a no-op (the camera/zmc isn't up).
+        assert!(
+            !router.ensure_warm(7).await,
+            "no socket present → not warmed"
+        );
+
+        // Socket appears → warming starts the reader, and is idempotent.
+        let server = spawn_fake_zmc(dir.join("stream_7.sock"), connect_script(false), false);
+        assert!(router.ensure_warm(7).await, "socket present → warmed");
+        await_active(&router, 7, true).await;
+        assert!(router.ensure_warm(7).await, "second call keeps it warm");
+
+        let _ = router.stop_reader(7).await;
+        server.abort();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn prewarm_task_brings_reader_up() {
+        let dir = test_sock_dir("router_prewarm_task");
+        let server = spawn_fake_zmc(dir.join("stream_5.sock"), connect_script(false), false);
+        let router = Arc::new(SourceRouter::from_zoneminder_config(test_zm_config(&dir)));
+
+        // The warm-keeper's first tick fires immediately and starts the reader.
+        router.spawn_prewarm_task(vec![5], Duration::from_millis(50));
+        await_active(&router, 5, true).await;
+
+        let _ = router.stop_reader(5).await;
         server.abort();
         let _ = std::fs::remove_dir_all(&dir);
     }

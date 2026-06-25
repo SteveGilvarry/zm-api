@@ -8,14 +8,17 @@
 
 pub use sea_orm_migration::prelude::*;
 
+mod m20260625_000001_create_event_synopsis;
+
 pub struct Migrator;
 
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
         vec![
-            // No zm_api-specific migrations yet.
-            // ZoneMinder's schema is created/managed by ZoneMinder itself.
+            // zm_api-owned tables only. ZoneMinder's own schema is created and
+            // managed by ZoneMinder itself — never migrated from here.
+            Box::new(m20260625_000001_create_event_synopsis::Migration),
         ]
     }
 }

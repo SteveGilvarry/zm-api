@@ -8,7 +8,7 @@
 
 use axum::{routing::get, Router};
 
-use crate::handlers::events_playback;
+use crate::handlers::{events_playback, synopsis};
 use crate::server::state::AppState;
 use crate::util::middleware::media_auth_middleware;
 
@@ -60,6 +60,37 @@ pub fn add_events_playback_routes(router: Router<AppState>) -> Router<AppState> 
         .route(
             "/api/v3/events/{id}/info",
             get(events_playback::get_event_info)
+                .route_layer(axum::middleware::from_fn(media_auth_middleware)),
+        )
+        // Motion synopsis — glanceable composite still (P1).
+        .route(
+            "/api/v3/events/{id}/synopsis/review",
+            get(synopsis::get_event_synopsis_review)
+                .route_layer(axum::middleware::from_fn(media_auth_middleware)),
+        )
+        // Motion synopsis — temporal layout preview (P2).
+        .route(
+            "/api/v3/events/{id}/synopsis/layout",
+            get(synopsis::get_event_synopsis_layout)
+                .route_layer(axum::middleware::from_fn(media_auth_middleware)),
+        )
+        // Motion synopsis — request/poll the rendered mp4 (P3).
+        .route(
+            "/api/v3/events/{id}/synopsis",
+            get(synopsis::get_event_synopsis)
+                .route_layer(axum::middleware::from_fn(media_auth_middleware)),
+        )
+        // Motion synopsis — stream the rendered mp4 (P3).
+        .route(
+            "/api/v3/events/{id}/synopsis/mp4",
+            get(synopsis::get_event_synopsis_mp4)
+                .route_layer(axum::middleware::from_fn(media_auth_middleware)),
+        )
+        // Motion synopsis — range/overview montage across events (P4). The static
+        // `synopsis` segment sits alongside the `{id}` routes above.
+        .route(
+            "/api/v3/events/synopsis",
+            get(synopsis::get_range_synopsis)
                 .route_layer(axum::middleware::from_fn(media_auth_middleware)),
         )
 }

@@ -29,19 +29,21 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use rust_decimal::Decimal;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
 use super::detail::{
-    DescriptionDetail, DetectionDetail, RecordingOpeningDetail, RecordingSavedDetail,
+    DescriptionDetail, DetectionDetail, RecordingOpeningDetail, RecordingSavedDetail, TubeManifest,
 };
+use crate::configure::synopsis::SynopsisConfig;
 use crate::configure::zmnext::IngestConfig;
-use crate::entity::sea_orm_active_enums::{FrameType, Scheme};
-use crate::entity::{events, frames, monitors, storage};
+use crate::entity::sea_orm_active_enums::{FrameType, Scheme, SynopsisStatus};
+use crate::entity::{event_synopsis, events, frames, monitors, storage};
 use crate::error::AppResult;
+use crate::repo;
 use crate::streaming::source::{protocol, MonitorEvent, MonitorEventEnvelope};
 
 /// In-memory aggregate for the event currently open on a monitor.
@@ -97,19 +99,27 @@ struct MonitorDims {
     storage_path: Option<String>,
 }
 
-/// Consumes [`MonitorEventEnvelope`]s and writes Events/Frames rows.
+/// Consumes [`MonitorEventEnvelope`]s and writes Events/Frames rows (and, for
+/// `review_assets`, `event_synopsis` rows).
 pub struct EventIngestor {
     db: Arc<DatabaseConnection>,
     config: IngestConfig,
+    /// Synopsis config — used for the `review_assets` retention window.
+    synopsis: SynopsisConfig,
     open: HashMap<u32, OpenEvent>,
     dims: HashMap<u32, MonitorDims>,
 }
 
 impl EventIngestor {
-    pub fn new(db: Arc<DatabaseConnection>, config: IngestConfig) -> Self {
+    pub fn new(
+        db: Arc<DatabaseConnection>,
+        config: IngestConfig,
+        synopsis: SynopsisConfig,
+    ) -> Self {
         Self {
             db,
             config,
+            synopsis,
             open: HashMap::new(),
             dims: HashMap::new(),
         }
@@ -141,6 +151,11 @@ impl EventIngestor {
             }
             protocol::EVENT_RECORDING_SAVED => {
                 self.handle_recording_saved(monitor_id, &env.event).await
+            }
+            // Motion-synopsis ingredients announced. One-way: no ControlReply
+            // (unlike recording_opening's assign handshake).
+            protocol::EVENT_REVIEW_ASSETS => {
+                self.handle_review_assets(monitor_id, &env.event).await
             }
             // Lifecycle codes: an explicit return to a non-recording state ends
             // any open session; the rest are advisory and just logged.
@@ -344,6 +359,124 @@ impl EventIngestor {
             detail.duration.unwrap_or(0.0)
         );
         self.open.remove(&monitor_id);
+        Ok(())
+    }
+
+    /// Persist (or refresh) the `event_synopsis` row for a `review_assets`
+    /// (0x0306) manifest. One-way: no `ControlReply`. Keyed by the reconciled
+    /// `event_id` when present, else by `(monitor_id, clip_token)`. Re-arriving
+    /// manifests reset the row to `pending` so a stale render is re-done.
+    async fn handle_review_assets(&mut self, monitor_id: u32, ev: &MonitorEvent) -> AppResult<()> {
+        // zm-next guarantees the manifest rides TLV 0x10 (json_detail). An empty
+        // payload means the zm-next side regressed — fail loudly, don't drop it.
+        let Some(json) = ev.json_detail.as_deref() else {
+            warn!(
+                "zm-next ingest: monitor {monitor_id} review_assets (0x0306) had empty \
+                 json_detail — the manifest must ride TLV 0x10; zm-next regressed"
+            );
+            return Ok(());
+        };
+
+        let manifest = match TubeManifest::parse(json) {
+            Ok(m) if m.is_review_assets() => m,
+            Ok(m) => {
+                warn!(
+                    "zm-next ingest: monitor {monitor_id} review_assets had unexpected type {:?}; \
+                     ignoring",
+                    m.kind
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                warn!(
+                    "zm-next ingest: monitor {monitor_id} review_assets manifest parse failed: {e}"
+                );
+                return Ok(());
+            }
+        };
+
+        // Resolve the asset directory (relative → under the clip dir) and reject
+        // any `..` traversal exactly like the playback path resolver does.
+        let Some(asset_dir) = manifest.asset_dir() else {
+            warn!(
+                "zm-next ingest: monitor {monitor_id} review_assets has no resolvable asset dir \
+                 (path_base={:?}, clip_path={:?}); skipping",
+                manifest.path_base, manifest.clip_path
+            );
+            return Ok(());
+        };
+        let asset_dir = asset_dir.to_string_lossy().into_owned();
+        if crate::util::path::contains_traversal(&asset_dir) {
+            warn!("zm-next ingest: monitor {monitor_id} review_assets asset dir has '..' traversal: {asset_dir:?}");
+            return Ok(());
+        }
+
+        let event_id = manifest.assigned_event_id();
+        let clip_token = manifest.clip_token.clone();
+        let tube_count = manifest.tubes.len() as u32;
+        let now = Utc::now().naive_utc();
+        let expires_at = (self.synopsis.retention_days > 0)
+            .then(|| now + Duration::days(self.synopsis.retention_days as i64));
+
+        // Locate an existing row: the (monitor, clip_token) key is stable across
+        // the handshake; fall back to event_id when no token was sent.
+        let existing = if !clip_token.is_empty() {
+            repo::event_synopsis::find_by_monitor_clip(&self.db, monitor_id, &clip_token).await?
+        } else if let Some(eid) = event_id {
+            repo::event_synopsis::find_by_event_id(&self.db, eid).await?
+        } else {
+            None
+        };
+
+        match existing {
+            Some(row) => {
+                let mut model = event_synopsis::ActiveModel {
+                    id: Set(row.id),
+                    manifest_json: Set(json.to_string()),
+                    asset_dir: Set(asset_dir),
+                    tube_count: Set(tube_count),
+                    source_w: Set(manifest.source_w),
+                    source_h: Set(manifest.source_h),
+                    status: Set(SynopsisStatus::Pending),
+                    rendered_path: Set(None),
+                    expires_at: Set(expires_at),
+                    ..Default::default()
+                };
+                // Reconcile the event id once the handshake assigns one.
+                if let Some(eid) = event_id {
+                    model.event_id = Set(Some(eid));
+                }
+                model.update(&*self.db).await?;
+                debug!(
+                    "zm-next ingest: monitor {monitor_id} refreshed synopsis row {} \
+                     ({tube_count} tubes, event {event_id:?})",
+                    row.id
+                );
+            }
+            None => {
+                let model = event_synopsis::ActiveModel {
+                    event_id: Set(event_id),
+                    monitor_id: Set(monitor_id),
+                    clip_token: Set(clip_token),
+                    manifest_json: Set(json.to_string()),
+                    asset_dir: Set(asset_dir),
+                    status: Set(SynopsisStatus::Pending),
+                    rendered_path: Set(None),
+                    tube_count: Set(tube_count),
+                    source_w: Set(manifest.source_w),
+                    source_h: Set(manifest.source_h),
+                    created_at: Set(now),
+                    expires_at: Set(expires_at),
+                    ..Default::default()
+                };
+                let inserted = model.insert(&*self.db).await?;
+                debug!(
+                    "zm-next ingest: monitor {monitor_id} stored synopsis row {} \
+                     ({tube_count} tubes, event {event_id:?})",
+                    inserted.id
+                );
+            }
+        }
         Ok(())
     }
 

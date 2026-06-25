@@ -6,6 +6,7 @@ pub use super::controls::Entity as Controls;
 pub use super::devices::Entity as Devices;
 pub use super::event_data::Entity as EventData;
 pub use super::event_summaries::Entity as EventSummaries;
+pub use super::event_synopsis::Entity as EventSynopsis;
 pub use super::events::Entity as Events;
 pub use super::events_archived::Entity as EventsArchived;
 pub use super::events_day::Entity as EventsDay;

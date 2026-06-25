@@ -41,6 +41,7 @@ pub mod snapshots_events;
 pub mod states;
 pub mod stats;
 pub mod storage;
+pub mod synopsis;
 pub mod tags;
 pub mod token;
 pub mod triggers_x10;

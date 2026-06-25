@@ -12,6 +12,7 @@ use crate::constant::ENV_PREFIX;
 use crate::daemon::DaemonManager;
 use crate::error::AppResult;
 use crate::ptz::PtzManager;
+use crate::service::synopsis::SynopsisService;
 use crate::streaming::hls::HlsSessionManager;
 use crate::streaming::live::LiveStreamCoordinator;
 use crate::streaming::snapshot::SnapshotService;
@@ -35,6 +36,8 @@ pub struct AppState {
     pub daemon_manager: Option<Arc<DaemonManager>>,
     // Snapshot Service
     pub snapshot_service: Option<Arc<SnapshotService>>,
+    // Motion-synopsis renderer/serving
+    pub synopsis_service: Option<Arc<SynopsisService>>,
     // PTZ Manager
     pub ptz_manager: Arc<PtzManager>,
 }
@@ -94,12 +97,22 @@ impl AppState {
                 let ingestor = crate::service::zmnext::EventIngestor::new(
                     db.clone(),
                     config.zmnext.ingest.clone(),
+                    config.synopsis.clone(),
                 );
                 tokio::spawn(ingestor.run(event_rx));
                 tracing::info!("zm-next event ingest enabled");
             }
 
             let router = Arc::new(router);
+
+            // Keep configured monitors' readers hot so the first viewer skips
+            // cold spin-up (pre-populated keyframe cache → instant codec + a
+            // ready keyframe). No-op when the list is empty.
+            router.spawn_prewarm_task(
+                config.streaming.source.prewarm_monitors.clone(),
+                Duration::from_secs(config.streaming.source.prewarm_interval_seconds),
+            );
+
             let coordinator = Arc::new(LiveStreamCoordinator::new(
                 Arc::clone(&router),
                 hls_session_manager.clone(),
@@ -121,6 +134,25 @@ impl AppState {
             .as_ref()
             .map(|r| Arc::new(SnapshotService::with_defaults(Arc::clone(r))));
 
+        // Initialize the motion-synopsis service. Always constructed (it only
+        // needs the db + config) so the endpoints can report a clear "disabled"
+        // status rather than 404 when `[synopsis].enabled` is false.
+        let synopsis_service = Some(Arc::new(SynopsisService::new(
+            db.clone(),
+            config.synopsis.clone(),
+        )));
+        // Hourly retention sweep of expired rendered synopses (only when enabled
+        // with a finite retention window).
+        if config.synopsis.enabled && config.synopsis.retention_days > 0 {
+            if let Some(svc) = &synopsis_service {
+                Arc::clone(svc).spawn_retention_task(Duration::from_secs(3600));
+                tracing::info!(
+                    "synopsis retention enabled ({} day window)",
+                    config.synopsis.retention_days
+                );
+            }
+        }
+
         // Initialize daemon manager if enabled
         let daemon_manager = if config.daemon.enabled {
             tracing::info!("Daemon controller enabled, initializing manager");
@@ -130,9 +162,17 @@ impl AppState {
                 db.clone(),
             );
             // Enable zm-next worker control (no-op unless [zmnext].enabled).
+            // Synopsis-opted-in monitors get the extra export stages in their
+            // generated pipeline.
+            let synopsis_monitors: std::collections::HashSet<u32> = if config.synopsis.enabled {
+                config.synopsis.enabled_monitors.iter().copied().collect()
+            } else {
+                std::collections::HashSet::new()
+            };
             manager.set_zmnext(
                 config.zmnext.clone(),
                 config.streaming.zoneminder.socks_path.clone(),
+                synopsis_monitors,
             );
             Some(Arc::new(manager))
         } else {
@@ -154,6 +194,7 @@ impl AppState {
             source_router,
             live_coordinator,
             snapshot_service,
+            synopsis_service,
             daemon_manager,
             ptz_manager,
         })
@@ -172,9 +213,14 @@ impl AppState {
             .no_proxy()
             .build()
             .expect("http client");
+        let db = std::sync::Arc::new(db);
+        let synopsis_service = Some(std::sync::Arc::new(SynopsisService::new(
+            db.clone(),
+            config.synopsis.clone(),
+        )));
         Self {
             config: std::sync::Arc::new(config),
-            db: std::sync::Arc::new(db),
+            db,
             http,
             native_webrtc_engine: None,
             native_session_manager: None,
@@ -182,6 +228,7 @@ impl AppState {
             source_router: None,
             live_coordinator: None,
             snapshot_service: None,
+            synopsis_service,
             daemon_manager: None,
             ptz_manager: std::sync::Arc::new(PtzManager::with_defaults()),
         }

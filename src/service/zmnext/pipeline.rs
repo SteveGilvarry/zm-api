@@ -113,6 +113,7 @@ pub fn generate_pipeline(
     cfg: &PipelineConfig,
     mode: StoreMode,
     events_root: &Path,
+    synopsis: bool,
 ) -> Value {
     let mut detect_cfg = json!({
         "model_path": cfg.model_path.to_string_lossy(),
@@ -124,6 +125,14 @@ pub fn generate_pipeline(
     let zone_specs = translate_zones(zones);
     if !zone_specs.is_empty() {
         detect_cfg["zones"] = Value::Array(zone_specs);
+    }
+    if synopsis {
+        // Motion synopsis needs per-object **polygon** masks (not bbox-only) and
+        // stable **track ids** so the worker can build object "tubes" and emit
+        // them as `review_assets` (0x0306). `mask_format:"none"` would degrade
+        // tubes to bbox-only — see the hand-off spec §6.
+        detect_cfg["mask_format"] = json!("polygon");
+        detect_cfg["tracker"] = json!(true);
     }
 
     // The merged `store` plugin (zm-next folded store_filesystem + store_event
@@ -166,6 +175,30 @@ pub fn generate_pipeline(
             "queue_depth": 120,
         }),
     ];
+    if synopsis {
+        // Export the synopsis ingredients: object cutouts/tubes (review_export →
+        // 0x0306 review_assets) and clean background plates (plate_export). Only
+        // synopsis-enabled cameras pay this; the rest never emit it.
+        capture_children.push(json!({
+            "id": "review",
+            "kind": "review_export",
+            "cfg": {
+                "monitor_id": monitor_id,
+                "root": events_root.to_string_lossy(),
+                "mask_format": "polygon",
+            },
+            "queue_depth": 8,
+        }));
+        capture_children.push(json!({
+            "id": "plate",
+            "kind": "plate_export",
+            "cfg": {
+                "monitor_id": monitor_id,
+                "root": events_root.to_string_lossy(),
+            },
+            "queue_depth": 4,
+        }));
+    }
     if let Some((host, port)) = mqtt_host_port(cfg.mqtt_url.as_deref()) {
         capture_children.push(json!({
             "id": "notify",
@@ -297,6 +330,7 @@ mod tests {
             &cfg,
             StoreMode::Event,
             Path::new("/var/lib/zm/events"),
+            false,
         );
 
         assert_eq!(p["name"], "monitor_7");
@@ -364,6 +398,7 @@ mod tests {
             &cfg,
             StoreMode::Continuous,
             Path::new("/e"),
+            false,
         );
         let store = &cont["plugins"][0]["children"][1]["cfg"];
         assert_eq!(cont["plugins"][0]["children"][1]["kind"], "store");
@@ -373,7 +408,15 @@ mod tests {
         assert!(store.get("trigger_types").is_none());
 
         // Both: segment AND event keys present.
-        let both = generate_pipeline(1, "rtsp://c", &[], &cfg, StoreMode::Both, Path::new("/e"));
+        let both = generate_pipeline(
+            1,
+            "rtsp://c",
+            &[],
+            &cfg,
+            StoreMode::Both,
+            Path::new("/e"),
+            false,
+        );
         let store = &both["plugins"][0]["children"][1]["cfg"];
         assert_eq!(store["mode"], "both");
         assert_eq!(store["max_secs"], 300);
@@ -393,6 +436,7 @@ mod tests {
             &cfg,
             StoreMode::Continuous,
             Path::new("/events"),
+            false,
         );
         let capture = &p["plugins"][0];
         let children = capture["children"].as_array().unwrap();
@@ -405,5 +449,47 @@ mod tests {
         let detect = &children[0];
         // No zones supplied → the detect cfg omits the zones key entirely.
         assert!(detect["cfg"].get("zones").is_none());
+    }
+
+    #[test]
+    fn synopsis_flag_adds_review_and_plate_export_with_polygon_masks() {
+        let cfg = test_cfg();
+        // synopsis disabled → plain detect+store, bbox-only detect (no mask_format).
+        let plain = generate_pipeline(
+            3,
+            "rtsp://c",
+            &[],
+            &cfg,
+            StoreMode::Event,
+            Path::new("/e"),
+            false,
+        );
+        let plain_children = plain["plugins"][0]["children"].as_array().unwrap();
+        assert_eq!(plain_children.len(), 2);
+        assert!(plain_children[0]["cfg"].get("mask_format").is_none());
+
+        // synopsis enabled → polygon masks + tracker on detect, plus review_export
+        // and plate_export siblings under capture.
+        let syn = generate_pipeline(
+            3,
+            "rtsp://c",
+            &[],
+            &cfg,
+            StoreMode::Event,
+            Path::new("/e"),
+            true,
+        );
+        let detect = &syn["plugins"][0]["children"][0];
+        assert_eq!(detect["cfg"]["mask_format"], "polygon");
+        assert_eq!(detect["cfg"]["tracker"], true);
+
+        let kinds: Vec<&str> = syn["plugins"][0]["children"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["kind"].as_str().unwrap())
+            .collect();
+        assert!(kinds.contains(&"review_export"), "kinds: {kinds:?}");
+        assert!(kinds.contains(&"plate_export"), "kinds: {kinds:?}");
     }
 }

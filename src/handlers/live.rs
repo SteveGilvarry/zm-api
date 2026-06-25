@@ -16,7 +16,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
@@ -75,6 +75,21 @@ pub struct LiveStatsResponse {
     pub errors: u64,
     pub uptime_seconds: f64,
     pub protocols: LiveProtocolStatus,
+    /// Most-recent WebRTC startup profile (connect→offer→first-RTP), when a
+    /// session has run since boot. Lets you confirm cold-vs-warm empirically.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webrtc_startup: Option<WebRtcStartupView>,
+}
+
+/// Server-side WebRTC startup timing surfaced on `/live/{id}/stats`.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct WebRtcStartupView {
+    /// WS connect → SDP offer sent, milliseconds.
+    pub offer_ms: Option<u64>,
+    /// WS connect → first video RTP written, milliseconds.
+    pub first_rtp_ms: Option<u64>,
+    /// Whether the keyframe cache was warm at connect.
+    pub warm_start: bool,
 }
 
 /// Protocol status in live stats
@@ -260,6 +275,16 @@ pub async fn get_live_stats(
         })
     })?;
 
+    let webrtc_startup = state
+        .source_router
+        .as_ref()
+        .and_then(|r| r.webrtc_startup(monitor_id))
+        .map(|t| WebRtcStartupView {
+            offer_ms: t.offer_ms,
+            first_rtp_ms: t.first_rtp_ms,
+            warm_start: t.warm_start,
+        });
+
     Ok(Json(LiveStatsResponse {
         monitor_id: stats.monitor_id,
         status: format!("{:?}", stats.status).to_lowercase(),
@@ -270,6 +295,7 @@ pub async fn get_live_stats(
             hls: stats.hls_enabled,
             webrtc: stats.webrtc_enabled,
         },
+        webrtc_startup,
     }))
 }
 
@@ -692,6 +718,10 @@ async fn handle_webrtc_websocket(
         monitor_id
     );
 
+    // t0 for startup instrumentation: connect → offer → first-RTP, surfaced on
+    // /live/{id}/stats to confirm cold-vs-warm on real hardware.
+    let connect_at = Instant::now();
+
     // Create WebRTC manager for this session
     let webrtc_manager = WebRtcLiveManager::new(webrtc_config);
 
@@ -806,6 +836,13 @@ async fn handle_webrtc_websocket(
             return;
         }
     }
+    // Record connect → offer-sent, and whether this was a warm start (keyframe
+    // cache populated → no cold codec detection).
+    source_router.record_webrtc_offer(
+        monitor_id,
+        connect_at.elapsed().as_millis() as u64,
+        cached.is_some(),
+    );
 
     // Subscribe to video packets for streaming
     let mut video_rx = source.subscribe_video();
@@ -828,6 +865,8 @@ async fn handle_webrtc_websocket(
     let mut streaming_started = false;
     // Track if cached keyframe has been injected
     let mut cache_injected = false;
+    // Track if the connect → first-video-RTP timing has been recorded.
+    let mut first_rtp_recorded = false;
     // Track if we've set the SDP answer (waiting for DTLS)
     let mut answer_set = false;
     // Connection timeout: 30s after answer is set, if not streaming yet
@@ -1031,6 +1070,12 @@ async fn handle_webrtc_websocket(
                         if let Some(au) = au_assembler.push(&packet) {
                             if let Err(e) = webrtc_manager.write_access_unit(&session_id, &au).await {
                                 debug!("Failed to write access unit: {}", e);
+                            } else if !first_rtp_recorded {
+                                first_rtp_recorded = true;
+                                source_router.record_webrtc_first_rtp(
+                                    monitor_id,
+                                    connect_at.elapsed().as_millis() as u64,
+                                );
                             }
                         }
                     }

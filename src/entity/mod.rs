@@ -14,6 +14,7 @@ pub mod controls;
 pub mod devices;
 pub mod event_data;
 pub mod event_summaries;
+pub mod event_synopsis;
 pub mod events;
 pub mod events_archived;
 pub mod events_day;

@@ -117,6 +117,10 @@ webrtc = "0.17"
 webrtc-util = "0.17"
 interceptor = "0.17"
 webrtc-media = "0.17"
+# Self-signed DTLS certificate generation. Pinned to the same version webrtc
+# 0.17 uses transitively so `RTCCertificate::from_key_pair` accepts our KeyPair;
+# lets us generate one cert at startup and reuse it across all peer connections.
+rcgen = "0.13"
 
 # RTSP client for stream sources
 retina = "0.4"
@@ -127,8 +131,14 @@ bytes = "1"
 # Dashboard/stats
 dashmap = "6"
 
-# FFmpeg bindings for H.264 → JPEG snapshot decoding
+# FFmpeg bindings for H.264 → JPEG snapshot decoding, and the in-process
+# libavcodec/libavformat encode+mux path for the motion-synopsis mp4 renderer.
 ffmpeg-next = "8"
+
+# Image compositing for the motion-synopsis renderer: decode the pre-rendered
+# cutout/plate JPEGs, alpha-composite them over the plate, encode the still.
+# Decode/encode of stills only — all video work stays in ffmpeg-next.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 
 # Unix signal handling and filesystem utilities
 nix = { version = "0.31", features = ["signal", "fs"] }

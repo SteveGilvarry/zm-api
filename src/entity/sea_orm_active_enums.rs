@@ -577,3 +577,35 @@ pub enum StorageType {
     #[sea_orm(string_value = "s3fs")]
     S3fs,
 }
+
+/// Render lifecycle of a motion-synopsis row (zm_api-owned `event_synopsis`
+/// table — not part of ZoneMinder's schema). Stored as a short portable string
+/// column, so the migration needs no native DB `ENUM` type.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::N(16))")]
+#[serde(rename_all = "lowercase")]
+pub enum SynopsisStatus {
+    /// Manifest ingested; nothing rendered yet.
+    #[sea_orm(string_value = "pending")]
+    Pending,
+    /// A render task is in flight.
+    #[sea_orm(string_value = "generating")]
+    Generating,
+    /// A rendered artifact is cached and servable.
+    #[sea_orm(string_value = "ready")]
+    Ready,
+    /// The render failed (missing assets, no encoder, …); safe to retry.
+    #[sea_orm(string_value = "failed")]
+    Failed,
+}

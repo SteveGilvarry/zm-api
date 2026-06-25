@@ -8,7 +8,8 @@ use crate::util::dir::get_project_root;
 
 use self::{
     daemon::DaemonConfig, db::DatabaseConfig, http::HttpClientConfig, secret::SecretConfig,
-    sentry::SentryConfig, server::ServerConfig, streaming::StreamingConfig, zmnext::ZmNextConfig,
+    sentry::SentryConfig, server::ServerConfig, streaming::StreamingConfig,
+    synopsis::SynopsisConfig, zmnext::ZmNextConfig,
 };
 
 pub mod daemon;
@@ -19,6 +20,7 @@ pub mod secret;
 pub mod sentry;
 pub mod server;
 pub mod streaming;
+pub mod synopsis;
 pub mod tracing;
 pub mod zmconf;
 pub mod zmnext;
@@ -38,6 +40,10 @@ pub struct AppConfig {
     /// disabled, zero-impact configuration when the `[zmnext]` block is absent.
     #[serde(default)]
     pub zmnext: ZmNextConfig,
+    /// Motion-synopsis optimiser + renderer + serving. Defaults to disabled
+    /// when the `[synopsis]` block is absent.
+    #[serde(default)]
+    pub synopsis: SynopsisConfig,
 }
 
 impl AppConfig {

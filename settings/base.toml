@@ -71,6 +71,11 @@ priority = ["socket", "rtsp", "go2rtc"]
 prefer_direct_rtsp = false
 fallback_to_go2rtc = true
 cache_sdp_seconds = 300
+# Keep these monitors' stream-socket readers hot so the first WebRTC/HLS viewer
+# skips cold spin-up (instant codec + a ready keyframe). Empty = none.
+prewarm_monitors = []
+# How often the warm-keeper re-ensures each prewarm reader is alive. 0 disables.
+prewarm_interval_seconds = 30
 
 [streaming.zoneminder]
 enabled = true
@@ -113,6 +118,31 @@ rtp_port_range_start = 20000
 rtp_port_range_end = 30000
 max_sessions = 100
 transport = "auto"
+
+# Motion-synopsis optimiser + renderer + serving.
+# Disabled by default: ingest still records review_assets manifests, but nothing
+# renders until enabled. The encoder is always in-process ffmpeg-next (libav*);
+# zm-api never shells out to the ffmpeg binary.
+[synopsis]
+enabled = false
+encoder_backend = "native"
+render_timeout_seconds = 120
+max_concurrent_renders = 2
+# Days a rendered artifact is kept before the cleanup job removes it (0 = keep).
+retention_days = 7
+cache_dir = "/var/lib/zm_api/synopsis"
+# Output synopsis frame rate for the rendered mp4.
+output_fps = 12
+# Cap on tubes drawn into one output frame (0 = unlimited).
+max_tubes_per_frame = 8
+# Collision-area budget as a fraction of tube pixels — the condensation knob
+# (0.02–0.10). Higher = denser/shorter; lower = sparser/longer.
+collision_budget = 0.05
+# Mask edge feather radius in pixels (1–2) to suppress cutout halos.
+mask_feather_px = 1
+# Monitor ids whose zm-next pipeline emits synopsis ingredients (polygon masks +
+# tracker + review_export + plate_export). Empty = none; other cameras pay nothing.
+enabled_monitors = []
 
 # Daemon controller configuration (replaces zmdc.pl/zmpkg.pl)
 [daemon]

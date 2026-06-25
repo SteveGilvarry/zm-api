@@ -113,6 +113,8 @@ pub const EVENT_DETECTION: u16 = 0x0301; // motion / object detection
 pub const EVENT_DESCRIPTION: u16 = 0x0302; // VLM scene description
 pub const EVENT_RECORDING_SAVED: u16 = 0x0303; // a clip was written to storage
 pub const EVENT_RECORDING_OPENING: u16 = 0x0304; // a clip segment opened; awaits an event-id assignment
+                                                 // 0x0305 is reserved for a future `reasoning` event.
+pub const EVENT_REVIEW_ASSETS: u16 = 0x0306; // motion-synopsis ingredients: tube + plate manifest in json_detail
 
 /// Client→server control message type for the id-assignment handshake (the
 /// `0x11 Command` of zm-next's control extension). zm-api is the client; the
@@ -628,6 +630,21 @@ mod tests {
         assert_eq!(ev.code, EVENT_DETECTION);
         assert_eq!(ev.json_detail.as_deref(), Some(json));
         assert_eq!(ev.wall_clock_us, Some(1_700_000_000_000_000));
+    }
+
+    #[test]
+    fn event_parses_review_assets_manifest_json() {
+        // 0x0306 review_assets carries the synopsis tube/plate manifest in the
+        // same json_detail TLV (0x10) as detection — no parser changes needed.
+        let json = r#"{"type":"review_assets","schema":1,"monitor_id":3,"tubes":[]}"#;
+        let mut tail = tlv_u64(0x01, 1_782_129_185_000_000);
+        tail.extend_from_slice(&tlv(0x10, json.as_bytes()));
+        let payload = event_payload(EVENT_REVIEW_ASSETS, &tail);
+
+        let ev = parse_event(&payload).unwrap();
+        assert_eq!(ev.code, EVENT_REVIEW_ASSETS);
+        assert_eq!(ev.json_detail.as_deref(), Some(json));
+        assert_eq!(ev.wall_clock_us, Some(1_782_129_185_000_000));
     }
 
     #[test]

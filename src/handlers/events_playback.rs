@@ -195,7 +195,7 @@ async fn get_event_video_path(
 /// streaming, downloading, or thumbnailing events belonging to monitors outside
 /// their allowlist. Out-of-scope events return the same `NotFound` as a missing
 /// event so the API doesn't leak which event ids exist (REVIEW_FIXES_PLAN §1.3).
-async fn get_event_entity(
+pub(crate) async fn get_event_entity(
     state: &AppState,
     event_id: u64,
     scope: &MonitorScope,
@@ -212,7 +212,7 @@ async fn get_event_entity(
 /// The canonical `NotFound` for an event id — used for both genuinely missing
 /// events and ones hidden by row-level ACL (identical responses avoid an
 /// existence oracle).
-fn not_found_event(event_id: u64) -> AppError {
+pub(crate) fn not_found_event(event_id: u64) -> AppError {
     AppError::NotFoundError(Resource {
         resource_type: ResourceType::Event,
         details: vec![("event_id".to_string(), event_id.to_string())],

@@ -44,6 +44,14 @@ pub struct SourceConfig {
     pub prefer_direct_rtsp: bool,
     pub fallback_to_go2rtc: bool,
     pub cache_sdp_seconds: u32,
+    /// Monitors whose stream-socket reader is kept hot ("always-warm pool"), so
+    /// the first viewer skips cold reader spin-up and the keyframe cache is
+    /// pre-populated (instant codec + an injectable keyframe). Empty = none.
+    pub prewarm_monitors: Vec<u32>,
+    /// How often the warm-keeper re-ensures each `prewarm_monitors` reader is
+    /// alive (restarting any the HLS reaper or a crash stopped). `0` disables
+    /// pre-warming entirely.
+    pub prewarm_interval_seconds: u64,
 }
 
 impl Default for SourceConfig {
@@ -57,6 +65,8 @@ impl Default for SourceConfig {
             prefer_direct_rtsp: false,
             fallback_to_go2rtc: true,
             cache_sdp_seconds: 300,
+            prewarm_monitors: Vec::new(),
+            prewarm_interval_seconds: 30,
         }
     }
 }
