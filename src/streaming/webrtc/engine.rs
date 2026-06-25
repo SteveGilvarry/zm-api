@@ -318,17 +318,26 @@ impl WebRtcEngine {
         Ok(answer.sdp)
     }
 
-    /// Create an SDP offer (for server-initiated connections)
+    /// Create an SDP offer (for server-initiated connections).
+    ///
+    /// NOTE on DTLS role: as the offerer, webrtc-rs always advertises
+    /// `a=setup:actpass`, so the role resolves via ICE (controlling → DTLS
+    /// *server/passive*) and our server waits for the browser's ClientHello.
+    /// That passive wait is the ~1.1s offer→connected gap profiling found
+    /// (RFC 6347 retransmit when our transport isn't ready at ICE-connect).
+    /// There is no public-API way to make an *offerer* the DTLS client —
+    /// `set_answering_dtls_role` only affects answers, and rewriting the local
+    /// offer is rejected ("new sdp does not match previous offer"). Making the
+    /// server active would require flipping signaling so the browser offers and
+    /// the server answers. See the startup-latency notes.
     pub async fn create_offer(&self, pc: &RTCPeerConnection) -> Result<String, EngineError> {
         tracing::debug!("Creating SDP offer");
 
-        // Create offer
         let offer = pc
             .create_offer(None)
             .await
             .map_err(|e| EngineError::CreateOffer(e.to_string()))?;
 
-        // Set local description
         pc.set_local_description(offer.clone())
             .await
             .map_err(|e| EngineError::SetLocalDescription(e.to_string()))?;
@@ -533,6 +542,33 @@ mod tests {
         let config = WebRtcConfig::default();
         let result = WebRtcEngine::new(config);
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn offer_advertises_actpass_dtls_role() {
+        // Documents the webrtc-rs invariant that drives the ~1.1s DTLS gap: as
+        // the offerer we always send `setup:actpass`, so the role resolves via
+        // ICE to DTLS server/passive — our server waits for the browser's
+        // ClientHello. Making the server the DTLS client is not possible while it
+        // offers (would need a signaling flip). If a webrtc-rs upgrade changes
+        // this, revisit the startup-latency analysis.
+        let engine = WebRtcEngine::new(WebRtcConfig::default()).expect("engine");
+        let pc = engine
+            .create_peer_connection(PeerConnectionParams {
+                monitor_id: 1,
+                enable_audio: false,
+            })
+            .await
+            .expect("pc");
+        let offer = engine
+            .create_offer(&pc.peer_connection)
+            .await
+            .expect("offer");
+        assert!(
+            offer.contains("a=setup:actpass"),
+            "offerer should advertise setup:actpass; got:\n{offer}"
+        );
+        let _ = pc.peer_connection.close().await;
     }
 
     #[tokio::test]
