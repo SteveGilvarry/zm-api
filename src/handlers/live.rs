@@ -81,15 +81,22 @@ pub struct LiveStatsResponse {
     pub webrtc_startup: Option<WebRtcStartupView>,
 }
 
-/// Server-side WebRTC startup timing surfaced on `/live/{id}/stats`.
+/// Server-side WebRTC startup timing surfaced on `/live/{id}/stats`. All `*_ms`
+/// are from WS connect and nest: `get_source_ms ≤ offer_ms ≤ connected_ms ≤
+/// first_rtp_ms`.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct WebRtcStartupView {
-    /// WS connect → SDP offer sent, milliseconds.
-    pub offer_ms: Option<u64>,
-    /// WS connect → first video RTP written, milliseconds.
-    pub first_rtp_ms: Option<u64>,
-    /// Whether the keyframe cache was warm at connect.
+    /// Reader was already hot at connect (no reader spin-up on the offer path).
     pub warm_start: bool,
+    /// connect → get_source returned (reader acquire/restart cost).
+    pub get_source_ms: Option<u64>,
+    /// connect → SDP offer sent.
+    pub offer_ms: Option<u64>,
+    /// connect → peer Connected (ICE+DTLS). `connected_ms − offer_ms` ≈ the DTLS
+    /// handshake on a LAN.
+    pub connected_ms: Option<u64>,
+    /// connect → first video RTP written.
+    pub first_rtp_ms: Option<u64>,
 }
 
 /// Protocol status in live stats
@@ -280,9 +287,11 @@ pub async fn get_live_stats(
         .as_ref()
         .and_then(|r| r.webrtc_startup(monitor_id))
         .map(|t| WebRtcStartupView {
-            offer_ms: t.offer_ms,
-            first_rtp_ms: t.first_rtp_ms,
             warm_start: t.warm_start,
+            get_source_ms: t.get_source_ms,
+            offer_ms: t.offer_ms,
+            connected_ms: t.connected_ms,
+            first_rtp_ms: t.first_rtp_ms,
         });
 
     Ok(Json(LiveStatsResponse {
@@ -725,7 +734,14 @@ async fn handle_webrtc_websocket(
     // Create WebRTC manager for this session
     let webrtc_manager = WebRtcLiveManager::new(webrtc_config);
 
-    // Get source to determine codec
+    // Whether the reader was already hot — checked *before* get_source (which
+    // may (re)start it), so the offer profile distinguishes a fast warm offer
+    // from a cold reader spin-up that `warm_start` (keyframe cache) alone missed.
+    let warm_start = source_router.is_reader_hot(monitor_id).await;
+
+    // Get source to determine codec. This may start/restart the reader, so it is
+    // timed separately — the suspected cold-offer cost.
+    let get_source_at = Instant::now();
     let source = match source_router.get_source(monitor_id).await {
         Ok(s) => s,
         Err(e) => {
@@ -733,6 +749,7 @@ async fn handle_webrtc_websocket(
             return;
         }
     };
+    let get_source_ms = get_source_at.elapsed().as_millis() as u64;
 
     // Try the keyframe cache first (warm path: reader already active).
     // If populated, we skip the cold-path codec-detection grace period entirely.
@@ -836,12 +853,13 @@ async fn handle_webrtc_websocket(
             return;
         }
     }
-    // Record connect → offer-sent, and whether this was a warm start (keyframe
-    // cache populated → no cold codec detection).
+    // Record the offer profile: warm flag, the get_source (reader-acquire) cost,
+    // and connect → offer-sent.
     source_router.record_webrtc_offer(
         monitor_id,
+        warm_start,
+        get_source_ms,
         connect_at.elapsed().as_millis() as u64,
-        cached.is_some(),
     );
 
     // Subscribe to video packets for streaming
@@ -918,6 +936,7 @@ async fn handle_webrtc_websocket(
                                             match current_state {
                                                 webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState::Connected => {
                                                     streaming_started = true;
+                                                    source_router.record_webrtc_connected(monitor_id, connect_at.elapsed().as_millis() as u64);
                                                     // Inject the freshest keyframe for instant video start
                                                     if !cache_injected {
                                                         cache_injected = inject_startup_keyframe(&webrtc_manager, &session_id, &source, &cached, &mut au_assembler).await;
@@ -991,6 +1010,7 @@ async fn handle_webrtc_websocket(
                         match state {
                             webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState::Connected => {
                                 streaming_started = true;
+                                source_router.record_webrtc_connected(monitor_id, connect_at.elapsed().as_millis() as u64);
                                 // Inject the freshest keyframe for instant video start
                                 if !cache_injected {
                                     cache_injected = inject_startup_keyframe(&webrtc_manager, &session_id, &source, &cached, &mut au_assembler).await;

@@ -442,15 +442,23 @@ pub struct SourceRouter {
 }
 
 /// Server-side WebRTC startup profile for a monitor's most recent session.
+/// All `*_ms` are milliseconds from WS connect, so the phases nest:
+/// `get_source_ms ≤ offer_ms ≤ connected_ms ≤ first_rtp_ms`.
 #[derive(Debug, Clone, Default)]
 pub struct WebRtcStartupTiming {
-    /// WS connect → SDP offer sent, milliseconds.
-    pub offer_ms: Option<u64>,
-    /// WS connect → first video RTP written to the track, milliseconds.
-    pub first_rtp_ms: Option<u64>,
-    /// Whether the keyframe cache was warm at connect (no cold codec detect, and
-    /// a keyframe ready to inject).
+    /// Reader was already hot at connect (no reader spin-up on the offer path).
     pub warm_start: bool,
+    /// connect → `get_source` returned — the reader acquire/restart cost (the
+    /// suspected cold-offer culprit).
+    pub get_source_ms: Option<u64>,
+    /// connect → SDP offer sent.
+    pub offer_ms: Option<u64>,
+    /// connect → peer connection `Connected` (ICE + DTLS complete). The
+    /// `connected_ms − offer_ms` gap is the ICE+DTLS cost (≈ the DTLS handshake
+    /// on a LAN, where ICE is negligible).
+    pub connected_ms: Option<u64>,
+    /// connect → first video RTP written to the track.
+    pub first_rtp_ms: Option<u64>,
 }
 
 impl SourceRouter {
@@ -828,17 +836,35 @@ impl SourceRouter {
         stream_socket_path(&self.config.zoneminder, monitor_id).exists()
     }
 
-    /// Record the WS-connect → offer-sent time for a monitor's WebRTC session,
-    /// starting a fresh startup profile (the previous `first_rtp_ms` is cleared).
-    pub fn record_webrtc_offer(&self, monitor_id: u32, offer_ms: u64, warm_start: bool) {
+    /// Start a fresh WebRTC startup profile for a monitor at offer time,
+    /// recording whether the reader was hot and how long `get_source` took.
+    pub fn record_webrtc_offer(
+        &self,
+        monitor_id: u32,
+        warm_start: bool,
+        get_source_ms: u64,
+        offer_ms: u64,
+    ) {
         self.webrtc_startup.insert(
             monitor_id,
             WebRtcStartupTiming {
-                offer_ms: Some(offer_ms),
-                first_rtp_ms: None,
                 warm_start,
+                get_source_ms: Some(get_source_ms),
+                offer_ms: Some(offer_ms),
+                connected_ms: None,
+                first_rtp_ms: None,
             },
         );
+    }
+
+    /// Record connect → peer `Connected` (ICE+DTLS done), only the first per
+    /// session.
+    pub fn record_webrtc_connected(&self, monitor_id: u32, connected_ms: u64) {
+        if let Some(mut t) = self.webrtc_startup.get_mut(&monitor_id) {
+            if t.connected_ms.is_none() {
+                t.connected_ms = Some(connected_ms);
+            }
+        }
     }
 
     /// Record the WS-connect → first-video-RTP time (only the first per session).
@@ -853,6 +879,19 @@ impl SourceRouter {
     /// The most-recent WebRTC startup profile for a monitor, if any.
     pub fn webrtc_startup(&self, monitor_id: u32) -> Option<WebRtcStartupTiming> {
         self.webrtc_startup.get(&monitor_id).map(|t| t.clone())
+    }
+
+    /// Whether a monitor's reader is already hot: the source exists and its
+    /// reader task is alive. Checked *before* `get_source` so the offer path can
+    /// report whether it paid a reader spin-up.
+    pub async fn is_reader_hot(&self, monitor_id: u32) -> bool {
+        match self.get_existing_source(monitor_id) {
+            Some(source) => {
+                let guard = source.reader_handle.read().await;
+                guard.as_ref().map(|h| !h.is_finished()).unwrap_or(false)
+            }
+            None => false,
+        }
     }
 
     /// Ensure a monitor's reader is running, creating the source if needed.
@@ -1016,28 +1055,35 @@ mod tests {
     }
 
     #[test]
-    fn webrtc_startup_timing_records_offer_then_first_rtp() {
+    fn webrtc_startup_timing_records_phases() {
         let router = SourceRouter::new();
         assert!(router.webrtc_startup(3).is_none(), "no session yet");
 
-        // A new session records the offer time and warm flag, clearing first-rtp.
-        router.record_webrtc_offer(3, 120, true);
+        // A new session records warm flag + get_source/offer, clearing later phases.
+        router.record_webrtc_offer(3, true, 5, 120);
         let t = router.webrtc_startup(3).unwrap();
-        assert_eq!(t.offer_ms, Some(120));
-        assert_eq!(t.first_rtp_ms, None);
         assert!(t.warm_start);
-
-        // First RTP is recorded once; later writes don't overwrite it.
-        router.record_webrtc_first_rtp(3, 350);
-        router.record_webrtc_first_rtp(3, 999);
-        assert_eq!(router.webrtc_startup(3).unwrap().first_rtp_ms, Some(350));
-
-        // A fresh session resets the profile (new offer clears first-rtp).
-        router.record_webrtc_offer(3, 80, false);
-        let t = router.webrtc_startup(3).unwrap();
-        assert_eq!(t.offer_ms, Some(80));
+        assert_eq!(t.get_source_ms, Some(5));
+        assert_eq!(t.offer_ms, Some(120));
+        assert_eq!(t.connected_ms, None);
         assert_eq!(t.first_rtp_ms, None);
+
+        // Connected + first RTP are each recorded once; later calls don't clobber.
+        router.record_webrtc_connected(3, 1240);
+        router.record_webrtc_connected(3, 9999);
+        router.record_webrtc_first_rtp(3, 1300);
+        router.record_webrtc_first_rtp(3, 9999);
+        let t = router.webrtc_startup(3).unwrap();
+        assert_eq!(t.connected_ms, Some(1240));
+        assert_eq!(t.first_rtp_ms, Some(1300));
+
+        // A fresh session resets the whole profile.
+        router.record_webrtc_offer(3, false, 2100, 2130);
+        let t = router.webrtc_startup(3).unwrap();
         assert!(!t.warm_start);
+        assert_eq!(t.get_source_ms, Some(2100));
+        assert_eq!(t.connected_ms, None);
+        assert_eq!(t.first_rtp_ms, None);
     }
 
     #[test]
