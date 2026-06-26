@@ -144,6 +144,19 @@ mask_feather_px = 1
 # tracker + review_export + plate_export). Empty = none; other cameras pay nothing.
 enabled_monitors = []
 
+# Natural-language / semantic event search over zm-next events. Off by default.
+# All model inference is external local HTTP (chosen by URL, not in-process ONNX).
+[search]
+enabled = "off"        # off | auto | on  (auto = enable iff a vector backend is found)
+backend = "auto"       # auto -> sqlite today (MySQL 8.0 has no native VECTOR); mariadb|postgres later
+embed_dim = 384        # Matryoshka-truncate to 256-384
+sqlite_path = "/var/lib/zm_api/search.db"
+rerank = true
+embed_url = "http://127.0.0.1:8090/embed"    # text(+image) embeddings (TEI/llama.cpp/Ollama)
+rerank_url = "http://127.0.0.1:8090/rerank"  # cross-encoder reranker
+router_url = "http://127.0.0.1:8091/v1"      # OpenAI-compatible LLM for the query router
+image_embed = false    # also embed on-disk crop JPEGs (off = text-only)
+
 # Daemon controller configuration (replaces zmdc.pl/zmpkg.pl)
 [daemon]
 # Passive by default: run as a REST API alongside stock ZoneMinder without

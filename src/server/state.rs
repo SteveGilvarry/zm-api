@@ -12,6 +12,7 @@ use crate::constant::ENV_PREFIX;
 use crate::daemon::DaemonManager;
 use crate::error::AppResult;
 use crate::ptz::PtzManager;
+use crate::service::search::SearchService;
 use crate::service::synopsis::SynopsisService;
 use crate::streaming::hls::HlsSessionManager;
 use crate::streaming::live::LiveStreamCoordinator;
@@ -38,6 +39,8 @@ pub struct AppState {
     pub snapshot_service: Option<Arc<SnapshotService>>,
     // Motion-synopsis renderer/serving
     pub synopsis_service: Option<Arc<SynopsisService>>,
+    // Natural-language / semantic event search
+    pub search_service: Option<Arc<SearchService>>,
     // PTZ Manager
     pub ptz_manager: Arc<PtzManager>,
 }
@@ -153,6 +156,12 @@ impl AppState {
             }
         }
 
+        // Natural-language / semantic event search. Resolves its vector backend
+        // (probing the DB only when enabled); off by default → a no-op store.
+        let search_service = Some(Arc::new(
+            SearchService::new(&db, config.search.clone()).await,
+        ));
+
         // Initialize daemon manager if enabled
         let daemon_manager = if config.daemon.enabled {
             tracing::info!("Daemon controller enabled, initializing manager");
@@ -195,6 +204,7 @@ impl AppState {
             live_coordinator,
             snapshot_service,
             synopsis_service,
+            search_service,
             daemon_manager,
             ptz_manager,
         })
@@ -218,6 +228,9 @@ impl AppState {
             db.clone(),
             config.synopsis.clone(),
         )));
+        let search_service = Some(std::sync::Arc::new(SearchService::disabled(
+            config.search.clone(),
+        )));
         Self {
             config: std::sync::Arc::new(config),
             db,
@@ -229,6 +242,7 @@ impl AppState {
             live_coordinator: None,
             snapshot_service: None,
             synopsis_service,
+            search_service,
             daemon_manager: None,
             ptz_manager: std::sync::Arc::new(PtzManager::with_defaults()),
         }

@@ -7,8 +7,8 @@ use serde::Deserialize;
 use crate::util::dir::get_project_root;
 
 use self::{
-    daemon::DaemonConfig, db::DatabaseConfig, http::HttpClientConfig, secret::SecretConfig,
-    sentry::SentryConfig, server::ServerConfig, streaming::StreamingConfig,
+    daemon::DaemonConfig, db::DatabaseConfig, http::HttpClientConfig, search::SearchConfig,
+    secret::SecretConfig, sentry::SentryConfig, server::ServerConfig, streaming::StreamingConfig,
     synopsis::SynopsisConfig, zmnext::ZmNextConfig,
 };
 
@@ -16,6 +16,7 @@ pub mod daemon;
 pub mod db;
 pub mod env;
 pub mod http;
+pub mod search;
 pub mod secret;
 pub mod sentry;
 pub mod server;
@@ -44,6 +45,9 @@ pub struct AppConfig {
     /// when the `[synopsis]` block is absent.
     #[serde(default)]
     pub synopsis: SynopsisConfig,
+    /// Natural-language / semantic event search. Off by default.
+    #[serde(default)]
+    pub search: SearchConfig,
 }
 
 impl AppConfig {

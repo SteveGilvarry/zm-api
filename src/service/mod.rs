@@ -32,6 +32,7 @@ pub mod montage_layouts;
 pub mod object_types;
 pub mod ptz;
 pub mod reports;
+pub mod search;
 pub mod server;
 pub mod server_stats;
 pub mod servers;
