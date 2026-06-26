@@ -53,6 +53,14 @@ impl AppState {
             .build()
             .expect("http client");
 
+        // Natural-language / semantic event search. Resolves its vector backend
+        // (probing the DB only when enabled) and creates its schema; off by
+        // default → a no-op store. Built early so the zm-next ingest can index
+        // event embeddings at ingest time.
+        let search_service = Some(Arc::new(
+            SearchService::new(http.clone(), db.clone(), config.search.clone()).await,
+        ));
+
         // Initialize native WebRTC engine (Phase 2)
         let native_webrtc_engine = match WebRtcEngine::new(Default::default()) {
             Ok(engine) => {
@@ -101,6 +109,7 @@ impl AppState {
                     db.clone(),
                     config.zmnext.ingest.clone(),
                     config.synopsis.clone(),
+                    search_service.clone(),
                 );
                 tokio::spawn(ingestor.run(event_rx));
                 tracing::info!("zm-next event ingest enabled");
@@ -155,13 +164,6 @@ impl AppState {
                 );
             }
         }
-
-        // Natural-language / semantic event search. Resolves its vector backend
-        // (probing the DB only when enabled) and creates its schema; off by
-        // default → a no-op store.
-        let search_service = Some(Arc::new(
-            SearchService::new(db.clone(), config.search.clone()).await,
-        ));
 
         // Initialize daemon manager if enabled
         let daemon_manager = if config.daemon.enabled {

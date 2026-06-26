@@ -7,6 +7,35 @@ feature gap vs Frigate. Design rationale lives in the **zm-next** repo at
 (feature-flagged, capability-detected backend). File paths below are against the current zm-api tree;
 verify line numbers before editing.
 
+## Implementation status (2026-06) — vertical slice SHIPPED
+
+The full slice is implemented and merged behind the off-by-default `[search]` flag. **Decision: MariaDB
+11.8+ native `VECTOR` is the implemented primary backend (Option A)** — the deployment DB is being moved
+to MariaDB 11.8 (Ubuntu 26.04), so CI was bumped `mariadb:11.4 → 11.8` and the build was validated
+against a real 11.8 server. sqlite-vec/pgvector remain *future* backends behind the same trait; until one
+is added, a non-11.8 server resolves to the no-op `NullVectorStore` (search reports disabled). The
+"sqlite-vec is PRIMARY today" wording further down is superseded by this decision.
+
+Built (all green; lib tests + `tests/it_search.rs` verified on real MariaDB 11.8):
+- **Backend selection** — functional capability probe (`SELECT VEC_DISTANCE_COSINE(VEC_FromText(...))`,
+  pool-safe, *not* a version string) → `choose_backend`/`detect_backend`. `src/service/search/store.rs`.
+- **MariaDB-native store** — `VECTOR(dim)` + `VECTOR INDEX … DISTANCE=cosine` + `FULLTEXT`, oversampled
+  ANN-with-metadata-prefilter, `fts`, `similar`, `count`, idempotent `ensure_schema`, replace-on-upsert.
+  `src/service/search/mariadb.rs`.
+- **Providers** — `EmbeddingProvider`/`RerankProvider`/`ChatProvider` over `reqwest` to local
+  `embed_url`/`rerank_url`/`router_url` (TEI `/embed`+`/rerank`, OpenAI `/chat/completions`), Matryoshka
+  truncation to `embed_dim`. `src/service/search/provider.rs`.
+- **Orchestration** — `SearchService`: embed-query → ANN + FTS → RRF fuse (`fusion.rs`) → cross-encoder
+  rerank → grounded strict-citation answer; `is_count_query` → SQL count tool (never an LLM tally).
+- **Embed-at-ingest** — `EventIngestor` embeds the zm-next description text and tags it with the
+  accumulated detection labels (class pre-filter); failures are logged, never break ingest.
+- **HTTP API** — `GET /api/v3/search` + `GET /api/v3/events/{id}/similar`, JWT + `Feature::Events` +
+  row-level `MonitorScope` ACL (a monitor outside scope → empty, never a leak). OpenAPI registered.
+
+Remaining / not yet done: stand up the real local inference servers and verify end-to-end answers;
+sqlite-vec floor for non-11.8 deployments (optional); response caching/ETag; `image_embed`; the
+`zmnext_event_vectors` schema ships via `ensure_schema` at startup (no separate migration file).
+
 ## zm-api current state (VERIFIED — corrects earlier assumptions)
 An earlier draft of this plan inherited assumptions from a code *audit*, not the repo. Ground truth
 (Cargo.toml + src), so don't be misled:

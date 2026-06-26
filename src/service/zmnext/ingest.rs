@@ -26,7 +26,7 @@
 //! At most one event is open per monitor at a time, matching ZoneMinder's
 //! per-monitor event model.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
@@ -44,28 +44,35 @@ use crate::entity::sea_orm_active_enums::{FrameType, Scheme, SynopsisStatus};
 use crate::entity::{event_synopsis, events, frames, monitors, storage};
 use crate::error::AppResult;
 use crate::repo;
+use crate::service::search::SearchService;
 use crate::streaming::source::{protocol, MonitorEvent, MonitorEventEnvelope};
 
 /// In-memory aggregate for the event currently open on a monitor.
 #[derive(Debug, Clone, PartialEq)]
 struct OpenEvent {
     event_id: u64,
+    monitor_id: u32,
     start: NaiveDateTime,
     frames: u32,
     alarm_frames: u32,
     tot_score: u64,
     max_score: u16,
+    /// Distinct object/class labels seen across this event's detections, used as
+    /// the class pre-filter metadata when the description is embedded at ingest.
+    labels: BTreeSet<String>,
 }
 
 impl OpenEvent {
-    fn new(event_id: u64, start: NaiveDateTime) -> Self {
+    fn new(event_id: u64, monitor_id: u32, start: NaiveDateTime) -> Self {
         Self {
             event_id,
+            monitor_id,
             start,
             frames: 0,
             alarm_frames: 0,
             tot_score: 0,
             max_score: 0,
+            labels: BTreeSet::new(),
         }
     }
 
@@ -106,6 +113,9 @@ pub struct EventIngestor {
     config: IngestConfig,
     /// Synopsis config — used for the `review_assets` retention window.
     synopsis: SynopsisConfig,
+    /// Optional NL/semantic search service for embed-at-ingest. `None` (or a
+    /// disabled service) makes indexing a no-op.
+    search: Option<Arc<SearchService>>,
     open: HashMap<u32, OpenEvent>,
     dims: HashMap<u32, MonitorDims>,
 }
@@ -115,11 +125,13 @@ impl EventIngestor {
         db: Arc<DatabaseConnection>,
         config: IngestConfig,
         synopsis: SynopsisConfig,
+        search: Option<Arc<SearchService>>,
     ) -> Self {
         Self {
             db,
             config,
             synopsis,
+            search,
             open: HashMap::new(),
             dims: HashMap::new(),
         }
@@ -188,13 +200,20 @@ impl EventIngestor {
         let event_id = self.ensure_open_event(monitor_id, when, cause).await?;
 
         // Fold the detection into the running aggregate, then persist a frame
-        // and the updated event totals.
+        // and the updated event totals. Accumulate distinct object labels for
+        // the search class-filter metadata.
         let (frame_no, agg) = {
             let open = self
                 .open
                 .get_mut(&monitor_id)
                 .expect("session opened above");
             let frame_no = open.record_detection(score);
+            for obj in &detail.objects {
+                let label = obj.label.trim();
+                if !label.is_empty() {
+                    open.labels.insert(label.to_lowercase());
+                }
+            }
             (frame_no, open.clone())
         };
 
@@ -236,14 +255,51 @@ impl EventIngestor {
         // A description on its own still implies activity worth a row.
         let event_id = self.ensure_open_event(monitor_id, when, None).await?;
 
+        let text = detail.text.trim().to_string();
         events::ActiveModel {
             id: Set(event_id),
-            notes: Set(non_empty(detail.text)),
+            notes: Set(non_empty(text.clone())),
             ..Default::default()
         }
         .update(&*self.db)
         .await?;
+
+        // Embed-at-ingest: index the description text into the search backend so
+        // it is queryable. We embed the existing analysis text (no re-decode /
+        // re-detect) and tag it with the labels accumulated from detections.
+        self.index_for_search(monitor_id, event_id, when, text)
+            .await;
         Ok(())
+    }
+
+    /// Push an event's description text to the NL/semantic search index. No-op
+    /// when search is disabled or the text is empty. Indexing failures are
+    /// logged and swallowed — they must never break event ingest.
+    async fn index_for_search(
+        &self,
+        monitor_id: u32,
+        event_id: u64,
+        when: NaiveDateTime,
+        text: String,
+    ) {
+        let Some(search) = self.search.as_ref() else {
+            return;
+        };
+        if !search.enabled() || text.is_empty() {
+            return;
+        }
+        let classes: Vec<String> = self
+            .open
+            .get(&monitor_id)
+            .map(|o| o.labels.iter().cloned().collect())
+            .unwrap_or_default();
+        let ts = when.and_utc().timestamp();
+        if let Err(e) = search
+            .index_text(event_id, monitor_id, ts, classes, text)
+            .await
+        {
+            warn!("zm-next ingest: search index failed for event {event_id}: {e}");
+        }
     }
 
     /// store_event opened a recording segment: allocate (or adopt) the event
@@ -514,7 +570,7 @@ impl EventIngestor {
             model.id
         );
         self.open
-            .insert(monitor_id, OpenEvent::new(model.id, start));
+            .insert(monitor_id, OpenEvent::new(model.id, monitor_id, start));
         Ok(model.id)
     }
 
@@ -639,7 +695,7 @@ mod tests {
     #[test]
     fn open_event_aggregates_scores() {
         let start = micros_to_naive(1_700_000_000_000_000).unwrap();
-        let mut open = OpenEvent::new(42, start);
+        let mut open = OpenEvent::new(42, 1, start);
 
         assert_eq!(open.record_detection(80), 1);
         assert_eq!(open.record_detection(40), 2);

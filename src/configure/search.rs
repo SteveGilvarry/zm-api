@@ -58,6 +58,8 @@ pub struct SearchConfig {
     pub rerank_url: String,
     /// Local OpenAI-compatible LLM for the query router.
     pub router_url: String,
+    /// Model name sent to the router endpoint (many local servers ignore it).
+    pub router_model: String,
     /// Also embed the on-disk crop JPEGs (off = text-only).
     pub image_embed: bool,
 }
@@ -73,6 +75,7 @@ impl Default for SearchConfig {
             embed_url: "http://127.0.0.1:8090/embed".to_string(),
             rerank_url: "http://127.0.0.1:8090/rerank".to_string(),
             router_url: "http://127.0.0.1:8091/v1".to_string(),
+            router_model: "local".to_string(),
             image_embed: false,
         }
     }

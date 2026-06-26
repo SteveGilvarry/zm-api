@@ -78,6 +78,12 @@ pub trait VectorStore: Send + Sync {
     async fn search(&self, q: &Embedding, f: &Filter, k: usize) -> SearchResult<Vec<Hit>>;
     /// Lexical (FTS/BM25) search over the same pre-filtered set.
     async fn fts(&self, query: &str, f: &Filter, k: usize) -> SearchResult<Vec<Hit>>;
+    /// "More like this": ANN using the stored vector of `event_id` (excluding
+    /// itself), so the vector never round-trips through the app.
+    async fn similar(&self, event_id: u64, f: &Filter, k: usize) -> SearchResult<Vec<Hit>>;
+    /// Count of distinct events matching the metadata filter (the count tool —
+    /// never let the LLM tally).
+    async fn count(&self, f: &Filter) -> SearchResult<u64>;
     /// Re-embed from `Events`/descriptions (used after a backend switch — the
     /// index is derived, so switching backends is a rebuild, not a migration).
     async fn rebuild(&self) -> SearchResult<()>;
@@ -174,6 +180,12 @@ impl VectorStore for NullVectorStore {
     }
     async fn fts(&self, _query: &str, _f: &Filter, _k: usize) -> SearchResult<Vec<Hit>> {
         Ok(Vec::new())
+    }
+    async fn similar(&self, _event_id: u64, _f: &Filter, _k: usize) -> SearchResult<Vec<Hit>> {
+        Ok(Vec::new())
+    }
+    async fn count(&self, _f: &Filter) -> SearchResult<u64> {
+        Ok(0)
     }
     async fn rebuild(&self) -> SearchResult<()> {
         Ok(())

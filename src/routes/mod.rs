@@ -48,6 +48,7 @@ pub mod montage_layouts; // Montage Layouts
 pub mod object_types; // Object Types
 pub mod ptz; // PTZ control
 pub mod reports; // Reports
+pub mod search; // Natural-language / semantic event search
 pub mod server;
 pub mod server_stats; // Server Stats
 pub mod servers; // Server info list
@@ -294,6 +295,10 @@ pub fn create_router_app(state: AppState) -> Router {
         events_playback::add_events_playback_routes(Router::new()),
         Feature::Events,
     );
+    // Natural-language / semantic event search. JSON (compressible), so it lives
+    // in the `api` group rather than the streaming group. Row-level ACL is
+    // enforced inside the handlers via `MonitorScope`.
+    let search_routes = protect(search::add_search_routes(Router::new()), Feature::Events);
 
     let control_routes = protect(
         controls::add_control_routes(Router::new()),
@@ -445,6 +450,7 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(event_data_routes)
         .merge(event_summary_routes)
         .merge(event_tag_routes)
+        .merge(search_routes)
         .merge(daemon_routes) // Daemon control
         .merge(ptz_routes); // PTZ control
 

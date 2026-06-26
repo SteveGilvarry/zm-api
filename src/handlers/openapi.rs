@@ -98,6 +98,10 @@ use crate::util::claim::UserClaims;
         crate::handlers::event_summaries::list_event_summaries,
         crate::handlers::event_summaries::get_event_summary,
 
+        // natural-language / semantic search
+        crate::handlers::search::search_events,
+        crate::handlers::search::similar_events,
+
         // events tags
         crate::handlers::events_tags::create_event_tag,
         crate::handlers::events_tags::delete_event_tag,
@@ -411,6 +415,13 @@ use crate::util::claim::UserClaims;
             // event playback
             crate::handlers::events_playback::EventVideoInfo,
 
+            // natural-language / semantic search
+            crate::dto::request::search::SearchQueryParams,
+            crate::dto::request::search::SimilarQueryParams,
+            crate::dto::response::search::SearchCitation,
+            crate::dto::response::search::SearchResponse,
+            crate::dto::response::search::SimilarResponse,
+
             // event summaries
             crate::dto::response::event_summaries::EventSummaryResponse,
 
@@ -644,6 +655,7 @@ use crate::util::claim::UserClaims;
         (name = "Object Types", description = "Object detection type definitions"),
         (name = "PTZ", description = "Pan-Tilt-Zoom camera control"),
         (name = "Reports", description = "Report definitions and templates"),
+        (name = "Search", description = "Natural-language / semantic event search"),
         (name = "Server", description = "Server information endpoints"),
         (name = "Server Stats", description = "Server performance statistics"),
         (name = "Servers", description = "Server info endpoints"),

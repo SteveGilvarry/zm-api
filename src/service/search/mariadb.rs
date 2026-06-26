@@ -234,6 +234,64 @@ impl VectorStore for MariaDbVectorStore {
             .collect())
     }
 
+    async fn similar(&self, event_id: u64, f: &Filter, k: usize) -> SearchResult<Vec<Hit>> {
+        // ANN against the stored vector of `event_id`, excluding itself. The
+        // index needs ORDER BY VEC_DISTANCE … LIMIT, so over-fetch then filter.
+        let has_filter = !f.monitor_ids.is_empty()
+            || f.from.is_some()
+            || f.to.is_some()
+            || !f.classes.is_empty();
+        let inner_k = if has_filter { (k * 8).max(k) } else { k } + 1; // +1 for self
+        let (clause, mut fparams) = Self::filter_clause("t", f);
+
+        let sql = format!(
+            "SELECT event_id, ts, snippet, dist FROM (
+               SELECT event_id, monitor_id, ts, classes, `text` AS snippet,
+                      VEC_DISTANCE_COSINE(vec, (SELECT vec FROM {TABLE} WHERE event_id = ? LIMIT 1)) AS dist
+               FROM {TABLE} ORDER BY dist LIMIT {inner_k}
+             ) t WHERE t.event_id IS NOT NULL AND t.event_id <> ?{clause}
+             ORDER BY t.dist LIMIT {k}"
+        );
+        let mut params = vec![Value::from(event_id), Value::from(event_id)];
+        params.append(&mut fparams);
+
+        let rows = self
+            .db
+            .query_all(self.st(sql, params))
+            .await
+            .map_err(|e| SearchError::Store(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| {
+                let event_id: u64 = r.try_get("", "event_id").ok()?;
+                let ts: i64 = r.try_get("", "ts").ok()?;
+                let dist: f64 = r.try_get("", "dist").ok()?;
+                let snippet: String = r.try_get("", "snippet").unwrap_or_default();
+                Some(Hit {
+                    event_id,
+                    score: (1.0 - dist) as f32,
+                    ts,
+                    snippet,
+                })
+            })
+            .collect())
+    }
+
+    async fn count(&self, f: &Filter) -> SearchResult<u64> {
+        let (clause, params) = Self::filter_clause("", f);
+        let sql = format!(
+            "SELECT COUNT(DISTINCT event_id) AS c FROM {TABLE} WHERE event_id IS NOT NULL{clause}"
+        );
+        let row = self
+            .db
+            .query_one(self.st(sql, params))
+            .await
+            .map_err(|e| SearchError::Store(e.to_string()))?
+            .ok_or_else(|| SearchError::Store("count returned no row".into()))?;
+        let c: i64 = row.try_get("", "c").unwrap_or(0);
+        Ok(c.max(0) as u64)
+    }
+
     async fn rebuild(&self) -> SearchResult<()> {
         // Re-embedding from Events/descriptions needs the embedding provider,
         // wired in the embed-at-ingest phase. The schema is created here; rebuild

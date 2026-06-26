@@ -155,6 +155,7 @@ rerank = true
 embed_url = "http://127.0.0.1:8090/embed"    # text(+image) embeddings (TEI/llama.cpp/Ollama)
 rerank_url = "http://127.0.0.1:8090/rerank"  # cross-encoder reranker
 router_url = "http://127.0.0.1:8091/v1"      # OpenAI-compatible LLM for the query router
+router_model = "local"                       # model name for the router endpoint (often ignored)
 image_embed = false    # also embed on-disk crop JPEGs (off = text-only)
 
 # Daemon controller configuration (replaces zmdc.pl/zmpkg.pl)

@@ -209,6 +209,7 @@ async fn ingest_review_assets_persists_and_reconciles() {
         Arc::new(ingest_db),
         IngestConfig::default(),
         SynopsisConfig::default(),
+        None,
     );
     let (tx, rx) = mpsc::channel(8);
     let handle = tokio::spawn(ingestor.run(rx));
