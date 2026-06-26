@@ -10,14 +10,16 @@
 //! Phase 0 wires the abstraction, the capability probe, config and the disabled
 //! [`NullVectorStore`]; the concrete backends + providers land in later phases.
 
+pub mod mariadb;
 pub mod store;
 
 use std::sync::Arc;
 
 use sea_orm::DatabaseConnection;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::configure::search::SearchConfig;
+use mariadb::MariaDbVectorStore;
 use store::{Backend, NullVectorStore, VectorStore};
 
 /// Errors surfaced by the search subsystem. The HTTP layer maps these to
@@ -52,23 +54,41 @@ pub struct SearchService {
 }
 
 impl SearchService {
-    /// Resolve the backend (probing the DB when `auto`/`mariadb`) and build the
-    /// service. Off-by-default: when disabled, no probe runs and the store is the
-    /// no-op [`NullVectorStore`].
-    pub async fn new(db: &DatabaseConnection, config: SearchConfig) -> Self {
+    /// Resolve the backend (probing the DB when `auto`/`mariadb`), build the
+    /// matching store, and create its schema. Off-by-default: when disabled, no
+    /// probe runs and the store is the no-op [`NullVectorStore`]. If schema
+    /// creation fails, search degrades to disabled rather than failing startup.
+    pub async fn new(db: Arc<DatabaseConnection>, config: SearchConfig) -> Self {
         let backend = if config.is_enabled() {
-            store::detect_backend(db, config.backend).await
+            store::detect_backend(&db, config.backend).await
         } else {
             Backend::None
         };
 
-        // Phase 0: the concrete backends aren't wired yet, so we always hold the
-        // null store. Later phases swap in SqliteVecStore / MariaDbVectorStore by
-        // matching on `backend`.
-        let store: Arc<dyn VectorStore> = Arc::new(NullVectorStore);
+        let store: Arc<dyn VectorStore> = match backend {
+            Backend::Mariadb => Arc::new(MariaDbVectorStore::new(db.clone(), config.embed_dim)),
+            // sqlite-vec / pgvector are future backends; None = disabled.
+            _ => Arc::new(NullVectorStore),
+        };
+
+        // Create the index schema for a real backend; degrade to disabled on
+        // failure (e.g. insufficient grants) so the rest of the API still boots.
+        if !matches!(backend, Backend::None) {
+            if let Err(e) = store.ensure_schema().await {
+                warn!(
+                    "event search: ensure_schema failed on {} backend ({e}); disabling search",
+                    backend.as_str()
+                );
+                return Self {
+                    config,
+                    backend: Backend::None,
+                    store: Arc::new(NullVectorStore),
+                };
+            }
+        }
 
         info!(
-            "event search: enabled={:?} → backend={} (store=null until the backend impl lands)",
+            "event search: enabled={:?} → backend={}",
             config.enabled,
             backend.as_str()
         );

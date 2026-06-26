@@ -157,9 +157,10 @@ impl AppState {
         }
 
         // Natural-language / semantic event search. Resolves its vector backend
-        // (probing the DB only when enabled); off by default → a no-op store.
+        // (probing the DB only when enabled) and creates its schema; off by
+        // default → a no-op store.
         let search_service = Some(Arc::new(
-            SearchService::new(&db, config.search.clone()).await,
+            SearchService::new(db.clone(), config.search.clone()).await,
         ));
 
         // Initialize daemon manager if enabled

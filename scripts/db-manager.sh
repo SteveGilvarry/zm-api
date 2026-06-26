@@ -285,9 +285,9 @@ setup_mysql() {
             run_container_cmd rm "$CONTAINER_NAME_MYSQL" 2>/dev/null || true
 
             # Pull MariaDB image if not present
-            if ! run_container_cmd images 2>/dev/null | grep -q "mariadb.*11.4"; then
-                log_info "Pulling MariaDB 11.4 image..."
-                run_container_cmd pull docker.io/library/mariadb:11.4
+            if ! run_container_cmd images 2>/dev/null | grep -q "mariadb.*11.8"; then
+                log_info "Pulling MariaDB 11.8 image..."
+                run_container_cmd pull docker.io/library/mariadb:11.8
             fi
             
             # Run MariaDB container
@@ -301,7 +301,7 @@ setup_mysql() {
                 -p "$MYSQL_PORT:3306" \
                 -v "$PROJECT_ROOT:/workspace:ro" \
                 -d \
-                docker.io/library/mariadb:11.4 \
+                docker.io/library/mariadb:11.8 \
                 --character-set-server=utf8mb4 \
                 --collation-server=utf8mb4_unicode_ci; then
                 schema_container_path="/workspace/$schema_basename"
@@ -315,7 +315,7 @@ setup_mysql() {
                     -e MYSQL_PASSWORD="$MYSQL_PASSWORD" \
                     -p "$MYSQL_PORT:3306" \
                     -d \
-                    docker.io/library/mariadb:11.4 \
+                    docker.io/library/mariadb:11.8 \
                     --character-set-server=utf8mb4 \
                     --collation-server=utf8mb4_unicode_ci
             fi

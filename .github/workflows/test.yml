@@ -23,7 +23,7 @@ jobs:
     
     services:
       mysql:
-        image: mariadb:11.4
+        image: mariadb:11.8
         env:
           MYSQL_ROOT_PASSWORD: test_root_pass
           MYSQL_DATABASE: zm_test
@@ -160,7 +160,7 @@ jobs:
 
     services:
       mysql:
-        image: mariadb:11.4
+        image: mariadb:11.8
         env:
           MYSQL_ROOT_PASSWORD: test_root_pass
           MYSQL_DATABASE: zm_test

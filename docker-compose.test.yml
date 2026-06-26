@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # MySQL/MariaDB test database for ZoneMinder schema
   test-db:
-    image: mariadb:11.4
+    image: mariadb:11.8
     container_name: zm-test-mysql
     environment:
       MYSQL_ROOT_PASSWORD: test_root_pass

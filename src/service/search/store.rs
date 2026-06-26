@@ -134,25 +134,19 @@ pub fn choose_backend(pref: BackendPref, mariadb_native: bool) -> Backend {
 }
 
 /// Functionally probe the already-connected DB for native `VECTOR` support
-/// (MariaDB 11.8+). Uses a `CREATE TEMPORARY TABLE … VECTOR(3)` probe rather
-/// than a version string, so forks/distro patches are detected correctly.
+/// (MariaDB 11.8+ / MySQL 9+). Tests the native vector **functions** with a
+/// self-contained `SELECT` rather than a version string (so forks/distro patches
+/// are detected) — and rather than a temp table, which is unreliable here because
+/// sea-orm's `DatabaseConnection` is a *pool*: `CREATE`/`DROP` can land on
+/// different connections, leaving a lingering connection-scoped table that breaks
+/// the next probe. A pure `SELECT` is idempotent and pool-safe.
 pub async fn probe_mariadb_vector(db: &DatabaseConnection) -> bool {
-    let ok = db
-        .execute(Statement::from_string(
-            db.get_database_backend(),
-            "CREATE TEMPORARY TABLE _zmapi_vchk (v VECTOR(3))",
-        ))
-        .await
-        .is_ok();
-    if ok {
-        let _ = db
-            .execute(Statement::from_string(
-                db.get_database_backend(),
-                "DROP TEMPORARY TABLE _zmapi_vchk",
-            ))
-            .await;
-    }
-    ok
+    db.query_one(Statement::from_string(
+        db.get_database_backend(),
+        "SELECT VEC_DISTANCE_COSINE(VEC_FromText('[1,2,3]'), VEC_FromText('[1,2,3]')) AS d",
+    ))
+    .await
+    .is_ok()
 }
 
 /// Resolve the backend: probe the DB (when `auto`/`mariadb`) and apply
