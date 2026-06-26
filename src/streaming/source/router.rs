@@ -443,7 +443,7 @@ pub struct SourceRouter {
 
 /// Server-side WebRTC startup profile for a monitor's most recent session.
 /// All `*_ms` are milliseconds from WS connect, so the phases nest:
-/// `get_source_ms ≤ offer_ms ≤ connected_ms ≤ first_rtp_ms`.
+/// `get_source_ms ≤ offer_ms ≤ ice_connected_ms ≤ connected_ms ≤ first_rtp_ms`.
 #[derive(Debug, Clone, Default)]
 pub struct WebRtcStartupTiming {
     /// Reader was already hot at connect (no reader spin-up on the offer path).
@@ -453,9 +453,13 @@ pub struct WebRtcStartupTiming {
     pub get_source_ms: Option<u64>,
     /// connect → SDP offer sent.
     pub offer_ms: Option<u64>,
+    /// connect → ICE-connected (first usable candidate pair). With trickle ICE
+    /// this is the lower bound of the offer→connected window; the remaining gap
+    /// to `connected_ms` is the DTLS handshake, so the two split the ICE cost
+    /// from the DTLS cost.
+    pub ice_connected_ms: Option<u64>,
     /// connect → peer connection `Connected` (ICE + DTLS complete). The
-    /// `connected_ms − offer_ms` gap is the ICE+DTLS cost (≈ the DTLS handshake
-    /// on a LAN, where ICE is negligible).
+    /// `connected_ms − ice_connected_ms` gap is the DTLS handshake.
     pub connected_ms: Option<u64>,
     /// connect → first video RTP written to the track.
     pub first_rtp_ms: Option<u64>,
@@ -851,10 +855,21 @@ impl SourceRouter {
                 warm_start,
                 get_source_ms: Some(get_source_ms),
                 offer_ms: Some(offer_ms),
+                ice_connected_ms: None,
                 connected_ms: None,
                 first_rtp_ms: None,
             },
         );
+    }
+
+    /// Record connect → ICE-connected (first usable candidate pair), only the
+    /// first per session.
+    pub fn record_webrtc_ice_connected(&self, monitor_id: u32, ice_connected_ms: u64) {
+        if let Some(mut t) = self.webrtc_startup.get_mut(&monitor_id) {
+            if t.ice_connected_ms.is_none() {
+                t.ice_connected_ms = Some(ice_connected_ms);
+            }
+        }
     }
 
     /// Record connect → peer `Connected` (ICE+DTLS done), only the first per
@@ -1065,15 +1080,20 @@ mod tests {
         assert!(t.warm_start);
         assert_eq!(t.get_source_ms, Some(5));
         assert_eq!(t.offer_ms, Some(120));
+        assert_eq!(t.ice_connected_ms, None);
         assert_eq!(t.connected_ms, None);
         assert_eq!(t.first_rtp_ms, None);
 
-        // Connected + first RTP are each recorded once; later calls don't clobber.
+        // ICE-connected, Connected + first RTP are each recorded once; later
+        // calls don't clobber.
+        router.record_webrtc_ice_connected(3, 140);
+        router.record_webrtc_ice_connected(3, 9999);
         router.record_webrtc_connected(3, 1240);
         router.record_webrtc_connected(3, 9999);
         router.record_webrtc_first_rtp(3, 1300);
         router.record_webrtc_first_rtp(3, 9999);
         let t = router.webrtc_startup(3).unwrap();
+        assert_eq!(t.ice_connected_ms, Some(140));
         assert_eq!(t.connected_ms, Some(1240));
         assert_eq!(t.first_rtp_ms, Some(1300));
 
@@ -1082,6 +1102,7 @@ mod tests {
         let t = router.webrtc_startup(3).unwrap();
         assert!(!t.warm_start);
         assert_eq!(t.get_source_ms, Some(2100));
+        assert_eq!(t.ice_connected_ms, None);
         assert_eq!(t.connected_ms, None);
         assert_eq!(t.first_rtp_ms, None);
     }

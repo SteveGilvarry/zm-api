@@ -82,18 +82,21 @@ pub struct LiveStatsResponse {
 }
 
 /// Server-side WebRTC startup timing surfaced on `/live/{id}/stats`. All `*_ms`
-/// are from WS connect and nest: `get_source_ms ≤ offer_ms ≤ connected_ms ≤
-/// first_rtp_ms`.
+/// are from WS connect and nest: `get_source_ms ≤ offer_ms ≤ ice_connected_ms ≤
+/// connected_ms ≤ first_rtp_ms`.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct WebRtcStartupView {
     /// Reader was already hot at connect (no reader spin-up on the offer path).
     pub warm_start: bool,
     /// connect → get_source returned (reader acquire/restart cost).
     pub get_source_ms: Option<u64>,
-    /// connect → SDP offer sent.
+    /// connect → SDP offer sent. With trickle ICE this no longer waits on ICE
+    /// gathering / STUN, so it collapses toward the floor.
     pub offer_ms: Option<u64>,
-    /// connect → peer Connected (ICE+DTLS). `connected_ms − offer_ms` ≈ the DTLS
-    /// handshake on a LAN.
+    /// connect → ICE-connected (first usable candidate pair).
+    pub ice_connected_ms: Option<u64>,
+    /// connect → peer Connected (ICE+DTLS). `connected_ms − ice_connected_ms` is
+    /// the DTLS handshake (the structural ~1.1s offerer-passive cost on a LAN).
     pub connected_ms: Option<u64>,
     /// connect → first video RTP written.
     pub first_rtp_ms: Option<u64>,
@@ -290,6 +293,7 @@ pub async fn get_live_stats(
             warm_start: t.warm_start,
             get_source_ms: t.get_source_ms,
             offer_ms: t.offer_ms,
+            ice_connected_ms: t.ice_connected_ms,
             connected_ms: t.connected_ms,
             first_rtp_ms: t.first_rtp_ms,
         });
@@ -820,8 +824,16 @@ async fn handle_webrtc_websocket(
         None => None,
     };
 
-    // Create WebRTC session with offer and state watch channel
-    let (session_id, offer, mut pc_state_rx) = match webrtc_manager
+    // Create WebRTC session. With trickle ICE the offer is returned immediately
+    // (no ICE-gather wait); candidates stream out on `candidate_rx` and the
+    // ICE-connected moment is surfaced on `ice_connected_rx`.
+    let crate::streaming::live::webrtc::SessionHandshake {
+        session_id,
+        offer,
+        mut pc_state_rx,
+        mut ice_connected_rx,
+        mut candidate_rx,
+    } = match webrtc_manager
         .create_session(monitor_id, codec, profile_level_id.as_deref(), audio_kind)
         .await
     {
@@ -887,6 +899,10 @@ async fn handle_webrtc_websocket(
     let mut first_rtp_recorded = false;
     // Track if we've set the SDP answer (waiting for DTLS)
     let mut answer_set = false;
+    // Track if the connect → ICE-connected time has been recorded (once).
+    let mut ice_recorded = false;
+    // Set once the trickle-candidate channel is drained (end-of-candidates).
+    let mut candidates_done = false;
     // Connection timeout: 30s after answer is set, if not streaming yet
     let connection_timeout = tokio::time::sleep(Duration::from_secs(30));
     tokio::pin!(connection_timeout);
@@ -1065,6 +1081,38 @@ async fn handle_webrtc_websocket(
                         }
                         break;
                     }
+                }
+            }
+
+            // Trickle ICE: relay each locally-gathered candidate to the browser
+            // as it is discovered (the browser trickles its candidates back via
+            // the IceCandidate handler above). Always active until the channel
+            // signals end-of-candidates.
+            maybe_candidate = candidate_rx.recv(), if !candidates_done => {
+                match maybe_candidate {
+                    Some(c) => {
+                        let msg = WebRtcSignalingMessage::IceCandidate {
+                            session_id: session_id.clone(),
+                            candidate: c.candidate,
+                            sdp_mid: c.sdp_mid,
+                            sdp_mline_index: c.sdp_mline_index,
+                        };
+                        if let Ok(json) = serde_json::to_string(&msg) {
+                            let _ = ws_sender.send(Message::Text(json.into())).await;
+                        }
+                    }
+                    None => candidates_done = true,
+                }
+            }
+
+            // Record connect → ICE-connected (the lower bound of the offer→
+            // connected window). The remaining gap to `connected_ms` is the DTLS
+            // handshake, so the two numbers split the ICE cost from the DTLS cost.
+            result = ice_connected_rx.changed(), if !ice_recorded => {
+                if result.is_ok() && *ice_connected_rx.borrow_and_update() {
+                    ice_recorded = true;
+                    source_router
+                        .record_webrtc_ice_connected(monitor_id, connect_at.elapsed().as_millis() as u64);
                 }
             }
 

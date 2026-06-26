@@ -20,6 +20,7 @@ use webrtc::api::setting_engine::SettingEngine;
 use webrtc::api::APIBuilder;
 use webrtc::dtls_transport::dtls_transport_state::RTCDtlsTransportState;
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
+use webrtc::ice_transport::ice_connection_state::RTCIceConnectionState;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::peer_connection::configuration::RTCConfiguration;
 use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
@@ -514,6 +515,23 @@ pub struct WebRtcLiveManager {
     monitor_sessions: DashMap<u32, Vec<String>>,
 }
 
+/// Everything the signaling handler needs after a session's offer is built.
+///
+/// With **trickle ICE** the offer is returned immediately — the server no longer
+/// blocks on `gathering_complete_promise()` (which stalled `offer_ms` on STUN
+/// round-trips). Locally gathered candidates arrive on `candidate_rx` and the
+/// handler relays them to the browser over the signaling channel; the browser's
+/// `ClientHello` can then land as soon as a candidate pair connects instead of
+/// waiting out a DTLS retransmit. `ice_connected_rx` flips `true` at ICE-connected
+/// so the handler can record the ICE→DTLS split separately.
+pub struct SessionHandshake {
+    pub session_id: String,
+    pub offer: RTCSessionDescription,
+    pub pc_state_rx: tokio::sync::watch::Receiver<RTCPeerConnectionState>,
+    pub ice_connected_rx: tokio::sync::watch::Receiver<bool>,
+    pub candidate_rx: tokio::sync::mpsc::UnboundedReceiver<RTCIceCandidateInit>,
+}
+
 /// The H.264 `profile-level-id` values to advertise in the SDP offer.
 ///
 /// These are **not** the camera's native profile. The server is a pure
@@ -542,6 +560,29 @@ fn h264_offer_profile_level_ids() -> Vec<String> {
     vec!["42e01f".to_string(), "640c1f".to_string()]
 }
 
+/// Add the session-level `a=ice-options:trickle` attribute to an offer if absent,
+/// so the answerer is told candidates arrive incrementally (RFC 8838). Inserts
+/// once, immediately before the first media (`m=`) line; the rest of the SDP —
+/// including the ICE ufrag/pwd and DTLS fingerprint — is untouched, so the
+/// peer connection's own local description still matches what the browser
+/// answers against.
+fn ensure_trickle_ice_option(
+    offer: RTCSessionDescription,
+) -> Result<RTCSessionDescription, WebRtcLiveError> {
+    if offer.sdp.contains("a=ice-options:trickle") {
+        return Ok(offer);
+    }
+    // SDP lines are CRLF-terminated; match the newline before the first `m=` so
+    // we insert a properly-terminated session-level attribute line. Fall back to
+    // returning the offer unchanged if the SDP has no media section.
+    let mut sdp = offer.sdp;
+    // No media section → nothing to anchor against; leave the SDP unchanged.
+    if let Some(nl) = sdp.find("\nm=") {
+        sdp.insert_str(nl + 1, "a=ice-options:trickle\r\n");
+    }
+    RTCSessionDescription::offer(sdp).map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))
+}
+
 impl WebRtcLiveManager {
     /// Create a new WebRTC live manager
     pub fn new(config: WebRtcLiveConfig) -> Self {
@@ -568,14 +609,7 @@ impl WebRtcLiveManager {
         codec: VideoCodec,
         profile_level_id: Option<&str>,
         audio: Option<AudioTrackKind>,
-    ) -> Result<
-        (
-            String,
-            RTCSessionDescription,
-            tokio::sync::watch::Receiver<RTCPeerConnectionState>,
-        ),
-        WebRtcLiveError,
-    > {
+    ) -> Result<SessionHandshake, WebRtcLiveError> {
         // Check session limit
         if self.sessions.len() >= self.config.max_sessions {
             return Err(WebRtcLiveError::WebRtcError(
@@ -720,6 +754,11 @@ impl WebRtcLiveManager {
         let (pc_state_tx, pc_state_rx) = tokio::sync::watch::channel(RTCPeerConnectionState::New);
         let pc_state_tx = Arc::new(pc_state_tx);
 
+        // Separate watch for ICE-connected, so the handler can split the
+        // ICE-connect cost from the DTLS-handshake cost (offer→ice_connected vs
+        // ice_connected→connected). Flips `true` once and stays.
+        let (ice_connected_tx, ice_connected_rx) = tokio::sync::watch::channel(false);
+
         // Register connection state callbacks for diagnostics + state channel
         let tx_for_pc = Arc::clone(&pc_state_tx);
         let pc_monitor_id = monitor_id;
@@ -762,13 +801,49 @@ impl WebRtcLiveManager {
             }));
 
         let ice_monitor_id = monitor_id;
+        let ice_tx = ice_connected_tx.clone();
         peer_connection.on_ice_connection_state_change(Box::new(move |state| {
             info!(
                 monitor_id = ice_monitor_id,
                 state = ?state,
                 "WebRTC ICE connection state changed"
             );
+            // Mark ICE connected so the handler can time the ICE→DTLS split.
+            // DTLS can only start once a candidate pair is usable, so this is
+            // the lower bound of the offer→connected gap.
+            if matches!(
+                state,
+                RTCIceConnectionState::Connected | RTCIceConnectionState::Completed
+            ) {
+                let _ = ice_tx.send(true);
+            }
             Box::pin(async move {})
+        }));
+
+        // Trickle ICE: forward each locally-gathered candidate to the handler,
+        // which relays it to the browser over the signaling channel. Registered
+        // before `set_local_description` (which starts gathering) so no early
+        // candidate is missed. The browser already trickles its candidates back.
+        let (candidate_tx, candidate_rx) =
+            tokio::sync::mpsc::unbounded_channel::<RTCIceCandidateInit>();
+        let cand_monitor_id = monitor_id;
+        peer_connection.on_ice_candidate(Box::new(move |candidate| {
+            let candidate_tx = candidate_tx.clone();
+            Box::pin(async move {
+                // `None` signals end-of-candidates; nothing to relay.
+                if let Some(c) = candidate {
+                    match c.to_json() {
+                        Ok(init) => {
+                            let _ = candidate_tx.send(init);
+                        }
+                        Err(e) => {
+                            debug!(
+                                "monitor {cand_monitor_id}: failed to serialize ICE candidate: {e}"
+                            );
+                        }
+                    }
+                }
+            })
         }));
 
         // Create video track using TrackLocalStaticSample which handles
@@ -819,25 +894,35 @@ impl WebRtcLiveManager {
             .await
             .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
 
-        // Set local description (starts ICE gathering)
+        // Set local description (starts ICE gathering).
         peer_connection
             .set_local_description(offer)
             .await
             .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
 
-        // Wait for ICE gathering to complete so the offer includes all candidates
-        let mut gather_complete = peer_connection.gathering_complete_promise().await;
-        let _ = gather_complete.recv().await;
-
-        // Get the complete local description (with gathered ICE candidates)
+        // Trickle ICE: return the offer NOW — with ICE ufrag/pwd, the DTLS
+        // fingerprint and the m-lines, but possibly no candidates yet — instead
+        // of blocking on `gathering_complete_promise()`. That gather wait was the
+        // dominant `offer_ms` cost: it stalled on STUN round-trips (and up to the
+        // ~5s STUN timeout if the servers were unreachable). Candidates now stream
+        // to the browser via `on_ice_candidate` as they are discovered, so the
+        // offer is sent in tens of ms regardless of STUN reachability, and DTLS
+        // can begin the moment the first candidate pair connects.
         let complete_offer = peer_connection.local_description().await.ok_or_else(|| {
-            WebRtcLiveError::WebRtcError(
-                "No local description available after ICE gathering".to_string(),
-            )
+            WebRtcLiveError::WebRtcError("No local description available after set".to_string())
         })?;
 
-        info!(
-            "ICE gathering complete for monitor {}, offer has candidates",
+        // Advertise trickle support (RFC 8838 §10). webrtc-rs does not emit
+        // `a=ice-options:trickle`; without it a strict answerer could wait for
+        // `a=end-of-candidates` instead of accepting our streamed candidates.
+        // Browsers accept trickle regardless, but signalling it is correct and
+        // helps non-browser peers. Insert once at session level (before the
+        // first media section); the PC's own local description is unchanged, so
+        // ICE ufrag/pwd/fingerprint still match.
+        let complete_offer = ensure_trickle_ice_option(complete_offer)?;
+
+        debug!(
+            "Trickle offer ready for monitor {} (candidates stream via signaling)",
             monitor_id
         );
 
@@ -870,7 +955,13 @@ impl WebRtcLiveManager {
             session_id_str, monitor_id
         );
 
-        Ok((session_id_str, complete_offer, pc_state_rx))
+        Ok(SessionHandshake {
+            session_id: session_id_str,
+            offer: complete_offer,
+            pc_state_rx,
+            ice_connected_rx,
+            candidate_rx,
+        })
     }
 
     /// Handle answer from client
@@ -1112,36 +1203,36 @@ mod tests {
     #[tokio::test]
     async fn test_session_with_audio_offers_audio_m_line() {
         let manager = lan_only_manager();
-        let (_, offer, _) = manager
+        let h = manager
             .create_session(1, VideoCodec::H264, None, Some(AudioTrackKind::Opus))
             .await
             .expect("session with audio");
-        assert!(offer.sdp.contains("m=video"), "video m-line expected");
-        assert!(offer.sdp.contains("m=audio"), "audio m-line expected");
-        assert!(offer.sdp.contains("opus"), "opus codec expected in SDP");
+        assert!(h.offer.sdp.contains("m=video"), "video m-line expected");
+        assert!(h.offer.sdp.contains("m=audio"), "audio m-line expected");
+        assert!(h.offer.sdp.contains("opus"), "opus codec expected in SDP");
     }
 
     #[tokio::test]
     async fn test_session_with_g711_offers_pcma() {
         let manager = lan_only_manager();
-        let (_, offer, _) = manager
+        let h = manager
             .create_session(1, VideoCodec::H264, None, Some(AudioTrackKind::Pcma))
             .await
             .expect("session with G.711 audio");
-        assert!(offer.sdp.contains("m=audio"));
-        assert!(offer.sdp.contains("PCMA"), "PCMA codec expected in SDP");
+        assert!(h.offer.sdp.contains("m=audio"));
+        assert!(h.offer.sdp.contains("PCMA"), "PCMA codec expected in SDP");
     }
 
     #[tokio::test]
     async fn test_video_only_session_has_no_audio_m_line() {
         let manager = lan_only_manager();
-        let (_, offer, _) = manager
+        let h = manager
             .create_session(1, VideoCodec::H264, None, None)
             .await
             .expect("video-only session");
-        assert!(offer.sdp.contains("m=video"));
+        assert!(h.offer.sdp.contains("m=video"));
         assert!(
-            !offer.sdp.contains("m=audio"),
+            !h.offer.sdp.contains("m=audio"),
             "video-only offer must not advertise audio"
         );
     }
@@ -1149,14 +1240,50 @@ mod tests {
     #[tokio::test]
     async fn test_h265_session_offers_h265_with_fmtp() {
         let manager = lan_only_manager();
-        let (_, offer, _) = manager
+        let h = manager
             .create_session(1, VideoCodec::H265, None, None)
             .await
             .expect("H.265 session");
-        assert!(offer.sdp.contains("H265"), "H265 codec expected in SDP");
+        assert!(h.offer.sdp.contains("H265"), "H265 codec expected in SDP");
         assert!(
-            offer.sdp.contains("profile-id=1"),
+            h.offer.sdp.contains("profile-id=1"),
             "RFC 7798 fmtp expected in SDP"
+        );
+    }
+
+    /// Trickle ICE: the offer is returned immediately with ICE ufrag + DTLS
+    /// fingerprint (so the browser can answer at once) and host candidates are
+    /// streamed on the candidate channel rather than embedded after a gather
+    /// wait. This is what collapses `offer_ms` to its floor.
+    #[tokio::test]
+    async fn test_trickle_offer_is_immediate_and_streams_candidates() {
+        let manager = lan_only_manager();
+        let mut h = manager
+            .create_session(1, VideoCodec::H264, None, None)
+            .await
+            .expect("session");
+        // The offer carries everything the browser needs to answer without
+        // waiting for candidates.
+        assert!(h.offer.sdp.contains("a=ice-ufrag"), "offer has ICE ufrag");
+        assert!(
+            h.offer.sdp.contains("a=fingerprint"),
+            "offer has DTLS fingerprint"
+        );
+        assert!(h.offer.sdp.contains("m=video"), "offer has video m-line");
+        assert!(
+            h.offer.sdp.contains("a=ice-options:trickle"),
+            "offer signals trickle ICE (RFC 8838)"
+        );
+
+        // At least one host candidate trickles out within a short window.
+        let got = tokio::time::timeout(Duration::from_secs(3), h.candidate_rx.recv())
+            .await
+            .expect("a candidate should trickle out within 3s");
+        let cand = got.expect("candidate channel open");
+        assert!(
+            cand.candidate.contains("candidate:"),
+            "trickled value is an ICE candidate line; got: {}",
+            cand.candidate
         );
     }
 

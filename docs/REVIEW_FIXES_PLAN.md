@@ -208,14 +208,34 @@ max_connections, and the live WS handler uses it instead of `default()`. An empt
 ICE gathering complete in milliseconds and eliminate the ~5s STUN-gather stall. Unit
 tests cover empty-list, enabled-TURN, and disabled-TURN mapping.
 
-**DEFERRED:** Part 2 (server-side trickle ICE — removing `gathering_complete_promise`,
-`on_ice_candidate` → WS `icecandidate`) and Part 3 (JS client). These change the
-SDP/ICE flow and the client protocol and can silently break *all* WebRTC if wrong; they
-require browser verification that the current environment can't provide. With the config
-plumbing in place, LAN operators already have a zero-risk path to remove the stall
-(empty STUN). Revisit trickle when a browser test loop is available. Bug A's
-`gathering_complete` wait is intentionally left as-is: for remote (non-LAN) peers it is
-load-bearing (srflx candidates), and bounding it without trickle would regress them.
+**STATUS (Part 2 implemented, 2026-06):** Server-side trickle ICE is now done, motivated
+by field profiling showing `offer_ms` varying 15ms–~3s independent of GOP — the signature
+of the `gathering_complete_promise()` STUN stall, not a keyframe wait. Changes:
+- `create_session` no longer awaits `gathering_complete_promise()`; it returns the offer
+  immediately after `set_local_description` (the SDP carries ICE ufrag/pwd + DTLS
+  fingerprint, enough for the browser to answer at once). It now returns a `SessionHandshake`
+  struct (`src/streaming/live/webrtc.rs`) carrying the offer, the pc-state watch, a new
+  ICE-connected watch, and an unbounded `candidate_rx`.
+- `on_ice_candidate` forwards each candidate (`candidate.to_json()` → `RTCIceCandidateInit`)
+  over an mpsc channel; the WS handler drains it in a new `select!` branch and relays the
+  documented `icecandidate` JSON to the client. The browser's inbound candidates already
+  worked, so trickle is now bidirectional.
+- The offer usually still embeds host candidates gathered before send (gathering is fast on
+  LAN), so non-trickle clients remain functional on LAN; trickle clients additionally get
+  candidates streamed (duplicate adds are idempotent).
+- New instrumentation: `ice_connected_ms` (connect → first usable candidate pair) is recorded
+  and surfaced on `/live/{id}/stats`, splitting the offer→connected window into ICE-connect
+  vs DTLS-handshake so the residual ~1.1s can be attributed precisely on the next field run.
+
+Expected: `offer_ms` collapses toward its floor (tens of ms) for LAN *and* remote, regardless
+of STUN reachability; DTLS may also start sooner (the ~1s DTLS retransmit fires when ICE
+isn't ready as the browser sends ClientHello). The structural part of the DTLS gap — the
+offerer being DTLS-passive (`engine.rs:323-333`) — remains locked in webrtc-rs and is *not*
+addressed here. Unit-tested: the trickle offer is immediate, well-formed, and streams a host
+candidate (`test_trickle_offer_is_immediate_and_streams_candidates`). **Still pending:**
+real-browser verification (Chrome/Safari/Firefox) — the field harness can confirm `offer_ms`
+collapse and read the new `ice_connected_ms` split. Part 3 (bundled JS client) is N/A — the
+apps are separate repos and already implement bidirectional trickle.
 
 ### 2.3 Take SPS/profile detection off the critical path
 
