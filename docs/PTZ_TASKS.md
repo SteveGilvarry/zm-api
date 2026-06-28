@@ -1,5 +1,12 @@
 # PTZ Control System - Implementation Tasks
 
+> **Status (2026-06-28):** Phase 0 (Perl bridge) shipped. Phase 1 (native
+> ONVIF PTZ) is delivered by [ONVIF_TASKS.md](ONVIF_TASKS.md), not here —
+> `src/ptz/protocols/onvif.rs` is implemented and registered in `state.rs`.
+> Phases 2-5 (Dahua / HikVision / Reolink / Amcrest natives, serial
+> protocols, presets/tours/multi-user/rate limit, Perl deprecation) are all
+> still open. 0.6.6 (generic command handler) is also still pending.
+
 This document tracks implementation tasks for the PTZ Control System.
 See the full plan context in the original design document.
 

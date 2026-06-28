@@ -1,5 +1,12 @@
 # Monitor Events — Capture-Fault & State Push (Spec + Tasks)
 
+> **Status (2026-06-28):** Active. zm-api protocol side largely landed (EVENT
+> 0x06 + Monitor stream parsing are in `src/streaming/source/protocol.rs`,
+> `stream_socket.rs`, `router.rs` — shared with the zm-next ingest path). The
+> `GET /api/v3/monitors/{id}/events` SSE endpoint (Phase 4) is **not yet
+> implemented**. Gating dependency: Phase 1 zmc-side EVENT emission lives in
+> a separate repo.
+
 Adds a **server-push event stream** to zm-api, fed by a new event frame on
 zmc's existing per-monitor stream socket. This is the API-first slice of
 PR #4830's capabilities: the capture-fault channel (only zmc can produce it)

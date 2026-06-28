@@ -1,5 +1,12 @@
 # zm-next Worker Integration
 
+> **Status (2026-06-28):** Done — coord pending. Tasks 1-5 landed in zm-api.
+> Outstanding cross-repo items: ZoneMinder fork's `Monitors.UseZmNext
+> TINYINT NOT NULL DEFAULT 0` migration; zm-next `store` plugin's
+> `recording_opening` / `assign_recording` handshake + stage-then-rename
+> behavior. Until both ship, `repo::monitors::use_zmnext` returns false on
+> the missing column and the integration is inert.
+
 Status as of this branch: zm-api can drive and ingest the per-monitor `zm-next`
 worker (`zm-core`) over the existing stream-socket protocol. The feature is
 **off by default** and reversible per camera.

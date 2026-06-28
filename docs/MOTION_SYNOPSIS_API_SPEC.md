@@ -1,5 +1,12 @@
 # Motion Synopsis — zm-api Hand-off Spec
 
+> **Status (2026-06-28):** Active. Service skeleton exists at
+> `src/service/synopsis/{compositor,optimiser,render,mod}.rs` and
+> `EVENT_REVIEW_ASSETS = 0x0306` is wired in `src/streaming/source/protocol.rs`.
+> P1 (composite still) + P2 (temporal optimiser scaffolding) appear in tree;
+> P3 (mp4 render via libav) + P4 (range/overview, retention cleanup, soft-mask)
+> still open. zm-next side is in a separate repo.
+
 **Audience:** the zm-api (Rust/Axum) maintainer. This is the implementation contract for the
 synopsis **optimiser + renderer + serving**. zm-next produces the ingredients (object "tubes" +
 background plates) and announces them; zm-api consumes, optimises, renders to mp4, caches, and

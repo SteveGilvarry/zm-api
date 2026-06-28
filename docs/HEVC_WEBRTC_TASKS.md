@@ -1,5 +1,9 @@
 # HEVC over WebRTC - Implementation Tasks
 
+> **Status (2026-06-28):** Done — verify. Phase 1 (server correctness: H.265
+> AU assembly, keyframe cache, RFC 7798 fmtp) shipped. Open: Phase 2 (Safari
+> verification), Phase 3 (Swift/Kotlin native apps), Phase 4 hardening.
+
 Goal: stream H.265 monitors live over WebRTC to clients that can decode it —
 Safari today, the native Swift/Kotlin apps next — with automatic HLS fallback
 for clients that can't.
