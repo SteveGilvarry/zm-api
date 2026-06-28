@@ -1,5 +1,12 @@
 # ONVIF Client Subsystem — Implementation Plan
 
+> **Status (2026-06-28):** Done — follow-ups. Phases 1-4 shipped (foundation,
+> service clients, integration with PTZ/discovery/event listener, adversarial
+> verification + fixes). Open: conformance vectors (11 sample-response
+> fixtures), CI feature-matrix per profile, deferred LOW parser items
+> (CDATA-spanning text, `xml:lang` Reason), Phase 5 live event push to API
+> clients (SSE/webhook).
+
 Goal: make zm_api a **client-only ONVIF NVR** — discover cameras, retrieve media
 profiles/stream URIs, control PTZ natively, and consume device events — by adding
 a reusable ONVIF client subsystem and wiring it into the existing monitor, PTZ,

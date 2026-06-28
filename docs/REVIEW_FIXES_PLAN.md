@@ -1,5 +1,18 @@
 # Review Fixes Implementation Plan
 
+> **Status (2026-06-28):** Done — follow-ups. Verified shipped: 1.1 password
+> hash (`src/service/users.rs:56`), 1.3 row-level ACL on event playback
+> (`src/handlers/events_playback.rs:198+`), 2.1 keyframe re-read + 2.2 trickle
+> ICE, 4.1 zmc daemon-id unification (`src/daemon/manager.rs:2208`), 4.3
+> spawn_blocking shm calls (`src/service/monitor.rs:856,881`), 5.1 dead WebRTC
+> file removal. **Still open:** 1.2 status codes (verify), 1.4 monitor-create
+> ACL (verify), 2.3 SPS-wait removal (verify), 2.4 pre-warm (skip unless
+> trivial), 3.1 HLS cleanup task wired up (verify it's actually started),
+> 3.2 idle HLS reaping, 3.3 atomic segment-cap eviction, 3.4 snapshot teardown,
+> 4.2 transactional apply_state, 4.4 bounded frames query, 5.2 ffmpeg init,
+> 5.3 percent-encoded DB credentials, 5.4 hand-rolled `percent_decode` replacement,
+> 5.5 utoipa security annotations, 5.6 inner auth middleware audit.
+
 Source: full API review (2026-06-10) — three parallel code reviews (streaming, HTTP layer,
 service/repo) plus a WebRTC startup-latency trace. Every finding below was verified against
 the code before inclusion. Line numbers were correct at plan time; re-locate by symbol if

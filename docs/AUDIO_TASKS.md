@@ -1,5 +1,11 @@
 # Live Audio - Implementation Tasks
 
+> **Status (2026-06-28):** Done — verify. Phases 1-3 (HLS AAC pass-through,
+> WebRTC G.711 pass-through, AAC→Opus transcode) implemented and unit-tested.
+> Open: 2.2.2 browser/camera verification, Phase 4 stretch (G.711→AAC,
+> VOD audio). The Phase 4 "raw-AAC ASC recovery" stretch item is obsolete —
+> stream-socket HELLO now carries the ASC.
+
 This document tracks implementation tasks for live audio support in HLS and
 WebRTC streaming. Recorded-event (VOD) audio is a stretch phase at the end.
 

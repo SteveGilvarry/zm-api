@@ -1,5 +1,11 @@
 # Natural-Language Event Search + Vector Store — zm-api Implementation Plan
 
+> **Status (2026-06-28):** Done — follow-ups. Vertical slice shipped on
+> MariaDB 11.8 native VECTOR (Option A). Open: stand up local inference
+> servers and verify end-to-end answers; sqlite-vec floor for non-11.8
+> deployments; response caching/ETag; `image_embed`. See the in-doc
+> "Implementation status" section for the canonical state.
+
 **Audience:** an engineer/AI working in the **zm-api** (Rust/Axum) repo. This is an execution-ready
 plan to build semantic + natural-language search over zm-next events — the single largest shipped-
 feature gap vs Frigate. Design rationale lives in the **zm-next** repo at

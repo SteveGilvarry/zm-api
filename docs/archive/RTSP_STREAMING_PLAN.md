@@ -1,5 +1,15 @@
 # RTSP Streaming API Architecture Plan
 
+> **ARCHIVED — 2026-06-28.** This is the pre-implementation design from before
+> native HLS, WebRTC live, and the stream-socket source landed. The shipped
+> architecture follows phases 2-3 of this plan (native WebRTC + native HLS) but
+> sources from zmc's stream socket rather than the FIFO/RTSP scaffolding
+> described here. Phase 5 (RTSP proxy server) was not built and is not on the
+> active roadmap. Phase 1 (go2rtc) was implemented at one point but the live
+> system no longer depends on go2rtc. Kept only for historical context — live
+> plans are in `../HEVC_WEBRTC_TASKS.md`, `../AUDIO_TASKS.md`, and
+> `../MONITOR_EVENTS_TASKS.md`.
+
 ## Executive Summary
 
 This document outlines a comprehensive plan to expose RTSP camera feeds through zm-api, implement native streaming protocols (WebRTC, WebSocket/MSE, HLS), and propose improvements to ZoneMinder to replace the legacy `zms` streaming service.
