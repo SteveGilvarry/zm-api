@@ -175,3 +175,18 @@ shutdown_timeout_seconds = 30
 stats_update_interval_seconds = 60
 enable_socket_ipc = true
 enable_rest_api = true
+
+[retention]
+# Automatic recording-disk cleanup. Deletes whole events (media + DB rows)
+# oldest-first, per Storage, when any limit below is breached. Off by default;
+# never touches Archived or in-progress events, or the newest event per monitor.
+enabled = false
+interval_seconds = 300
+# Disk-full safety net: keep each storage's filesystem at least this % free.
+min_free_pct = 10.0
+# 0 = disabled. Delete events older than N days.
+max_age_days = 0
+# 0 = disabled. Hard byte cap per storage.
+max_bytes = 0
+# Log what would be deleted without deleting (eyeball before enforcing).
+dry_run = false

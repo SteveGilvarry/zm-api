@@ -31,7 +31,9 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use rust_decimal::Decimal;
-use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+};
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 
@@ -41,7 +43,7 @@ use super::detail::{
 use crate::configure::synopsis::SynopsisConfig;
 use crate::configure::zmnext::IngestConfig;
 use crate::entity::sea_orm_active_enums::{FrameType, Scheme, SynopsisStatus};
-use crate::entity::{event_synopsis, events, frames, monitors, storage};
+use crate::entity::{event_synopsis, events, frames, monitors, states, storage};
 use crate::error::AppResult;
 use crate::repo;
 use crate::service::search::SearchService;
@@ -118,6 +120,9 @@ pub struct EventIngestor {
     search: Option<Arc<SearchService>>,
     open: HashMap<u32, OpenEvent>,
     dims: HashMap<u32, MonitorDims>,
+    /// Cached active monitoring-state id. `Events.StateId` is NOT NULL with no
+    /// DB default, so every Events row must carry one.
+    active_state_id: Option<u32>,
 }
 
 impl EventIngestor {
@@ -134,7 +139,32 @@ impl EventIngestor {
             search,
             open: HashMap::new(),
             dims: HashMap::new(),
+            active_state_id: None,
         }
+    }
+
+    /// Resolve and cache the active monitoring-state id used for `Events.StateId`
+    /// (NOT NULL, no DB default). Prefers the `States` row flagged active, else
+    /// the lowest-id state, else `1` (ZoneMinder's implicit default state).
+    async fn active_state_id(&mut self) -> AppResult<u32> {
+        if let Some(id) = self.active_state_id {
+            return Ok(id);
+        }
+        let id = match states::Entity::find()
+            .filter(states::Column::IsActive.eq(1))
+            .one(&*self.db)
+            .await?
+        {
+            Some(s) => s.id,
+            None => states::Entity::find()
+                .order_by_asc(states::Column::Id)
+                .one(&*self.db)
+                .await?
+                .map(|s| s.id)
+                .unwrap_or(1),
+        };
+        self.active_state_id = Some(id);
+        Ok(id)
     }
 
     /// Drain the channel until all senders drop. Per-event DB failures are
@@ -549,11 +579,13 @@ impl EventIngestor {
         }
 
         let dims = self.monitor_dims(monitor_id).await?;
+        let state_id = self.active_state_id().await?;
         let model = events::ActiveModel {
             monitor_id: Set(monitor_id),
             name: Set(self.config.event_name.clone()),
             cause: Set(cause),
             start_date_time: Set(Some(start)),
+            state_id: Set(state_id),
             width: Set(dims.width),
             height: Set(dims.height),
             storage_id: Set(dims.storage_id),

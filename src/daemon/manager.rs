@@ -172,6 +172,22 @@ impl DaemonManager {
 
     /// Start a daemon process.
     pub async fn start_daemon(&self, id: &str, args: &[String]) -> AppResult<DaemonResponse> {
+        self.start_daemon_with_stdin(id, args, None).await
+    }
+
+    /// Like [`start_daemon`], but delivers `stdin_payload` to the child over
+    /// stdin and then closes it (the child reads to EOF). Used for the zm-next
+    /// worker, whose pipeline config — camera credentials included — is piped in
+    /// memory rather than written to a file. When `stdin_payload` is `None`, the
+    /// existing process entry's stored payload is reused, so a crash-restart
+    /// re-pipes the same config (mirroring how a pipeline file persisted across
+    /// restarts).
+    pub async fn start_daemon_with_stdin(
+        &self,
+        id: &str,
+        args: &[String],
+        stdin_payload: Option<std::sync::Arc<Vec<u8>>>,
+    ) -> AppResult<DaemonResponse> {
         // Refuse to spawn during shutdown so a reconcile/health restart can't
         // orphan a daemon that never receives the stop wave.
         if self.is_shutting_down() {
@@ -181,18 +197,22 @@ impl DaemonManager {
             )));
         }
 
-        // Check if already running
-        {
+        // Check if already running, and capture any stored stdin payload so a
+        // restart (which passes None) re-delivers the same config.
+        let existing_payload = {
             let processes = self.processes.read().await;
-            if let Some(process) = processes.get(id) {
-                if process.is_running() {
+            match processes.get(id) {
+                Some(process) if process.is_running() => {
                     return Ok(DaemonResponse::error(format!(
                         "Daemon {} is already running",
                         id
                     )));
                 }
+                Some(process) => process.stdin_payload.clone(),
+                None => None,
             }
-        }
+        };
+        let stdin_payload = stdin_payload.or(existing_payload);
 
         // Parse the daemon command
         let (command, daemon_args) = parse_daemon_command(id, args);
@@ -224,11 +244,33 @@ impl DaemonManager {
             )));
         }
 
-        // Spawn the process with PR_SET_PDEATHSIG on Linux so children die when parent dies
-        let child = spawn_daemon(&full_path, &daemon_args).map_err(|e| {
-            error!("Failed to spawn {}: {}", id, e);
-            crate::error::AppError::InternalServerError(format!("Failed to start {}: {}", id, e))
-        })?;
+        // Spawn the process with PR_SET_PDEATHSIG on Linux so children die when
+        // parent dies. A piped stdin is requested only when we have a payload to
+        // deliver (the zm-next worker); other daemons inherit stdin as before.
+        let mut child =
+            spawn_daemon(&full_path, &daemon_args, stdin_payload.is_some()).map_err(|e| {
+                error!("Failed to spawn {}: {}", id, e);
+                crate::error::AppError::InternalServerError(format!(
+                    "Failed to start {}: {}",
+                    id, e
+                ))
+            })?;
+
+        // Deliver the in-memory payload (pipeline config) over stdin, then close
+        // it so the worker sees EOF. Done before taking the processes lock so the
+        // (small, sub-pipe-buffer) write never blocks other daemon operations.
+        if let Some(bytes) = stdin_payload.as_deref() {
+            match child.stdin.take() {
+                Some(mut stdin) => {
+                    use tokio::io::AsyncWriteExt;
+                    if let Err(e) = stdin.write_all(bytes).await {
+                        warn!("Failed to write stdin payload to {}: {}", id, e);
+                    }
+                    // dropping `stdin` here closes the pipe → child reads EOF
+                }
+                None => warn!("{}: stdin payload set but child has no stdin pipe", id),
+            }
+        }
 
         let pid = child.id();
 
@@ -242,6 +284,8 @@ impl DaemonManager {
         // Always sync args so existing entries (e.g. previously corrupted by
         // restart arg duplication) heal back to the canonical exec list.
         process.args = daemon_args.clone();
+        // Persist the payload so a future restart re-delivers it.
+        process.stdin_payload = stdin_payload;
         process.set_child(child);
 
         // Update PID map
@@ -525,7 +569,7 @@ impl DaemonManager {
     pub async fn reload_daemon(&self, id: &str) -> AppResult<DaemonResponse> {
         // zm-next has no live config reload: "reload" means regenerate the
         // pipeline JSON from the current DB rows and restart the worker so it
-        // re-reads the file. SIGHUP would be a no-op for it.
+        // re-reads it (in-memory, over stdin). SIGHUP would be a no-op for it.
         if let Some(monitor_id) = zmnext_monitor_id_from_id(id) {
             let Some(rt) = self.zmnext.clone() else {
                 return Ok(DaemonResponse::error("zm-next is not configured"));
@@ -543,9 +587,26 @@ impl DaemonManager {
                     "Monitor {monitor_id} not found for zm-next reload"
                 )));
             };
-            self.write_zmnext_pipeline(&monitor, &rt).await?;
+            // Regenerate the in-memory payload and stash it on the process entry
+            // so the restart (which passes no payload) re-delivers the fresh
+            // config over stdin. If no entry exists yet, start the worker fresh.
+            let payload =
+                std::sync::Arc::new(self.build_zmnext_pipeline_payload(&monitor, &rt).await?);
+            let had_entry = {
+                let mut processes = self.processes.write().await;
+                match processes.get_mut(id) {
+                    Some(p) => {
+                        p.stdin_payload = Some(payload);
+                        true
+                    }
+                    None => false,
+                }
+            };
             info!("Regenerated zm-next pipeline for monitor {monitor_id}, restarting worker");
-            return self.restart_daemon(id, &[]).await;
+            if had_entry {
+                return self.restart_daemon(id, &[]).await;
+            }
+            return self.start_zmnext_worker(&monitor).await;
         }
 
         let processes = self.processes.read().await;
@@ -1551,6 +1612,13 @@ impl DaemonManager {
             // Update activity tracking
             process.check_activity();
 
+            // The zm-infer daemon sleeps on GPU waits (blocking-sync) when idle, so
+            // its CPU time barely advances and appears_hung would false-positive.
+            // Its liveness is covered by an app-level probe, not the CPU heuristic.
+            if id.starts_with("zm-infer") {
+                continue;
+            }
+
             // Check if process appears hung
             if process.appears_hung(max_delay) {
                 hung.push(id.clone());
@@ -1721,37 +1789,73 @@ impl DaemonManager {
     /// The worker is keyed by the stable id `zm-core --monitor-id N`; the
     /// generated `--pipeline`/`--socket` paths ride as extra args so stop and
     /// restart can re-derive the id without recomputing them.
+    /// Ensure the per-GPU `zm-infer` daemon is running (idempotent). Called before
+    /// spawning any zm-next worker so the worker can reach it on its first detected
+    /// frame. No-op unless `[zmnext.share_inference].enabled`. The daemon owns the
+    /// only CUDA context + ORT session on its GPU; workers connect over its UDS.
+    async fn ensure_infer_daemon(&self, rt: &ZmNextRuntime) -> AppResult<()> {
+        let si = &rt.config.share_inference;
+        if !si.enabled {
+            return Ok(());
+        }
+        let id = zminfer_daemon_id(si.gpu_id);
+        if self
+            .processes
+            .read()
+            .await
+            .get(&id)
+            .map(|p| p.is_running())
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
+        let socket = si.socket_name.replace("{gpu}", &si.gpu_id.to_string());
+        let socket_path = format!("{}/{}", rt.socks_path.trim_end_matches('/'), socket);
+        let extra = vec!["--socket".to_string(), socket_path];
+        // No stdin payload: the daemon takes its config from argv/env.
+        let _ = self.start_daemon_with_stdin(&id, &extra, None).await?;
+        Ok(())
+    }
+
     async fn start_zmnext_worker(&self, monitor: &monitors::Model) -> AppResult<DaemonResponse> {
         let Some(rt) = self.zmnext.clone() else {
             return Ok(DaemonResponse::error("zm-next is not configured"));
         };
+        // Shared inference: make sure the per-GPU daemon is up before the worker,
+        // which connects to it on its first detected frame.
+        self.ensure_infer_daemon(&rt).await?;
         let monitor_id = monitor.id;
 
-        let pipeline_path = self.write_zmnext_pipeline(monitor, &rt).await?;
+        let payload = std::sync::Arc::new(self.build_zmnext_pipeline_payload(monitor, &rt).await?);
         let socket_path = format!(
             "{}/stream_{}.sock",
             rt.socks_path.trim_end_matches('/'),
             monitor_id
         );
         let id = zmnext_daemon_id(monitor_id);
+        // Deliver the pipeline config in-memory over stdin ("--pipeline -") so
+        // the worker's camera credentials never touch disk.
         let extra = vec![
             "--pipeline".to_string(),
-            pipeline_path.to_string_lossy().into_owned(),
+            "-".to_string(),
             "--socket".to_string(),
             socket_path,
         ];
-        self.start_daemon(&id, &extra).await
+        self.start_daemon_with_stdin(&id, &extra, Some(payload))
+            .await
     }
 
     /// (Re)generate the monitor's pipeline JSON from its current Monitors/Zones
-    /// rows and write it to the configured pipeline directory, returning the
-    /// file path. This is the unit of "reload" for zm-next — the worker has no
-    /// live config reload, so a restart re-reads the regenerated file.
-    async fn write_zmnext_pipeline(
+    /// rows and serialize it for in-memory delivery to the worker over stdin.
+    /// Credentials are split out of the URL into separate fields so they stay
+    /// out of any logged/persisted URL. This is the unit of "reload" for
+    /// zm-next — the worker has no live config reload, so a restart re-reads the
+    /// regenerated payload from stdin.
+    async fn build_zmnext_pipeline_payload(
         &self,
         monitor: &monitors::Model,
         rt: &ZmNextRuntime,
-    ) -> AppResult<PathBuf> {
+    ) -> AppResult<Vec<u8>> {
         let monitor_id = monitor.id;
         let zones = match &self.db {
             Some(db) => {
@@ -1764,22 +1868,100 @@ impl DaemonManager {
         };
         let zone_specs = pipeline::zone_specs_from_models(&zones);
         let events_root = self.zmnext_events_root(monitor).await;
-        let source_url = monitor.path.clone().unwrap_or_default();
         let mode = pipeline::StoreMode::from_function(&monitor.function);
 
+        // Strip any credentials embedded in Path; prefer the dedicated User/Pass
+        // columns when set, else fall back to the userinfo parsed from Path.
+        let raw_path = monitor.path.clone().unwrap_or_default();
+        let (clean_url, embedded) = pipeline::split_url_credentials(&raw_path);
+        let username = monitor
+            .user
+            .clone()
+            .filter(|s| !s.is_empty())
+            .or_else(|| embedded.as_ref().map(|(u, _)| u.clone()))
+            .unwrap_or_default();
+        let password = monitor
+            .pass
+            .clone()
+            .filter(|s| !s.is_empty())
+            .or_else(|| embedded.as_ref().map(|(_, p)| p.clone()))
+            .unwrap_or_default();
+
         let synopsis = rt.synopsis_monitors.contains(&monitor_id);
-        let value = pipeline::generate_pipeline(
-            monitor_id,
-            &source_url,
-            &zone_specs,
-            &rt.config.pipeline,
-            mode,
-            &events_root,
-            synopsis,
-        );
-        pipeline::write_pipeline_file(&rt.config.pipeline.dir, monitor_id, &value).map_err(|e| {
+        // The default generator (used when the monitor has no stored processing
+        // graph, or a stored graph that fails to parse/validate).
+        let default = || {
+            pipeline::generate_pipeline(
+                monitor_id,
+                &clean_url,
+                &username,
+                &password,
+                &zone_specs,
+                &rt.config.pipeline,
+                mode,
+                &events_root,
+                synopsis,
+            )
+        };
+
+        // If the monitor has a stored processing graph (the free graph), compose
+        // it with the monitor-derived capture + store nodes; otherwise fall back
+        // to the default generated pipeline.
+        let stored = match &self.db {
+            Some(db) => crate::repo::monitor_pipeline::find_by_monitor(db.as_ref(), monitor_id)
+                .await
+                .ok()
+                .flatten(),
+            None => None,
+        };
+        let mut value = match stored {
+            Some(row) => match serde_json::from_str::<serde_json::Value>(&row.graph_json) {
+                Ok(graph) if crate::service::zmnext::graph::validate_graph(&graph).is_ok() => {
+                    pipeline::compose_pipeline(
+                        monitor_id,
+                        &clean_url,
+                        &username,
+                        &password,
+                        &graph,
+                        &zone_specs,
+                        &rt.config.pipeline,
+                        mode,
+                        &events_root,
+                    )
+                    .unwrap_or_else(default)
+                }
+                Ok(_) => {
+                    warn!(
+                        "zm-next: monitor {monitor_id} stored pipeline graph failed validation; \
+                         using the default generated pipeline"
+                    );
+                    default()
+                }
+                Err(e) => {
+                    warn!(
+                        "zm-next: monitor {monitor_id} stored pipeline graph is not valid JSON \
+                         ({e}); using the default generated pipeline"
+                    );
+                    default()
+                }
+            },
+            None => default(),
+        };
+
+        // Shared inference (Phase 1): when enabled, route detection to the per-GPU
+        // zm-infer daemon by injecting `infer_endpoint`/`gpu_id` into each detect
+        // node's cfg. Injected here (after graph validation, never persisted); off
+        // by default. The daemon itself is supervised separately.
+        let si = &rt.config.share_inference;
+        if si.enabled {
+            let socket = si.socket_name.replace("{gpu}", &si.gpu_id.to_string());
+            let endpoint = format!("{}/{}", rt.socks_path.trim_end_matches('/'), socket);
+            pipeline::inject_shared_inference(&mut value, &endpoint, si.gpu_id);
+        }
+
+        serde_json::to_vec(&value).map_err(|e| {
             crate::error::AppError::InternalServerError(format!(
-                "Failed to write zm-next pipeline for monitor {monitor_id}: {e}"
+                "Failed to serialize zm-next pipeline for monitor {monitor_id}: {e}"
             ))
         })
     }
@@ -2139,13 +2321,17 @@ fn validate_daemon_spec(command: &str, args: &[String]) -> Result<(), String> {
         // validator still enforces them as absolute and traversal-free so a
         // forwarded IPC/HTTP request can't smuggle arbitrary args.
         "zm-core" => validate_zmnext_args(args),
+        // zm-infer per-GPU inference daemon: `--gpu <int> --socket <abs path>`.
+        "zm-infer" => validate_zminfer_args(args),
         _ => Err(format!("unknown daemon: {:?}", command)),
     };
     result
 }
 
 /// Validate the `zm-core` worker arg list (order-independent). Requires exactly
-/// `--monitor-id`, `--pipeline` and `--socket`, each with a valid value.
+/// `--monitor-id`, `--pipeline` and `--socket`, each with a valid value. The
+/// pipeline value is either an absolute path or `-` (read the config from stdin,
+/// which is how zm-api delivers it in-memory so credentials never touch disk).
 fn validate_zmnext_args(args: &[String]) -> Result<(), String> {
     let safe_path = |p: &str| p.starts_with('/') && !p.contains("..");
     let (mut have_monitor, mut have_pipeline, mut have_socket) = (false, false, false);
@@ -2153,7 +2339,7 @@ fn validate_zmnext_args(args: &[String]) -> Result<(), String> {
     for pair in chunks.by_ref() {
         match (pair[0].as_str(), pair[1].as_str()) {
             ("--monitor-id", v) if v.parse::<u32>().is_ok() => have_monitor = true,
-            ("--pipeline", v) if safe_path(v) => have_pipeline = true,
+            ("--pipeline", v) if v == "-" || safe_path(v) => have_pipeline = true,
             ("--socket", v) if safe_path(v) => have_socket = true,
             _ => return Err(format!("zm-core args invalid: {:?}", args)),
         }
@@ -2165,6 +2351,21 @@ fn validate_zmnext_args(args: &[String]) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!("zm-core missing required args: {:?}", args))
+    }
+}
+
+/// Validate the `zm-infer` daemon arg list: `--gpu <int> --socket <abs path>`.
+/// zm-api generates these itself; the validator still enforces the shape so a
+/// forwarded IPC/HTTP request can't smuggle arbitrary args.
+fn validate_zminfer_args(args: &[String]) -> Result<(), String> {
+    let safe_path = |p: &str| p.starts_with('/') && !p.contains("..");
+    match args {
+        [g, gpu, s, sock]
+            if g == "--gpu" && gpu.parse::<u32>().is_ok() && s == "--socket" && safe_path(sock) =>
+        {
+            Ok(())
+        }
+        _ => Err(format!("zm-infer args invalid: {:?}", args)),
     }
 }
 
@@ -2295,6 +2496,13 @@ fn zmnext_monitor_id_from_id(id: &str) -> Option<u32> {
     }
 }
 
+/// Stable process-map id for the per-GPU `zm-infer` inference daemon. The
+/// `--socket` path rides as an extra arg, not in the id, so every call site
+/// derives the same key. One daemon per GPU.
+fn zminfer_daemon_id(gpu: u32) -> String {
+    format!("zm-infer --gpu {gpu}")
+}
+
 /// Spawn a daemon process with PR_SET_PDEATHSIG on Linux.
 ///
 /// This ensures that child processes receive SIGTERM when the parent process dies,
@@ -2303,9 +2511,41 @@ fn zmnext_monitor_id_from_id(id: &str) -> Option<u32> {
 fn spawn_daemon(
     path: &std::path::Path,
     args: &[String],
+    with_stdin: bool,
 ) -> Result<tokio::process::Child, std::io::Error> {
     let mut cmd = Command::new(path);
     cmd.args(args);
+    // Run from the binary's own directory. The zm-next worker dlopen's its
+    // pipeline plugins via a relative `plugins/...` prefix, so its cwd must be
+    // the install/build dir; for stock daemons (zmc in /usr/bin) this is inert.
+    if let Some(dir) = path.parent() {
+        if !dir.as_os_str().is_empty() {
+            cmd.current_dir(dir);
+        }
+    }
+    // Pipe stdin only when the caller will write a payload (the zm-next worker
+    // reads its pipeline config from stdin); otherwise inherit as before.
+    if with_stdin {
+        cmd.stdin(std::process::Stdio::piped());
+        // Shared-inference Phase 0: defer CUDA kernel-module loading so unused
+        // kernels aren't faulted into the worker's RSS at startup. No-op/default
+        // on CUDA >= 12.2; explicit here for older toolkits. zm-next worker only.
+        cmd.env("CUDA_MODULE_LOADING", "LAZY");
+    }
+
+    // The per-GPU zm-infer daemon: pin it to its GPU via CUDA_VISIBLE_DEVICES so
+    // its (device-0) ORT/CUDA code lands on the right card, and lazy-load CUDA
+    // modules. The --gpu value is the visible-device index.
+    if path.file_name().and_then(|n| n.to_str()) == Some("zm-infer") {
+        if let Some(gpu) = args
+            .iter()
+            .position(|a| a == "--gpu")
+            .and_then(|i| args.get(i + 1))
+        {
+            cmd.env("CUDA_VISIBLE_DEVICES", gpu);
+        }
+        cmd.env("CUDA_MODULE_LOADING", "LAZY");
+    }
 
     // SAFETY: prctl is async-signal-safe and we're only setting PR_SET_PDEATHSIG
     // which is a simple flag operation with no memory allocation or locks.
@@ -2328,8 +2568,33 @@ fn spawn_daemon(
 fn spawn_daemon(
     path: &std::path::Path,
     args: &[String],
+    with_stdin: bool,
 ) -> Result<tokio::process::Child, std::io::Error> {
-    Command::new(path).args(args).spawn()
+    let mut cmd = Command::new(path);
+    cmd.args(args);
+    // See the Linux variant: the worker resolves plugins relative to its cwd.
+    if let Some(dir) = path.parent() {
+        if !dir.as_os_str().is_empty() {
+            cmd.current_dir(dir);
+        }
+    }
+    if with_stdin {
+        cmd.stdin(std::process::Stdio::piped());
+        // See the Linux variant: defer CUDA module loading for the zm-next worker.
+        cmd.env("CUDA_MODULE_LOADING", "LAZY");
+    }
+    // See the Linux variant: pin the zm-infer daemon to its GPU.
+    if path.file_name().and_then(|n| n.to_str()) == Some("zm-infer") {
+        if let Some(gpu) = args
+            .iter()
+            .position(|a| a == "--gpu")
+            .and_then(|i| args.get(i + 1))
+        {
+            cmd.env("CUDA_VISIBLE_DEVICES", gpu);
+        }
+        cmd.env("CUDA_MODULE_LOADING", "LAZY");
+    }
+    cmd.spawn()
 }
 
 /// Kill orphaned ZoneMinder daemons that may be left over from a crash.
@@ -2345,6 +2610,7 @@ pub async fn kill_orphan_daemons() {
         "zmstats.pl",
         "zmtrack.pl",
         "zmcontrol.pl",
+        "zm-infer",
     ];
 
     for daemon in &daemon_names {
@@ -2553,6 +2819,28 @@ mod tests {
         let (command, parsed) = parse_daemon_command(&id, &[]);
         assert_eq!(command, "zm-core");
         assert_eq!(parsed, vec!["--monitor-id".to_string(), "42".to_string()]);
+    }
+
+    #[test]
+    fn test_zminfer_daemon_id_and_validation() {
+        let id = zminfer_daemon_id(0);
+        assert_eq!(id, "zm-infer --gpu 0");
+        // id + the `--socket` extra parse back into a validated arg list.
+        let (command, parsed) =
+            parse_daemon_command(&id, &args(&["--socket", "/run/zm/zm_infer_gpu0.sock"]));
+        assert_eq!(command, "zm-infer");
+        assert!(validate_daemon_spec(&command, &parsed).is_ok());
+        // Reject a relative/traversal socket, a non-numeric gpu, and a missing gpu.
+        assert!(
+            validate_daemon_spec("zm-infer", &args(&["--gpu", "0", "--socket", "rel.sock"]))
+                .is_err()
+        );
+        assert!(validate_daemon_spec(
+            "zm-infer",
+            &args(&["--gpu", "x", "--socket", "/run/zm/s.sock"])
+        )
+        .is_err());
+        assert!(validate_daemon_spec("zm-infer", &args(&["--socket", "/run/zm/s.sock"])).is_err());
     }
 
     #[test]

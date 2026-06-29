@@ -7,15 +7,16 @@ use serde::Deserialize;
 use crate::util::dir::get_project_root;
 
 use self::{
-    daemon::DaemonConfig, db::DatabaseConfig, http::HttpClientConfig, search::SearchConfig,
-    secret::SecretConfig, sentry::SentryConfig, server::ServerConfig, streaming::StreamingConfig,
-    synopsis::SynopsisConfig, zmnext::ZmNextConfig,
+    daemon::DaemonConfig, db::DatabaseConfig, http::HttpClientConfig, retention::RetentionConfig,
+    search::SearchConfig, secret::SecretConfig, sentry::SentryConfig, server::ServerConfig,
+    streaming::StreamingConfig, synopsis::SynopsisConfig, zmnext::ZmNextConfig,
 };
 
 pub mod daemon;
 pub mod db;
 pub mod env;
 pub mod http;
+pub mod retention;
 pub mod search;
 pub mod secret;
 pub mod sentry;
@@ -48,6 +49,10 @@ pub struct AppConfig {
     /// Natural-language / semantic event search. Off by default.
     #[serde(default)]
     pub search: SearchConfig,
+    /// Automatic recording-disk cleanup. Off by default; bounds per-storage
+    /// usage by free-space floor / age / quota.
+    #[serde(default)]
+    pub retention: RetentionConfig,
 }
 
 impl AppConfig {

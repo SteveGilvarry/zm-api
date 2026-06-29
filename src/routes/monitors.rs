@@ -1,9 +1,9 @@
-use crate::handlers::monitor;
+use crate::handlers::{monitor, monitor_pipeline};
 use crate::server::state::AppState;
 use crate::util::middleware::auth_middleware;
 use axum::{
     middleware,
-    routing::{get, patch},
+    routing::{get, patch, post},
     Router,
 };
 use tracing::info;
@@ -24,6 +24,17 @@ pub fn add_monitor_routes(router: Router<AppState>) -> Router<AppState> {
             get(monitor::get_monitor)
                 .patch(monitor::update_monitor)
                 .delete(monitor::delete_monitor),
+        )
+        .route(
+            &format!("{}/monitors/{{id}}/pipeline", api_prefix),
+            get(monitor_pipeline::get_monitor_pipeline)
+                .put(monitor_pipeline::put_monitor_pipeline)
+                .delete(monitor_pipeline::delete_monitor_pipeline),
+        )
+        .route(
+            &format!("{}/monitors/{{id}}/zmnext", api_prefix),
+            post(monitor_pipeline::enable_monitor_zmnext)
+                .delete(monitor_pipeline::disable_monitor_zmnext),
         )
         .route(
             &format!("{}/monitors/{{id}}/state", api_prefix),

@@ -48,6 +48,15 @@ pub struct AppState {
 impl AppState {
     pub async fn new(config: AppConfig) -> AppResult<Self> {
         let db = Arc::new(DatabaseClient::build_from_config(&config).await?);
+
+        // Apply zm-api-owned migrations (additive, IF NOT EXISTS; only our own
+        // tables — never ZoneMinder's). Non-fatal: a failure degrades the owned
+        // features (event_synopsis, the zm-next pipeline store) rather than
+        // blocking boot, since zm-api primarily reads ZoneMinder's own schema.
+        if let Err(e) = crate::client::database::migrate_database(db.as_ref()).await {
+            tracing::warn!("zm-api owned-table migrations failed (features may degrade): {e}");
+        }
+
         let http = reqwest::Client::builder()
             .no_proxy()
             .build()
@@ -163,6 +172,27 @@ impl AppState {
                     config.synopsis.retention_days
                 );
             }
+        }
+
+        // Automatic recording-disk cleanup. Bounds per-storage usage by
+        // free-space floor / age / quota so the disk can't silently fill. Off
+        // by default; never stored on AppState (no handlers need it).
+        if config.retention.enabled {
+            let svc = Arc::new(crate::service::retention::RetentionService::new(
+                db.clone(),
+                config.retention.clone(),
+            ));
+            Arc::clone(&svc).spawn();
+            tracing::info!(
+                "event retention enabled (every {}s, min_free {}%, max_age {}d, max_bytes {}, dry_run {})",
+                config.retention.interval_seconds,
+                config.retention.min_free_pct,
+                config.retention.max_age_days,
+                config.retention.max_bytes,
+                config.retention.dry_run,
+            );
+        } else {
+            tracing::info!("event retention disabled in configuration");
         }
 
         // Initialize daemon manager if enabled

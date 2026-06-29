@@ -31,6 +31,10 @@ pub fn add_discovery_routes(router: Router<AppState>) -> Router<AppState> {
             &format!("{}/discovery/inspect", api_prefix),
             post(discovery::inspect),
         )
+        .route(
+            &format!("{}/discovery/onboard", api_prefix),
+            post(discovery::onboard),
+        )
         .layer(middleware::from_fn(auth_middleware));
 
     router.merge(protected_routes)

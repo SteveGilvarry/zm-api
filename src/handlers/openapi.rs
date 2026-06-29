@@ -8,8 +8,8 @@ use crate::dto::request::{
     UpdateMonitorRequest, UpdateStateRequest,
 };
 use crate::dto::response::{
-    LoginResponse, MessageResponse, MonitorResponse, ServiceStatusResponse, TokenResponse,
-    VersionResponse,
+    LoginResponse, MessageResponse, MonitorPipelineResponse, MonitorResponse,
+    ServiceStatusResponse, TokenResponse, VersionResponse,
 };
 use crate::dto::wrappers::*;
 use crate::error::{AppError, AppResponseError};
@@ -182,6 +182,11 @@ use crate::util::claim::UserClaims;
         crate::handlers::monitor::list_monitors,
         crate::handlers::monitor::update_state,
         crate::handlers::monitor::get_monitor,
+        crate::handlers::monitor_pipeline::get_monitor_pipeline,
+        crate::handlers::monitor_pipeline::put_monitor_pipeline,
+        crate::handlers::monitor_pipeline::delete_monitor_pipeline,
+        crate::handlers::monitor_pipeline::enable_monitor_zmnext,
+        crate::handlers::monitor_pipeline::disable_monitor_zmnext,
 
         // monitor presets
         crate::handlers::monitor_presets::create_monitor_preset,
@@ -487,6 +492,7 @@ use crate::util::claim::UserClaims;
 
             // monitor
             AlarmControlRequest,
+            MonitorPipelineResponse,
             CreateMonitorRequest,
             MonitorResponse,
             UpdateMonitorRequest,

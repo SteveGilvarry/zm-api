@@ -22,6 +22,7 @@ pub use super::groups_permissions::Entity as GroupsPermissions;
 pub use super::logs::Entity as Logs;
 pub use super::manufacturers::Entity as Manufacturers;
 pub use super::models::Entity as Models;
+pub use super::monitor_pipeline::Entity as MonitorPipeline;
 pub use super::monitor_presets::Entity as MonitorPresets;
 pub use super::monitor_status::Entity as MonitorStatus;
 pub use super::monitors::Entity as Monitors;

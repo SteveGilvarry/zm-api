@@ -9,6 +9,7 @@
 pub use sea_orm_migration::prelude::*;
 
 mod m20260625_000001_create_event_synopsis;
+mod m20260627_000001_create_monitor_pipeline;
 
 pub struct Migrator;
 
@@ -19,6 +20,7 @@ impl MigratorTrait for Migrator {
             // zm_api-owned tables only. ZoneMinder's own schema is created and
             // managed by ZoneMinder itself — never migrated from here.
             Box::new(m20260625_000001_create_event_synopsis::Migration),
+            Box::new(m20260627_000001_create_monitor_pipeline::Migration),
         ]
     }
 }

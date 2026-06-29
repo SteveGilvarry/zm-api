@@ -48,6 +48,38 @@ pub struct InspectRequest {
     pub password: String,
 }
 
+/// Request to onboard a discovered ONVIF device as a new monitor: inspect it,
+/// pick a media profile's RTSP stream URI, and create an `Ffmpeg` monitor with
+/// the device's ONVIF service URL + credentials.
+#[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
+pub struct OnboardRequest {
+    /// ONVIF device-service endpoint URL (the probed `XAddr`). SSRF-gated.
+    #[garde(length(max = 255))]
+    #[garde(custom(is_safe_onvif_url))]
+    pub xaddr: String,
+
+    /// ONVIF username for WS-Security; empty for unauthenticated devices.
+    #[garde(length(min = 0))]
+    pub username: String,
+
+    /// ONVIF password for WS-Security.
+    #[garde(length(min = 0))]
+    pub password: String,
+
+    /// Media profile token to use. When omitted, the first profile with a
+    /// resolved RTSP stream URI is chosen.
+    #[garde(skip)]
+    pub profile_token: Option<String>,
+
+    /// Monitor name; defaults to the device model, else "ONVIF Camera".
+    #[garde(inner(length(min = 1, max = 64)))]
+    pub name: Option<String>,
+
+    /// Storage id for recordings; defaults to the lowest configured storage (1).
+    #[garde(skip)]
+    pub storage_id: Option<u16>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

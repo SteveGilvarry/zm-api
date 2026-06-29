@@ -179,3 +179,27 @@ where
         _ => false,
     }
 }
+
+/// Set a monitor's `UseZmNext` flag. Raw UPDATE for the same reason
+/// [`use_zmnext`] is a raw SELECT (the column is owned by the ZoneMinder fork
+/// migration and is deliberately off the generated entity). Unlike the read,
+/// this surfaces the DB error so a caller (e.g. "make it zm-next") can report
+/// that the fork migration is required when the column is absent.
+pub async fn set_use_zmnext<C>(
+    conn: &C,
+    monitor_id: u32,
+    enabled: bool,
+) -> Result<(), sea_orm::DbErr>
+where
+    C: ConnectionTrait,
+{
+    use sea_orm::{DbBackend, Statement};
+
+    let stmt = Statement::from_sql_and_values(
+        DbBackend::MySql,
+        "UPDATE `Monitors` SET `UseZmNext` = ? WHERE `Id` = ?",
+        [(enabled as i8).into(), monitor_id.into()],
+    );
+    conn.execute(stmt).await?;
+    Ok(())
+}

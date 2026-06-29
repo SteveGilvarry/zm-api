@@ -19,7 +19,8 @@ use axum::Json;
 use garde::Validate;
 use tracing::{info, instrument, warn};
 
-use crate::dto::request::discovery::{InspectRequest, ProbeRequest};
+use crate::dto::request::discovery::{InspectRequest, OnboardRequest, ProbeRequest};
+use crate::dto::response::MonitorResponse;
 use crate::error::AppError;
 use crate::error::AppResponseError;
 use crate::error::AppResult;
@@ -37,13 +38,15 @@ use crate::service::monitor_acl::MonitorScope;
 /// `crate::routes::create_router_app`.
 #[derive(utoipa::OpenApi)]
 #[openapi(
-    paths(probe, inspect),
+    paths(probe, inspect, onboard),
     components(schemas(
         ProbeRequest,
         InspectRequest,
+        OnboardRequest,
         CameraCandidate,
         InspectResult,
         InspectProfile,
+        MonitorResponse,
     )),
     tags((name = "Discovery", description = "ONVIF camera discovery endpoints"))
 )]
@@ -86,7 +89,8 @@ pub async fn probe(
         ));
     }
     info!("Running ONVIF discovery probe.");
-    match service::discovery::probe(&state).await {
+    let timeout = std::time::Duration::from_millis(req.timeout_ms);
+    match service::discovery::probe(&state, timeout).await {
         Ok(candidates) => Ok(Json(candidates)),
         Err(e) => {
             warn!("Failed to run discovery probe: {e:?}.");
@@ -139,6 +143,49 @@ pub async fn inspect(
         Ok(result) => Ok(Json(result)),
         Err(e) => {
             warn!("Failed to inspect ONVIF device: {e:?}.");
+            Err(e)
+        }
+    }
+}
+
+/// Onboard a discovered ONVIF device as a new monitor.
+///
+/// Inspects the device, picks a media profile's RTSP stream URI, and creates an
+/// `Ffmpeg` monitor with the device's ONVIF URL + credentials. Requires a valid
+/// JWT and unrestricted monitor access (minting monitors is admin-equivalent);
+/// the target URL is SSRF-gated in the service layer.
+#[utoipa::path(
+    post,
+    path = "/api/v3/discovery/onboard",
+    request_body = OnboardRequest,
+    responses(
+        (status = 200, description = "Monitor created from the discovered device", body = MonitorResponse),
+        (status = 400, description = "Invalid request or no usable RTSP profile", body = AppResponseError),
+        (status = 401, description = "Unauthorized, or device rejected credentials", body = AppResponseError),
+        (status = 403, description = "Caller restricted, or target address not permitted", body = AppResponseError),
+        (status = 503, description = "ONVIF device unavailable or timed out", body = AppResponseError),
+        (status = 500, description = "Internal server error", body = AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "Discovery"
+)]
+#[instrument(skip(state, req), fields(xaddr = %req.xaddr))]
+pub async fn onboard(
+    State(state): State<AppState>,
+    scope: MonitorScope,
+    Json(req): Json<OnboardRequest>,
+) -> AppResult<Json<MonitorResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
+    if scope.is_restricted() {
+        return Err(AppError::PermissionDeniedError(
+            "onboarding a discovered device requires unrestricted monitor access".to_string(),
+        ));
+    }
+    info!("Onboarding discovered ONVIF device as a monitor.");
+    match service::discovery::onboard(&state, req).await {
+        Ok(monitor) => Ok(Json(monitor)),
+        Err(e) => {
+            warn!("Failed to onboard ONVIF device: {e:?}.");
             Err(e)
         }
     }

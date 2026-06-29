@@ -20,6 +20,7 @@ pub mod groups_permissions;
 pub mod logs;
 pub mod manufacturers;
 pub mod models;
+pub mod monitor_pipeline;
 pub mod monitor_presets;
 pub mod monitor_status;
 pub mod monitors;

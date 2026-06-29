@@ -23,6 +23,26 @@ pub struct ZmNextConfig {
     pub worker: WorkerConfig,
     pub pipeline: PipelineConfig,
     pub ingest: IngestConfig,
+    pub share_inference: ShareInferenceConfig,
+}
+
+/// Shared GPU inference: route detection to a per-GPU `zm-infer` daemon instead
+/// of each worker owning its own CUDA context + ORT session. Off by default.
+/// When enabled, zm-api injects `infer_endpoint`/`gpu_id` into each detect node's
+/// cfg at compose time and supervises the daemon.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct ShareInferenceConfig {
+    /// Master switch. Off → every worker runs its own local inference as before.
+    pub enabled: bool,
+    /// GPU the daemon runs on (single-GPU for now; multi-GPU mapping later).
+    pub gpu_id: u32,
+    /// Daemon socket filename under the stream-socket dir; `{gpu}` is replaced
+    /// with `gpu_id` (e.g. `zm_infer_gpu0.sock`).
+    pub socket_name: String,
+    /// Batched-engine knobs forwarded to the worker's remote client.
+    pub max_batch: u32,
+    pub max_wait_us: u32,
 }
 
 /// How to spawn and supervise the per-monitor zm-next worker process.
@@ -123,6 +143,18 @@ impl Default for IngestConfig {
     }
 }
 
+impl Default for ShareInferenceConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            gpu_id: 0,
+            socket_name: "zm_infer_gpu{gpu}.sock".to_string(),
+            max_batch: 8,
+            max_wait_us: 2000,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -136,5 +168,7 @@ mod tests {
         assert_eq!(cfg.ingest.default_storage_id, None);
         assert_eq!(cfg.pipeline.detect_input_size, 640);
         assert!(cfg.pipeline.mqtt_url.is_none());
+        assert!(!cfg.share_inference.enabled);
+        assert_eq!(cfg.share_inference.socket_name, "zm_infer_gpu{gpu}.sock");
     }
 }

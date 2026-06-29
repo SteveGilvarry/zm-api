@@ -41,7 +41,12 @@ use tracing::{info, instrument, warn};
 use url::{Host, Url};
 use utoipa::ToSchema;
 
-use crate::dto::request::monitor::is_safe_onvif_url;
+use garde::Validate;
+
+use crate::dto::request::discovery::OnboardRequest;
+use crate::dto::request::monitor::{is_safe_onvif_url, CreateMonitorRequest};
+use crate::dto::response::MonitorResponse;
+use crate::entity::sea_orm_active_enums::MonitorType;
 use crate::error::{AppError, AppResult};
 use crate::onvif::device::DeviceClient;
 use crate::onvif::discovery::DiscoveryClient;
@@ -49,9 +54,6 @@ use crate::onvif::media::{MediaClient, StreamTransport};
 use crate::onvif::types::{Credentials, ServiceUrls};
 use crate::onvif::{OnvifError, OnvifTransport};
 use crate::server::state::AppState;
-
-/// Default WS-Discovery collection window.
-const PROBE_TIMEOUT: Duration = Duration::from_secs(4);
 
 /// A single camera discovered by WS-Discovery, projected for the API.
 ///
@@ -76,6 +78,9 @@ pub struct CameraCandidate {
     pub hardware: Option<String>,
     /// Location string, parsed from the `location` scope, if advertised.
     pub location: Option<String>,
+    /// Id of an existing monitor matching this device (by ONVIF-URL / RTSP host),
+    /// if already onboarded. `None` ⇒ a new device the UI can offer to add.
+    pub monitor_id: Option<u32>,
 }
 
 impl From<crate::onvif::discovery::ProbeMatch> for CameraCandidate {
@@ -87,6 +92,7 @@ impl From<crate::onvif::discovery::ProbeMatch> for CameraCandidate {
             name: m.name,
             hardware: m.hardware,
             location: m.location,
+            monitor_id: None,
         }
     }
 }
@@ -133,20 +139,66 @@ pub struct InspectResult {
     pub events_service: Option<String>,
     /// The device's media profiles, each with its resolved stream URI.
     pub profiles: Vec<InspectProfile>,
+    /// Id of an existing monitor matching this device, if already onboarded.
+    pub monitor_id: Option<u32>,
 }
 
 /// Run WS-Discovery and return the discovered cameras.
 ///
 /// Multicasts a `Probe` for `NetworkVideoTransmitter` devices and collects
-/// `ProbeMatches` for [`PROBE_TIMEOUT`], de-duplicating by endpoint reference.
-/// Returns an empty vector when no cameras answer (not an error).
-#[instrument(skip(_state))]
-pub async fn probe(_state: &AppState) -> AppResult<Vec<CameraCandidate>> {
-    info!("Running ONVIF WS-Discovery probe.");
-    let client = DiscoveryClient::new(PROBE_TIMEOUT);
+/// `ProbeMatches` for `timeout`, de-duplicating by endpoint reference. Returns an
+/// empty vector when no cameras answer (not an error).
+#[instrument(skip(state))]
+pub async fn probe(state: &AppState, timeout: Duration) -> AppResult<Vec<CameraCandidate>> {
+    info!(?timeout, "Running ONVIF WS-Discovery probe.");
+    let client = DiscoveryClient::new(timeout);
     let matches = client.probe().await.map_err(onvif_to_app_error)?;
     info!(count = matches.len(), "WS-Discovery probe complete.");
-    Ok(matches.into_iter().map(CameraCandidate::from).collect())
+
+    // Cross-reference discovered devices against existing monitors so the UI can
+    // show new vs. already-onboarded. One monitor query for the whole batch.
+    let monitors = crate::repo::monitors::find_all(state.db(), None)
+        .await
+        .unwrap_or_default();
+    Ok(matches
+        .into_iter()
+        .map(|m| {
+            let mut c = CameraCandidate::from(m);
+            c.monitor_id = c
+                .xaddrs
+                .iter()
+                .find_map(|x| match_monitor_by_host(&monitors, x));
+            c
+        })
+        .collect())
+}
+
+/// The host component of a URL, lowercased, if parseable.
+fn url_host(url: &str) -> Option<String> {
+    Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(|h| h.to_ascii_lowercase()))
+}
+
+/// Find an existing monitor whose ONVIF URL or capture `Path` points at the same
+/// host as `url`. Best-effort host match (the stable identity across probes).
+fn match_monitor_by_host(monitors: &[crate::entity::monitors::Model], url: &str) -> Option<u32> {
+    let target = url_host(url)?;
+    monitors
+        .iter()
+        .find(|m| {
+            url_host(&m.onvif_url).as_deref() == Some(target.as_str())
+                || m.path.as_deref().and_then(url_host).as_deref() == Some(target.as_str())
+        })
+        .map(|m| m.id)
+}
+
+/// Resolve `existing monitor for this device URL`, querying monitors once.
+async fn existing_monitor_for_url(state: &AppState, url: &str) -> Option<u32> {
+    let monitors = crate::repo::monitors::find_all(state.db(), None)
+        .await
+        .ok()?;
+    match_monitor_by_host(&monitors, url)
 }
 
 /// Inspect a single device by its device-service XAddr.
@@ -192,6 +244,7 @@ pub async fn inspect(
         ptz_service: urls.ptz.clone(),
         events_service: urls.events.clone(),
         profiles: Vec::new(),
+        monitor_id: existing_monitor_for_url(state, xaddr).await,
     };
 
     // --- Media service: profiles + stream URIs ----------------------------
@@ -238,6 +291,73 @@ pub async fn inspect(
         "ONVIF device inspection complete."
     );
     Ok(result)
+}
+
+/// Onboard a discovered ONVIF device as a new `Ffmpeg` monitor: inspect it, pick
+/// a media profile's RTSP stream URI, and create the monitor with the device's
+/// ONVIF URL + credentials. RTSP credentials are stored in the monitor's
+/// `User`/`Pass` (cameras typically share them with ONVIF), so the zm-next
+/// worker authenticates via the out-of-band credential path.
+#[instrument(skip(state, req), fields(xaddr = %req.xaddr))]
+pub async fn onboard(state: &AppState, req: OnboardRequest) -> AppResult<MonitorResponse> {
+    let creds = if req.username.is_empty() {
+        None
+    } else {
+        Some(Credentials::new(req.username.clone(), req.password.clone()))
+    };
+    let result = inspect(state, &req.xaddr, creds).await?;
+
+    // Pick the requested profile, else the first with a resolved RTSP URI.
+    let profile = match &req.profile_token {
+        Some(tok) => result.profiles.iter().find(|p| &p.token == tok),
+        None => result.profiles.iter().find(|p| p.stream_uri.is_some()),
+    }
+    .ok_or_else(|| {
+        AppError::BadRequestError(
+            "device exposed no media profile with a resolvable RTSP stream URI".to_string(),
+        )
+    })?;
+    let stream_uri = profile.stream_uri.clone().ok_or_else(|| {
+        AppError::BadRequestError(format!(
+            "selected profile '{}' has no RTSP stream URI",
+            profile.token
+        ))
+    })?;
+
+    let name = req
+        .name
+        .clone()
+        .filter(|s| !s.is_empty())
+        .or_else(|| result.model.clone())
+        .unwrap_or_else(|| "ONVIF Camera".to_string());
+
+    let has_creds = !req.username.is_empty();
+    let create = CreateMonitorRequest {
+        name,
+        r#type: MonitorType::Ffmpeg,
+        path: Some(stream_uri),
+        width: profile
+            .width
+            .and_then(|w| u16::try_from(w).ok())
+            .filter(|w| *w >= 1)
+            .unwrap_or(1),
+        height: profile
+            .height
+            .and_then(|h| u16::try_from(h).ok())
+            .filter(|h| *h >= 1)
+            .unwrap_or(1),
+        storage_id: req.storage_id.filter(|s| *s >= 1).unwrap_or(1),
+        method: Some("rtpRtsp".to_string()),
+        onvif_url: req.xaddr.clone(),
+        onvif_username: req.username.clone(),
+        onvif_password: req.password.clone(),
+        user: has_creds.then(|| req.username.clone()),
+        pass: has_creds.then(|| req.password.clone()),
+        ..Default::default()
+    };
+    create.validate().map_err(AppError::InvalidInputError)?;
+    info!(name = %create.name, "Onboarding ONVIF device as a new monitor.");
+    crate::service::monitor::create(state, create).await
 }
 
 /// Resolve the device's per-service XAddrs, tolerating devices that only

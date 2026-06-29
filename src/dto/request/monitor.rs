@@ -495,6 +495,148 @@ pub struct CreateMonitorRequest {
     pub recording: Recording,
 }
 
+impl Default for CreateMonitorRequest {
+    /// ZoneMinder-sensible, **validation-passing** defaults for every field, so
+    /// callers (e.g. ONVIF onboarding) can build a valid monitor by overriding
+    /// only the handful they care about: `name`, `type`, `path`, `width`,
+    /// `height`, `storage_id`, and the `onvif_*` fields. The
+    /// `create_monitor_request_default_passes_validation` test guards that this
+    /// satisfies every `garde` constraint.
+    fn default() -> Self {
+        Self {
+            // Placeholder so the Default itself validates (min length 1); real
+            // callers (e.g. onboarding) always override this.
+            name: "Monitor".to_string(),
+            deleted: false,
+            notes: None,
+            server_id: None,
+            storage_id: 1,
+            manufacturer_id: None,
+            model_id: None,
+            r#type: MonitorType::Ffmpeg,
+            function: Function::Monitor,
+            capturing: Capturing::Always,
+            decoding_enabled: 1,
+            decoding: Decoding::Always,
+            rtsp2_web_enabled: 0,
+            rtsp2_web_type: Rtsp2WebType::Hls,
+            janus_enabled: 0,
+            janus_audio_enabled: 0,
+            janus_profile_override: None,
+            restream: 0,
+            rtsp_user: None,
+            janus_rtsp_session_timeout: None,
+            linked_monitors: None,
+            triggers: String::new(),
+            event_start_command: String::new(),
+            event_end_command: String::new(),
+            onvif_url: String::new(),
+            onvif_events_path: String::new(),
+            onvif_username: String::new(),
+            onvif_password: String::new(),
+            onvif_options: String::new(),
+            onvif_event_listener: 0,
+            onvif_alarm_text: None,
+            use_amcrest_api: 0,
+            device: String::new(),
+            channel: 0,
+            format: 0,
+            v4l_multi_buffer: None,
+            v4l_captures_per_frame: None,
+            protocol: None,
+            method: None,
+            host: None,
+            port: String::new(),
+            sub_path: String::new(),
+            path: None,
+            second_path: None,
+            options: None,
+            user: None,
+            pass: None,
+            width: 1,
+            height: 1,
+            colours: 4,
+            palette: 0,
+            orientation: Orientation::Rotate0,
+            deinterlacing: 0,
+            decoder: None,
+            decoder_hw_accel_name: None,
+            decoder_hw_accel_device: None,
+            save_jpe_gs: 1,
+            video_writer: 1,
+            output_codec: None,
+            encoder: None,
+            output_container: OutputContainer::Auto,
+            encoder_parameters: None,
+            record_audio: 1,
+            recording_source: RecordingSource::Primary,
+            rtsp_describe: None,
+            brightness: 0,
+            contrast: 0,
+            hue: 0,
+            colour: 0,
+            event_prefix: "Event-".to_string(),
+            label_format: None,
+            label_x: 0,
+            label_y: 0,
+            label_size: 1,
+            image_buffer_count: 3,
+            max_image_buffer_count: 3,
+            warmup_count: 0,
+            pre_event_count: 5,
+            post_event_count: 5,
+            stream_replay_buffer: 1000,
+            alarm_frame_count: 1,
+            section_length: 600,
+            section_length_warn: 0,
+            event_close_mode: EventCloseMode::Idle,
+            min_section_length: 10,
+            frame_skip: 0,
+            motion_frame_skip: 0,
+            analysis_fps_limit: None,
+            analysis_update_delay: 0,
+            max_fps: None,
+            alarm_max_fps: None,
+            fps_report_interval: 100,
+            ref_blend_perc: 6,
+            alarm_ref_blend_perc: 6,
+            controllable: 0,
+            control_id: None,
+            control_device: None,
+            control_address: None,
+            auto_stop_timeout: None,
+            track_motion: 0,
+            track_delay: None,
+            return_location: -1,
+            return_delay: None,
+            modect_during_ptz: 0,
+            default_rate: 100,
+            default_scale: "0".to_string(),
+            default_codec: DefaultCodec::Auto,
+            signal_check_points: 0,
+            signal_check_colour: String::new(),
+            web_colour: String::new(),
+            exif: 0,
+            sequence: None,
+            zone_count: 0,
+            refresh: None,
+            latitude: None,
+            longitude: None,
+            rtsp_server: 0,
+            rtsp_stream_name: String::new(),
+            soap_wsa_compl: 0,
+            importance: Importance::Normal,
+            mqtt_enabled: 0,
+            mqtt_subscriptions: String::new(),
+            startup_delay: 0,
+            analysing: Analysing::None,
+            analysis_source: AnalysisSource::Primary,
+            analysis_image: AnalysisImage::FullColour,
+            recording: Recording::Always,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct UpdateMonitorRequest {
     #[garde(length(min = 1, max = 64))]
@@ -1004,5 +1146,15 @@ mod validator_tests {
     fn command_string_enforces_length_cap() {
         let too_long = "a".repeat(4097);
         assert!(is_safe_command_string(&too_long, &()).is_err());
+    }
+
+    #[test]
+    fn create_monitor_request_default_passes_validation() {
+        // The Default impl must satisfy every `garde` constraint, so onboarding
+        // (and any other caller) can build a valid monitor by overriding only a
+        // few fields.
+        super::CreateMonitorRequest::default()
+            .validate()
+            .expect("default CreateMonitorRequest must pass validation");
     }
 }

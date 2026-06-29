@@ -71,6 +71,12 @@ pub struct ManagedProcess {
     pub last_cpu_time: Option<u64>,
     /// When we last checked process activity
     pub last_activity_check: Option<Instant>,
+    /// Optional payload written to the child's stdin at (every) spawn. Used to
+    /// deliver the zm-next worker's pipeline config (camera credentials included)
+    /// in memory, so it never lands on disk. Persisted on the process entry so a
+    /// crash-restart re-pipes the same config without regenerating it — exactly
+    /// how a pipeline file used to persist across restarts.
+    pub stdin_payload: Option<std::sync::Arc<Vec<u8>>>,
 }
 
 impl ManagedProcess {
@@ -100,6 +106,7 @@ impl ManagedProcess {
             term_sent_at: None,
             last_cpu_time: None,
             last_activity_check: None,
+            stdin_payload: None,
         }
     }
 
