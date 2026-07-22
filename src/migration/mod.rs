@@ -11,6 +11,7 @@
 
 pub use sea_orm_migration::prelude::*;
 
+pub mod legacy_bridge;
 mod m00000000_000001_zm_baseline;
 mod m20260625_000001_create_event_synopsis;
 mod m20260627_000001_create_monitor_pipeline;
