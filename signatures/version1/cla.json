@@ -1,3 +1,12 @@
 {
-   "signedContributors": []
+  "signedContributors": [
+    {
+      "name": "SteveGilvarry",
+      "id": 7613276,
+      "comment_id": 5051845325,
+      "created_at": "2026-07-22T21:36:15Z",
+      "repoId": 991315529,
+      "pullRequestNo": 13
+    }
+  ]
 }
