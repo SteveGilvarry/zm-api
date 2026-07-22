@@ -27,7 +27,7 @@ use super::m00000000_000001_zm_baseline::triggers;
 use super::Migrator;
 use sea_orm_migration::MigratorTrait;
 
-pub const BASELINE_VERSION: &str = "m00000000_000001_zm_baseline";
+pub use super::stamp::BASELINE_VERSION;
 const FLOOR_VERSION: &str = "1.34.0";
 const ADVISORY_LOCK: &str = "zm_api_migration";
 
@@ -325,13 +325,7 @@ async fn run_locked(conn: &DatabaseConnection) -> Result<(), DbErr> {
     }
 
     info!("stamping baseline migration as applied");
-    Migrator::install(conn).await?;
-    conn.execute(Statement::from_sql_and_values(
-        DatabaseBackend::MySql,
-        "INSERT INTO seaql_migrations (version, applied_at) VALUES (?, UNIX_TIMESTAMP())",
-        vec![BASELINE_VERSION.into()],
-    ))
-    .await?;
+    super::stamp::record_baseline(conn).await?;
 
     set_config(conn, "ZM_DYN_DB_VERSION", chain::CUTOVER_ZM_VERSION).await?;
     set_config(conn, "ZM_DYN_CURR_VERSION", chain::CUTOVER_ZM_VERSION).await?;
