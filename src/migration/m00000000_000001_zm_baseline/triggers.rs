@@ -4,9 +4,14 @@
 //! port (functions + triggers) lands with the Postgres schema work;
 //! until then Postgres installs run without summary triggers.
 
-pub(super) fn mysql_triggers() -> Vec<&'static str> {
+/// (trigger name, CREATE TRIGGER statement). Names are pub(crate) so
+/// the legacy upgrade bridge can drop-and-recreate to converge old
+/// installs onto the current trigger set.
+pub(crate) fn mysql_triggers() -> Vec<(&'static str, &'static str)> {
     vec![
-        r#"CREATE TRIGGER Events_Hour_delete_trigger BEFORE DELETE ON Events_Hour
+        (
+            "Events_Hour_delete_trigger",
+            r#"CREATE TRIGGER Events_Hour_delete_trigger BEFORE DELETE ON Events_Hour
 FOR EACH ROW BEGIN
   UPDATE Event_Summaries SET
   HourEvents = GREATEST(COALESCE(HourEvents,1)-1,0),
@@ -14,7 +19,10 @@ FOR EACH ROW BEGIN
   WHERE Event_Summaries.MonitorId=OLD.MonitorId;
 END
 "#,
-        r#"CREATE TRIGGER Events_Hour_update_trigger AFTER UPDATE ON Events_Hour
+        ),
+        (
+            "Events_Hour_update_trigger",
+            r#"CREATE TRIGGER Events_Hour_update_trigger AFTER UPDATE ON Events_Hour
 FOR EACH ROW
   BEGIN
     declare diff BIGINT default 0;
@@ -30,7 +38,10 @@ FOR EACH ROW
     END IF;
   END
 "#,
-        r#"CREATE TRIGGER Events_Day_delete_trigger BEFORE DELETE ON Events_Day
+        ),
+        (
+            "Events_Day_delete_trigger",
+            r#"CREATE TRIGGER Events_Day_delete_trigger BEFORE DELETE ON Events_Day
 FOR EACH ROW BEGIN
   UPDATE Event_Summaries SET
   DayEvents = GREATEST(COALESCE(DayEvents,1)-1,0),
@@ -38,7 +49,10 @@ FOR EACH ROW BEGIN
   WHERE Event_Summaries.MonitorId=OLD.MonitorId;
 END
 "#,
-        r#"CREATE TRIGGER Events_Day_update_trigger AFTER UPDATE ON Events_Day
+        ),
+        (
+            "Events_Day_update_trigger",
+            r#"CREATE TRIGGER Events_Day_update_trigger AFTER UPDATE ON Events_Day
 FOR EACH ROW
   BEGIN
     declare diff BIGINT default 0;
@@ -54,7 +68,10 @@ FOR EACH ROW
     END IF;
   END
 "#,
-        r#"CREATE TRIGGER Events_Week_delete_trigger BEFORE DELETE ON Events_Week
+        ),
+        (
+            "Events_Week_delete_trigger",
+            r#"CREATE TRIGGER Events_Week_delete_trigger BEFORE DELETE ON Events_Week
 FOR EACH ROW BEGIN
   UPDATE Event_Summaries SET
   WeekEvents = GREATEST(COALESCE(WeekEvents,1)-1,0),
@@ -62,7 +79,10 @@ FOR EACH ROW BEGIN
   WHERE Event_Summaries.MonitorId=OLD.MonitorId;
 END
 "#,
-        r#"CREATE TRIGGER Events_Week_update_trigger AFTER UPDATE ON Events_Week
+        ),
+        (
+            "Events_Week_update_trigger",
+            r#"CREATE TRIGGER Events_Week_update_trigger AFTER UPDATE ON Events_Week
 FOR EACH ROW
   BEGIN
     declare diff BIGINT default 0;
@@ -78,7 +98,10 @@ FOR EACH ROW
     END IF;
   END
 "#,
-        r#"CREATE TRIGGER Events_Month_delete_trigger BEFORE DELETE ON Events_Month
+        ),
+        (
+            "Events_Month_delete_trigger",
+            r#"CREATE TRIGGER Events_Month_delete_trigger BEFORE DELETE ON Events_Month
 FOR EACH ROW BEGIN
   UPDATE Event_Summaries SET
   MonthEvents = GREATEST(COALESCE(MonthEvents,1)-1,0),
@@ -86,7 +109,10 @@ FOR EACH ROW BEGIN
   WHERE Event_Summaries.MonitorId=OLD.MonitorId;
 END
 "#,
-        r#"CREATE TRIGGER Events_Month_update_trigger AFTER UPDATE ON Events_Month
+        ),
+        (
+            "Events_Month_update_trigger",
+            r#"CREATE TRIGGER Events_Month_update_trigger AFTER UPDATE ON Events_Month
 FOR EACH ROW
   BEGIN
     declare diff BIGINT default 0;
@@ -102,7 +128,10 @@ FOR EACH ROW
     END IF;
   END
 "#,
-        r#"CREATE TRIGGER event_update_trigger AFTER UPDATE ON Events
+        ),
+        (
+            "event_update_trigger",
+            r#"CREATE TRIGGER event_update_trigger AFTER UPDATE ON Events
 FOR EACH ROW
 BEGIN
   declare diff BIGINT default 0;
@@ -145,7 +174,10 @@ BEGIN
 
 END
 "#,
-        r#"CREATE TRIGGER event_delete_trigger BEFORE DELETE ON Events
+        ),
+        (
+            "event_delete_trigger",
+            r#"CREATE TRIGGER event_delete_trigger BEFORE DELETE ON Events
 FOR EACH ROW
 BEGIN
   DELETE FROM Events_Hour WHERE EventId=OLD.Id;
@@ -168,18 +200,25 @@ BEGIN
   END IF;
 END
 "#,
-        r#"CREATE TRIGGER Zone_Insert_Trigger AFTER INSERT ON Zones
+        ),
+        (
+            "Zone_Insert_Trigger",
+            r#"CREATE TRIGGER Zone_Insert_Trigger AFTER INSERT ON Zones
 FOR EACH ROW
   BEGIN
     UPDATE Monitors SET ZoneCount=(SELECT COUNT(*) FROM Zones WHERE MonitorId=NEW.MonitorId) WHERE Monitors.Id=NEW.MonitorID;
   END
 "#,
-        r#"CREATE TRIGGER Zone_Delete_Trigger AFTER DELETE ON Zones
+        ),
+        (
+            "Zone_Delete_Trigger",
+            r#"CREATE TRIGGER Zone_Delete_Trigger AFTER DELETE ON Zones
 FOR EACH ROW
   BEGIN
     UPDATE Monitors SET ZoneCount=(SELECT COUNT(*) FROM Zones WHERE MonitorId=OLD.MonitorId) WHERE Monitors.Id=OLD.MonitorID;
   END
 "#,
+        ),
     ]
 }
 

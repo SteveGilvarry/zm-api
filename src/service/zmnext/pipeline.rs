@@ -669,7 +669,7 @@ mod tests {
         assert_eq!(det["cfg"]["gpu_id"], 0);
         // roi_motion is left as configured (motion gating stays local on the worker).
         assert_eq!(det["cfg"]["roi_motion"], true);
-                                                     // Non-detect siblings/children are untouched.
+        // Non-detect siblings/children are untouched.
         assert!(doc["plugins"][0]["children"][1]["cfg"]
             .get("infer_endpoint")
             .is_none());

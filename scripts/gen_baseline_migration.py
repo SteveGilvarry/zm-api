@@ -651,11 +651,15 @@ def emit_triggers(triggers, tables, order) -> str:
         "//! port (functions + triggers) lands with the Postgres schema work;",
         "//! until then Postgres installs run without summary triggers.",
         "",
-        "pub(super) fn mysql_triggers() -> Vec<&'static str> {",
+        "/// (trigger name, CREATE TRIGGER statement). Names are pub(crate) so",
+        "/// the legacy upgrade bridge can drop-and-recreate to converge old",
+        "/// installs onto the current trigger set.",
+        "pub(crate) fn mysql_triggers() -> Vec<(&'static str, &'static str)> {",
         "    vec![",
     ]
     for t in triggers:
-        out.append(f"        r#\"{t}\"#,")
+        name = re.match(r"(?is)CREATE\s+TRIGGER\s+`?(\w+)`?", t).group(1)
+        out.append(f"        ({rs_str(name)}, r#\"{t}\"#),")
     out.append("    ]")
     out.append("}")
     out.append("")
@@ -754,14 +758,21 @@ MOD_RS = '''//! Baseline migration: the full ZoneMinder schema (54 tables, 13 My
 
 mod seeds;
 mod tables;
-mod triggers;
+pub(crate) mod triggers;
 
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::sea_orm::{DatabaseBackend, Statement};
 use sea_orm_migration::sea_query::extension::postgres::Type;
 
-#[derive(DeriveMigrationName)]
 pub struct Migration;
+
+// Explicit: DeriveMigrationName resolves to the file stem, which for a
+// directory module is "mod". The bridge stamps this exact string.
+impl MigrationName for Migration {
+    fn name(&self) -> &str {
+        "m00000000_000001_zm_baseline"
+    }
+}
 
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
@@ -802,7 +813,7 @@ impl MigrationTrait for Migration {
         match backend {
             DatabaseBackend::MySql => {
                 // Summary/rollup maintenance triggers (MySQL dialect).
-                for sql in triggers::mysql_triggers() {
+                for (_name, sql) in triggers::mysql_triggers() {
                     conn.execute_unprepared(sql).await?;
                 }
             }

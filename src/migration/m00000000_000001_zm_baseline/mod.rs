@@ -13,14 +13,21 @@
 
 mod seeds;
 mod tables;
-mod triggers;
+pub(crate) mod triggers;
 
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::sea_orm::{DatabaseBackend, Statement};
 use sea_orm_migration::sea_query::extension::postgres::Type;
 
-#[derive(DeriveMigrationName)]
 pub struct Migration;
+
+// Explicit: DeriveMigrationName resolves to the file stem, which for a
+// directory module is "mod". The bridge stamps this exact string.
+impl MigrationName for Migration {
+    fn name(&self) -> &str {
+        "m00000000_000001_zm_baseline"
+    }
+}
 
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
@@ -61,7 +68,7 @@ impl MigrationTrait for Migration {
         match backend {
             DatabaseBackend::MySql => {
                 // Summary/rollup maintenance triggers (MySQL dialect).
-                for sql in triggers::mysql_triggers() {
+                for (_name, sql) in triggers::mysql_triggers() {
                     conn.execute_unprepared(sql).await?;
                 }
             }
