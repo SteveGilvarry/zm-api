@@ -364,17 +364,37 @@ fn local_name(qname: &[u8]) -> String {
     }
 }
 
+/// Resolve a general entity / character reference event (`&amp;`, `&#37;`, …)
+/// to its replacement text. quick-xml ≥ 0.38 reports references as separate
+/// `Event::GeneralRef`s instead of unescaping them inside text events.
+/// Unknown entities resolve to the empty string, matching the old lossy
+/// `unescape().unwrap_or_default()` behaviour.
+fn resolve_ref(r: &quick_xml::events::BytesRef<'_>) -> String {
+    if let Ok(Some(ch)) = r.resolve_char_ref() {
+        return ch.to_string();
+    }
+    match r.decode() {
+        Ok(name) => quick_xml::escape::resolve_predefined_entity(&name)
+            .unwrap_or_default()
+            .to_string(),
+        Err(_) => String::new(),
+    }
+}
+
 /// Read the text content of the element currently open in `reader` (the parser
-/// is positioned just after a `Start` event). Returns the accumulated, escaped
-/// text, stopping at the matching `End`. Tolerant of nested elements / empty
-/// elements.
+/// is positioned just after a `Start` event). Returns the accumulated,
+/// entity-resolved text, stopping at the matching `End`. Tolerant of nested
+/// elements / empty elements. Callers trim the result.
 fn read_text(reader: &mut Reader<&[u8]>) -> String {
     let mut depth = 0usize;
     let mut out = String::new();
     loop {
         match reader.read_event() {
             Ok(Event::Text(t)) if depth == 0 => {
-                out.push_str(&t.unescape().unwrap_or_default());
+                out.push_str(&t.decode().unwrap_or_default());
+            }
+            Ok(Event::GeneralRef(r)) if depth == 0 => {
+                out.push_str(&resolve_ref(&r));
             }
             Ok(Event::CData(t)) if depth == 0 => {
                 out.push_str(&String::from_utf8_lossy(t.as_ref()));
@@ -408,7 +428,9 @@ fn non_empty(s: String) -> Option<String> {
 fn attr_f32(e: &quick_xml::events::BytesStart, want: &str) -> Option<f32> {
     for attr in e.attributes().flatten() {
         if local_name(attr.key.as_ref()) == want {
-            let raw = attr.unescape_value().ok()?;
+            let raw = attr
+                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                .ok()?;
             return raw.trim().parse::<f32>().ok();
         }
     }
@@ -420,7 +442,7 @@ fn attr_str(e: &quick_xml::events::BytesStart, want: &str) -> Option<String> {
     for attr in e.attributes().flatten() {
         if local_name(attr.key.as_ref()) == want {
             return attr
-                .unescape_value()
+                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                 .ok()
                 .map(|c| c.trim().to_string())
                 .filter(|s| !s.is_empty());
@@ -435,7 +457,6 @@ fn attr_str(e: &quick_xml::events::BytesStart, want: &str) -> Option<String> {
 /// shape used inside a single `<...Position>` block of a GetStatus response.
 fn parse_vector(xml: &str) -> PtzVector {
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
 
     let mut vec = PtzVector::default();
     loop {
@@ -476,7 +497,6 @@ fn parse_status(xml: &str) -> OnvifResult<PtzStatus> {
     let position = parse_vector(xml);
 
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
 
     let mut status = PtzStatus {
         position,
@@ -532,7 +552,6 @@ fn parent_is(stack: &[String], local: &str) -> bool {
 /// `PTZConfiguration`; missing children stay `None`.
 fn parse_configurations(xml: &str) -> OnvifResult<Vec<PtzConfiguration>> {
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
 
     let mut configs = Vec::new();
     let mut current: Option<PtzConfiguration> = None;

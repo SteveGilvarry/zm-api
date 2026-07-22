@@ -245,6 +245,23 @@ fn local_name(qname: &[u8]) -> String {
     }
 }
 
+/// Resolve a general entity / character reference event (`&amp;`, `&#37;`, …)
+/// to its replacement text. quick-xml ≥ 0.38 reports references as separate
+/// `Event::GeneralRef`s instead of unescaping them inside text events.
+/// Unknown entities resolve to the empty string, matching the old lossy
+/// `unescape().unwrap_or_default()` behaviour.
+fn resolve_ref(r: &quick_xml::events::BytesRef<'_>) -> String {
+    if let Ok(Some(ch)) = r.resolve_char_ref() {
+        return ch.to_string();
+    }
+    match r.decode() {
+        Ok(name) => quick_xml::escape::resolve_predefined_entity(&name)
+            .unwrap_or_default()
+            .to_string(),
+        Err(_) => String::new(),
+    }
+}
+
 /// Find an attribute by local name (prefix-agnostic) on a start tag.
 fn attr_local<'a>(e: &'a quick_xml::events::BytesStart<'a>, want: &str) -> Option<String> {
     for attr in e.attributes().flatten() {
@@ -263,13 +280,15 @@ fn attr_local<'a>(e: &'a quick_xml::events::BytesStart<'a>, want: &str) -> Optio
 /// captured when present.
 fn parse_profiles(xml: &str) -> OnvifResult<Vec<MediaProfile>> {
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
 
     let mut profiles: Vec<MediaProfile> = Vec::new();
     // Local-name stack used to scope where text belongs.
     let mut stack: Vec<String> = Vec::new();
     // The profile currently being assembled (between Profiles start/end).
     let mut current: Option<MediaProfile> = None;
+    // Text of the innermost open element, accumulated across the text and
+    // entity-reference events it may be split into; consumed at its End.
+    let mut buf = String::new();
 
     loop {
         match reader.read_event() {
@@ -284,6 +303,7 @@ fn parse_profiles(xml: &str) -> OnvifResult<Vec<MediaProfile>> {
                     current = Some(p);
                 }
                 stack.push(local);
+                buf.clear();
             }
             Ok(Event::Empty(e)) => {
                 // Self-closing element: may carry the token attribute (rare, but
@@ -300,16 +320,21 @@ fn parse_profiles(xml: &str) -> OnvifResult<Vec<MediaProfile>> {
                 }
             }
             Ok(Event::Text(t)) => {
-                if let Some(p) = current.as_mut() {
-                    let text = t.unescape().unwrap_or_default().into_owned();
-                    if text.is_empty() {
-                        // Skip whitespace-only nodes.
-                    } else if let Some(local) = stack.last() {
-                        assign_profile_field(p, &stack, local, &text);
-                    }
-                }
+                buf.push_str(&t.decode().unwrap_or_default());
+            }
+            Ok(Event::GeneralRef(r)) => {
+                buf.push_str(&resolve_ref(&r));
             }
             Ok(Event::End(e)) => {
+                if let Some(p) = current.as_mut() {
+                    let text = buf.trim();
+                    if !text.is_empty() {
+                        if let Some(local) = stack.last() {
+                            assign_profile_field(p, &stack, local, text);
+                        }
+                    }
+                }
+                buf.clear();
                 let local = local_name(e.name().as_ref());
                 if local == "Profiles" || local == "Profile" {
                     if let Some(p) = current.take() {
@@ -384,41 +409,49 @@ fn ancestor_is(stack: &[String], name: &str) -> bool {
 /// same shape: a `<Uri>` plus optional validity metadata.
 fn parse_media_uri(xml: &str) -> OnvifResult<MediaUri> {
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
 
     let mut out = MediaUri::default();
     let mut found_uri = false;
     let mut stack: Vec<String> = Vec::new();
+    // Text of the innermost open element, accumulated across the text and
+    // entity-reference events it may be split into; consumed at its End.
+    let mut buf = String::new();
 
     loop {
         match reader.read_event() {
             Ok(Event::Start(e)) => {
                 stack.push(local_name(e.name().as_ref()));
+                buf.clear();
             }
             Ok(Event::Text(t)) => {
-                let text = t.unescape().unwrap_or_default().into_owned();
-                if text.is_empty() {
-                    // ignore whitespace
-                } else if let Some(local) = stack.last() {
-                    match local.as_str() {
-                        "Uri" if !found_uri => {
-                            out.uri = text;
-                            found_uri = true;
-                        }
-                        "InvalidAfterConnect" => {
-                            out.invalid_after_connect = parse_bool(&text);
-                        }
-                        "InvalidAfterReboot" => {
-                            out.invalid_after_reboot = parse_bool(&text);
-                        }
-                        "Timeout" => {
-                            out.timeout = Some(text);
-                        }
-                        _ => {}
-                    }
-                }
+                buf.push_str(&t.decode().unwrap_or_default());
+            }
+            Ok(Event::GeneralRef(r)) => {
+                buf.push_str(&resolve_ref(&r));
             }
             Ok(Event::End(_)) => {
+                let text = buf.trim();
+                if !text.is_empty() {
+                    if let Some(local) = stack.last() {
+                        match local.as_str() {
+                            "Uri" if !found_uri => {
+                                out.uri = text.to_string();
+                                found_uri = true;
+                            }
+                            "InvalidAfterConnect" => {
+                                out.invalid_after_connect = parse_bool(text);
+                            }
+                            "InvalidAfterReboot" => {
+                                out.invalid_after_reboot = parse_bool(text);
+                            }
+                            "Timeout" => {
+                                out.timeout = Some(text.to_string());
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                buf.clear();
                 stack.pop();
             }
             Ok(Event::Eof) => break,
@@ -682,6 +715,46 @@ mod tests {
         assert_eq!(uri.invalid_after_connect, None);
         assert_eq!(uri.invalid_after_reboot, None);
         assert_eq!(uri.timeout, None);
+    }
+
+    /// A stream URI whose query string carries an escaped `&amp;` and a numeric
+    /// character reference. quick-xml ≥ 0.38 reports these as separate
+    /// `GeneralRef` events, so the parser must reassemble the full URI.
+    const STREAM_URI_ESCAPED_QUERY: &str = r#"<?xml version="1.0"?>
+    <s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
+      <s:Body>
+        <trt:GetStreamUriResponse xmlns:trt="http://www.onvif.org/ver10/media/wsdl"
+                                  xmlns:tt="http://www.onvif.org/ver10/schema">
+          <trt:MediaUri>
+            <tt:Uri>rtsp://cam.local:554/stream?user=admin&amp;channel=1&amp;pw=a&#37;b</tt:Uri>
+          </trt:MediaUri>
+        </trt:GetStreamUriResponse>
+      </s:Body>
+    </s:Envelope>"#;
+
+    #[test]
+    fn parses_stream_uri_with_escaped_query_params() {
+        let uri = parse_media_uri(STREAM_URI_ESCAPED_QUERY).expect("parse");
+        assert_eq!(
+            uri.uri,
+            "rtsp://cam.local:554/stream?user=admin&channel=1&pw=a%b"
+        );
+    }
+
+    #[test]
+    fn profile_name_with_entity_keeps_surrounding_spaces() {
+        let xml = r#"<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
+          <s:Body>
+            <trt:GetProfilesResponse xmlns:trt="http://www.onvif.org/ver10/media/wsdl"
+                                     xmlns:tt="http://www.onvif.org/ver10/schema">
+              <trt:Profiles token="P1">
+                <tt:Name>Day &amp; Night</tt:Name>
+              </trt:Profiles>
+            </trt:GetProfilesResponse>
+          </s:Body>
+        </s:Envelope>"#;
+        let profiles = parse_profiles(xml).expect("parse");
+        assert_eq!(profiles[0].name.as_deref(), Some("Day & Night"));
     }
 
     #[test]

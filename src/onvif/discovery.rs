@@ -229,7 +229,6 @@ impl DiscoveryClient {
 /// automatically).
 pub fn parse_probe_matches(xml: &str) -> Vec<ProbeMatch> {
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
 
     let mut matches: Vec<ProbeMatch> = Vec::new();
     // The match currently being assembled (between ProbeMatch start/end).
@@ -238,6 +237,9 @@ pub fn parse_probe_matches(xml: &str) -> Vec<ProbeMatch> {
     // belongs to the endpoint reference only when nested under
     // `EndpointReference`).
     let mut stack: Vec<String> = Vec::new();
+    // Text of the innermost open element, accumulated across the text and
+    // entity-reference events it may be split into; consumed at its End.
+    let mut buf = String::new();
 
     loop {
         match reader.read_event() {
@@ -247,14 +249,22 @@ pub fn parse_probe_matches(xml: &str) -> Vec<ProbeMatch> {
                     current = Some(ProbeMatch::default());
                 }
                 stack.push(local);
+                buf.clear();
             }
             Ok(Event::Text(t)) => {
-                if let Some(m) = current.as_mut() {
-                    let text = t.unescape().unwrap_or_default().into_owned();
-                    apply_text(m, &stack, &text);
-                }
+                buf.push_str(&t.decode().unwrap_or_default());
+            }
+            Ok(Event::GeneralRef(r)) => {
+                buf.push_str(&resolve_ref(&r));
             }
             Ok(Event::End(e)) => {
+                if let Some(m) = current.as_mut() {
+                    let text = buf.trim();
+                    if !text.is_empty() {
+                        apply_text(m, &stack, text);
+                    }
+                }
+                buf.clear();
                 let local = local_name(e.name().as_ref());
                 if local == "ProbeMatch" {
                     if let Some(m) = current.take() {
@@ -363,6 +373,23 @@ fn hex_val(b: u8) -> Option<u8> {
         b'a'..=b'f' => Some(b - b'a' + 10),
         b'A'..=b'F' => Some(b - b'A' + 10),
         _ => None,
+    }
+}
+
+/// Resolve a general entity / character reference event (`&amp;`, `&#37;`, …)
+/// to its replacement text. quick-xml ≥ 0.38 reports references as separate
+/// `Event::GeneralRef`s instead of unescaping them inside text events.
+/// Unknown entities resolve to the empty string, matching the old lossy
+/// `unescape().unwrap_or_default()` behaviour.
+fn resolve_ref(r: &quick_xml::events::BytesRef<'_>) -> String {
+    if let Ok(Some(ch)) = r.resolve_char_ref() {
+        return ch.to_string();
+    }
+    match r.decode() {
+        Ok(name) => quick_xml::escape::resolve_predefined_entity(&name)
+            .unwrap_or_default()
+            .to_string(),
+        Err(_) => String::new(),
     }
 }
 
@@ -495,6 +522,25 @@ mod tests {
         assert_eq!(m.name.as_deref(), Some("ACME Cam 1"));
         assert_eq!(m.hardware.as_deref(), Some("IPC-Model-X"));
         assert_eq!(m.location.as_deref(), Some("country/us"));
+    }
+
+    #[test]
+    fn xaddrs_with_escaped_query_stays_one_url() {
+        // An XAddr whose query string carries `&amp;` is split into several
+        // text/GeneralRef events by quick-xml ≥ 0.38; it must be reassembled
+        // into a single URL, not two.
+        let xml = r#"<e:Envelope xmlns:e="http://www.w3.org/2003/05/soap-envelope"
+            xmlns:d="http://schemas.xmlsoap.org/ws/2005/04/discovery">
+          <e:Body><d:ProbeMatches><d:ProbeMatch>
+            <d:XAddrs>http://10.0.0.7/onvif/device_service?a=1&amp;b=2</d:XAddrs>
+          </d:ProbeMatch></d:ProbeMatches></e:Body>
+        </e:Envelope>"#;
+        let matches = parse_probe_matches(xml);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(
+            matches[0].xaddrs,
+            vec!["http://10.0.0.7/onvif/device_service?a=1&b=2".to_string()]
+        );
     }
 
     #[test]

@@ -337,7 +337,6 @@ impl EventsClient {
 /// a `SubscriptionReference` subtree.
 fn parse_create_pull_point(xml: &str) -> OnvifResult<PullPointSubscription> {
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
 
     let mut sub = PullPointSubscription::default();
     let mut stack: Vec<String> = Vec::new();
@@ -399,7 +398,6 @@ fn parse_create_pull_point(xml: &str) -> OnvifResult<PullPointSubscription> {
 /// ```
 fn parse_pull_messages(xml: &str) -> OnvifResult<PullMessagesResponse> {
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
 
     let mut out = PullMessagesResponse::default();
     // The element subtree we are currently inside, by local name. Used to
@@ -505,7 +503,6 @@ fn parse_pull_messages(xml: &str) -> OnvifResult<PullMessagesResponse> {
 /// Parse a `RenewResponse`, returning the device's new `TerminationTime` if any.
 fn parse_renew(xml: &str) -> Option<String> {
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
 
     loop {
         match reader.read_event() {
@@ -541,23 +538,46 @@ fn local_name(qname: &[u8]) -> String {
 fn attr_value(e: &quick_xml::events::BytesStart<'_>, local: &str) -> Option<String> {
     for attr in e.attributes().with_checks(false).flatten() {
         if local_name(attr.key.as_ref()) == local {
-            let raw = attr.unescape_value().unwrap_or_default();
+            let raw = attr
+                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                .unwrap_or_default();
             return Some(raw.into_owned());
         }
     }
     None
 }
 
+/// Resolve a general entity / character reference event (`&amp;`, `&#37;`, …)
+/// to its replacement text. quick-xml ≥ 0.38 reports references as separate
+/// `Event::GeneralRef`s instead of unescaping them inside text events.
+/// Unknown entities resolve to the empty string, matching the old lossy
+/// `unescape().unwrap_or_default()` behaviour.
+fn resolve_ref(r: &quick_xml::events::BytesRef<'_>) -> String {
+    if let Ok(Some(ch)) = r.resolve_char_ref() {
+        return ch.to_string();
+    }
+    match r.decode() {
+        Ok(name) => quick_xml::escape::resolve_predefined_entity(&name)
+            .unwrap_or_default()
+            .to_string(),
+        Err(_) => String::new(),
+    }
+}
+
 /// Read the text content of the element currently open in `reader` (positioned
 /// just after a `Start` event). Accumulates text/CDATA at the top level,
 /// stopping at the matching `End`. Tolerant of nested elements and empties.
+/// Callers trim the result.
 fn read_text(reader: &mut Reader<&[u8]>) -> String {
     let mut depth = 0usize;
     let mut out = String::new();
     loop {
         match reader.read_event() {
             Ok(Event::Text(t)) if depth == 0 => {
-                out.push_str(&t.unescape().unwrap_or_default());
+                out.push_str(&t.decode().unwrap_or_default());
+            }
+            Ok(Event::GeneralRef(r)) if depth == 0 => {
+                out.push_str(&resolve_ref(&r));
             }
             Ok(Event::CData(t)) if depth == 0 => {
                 out.push_str(&String::from_utf8_lossy(t.as_ref()));

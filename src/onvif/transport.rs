@@ -179,7 +179,6 @@ fn parse_soap_fault(xml: &str) -> Option<(String, String)> {
     use quick_xml::reader::Reader;
 
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
 
     let mut in_fault = false;
     let mut in_code_value = false;
@@ -194,6 +193,9 @@ fn parse_soap_fault(xml: &str) -> Option<(String, String)> {
     let mut reason: Option<String> = None;
     // Local-name stack to interpret Value/Text context.
     let mut stack: Vec<String> = Vec::new();
+    // Text of the Value/Text element currently open, accumulated across the
+    // text and entity-reference events it may be split into.
+    let mut buf = String::new();
 
     loop {
         match reader.read_event() {
@@ -203,36 +205,50 @@ fn parse_soap_fault(xml: &str) -> Option<(String, String)> {
                     "Fault" => in_fault = true,
                     "Value" if in_fault && parent_is(&stack, "Code") => {
                         in_code_value = true;
+                        buf.clear();
                     }
                     "Value" if in_fault && parent_is(&stack, "Subcode") => {
                         in_subcode_value = true;
+                        buf.clear();
                     }
                     "Text" if in_fault && parent_is(&stack, "Reason") => {
                         in_reason_text = true;
+                        buf.clear();
                     }
                     _ => {}
                 }
                 stack.push(local);
             }
-            Ok(Event::Text(t)) => {
-                if in_code_value && code.is_none() {
-                    // Top-level code: first (outermost) Value wins.
-                    code = Some(t.unescape().unwrap_or_default().into_owned());
-                } else if in_subcode_value {
-                    // Subcode: last (innermost / most specific) Value wins.
-                    subcode = Some(t.unescape().unwrap_or_default().into_owned());
-                } else if in_reason_text && reason.is_none() {
-                    reason = Some(t.unescape().unwrap_or_default().into_owned());
-                }
+            Ok(Event::Text(t)) if in_code_value || in_subcode_value || in_reason_text => {
+                buf.push_str(&t.decode().unwrap_or_default());
+            }
+            Ok(Event::GeneralRef(r)) if in_code_value || in_subcode_value || in_reason_text => {
+                buf.push_str(&resolve_ref(&r));
             }
             Ok(Event::End(e)) => {
                 let local = local_name(e.name().as_ref());
                 match local.as_str() {
                     "Value" => {
+                        let text = buf.trim();
+                        if in_code_value && code.is_none() && !text.is_empty() {
+                            // Top-level code: first (outermost) Value wins.
+                            code = Some(text.to_string());
+                        } else if in_subcode_value && !text.is_empty() {
+                            // Subcode: last (innermost / most specific) Value wins.
+                            subcode = Some(text.to_string());
+                        }
+                        buf.clear();
                         in_code_value = false;
                         in_subcode_value = false;
                     }
-                    "Text" => in_reason_text = false,
+                    "Text" => {
+                        let text = buf.trim();
+                        if in_reason_text && reason.is_none() && !text.is_empty() {
+                            reason = Some(text.to_string());
+                        }
+                        buf.clear();
+                        in_reason_text = false;
+                    }
                     "Fault" => in_fault = false,
                     _ => {}
                 }
@@ -268,6 +284,23 @@ fn local_name(qname: &[u8]) -> String {
     match s.rsplit_once(':') {
         Some((_, local)) => local.to_string(),
         None => s.into_owned(),
+    }
+}
+
+/// Resolve a general entity / character reference event (`&amp;`, `&#37;`, …)
+/// to its replacement text. quick-xml ≥ 0.38 reports references as separate
+/// `Event::GeneralRef`s instead of unescaping them inside text events.
+/// Unknown entities resolve to the empty string, matching the old lossy
+/// `unescape().unwrap_or_default()` behaviour.
+fn resolve_ref(r: &quick_xml::events::BytesRef<'_>) -> String {
+    if let Ok(Some(ch)) = r.resolve_char_ref() {
+        return ch.to_string();
+    }
+    match r.decode() {
+        Ok(name) => quick_xml::escape::resolve_predefined_entity(&name)
+            .unwrap_or_default()
+            .to_string(),
+        Err(_) => String::new(),
     }
 }
 
@@ -332,6 +365,21 @@ mod tests {
         let (code, reason) = parse_soap_fault(xml).expect("fault parsed");
         assert_eq!(code, "Receiver");
         assert_eq!(reason, "Internal Error");
+    }
+
+    #[test]
+    fn fault_reason_with_entity_reference_is_reassembled() {
+        // quick-xml ≥ 0.38 splits `Locked &amp; unauthorized` into text /
+        // GeneralRef / text events; the parser must reassemble the full
+        // reason including the spaces around the entity.
+        let xml = r#"<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
+          <s:Body><s:Fault>
+            <s:Code><s:Value>s:Sender</s:Value></s:Code>
+            <s:Reason><s:Text xml:lang="en">Locked &amp; unauthorized</s:Text></s:Reason>
+          </s:Fault></s:Body></s:Envelope>"#;
+        let (code, reason) = parse_soap_fault(xml).expect("fault parsed");
+        assert_eq!(code, "s:Sender");
+        assert_eq!(reason, "Locked & unauthorized");
     }
 
     #[test]

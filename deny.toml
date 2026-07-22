@@ -15,6 +15,10 @@ ignore = [
     # atomic-polyfill unmaintained. Deep transitive build-dep only
     # (garde -> phonenumber -> postcard -> heapless), no safe upgrade available.
     "RUSTSEC-2023-0089",
+    # paste unmaintained. Proc-macro pulled in only by tikv-jemalloc-ctl (a
+    # dev-dependency used by the jemalloc stats test); no tikv-jemalloc-ctl
+    # release without it. Compile-time only, never in the shipped binary.
+    "RUSTSEC-2024-0436",
 ]
 
 [bans]

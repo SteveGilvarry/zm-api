@@ -259,16 +259,37 @@ fn local_name(qname: &[u8]) -> String {
     }
 }
 
+/// Resolve a general entity / character reference event (`&amp;`, `&#37;`, …)
+/// to its replacement text. quick-xml ≥ 0.38 reports references as separate
+/// `Event::GeneralRef`s instead of unescaping them inside text events.
+/// Unknown entities resolve to the empty string, matching the old lossy
+/// `unescape().unwrap_or_default()` behaviour.
+fn resolve_ref(r: &quick_xml::events::BytesRef<'_>) -> String {
+    if let Ok(Some(ch)) = r.resolve_char_ref() {
+        return ch.to_string();
+    }
+    match r.decode() {
+        Ok(name) => quick_xml::escape::resolve_predefined_entity(&name)
+            .unwrap_or_default()
+            .to_string(),
+        Err(_) => String::new(),
+    }
+}
+
 /// Read the text content of the element currently open in `reader` (the parser
-/// is positioned just after a `Start` event). Returns the accumulated, escaped
-/// text, stopping at the matching `End`. Tolerant of empty elements.
+/// is positioned just after a `Start` event). Returns the accumulated,
+/// entity-resolved text, stopping at the matching `End`. Tolerant of empty
+/// elements. Callers trim the result.
 fn read_text(reader: &mut Reader<&[u8]>) -> String {
     let mut depth = 0usize;
     let mut out = String::new();
     loop {
         match reader.read_event() {
             Ok(Event::Text(t)) if depth == 0 => {
-                out.push_str(&t.unescape().unwrap_or_default());
+                out.push_str(&t.decode().unwrap_or_default());
+            }
+            Ok(Event::GeneralRef(r)) if depth == 0 => {
+                out.push_str(&resolve_ref(&r));
             }
             Ok(Event::CData(t)) if depth == 0 => {
                 out.push_str(&String::from_utf8_lossy(t.as_ref()));
@@ -293,7 +314,6 @@ fn read_text(reader: &mut Reader<&[u8]>) -> String {
 /// leaves any absent field as `None`.
 fn parse_device_information(xml: &str) -> OnvifResult<DeviceInformation> {
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
 
     let mut info = DeviceInformation::default();
     loop {
@@ -326,7 +346,6 @@ fn parse_device_information(xml: &str) -> OnvifResult<DeviceInformation> {
 /// encountered within it. Matching is by local name, so any prefix works.
 fn parse_capabilities(xml: &str) -> OnvifResult<Capabilities> {
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
 
     let mut caps = Capabilities::default();
     // Stack of local element names, used to know which service category an
@@ -383,7 +402,6 @@ fn assign_xaddr(caps: &mut Capabilities, category: &str, addr: Option<String>) {
 /// `<Service>` element; missing children stay `None`.
 fn parse_services(xml: &str) -> OnvifResult<Vec<Service>> {
     let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
 
     let mut services = Vec::new();
     let mut current: Option<Service> = None;
@@ -491,6 +509,23 @@ mod tests {
         );
         assert_eq!(info.serial_number.as_deref(), Some("SN-ABC-12345"));
         assert_eq!(info.hardware_id.as_deref(), Some("HW-7788"));
+    }
+
+    #[test]
+    fn device_info_with_entity_references() {
+        // quick-xml ≥ 0.38 splits `Bosch &amp; Co` into text / GeneralRef /
+        // text events; read_text must reassemble it, spaces included.
+        let xml = r#"<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">
+          <s:Body>
+            <tds:GetDeviceInformationResponse xmlns:tds="http://www.onvif.org/ver10/device/wsdl">
+              <tds:Manufacturer>Bosch &amp; Co</tds:Manufacturer>
+              <tds:Model>IPC&#45;2000</tds:Model>
+            </tds:GetDeviceInformationResponse>
+          </s:Body>
+        </s:Envelope>"#;
+        let info = parse_device_information(xml).expect("parse");
+        assert_eq!(info.manufacturer.as_deref(), Some("Bosch & Co"));
+        assert_eq!(info.model.as_deref(), Some("IPC-2000"));
     }
 
     #[test]
