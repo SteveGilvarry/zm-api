@@ -59,6 +59,20 @@ impl TestApp {
         }
     }
 
+    /// Build the production router from a caller-supplied state — for tests
+    /// that pre-seed state (token revocations, custom mock query/exec
+    /// results) before wiring the router. The `db` fixture handle is a
+    /// detached mock and must not be queried.
+    pub fn from_state(state: AppState) -> Self {
+        use sea_orm::{DatabaseBackend, MockDatabase};
+        let fixture_db = MockDatabase::new(DatabaseBackend::MySql).into_connection();
+        let router = zm_api::routes::create_router_app(state);
+        Self {
+            db: fixture_db,
+            router,
+        }
+    }
+
     /// Begin building a request. The router is cloned per call so a single
     /// `TestApp` can serve any number of requests.
     pub fn request(&self, method: Method, path: &str) -> TestRequest {

@@ -43,6 +43,8 @@ pub struct AppState {
     pub search_service: Option<Arc<SearchService>>,
     // PTZ Manager
     pub ptz_manager: Arc<PtzManager>,
+    // Per-user token-revocation floors (hot-path mirror of Users.TokenMinExpiry)
+    pub revocations: Arc<crate::util::revocation::TokenRevocations>,
 }
 
 impl AppState {
@@ -226,6 +228,22 @@ impl AppState {
         let ptz_manager = Arc::new(PtzManager::with_defaults());
         tracing::info!("PTZ manager initialized");
 
+        // Hydrate the in-memory token-revocation floors from
+        // Users.TokenMinExpiry so logout/password-change revocations survive
+        // restarts. Non-fatal: on failure the floors rebuild as revocations
+        // happen, and refresh tokens are still DB-checked.
+        let revocations = Arc::new(crate::util::revocation::TokenRevocations::default());
+        match crate::repo::users::find_all(db.as_ref()).await {
+            Ok(users) => {
+                for u in &users {
+                    if u.token_min_expiry > 0 {
+                        revocations.revoke(u.id, u.token_min_expiry as i64);
+                    }
+                }
+            }
+            Err(e) => tracing::warn!("failed to hydrate token revocations from Users: {e}"),
+        }
+
         Ok(Self {
             config: Arc::new(config),
             db,
@@ -240,6 +258,7 @@ impl AppState {
             search_service,
             daemon_manager,
             ptz_manager,
+            revocations,
         })
     }
 
@@ -278,6 +297,7 @@ impl AppState {
             search_service,
             daemon_manager: None,
             ptz_manager: std::sync::Arc::new(PtzManager::with_defaults()),
+            revocations: std::sync::Arc::new(crate::util::revocation::TokenRevocations::default()),
         }
     }
 

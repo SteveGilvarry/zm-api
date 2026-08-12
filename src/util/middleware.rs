@@ -1,7 +1,12 @@
-use axum::{extract::Request, http::StatusCode, middleware::Next, response::Response};
+use axum::{
+    extract::{Request, State},
+    http::StatusCode,
+    middleware::Next,
+    response::Response,
+};
 use tracing::{debug, info, warn};
 
-use crate::{constant::ACCESS_TOKEN_DECODE_KEY, util::claim::UserClaims};
+use crate::{constant::ACCESS_TOKEN_DECODE_KEY, server::state::AppState, util::claim::UserClaims};
 
 /// Middleware to verify JWT token for protected routes
 pub async fn auth_middleware(
@@ -53,6 +58,46 @@ pub async fn auth_middleware(
     }
 }
 
+/// Authentication middleware for self-service routes that are *not* wrapped by
+/// [`authz::protect`](crate::util::authz::protect) — `/me`, `/me/password`,
+/// `/auth/logout`. Because there is no feature gate, these routes would
+/// otherwise never see the token-revocation check that `protect` performs, so
+/// this middleware runs it here: header-only token, decode, reject if revoked,
+/// then insert [`UserClaims`] for the handler.
+pub async fn authenticated_middleware(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Result<Response, (StatusCode, String)> {
+    let token = extract_token_from_header(&request).ok_or_else(|| {
+        warn!("Missing or malformed Authorization header");
+        (
+            StatusCode::UNAUTHORIZED,
+            "Missing Authorization header".to_string(),
+        )
+    })?;
+
+    let claims = match UserClaims::decode(&token, &ACCESS_TOKEN_DECODE_KEY) {
+        Ok(data) => data.claims,
+        Err(e) => {
+            warn!("JWT token verification failed: {e}");
+            return Err((StatusCode::UNAUTHORIZED, "Invalid token".to_string()));
+        }
+    };
+
+    if state.revocations.is_revoked(claims.uid, claims.iat) {
+        warn!("Rejected revoked token for user id {}", claims.uid);
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            "Token has been revoked".to_string(),
+        ));
+    }
+
+    let mut request = request;
+    request.extensions_mut().insert(claims);
+    Ok(next.run(request).await)
+}
+
 /// Middleware for media endpoints that accepts JWT via Authorization header OR query parameter.
 ///
 /// This is necessary because HTML5 `<video>` and `<img>` elements cannot send custom headers
@@ -69,7 +114,8 @@ pub async fn media_auth_middleware(
     request: Request,
     next: Next,
 ) -> Result<Response, (StatusCode, String)> {
-    debug!("Authenticating media request: {}", request.uri());
+    // Path only: media URLs may carry `?token=<JWT>`, which must not reach logs.
+    debug!("Authenticating media request: {}", request.uri().path());
 
     // Try to extract token from Authorization header first
     let token = extract_token_from_header(&request).or_else(|| extract_token_from_query(&request));

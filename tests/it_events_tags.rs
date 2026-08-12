@@ -7,11 +7,28 @@ mod common;
 
 use axum::http::StatusCode;
 use common::assertions::{assert_error, assert_status};
-use common::fixtures::{insert_monitor, unique_name, RowGuard};
-use common::harness::{superuser_token, TestApp};
+use common::fixtures::{
+    cleanup_monitor_permissions, grant_monitor_permission, insert_monitor, insert_user_with_id,
+    unique_name, RowGuard,
+};
+use common::harness::{superuser_token, token_for, TestApp};
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde_json::json;
 use zm_api::dto::response::{EventTagResponse, PaginatedEventsTagsResponse};
+use zm_api::entity::sea_orm_active_enums::Permission;
+use zm_api::util::authz::UserPermissions;
+
+/// User ids for the ACL cases, chosen to avoid colliding with real users.
+const ETAG_ACL_UID: u32 = 990_401;
+
+fn monitor_permissions_guard(user_id: u32) -> RowGuard {
+    RowGuard::new(
+        format!("Monitors_Permissions(user={user_id})"),
+        move |db| async move {
+            let _ = cleanup_monitor_permissions(&db, user_id).await;
+        },
+    )
+}
 
 /// Insert an `Events` row for a monitor and return its id.
 async fn insert_event(db: &sea_orm::DatabaseConnection, monitor_id: u32, label: &str) -> u64 {
@@ -200,5 +217,123 @@ async fn create_event_tag_with_invalid_body_is_rejected() {
         "malformed create body should be a 4xx, got {}; body: {}",
         resp.status(),
         resp.text()
+    );
+}
+
+// --- Row-level monitor ACL -------------------------------------------------
+//
+// A user restricted to specific monitors (via Monitors_Permissions) must not
+// be able to read or mutate tag associations for events of monitors outside
+// their scope. Hidden monitors return 404 (existence is not revealed), mirror-
+// ing the events ACL policy in `it_monitor_acl.rs`.
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn restricted_user_cannot_read_event_tag_of_hidden_monitor() {
+    let app = TestApp::spawn().await;
+
+    let visible = insert_monitor(&app.db, "EtagAclVisible")
+        .await
+        .expect("insert visible monitor");
+    let _mv = RowGuard::monitor(visible.id);
+    let hidden = insert_monitor(&app.db, "EtagAclHidden")
+        .await
+        .expect("insert hidden monitor");
+    let _mh = RowGuard::monitor(hidden.id);
+
+    let event_id = insert_event(&app.db, hidden.id, "EtagAclHiddenEvt").await;
+    let _evt = guard_event(event_id);
+    let tag_id = insert_tag(&app.db, "EtagAclTag").await;
+    let _tag = RowGuard::tag(tag_id);
+    insert_event_tag(&app.db, tag_id, event_id).await;
+    let _link = guard_event_tag(tag_id, event_id);
+
+    // The user is granted access to the visible monitor only, making them
+    // restricted (non-empty permission set) with no access to `hidden`.
+    insert_user_with_id(&app.db, ETAG_ACL_UID, "EtagAclUser")
+        .await
+        .expect("insert user");
+    let _ug = RowGuard::new(format!("Users#{ETAG_ACL_UID}"), move |db| async move {
+        let _ = common::fixtures::cleanup_user(&db, ETAG_ACL_UID).await;
+    });
+    grant_monitor_permission(&app.db, visible.id, ETAG_ACL_UID, Permission::View)
+        .await
+        .expect("grant permission");
+    let _pg = monitor_permissions_guard(ETAG_ACL_UID);
+
+    let token = token_for(ETAG_ACL_UID, UserPermissions::superuser());
+
+    // GET by composite id: hidden monitor's association is 404, not 200.
+    let get = app
+        .get(&format!("/api/v3/events-tags/{tag_id}/{event_id}"), &token)
+        .await;
+    assert_eq!(
+        get.status(),
+        StatusCode::NOT_FOUND,
+        "hidden monitor's event tag must be 404, got {}",
+        get.status()
+    );
+
+    // LIST filtered to the hidden event returns nothing for this user.
+    let list = app
+        .get(
+            &format!("/api/v3/events-tags?event_id={event_id}&page=1&page_size=1000"),
+            &token,
+        )
+        .await;
+    assert_status(&list, StatusCode::OK);
+    let body: PaginatedEventsTagsResponse = list.json();
+    assert!(
+        !body.items.iter().any(|t| t.event_id == event_id),
+        "restricted user must not see associations of hidden monitors"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn restricted_user_cannot_tag_event_of_hidden_monitor() {
+    let app = TestApp::spawn().await;
+
+    let visible = insert_monitor(&app.db, "EtagAclCreateVisible")
+        .await
+        .expect("insert visible monitor");
+    let _mv = RowGuard::monitor(visible.id);
+    let hidden = insert_monitor(&app.db, "EtagAclCreateHidden")
+        .await
+        .expect("insert hidden monitor");
+    let _mh = RowGuard::monitor(hidden.id);
+
+    let event_id = insert_event(&app.db, hidden.id, "EtagAclCreateEvt").await;
+    let _evt = guard_event(event_id);
+    let tag_id = insert_tag(&app.db, "EtagAclCreateTag").await;
+    let _tag = RowGuard::tag(tag_id);
+
+    insert_user_with_id(&app.db, ETAG_ACL_UID, "EtagAclCreateUser")
+        .await
+        .expect("insert user");
+    let _ug = RowGuard::new(format!("Users#{ETAG_ACL_UID}"), move |db| async move {
+        let _ = common::fixtures::cleanup_user(&db, ETAG_ACL_UID).await;
+    });
+    grant_monitor_permission(&app.db, visible.id, ETAG_ACL_UID, Permission::View)
+        .await
+        .expect("grant permission");
+    let _pg = monitor_permissions_guard(ETAG_ACL_UID);
+    // Reclaim the association if the (buggy) create unexpectedly succeeds.
+    let _link = guard_event_tag(tag_id, event_id);
+
+    let token = token_for(ETAG_ACL_UID, UserPermissions::superuser());
+    let create = app
+        .post_json(
+            "/api/v3/events-tags",
+            &token,
+            &json!({ "event_id": event_id, "tag_id": tag_id }),
+        )
+        .await;
+    assert_eq!(
+        create.status(),
+        StatusCode::NOT_FOUND,
+        "tagging a hidden monitor's event must be refused (404), got {}; body: {}",
+        create.status(),
+        create.text()
     );
 }

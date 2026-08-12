@@ -7,7 +7,7 @@ use axum::{
 };
 use tracing::info;
 
-pub fn add_server_routes(router: Router<AppState>) -> Router<AppState> {
+pub fn add_server_routes(router: Router<AppState>, state: AppState) -> Router<AppState> {
     info!("Registering routes for server...");
     let api_prefix = "/api/v3";
 
@@ -31,6 +31,7 @@ pub fn add_server_routes(router: Router<AppState>) -> Router<AppState> {
             post(server::change_state),
         ),
         Feature::System,
+        state,
     );
 
     router.merge(public_routes).merge(state_change_routes)

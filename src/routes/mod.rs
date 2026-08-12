@@ -237,14 +237,15 @@ pub fn create_router_app(state: AppState) -> Router {
     // `auth` and `server` expose a mix of public and protected endpoints
     // (login, health check, version) and manage their own auth per-route, so
     // they are deliberately not wrapped with a blanket RBAC feature gate.
-    let server_routes = server::add_server_routes(Router::new());
-    let auth_routes = auth::add_routers(Router::new());
+    let server_routes = server::add_server_routes(Router::new(), state.clone());
+    let auth_routes = auth::add_routers(Router::new(), state.clone());
 
     // Every other router is gated on the ZoneMinder permission feature it
     // belongs to. `authz::protect` derives the required level from the HTTP
     // method (read -> View, write -> Edit).
     use authz::Feature;
-    let protect = authz::protect;
+    let protect =
+        |router: Router<AppState>, feature| authz::protect(router, feature, state.clone());
 
     let monitors_routes = protect(
         monitors::add_monitor_routes(Router::new()),

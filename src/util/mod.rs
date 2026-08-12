@@ -12,6 +12,7 @@ pub mod random;
 pub mod regex;
 pub mod result;
 pub mod retry;
+pub mod revocation;
 pub mod task;
 pub mod ws;
 

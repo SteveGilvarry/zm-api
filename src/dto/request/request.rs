@@ -72,7 +72,7 @@ impl Direction {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize, Dummy, ToSchema, Validate)]
+#[derive(Deserialize, Serialize, Dummy, ToSchema, Validate)]
 #[serde(tag = "type")]
 pub struct LoginRequest {
     #[dummy(faker = "Username()")]
@@ -84,16 +84,44 @@ pub struct LoginRequest {
     pub password: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema, Validate, Dummy, IntoParams)]
+// Manual Debug: the password must never reach logs, whatever the log site.
+impl std::fmt::Debug for LoginRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoginRequest")
+            .field("username", &self.username)
+            .field("password", &"[REDACTED]")
+            .finish()
+    }
+}
+
+#[derive(Serialize, Deserialize, ToSchema, Validate, Dummy, IntoParams)]
 pub struct RefreshTokenRequest {
     #[garde(length(min = 30))]
     pub token: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema, Validate, Dummy, IntoParams)]
+// Manual Debug: a refresh token is a live credential; never log it.
+impl std::fmt::Debug for RefreshTokenRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RefreshTokenRequest")
+            .field("token", &"[REDACTED]")
+            .finish()
+    }
+}
+
+#[derive(Serialize, Deserialize, ToSchema, Validate, Dummy, IntoParams)]
 pub struct TokenInfoRequest {
     #[garde(length(min = 30))]
     pub token: String,
+}
+
+// Manual Debug: never log the token itself.
+impl std::fmt::Debug for TokenInfoRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenInfoRequest")
+            .field("token", &"[REDACTED]")
+            .finish()
+    }
 }
 #[derive(Debug, Deserialize, ToSchema, Validate, Dummy, IntoParams)]
 pub struct ForgetPasswordQueryParam {
@@ -103,7 +131,28 @@ pub struct ForgetPasswordQueryParam {
     pub username: String,
 }
 
-#[derive(Debug, Deserialize, Serialize, ToSchema, Validate, Dummy, Default)]
+/// Self-service password change for the authenticated user (`PUT /me/password`).
+#[derive(Deserialize, Serialize, ToSchema, Validate, Dummy)]
+pub struct ChangePasswordRequest {
+    #[dummy(faker = "Password(8..64)")]
+    #[garde(length(min = 1))]
+    pub current_password: String,
+    #[dummy(faker = "Password(8..64)")]
+    #[garde(length(min = 6))]
+    pub new_password: String,
+}
+
+// Manual Debug: neither the current nor the new password may reach logs.
+impl std::fmt::Debug for ChangePasswordRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ChangePasswordRequest")
+            .field("current_password", &"[REDACTED]")
+            .field("new_password", &"[REDACTED]")
+            .finish()
+    }
+}
+
+#[derive(Deserialize, Serialize, ToSchema, Validate, Dummy, Default)]
 pub struct UpdateProfileRequest {
     #[dummy(faker = "Username()")]
     #[garde(skip)]
@@ -115,6 +164,79 @@ pub struct UpdateProfileRequest {
     pub is_2fa: Option<bool>,
     #[garde(skip)]
     pub is_private: Option<bool>,
+}
+
+// Manual Debug: the optional new password must never reach logs.
+impl std::fmt::Debug for UpdateProfileRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UpdateProfileRequest")
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| "[REDACTED]"))
+            .field("is_2fa", &self.is_2fa)
+            .field("is_private", &self.is_private)
+            .finish()
+    }
+}
+
+#[cfg(test)]
+mod redaction_tests {
+    use super::*;
+
+    #[test]
+    fn login_request_debug_redacts_password() {
+        let req = LoginRequest {
+            username: "admin".to_string(),
+            password: "hunter2secret".to_string(),
+        };
+        let out = format!("{req:?}");
+        assert!(out.contains("admin"));
+        assert!(!out.contains("hunter2secret"));
+        assert!(out.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn refresh_token_request_debug_redacts_token() {
+        let req = RefreshTokenRequest {
+            token: "eyJhbGciOiJSUzI1NiJ9.super.secret".to_string(),
+        };
+        let out = format!("{req:?}");
+        assert!(!out.contains("eyJhbGciOiJSUzI1NiJ9"));
+        assert!(out.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn token_info_request_debug_redacts_token() {
+        let req = TokenInfoRequest {
+            token: "eyJhbGciOiJSUzI1NiJ9.super.secret".to_string(),
+        };
+        let out = format!("{req:?}");
+        assert!(!out.contains("eyJhbGciOiJSUzI1NiJ9"));
+    }
+
+    #[test]
+    fn change_password_request_debug_redacts_both_passwords() {
+        let req = ChangePasswordRequest {
+            current_password: "oldsecretpw".to_string(),
+            new_password: "newsecretpw".to_string(),
+        };
+        let out = format!("{req:?}");
+        assert!(!out.contains("oldsecretpw"));
+        assert!(!out.contains("newsecretpw"));
+        assert!(out.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn update_profile_request_debug_redacts_password() {
+        let req = UpdateProfileRequest {
+            username: Some("admin".to_string()),
+            password: Some("hunter2secret".to_string()),
+            is_2fa: None,
+            is_private: None,
+        };
+        let out = format!("{req:?}");
+        assert!(!out.contains("hunter2secret"));
+        assert!(out.contains("[REDACTED]"));
+    }
 }
 
 #[cfg(test)]

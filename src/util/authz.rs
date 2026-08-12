@@ -191,7 +191,12 @@ fn required_level(feature: Feature, method: &Method) -> Level {
     }
 }
 
-async fn enforce(feature: Feature, request: Request, next: Next) -> Result<Response, AppError> {
+async fn enforce(
+    state: AppState,
+    feature: Feature,
+    request: Request,
+    next: Next,
+) -> Result<Response, AppError> {
     // Self-contained: decode the bearer token (header or `?token=` for media
     // elements) rather than relying on auth middleware ordering.
     let token = extract_token_from_header(&request)
@@ -201,6 +206,14 @@ async fn enforce(feature: Feature, request: Request, next: Next) -> Result<Respo
     let claims = UserClaims::decode(&token, &ACCESS_TOKEN_DECODE_KEY)
         .map_err(|_| AppError::UnauthorizedError("Invalid token".to_string()))?
         .claims;
+
+    // Server-side revocation floor (logout, password change, user disable):
+    // an in-memory check, so the media hot path stays free of DB round-trips.
+    if state.revocations.is_revoked(claims.uid, claims.iat) {
+        return Err(AppError::UnauthorizedError(
+            "Token has been revoked".to_string(),
+        ));
+    }
 
     let required = required_level(feature, request.method());
     let granted = claims.perms.level(feature);
@@ -218,10 +231,11 @@ async fn enforce(feature: Feature, request: Request, next: Next) -> Result<Respo
 /// Wrap a router so every request is checked against the given [`Feature`].
 ///
 /// The required level is method-derived (read → `View`, write → `Edit`).
-/// Apply this to routers whose endpoints all belong to one feature.
-pub fn protect(router: Router<AppState>, feature: Feature) -> Router<AppState> {
+/// Apply this to routers whose endpoints all belong to one feature. The
+/// state is needed for the token-revocation check.
+pub fn protect(router: Router<AppState>, feature: Feature, state: AppState) -> Router<AppState> {
     router.layer(from_fn(move |req: Request, next: Next| {
-        enforce(feature, req, next)
+        enforce(state.clone(), feature, req, next)
     }))
 }
 

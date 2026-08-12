@@ -34,7 +34,8 @@ pub struct MonitorResponse {
     pub onvif_url: String,
     pub onvif_events_path: String,
     pub onvif_username: String,
-    pub onvif_password: String,
+    // The camera's ONVIF password is deliberately absent: read access to a
+    // monitor must not hand out credentials for the camera itself.
     pub onvif_options: String,
     pub onvif_event_listener: i8,
     pub onvif_alarm_text: Option<String>,
@@ -53,7 +54,8 @@ pub struct MonitorResponse {
     pub second_path: Option<String>,
     pub options: Option<String>,
     pub user: Option<String>,
-    pub pass: Option<String>,
+    // The camera's RTSP password (`pass`) is deliberately absent — see
+    // `onvif_password` above.
     pub width: u16,
     pub height: u16,
     pub colours: u8,
@@ -167,7 +169,6 @@ impl From<monitors::Model> for MonitorResponse {
             onvif_url: model.onvif_url,
             onvif_events_path: model.onvif_events_path,
             onvif_username: model.onvif_username,
-            onvif_password: model.onvif_password,
             onvif_options: model.onvif_options,
             onvif_event_listener: model.onvif_event_listener,
             onvif_alarm_text: model.onvif_alarm_text,
@@ -186,7 +187,6 @@ impl From<monitors::Model> for MonitorResponse {
             second_path: model.second_path,
             options: model.options,
             user: model.user,
-            pass: model.pass,
             width: model.width,
             height: model.height,
             colours: model.colours,
@@ -268,5 +268,22 @@ impl From<monitors::Model> for MonitorResponse {
             analysis_image: model.analysis_image.to_string(),
             recording: model.recording.to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fake::{Fake, Faker};
+
+    /// Read access to a monitor must never expose the camera's own
+    /// credentials: the serialized response has no password-bearing keys.
+    #[test]
+    fn monitor_response_never_serializes_camera_credentials() {
+        let resp: MonitorResponse = Faker.fake();
+        let json = serde_json::to_value(&resp).unwrap();
+        let obj = json.as_object().unwrap();
+        assert!(!obj.contains_key("pass"));
+        assert!(!obj.contains_key("onvif_password"));
     }
 }
