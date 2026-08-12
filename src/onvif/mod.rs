@@ -13,6 +13,7 @@ pub mod error;
 pub mod security;
 pub mod transport;
 pub mod types;
+pub(crate) mod xml;
 
 #[cfg(feature = "onvif-device")]
 pub mod device;
