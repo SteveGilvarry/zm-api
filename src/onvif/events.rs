@@ -541,7 +541,9 @@ fn local_name(qname: &[u8]) -> String {
 fn attr_value(e: &quick_xml::events::BytesStart<'_>, local: &str) -> Option<String> {
     for attr in e.attributes().with_checks(false).flatten() {
         if local_name(attr.key.as_ref()) == local {
-            let raw = attr.unescape_value().unwrap_or_default();
+            let raw = attr
+                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                .unwrap_or_default();
             return Some(raw.into_owned());
         }
     }
@@ -557,7 +559,10 @@ fn read_text(reader: &mut Reader<&[u8]>) -> String {
     loop {
         match reader.read_event() {
             Ok(Event::Text(t)) if depth == 0 => {
-                out.push_str(&t.unescape().unwrap_or_default());
+                out.push_str(&super::xml::text_content(&t));
+            }
+            Ok(Event::GeneralRef(r)) if depth == 0 => {
+                out.push_str(&super::xml::general_ref_content(&r));
             }
             Ok(Event::CData(t)) if depth == 0 => {
                 out.push_str(&String::from_utf8_lossy(t.as_ref()));

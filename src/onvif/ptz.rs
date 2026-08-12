@@ -374,7 +374,10 @@ fn read_text(reader: &mut Reader<&[u8]>) -> String {
     loop {
         match reader.read_event() {
             Ok(Event::Text(t)) if depth == 0 => {
-                out.push_str(&t.unescape().unwrap_or_default());
+                out.push_str(&super::xml::text_content(&t));
+            }
+            Ok(Event::GeneralRef(r)) if depth == 0 => {
+                out.push_str(&super::xml::general_ref_content(&r));
             }
             Ok(Event::CData(t)) if depth == 0 => {
                 out.push_str(&String::from_utf8_lossy(t.as_ref()));
@@ -408,7 +411,9 @@ fn non_empty(s: String) -> Option<String> {
 fn attr_f32(e: &quick_xml::events::BytesStart, want: &str) -> Option<f32> {
     for attr in e.attributes().flatten() {
         if local_name(attr.key.as_ref()) == want {
-            let raw = attr.unescape_value().ok()?;
+            let raw = attr
+                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                .ok()?;
             return raw.trim().parse::<f32>().ok();
         }
     }
@@ -420,7 +425,7 @@ fn attr_str(e: &quick_xml::events::BytesStart, want: &str) -> Option<String> {
     for attr in e.attributes().flatten() {
         if local_name(attr.key.as_ref()) == want {
             return attr
-                .unescape_value()
+                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                 .ok()
                 .map(|c| c.trim().to_string())
                 .filter(|s| !s.is_empty());

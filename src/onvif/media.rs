@@ -28,6 +28,7 @@ use quick_xml::reader::Reader;
 use crate::onvif::error::{OnvifError, OnvifResult};
 use crate::onvif::transport::OnvifTransport;
 use crate::onvif::types::Credentials;
+use crate::onvif::xml::{general_ref_content, text_content};
 
 /// ONVIF Media service WSDL namespace (`trt:` by convention).
 const MEDIA_NS: &str = "http://www.onvif.org/ver10/media/wsdl";
@@ -270,6 +271,10 @@ fn parse_profiles(xml: &str) -> OnvifResult<Vec<MediaProfile>> {
     let mut stack: Vec<String> = Vec::new();
     // The profile currently being assembled (between Profiles start/end).
     let mut current: Option<MediaProfile> = None;
+    // Text of the element currently open. quick-xml ≥0.38 splits text around
+    // entity references (separate `GeneralRef` events), so fragments are
+    // stitched here and assigned when the element closes.
+    let mut pending = String::new();
 
     loop {
         match reader.read_event() {
@@ -284,6 +289,7 @@ fn parse_profiles(xml: &str) -> OnvifResult<Vec<MediaProfile>> {
                     current = Some(p);
                 }
                 stack.push(local);
+                pending.clear();
             }
             Ok(Event::Empty(e)) => {
                 // Self-closing element: may carry the token attribute (rare, but
@@ -300,16 +306,18 @@ fn parse_profiles(xml: &str) -> OnvifResult<Vec<MediaProfile>> {
                 }
             }
             Ok(Event::Text(t)) => {
-                if let Some(p) = current.as_mut() {
-                    let text = t.unescape().unwrap_or_default().into_owned();
-                    if text.is_empty() {
-                        // Skip whitespace-only nodes.
-                    } else if let Some(local) = stack.last() {
+                pending.push_str(&text_content(&t));
+            }
+            Ok(Event::GeneralRef(r)) => {
+                pending.push_str(&general_ref_content(&r));
+            }
+            Ok(Event::End(e)) => {
+                let text = std::mem::take(&mut pending);
+                if !text.is_empty() {
+                    if let (Some(p), Some(local)) = (current.as_mut(), stack.last()) {
                         assign_profile_field(p, &stack, local, &text);
                     }
                 }
-            }
-            Ok(Event::End(e)) => {
                 let local = local_name(e.name().as_ref());
                 if local == "Profiles" || local == "Profile" {
                     if let Some(p) = current.take() {
@@ -389,36 +397,45 @@ fn parse_media_uri(xml: &str) -> OnvifResult<MediaUri> {
     let mut out = MediaUri::default();
     let mut found_uri = false;
     let mut stack: Vec<String> = Vec::new();
+    // Text of the element currently open; committed on End so that URIs whose
+    // query strings contain `&amp;` (split into `GeneralRef` events by
+    // quick-xml ≥0.38) are reassembled intact.
+    let mut pending = String::new();
 
     loop {
         match reader.read_event() {
             Ok(Event::Start(e)) => {
                 stack.push(local_name(e.name().as_ref()));
+                pending.clear();
             }
             Ok(Event::Text(t)) => {
-                let text = t.unescape().unwrap_or_default().into_owned();
-                if text.is_empty() {
-                    // ignore whitespace
-                } else if let Some(local) = stack.last() {
-                    match local.as_str() {
-                        "Uri" if !found_uri => {
-                            out.uri = text;
-                            found_uri = true;
-                        }
-                        "InvalidAfterConnect" => {
-                            out.invalid_after_connect = parse_bool(&text);
-                        }
-                        "InvalidAfterReboot" => {
-                            out.invalid_after_reboot = parse_bool(&text);
-                        }
-                        "Timeout" => {
-                            out.timeout = Some(text);
-                        }
-                        _ => {}
-                    }
-                }
+                pending.push_str(&text_content(&t));
+            }
+            Ok(Event::GeneralRef(r)) => {
+                pending.push_str(&general_ref_content(&r));
             }
             Ok(Event::End(_)) => {
+                let text = std::mem::take(&mut pending);
+                if !text.is_empty() {
+                    if let Some(local) = stack.last() {
+                        match local.as_str() {
+                            "Uri" if !found_uri => {
+                                out.uri = text;
+                                found_uri = true;
+                            }
+                            "InvalidAfterConnect" => {
+                                out.invalid_after_connect = parse_bool(&text);
+                            }
+                            "InvalidAfterReboot" => {
+                                out.invalid_after_reboot = parse_bool(&text);
+                            }
+                            "Timeout" => {
+                                out.timeout = Some(text);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 stack.pop();
             }
             Ok(Event::Eof) => break,

@@ -268,7 +268,10 @@ fn read_text(reader: &mut Reader<&[u8]>) -> String {
     loop {
         match reader.read_event() {
             Ok(Event::Text(t)) if depth == 0 => {
-                out.push_str(&t.unescape().unwrap_or_default());
+                out.push_str(&super::xml::text_content(&t));
+            }
+            Ok(Event::GeneralRef(r)) if depth == 0 => {
+                out.push_str(&super::xml::general_ref_content(&r));
             }
             Ok(Event::CData(t)) if depth == 0 => {
                 out.push_str(&String::from_utf8_lossy(t.as_ref()));
