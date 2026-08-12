@@ -273,7 +273,9 @@ pub async fn delete(state: &AppState, id: u32, scope: &MonitorScope) -> AppResul
     if !scope.allows(event.monitor_id, Level::Edit) {
         return Err(event_not_found(id));
     }
-    events_repo::delete(state, id as u64).await?;
+    // Remove the event and its child rows (frames, per-period stats) atomically,
+    // then the on-disk media — the same delete the retention reaper performs.
+    events_repo::delete_with_children(state.db(), id as u64).await?;
     crate::service::event_storage::delete_event_media(state, &event).await?;
     Ok(())
 }
@@ -489,12 +491,18 @@ mod tests {
             do_delete: 1,
             enabled: 1,
         };
+        // delete_with_children runs a transaction: 6 child-table deletes
+        // (frames + Events_Hour/Day/Week/Month + Events_Archived) then the event
+        // delete — 7 exec results.
         let db_del = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<EventModel, _, _>(vec![vec![mk_event(7, "old")]])
-            .append_exec_results(vec![MockExecResult {
-                last_insert_id: 0,
-                rows_affected: 1,
-            }])
+            .append_exec_results(vec![
+                MockExecResult {
+                    last_insert_id: 0,
+                    rows_affected: 1,
+                };
+                7
+            ])
             .append_query_results::<crate::entity::storage::Model, _, _>(vec![vec![storage]])
             .into_connection();
         let state_del = AppState::for_test_with_db(db_del);

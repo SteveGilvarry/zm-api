@@ -181,6 +181,54 @@ pub async fn delete(state: &AppState, id: u64) -> Result<DeleteResult, DbErr> {
     Events::delete_by_id(id).exec(state.db()).await
 }
 
+/// Delete an event and all of its child rows in a single transaction.
+///
+/// ZoneMinder's `Frames` and the per-period stats tables
+/// (`Events_Hour/Day/Week/Month`) plus `Events_Archived` have **no** FK cascade
+/// to `Events`, so deleting only the event row orphans them. `Snapshots_Events`
+/// and `Events_Tags` *do* cascade via their FKs and are removed by the event
+/// delete itself. This is the single DB-side delete both the interactive
+/// `DELETE /events/{id}` path and the retention reaper use, so they can never
+/// leave different debris behind.
+pub async fn delete_with_children<C>(conn: &C, id: u64) -> Result<(), DbErr>
+where
+    C: ConnectionTrait + TransactionTrait,
+{
+    use crate::entity::{
+        events_archived, events_day, events_hour, events_month, events_week, frames,
+    };
+
+    let txn = conn.begin().await?;
+    frames::Entity::delete_many()
+        .filter(frames::Column::EventId.eq(id))
+        .exec(&txn)
+        .await?;
+    events_hour::Entity::delete_many()
+        .filter(events_hour::Column::EventId.eq(id))
+        .exec(&txn)
+        .await?;
+    events_day::Entity::delete_many()
+        .filter(events_day::Column::EventId.eq(id))
+        .exec(&txn)
+        .await?;
+    events_week::Entity::delete_many()
+        .filter(events_week::Column::EventId.eq(id))
+        .exec(&txn)
+        .await?;
+    events_month::Entity::delete_many()
+        .filter(events_month::Column::EventId.eq(id))
+        .exec(&txn)
+        .await?;
+    events_archived::Entity::delete_many()
+        .filter(events_archived::Column::EventId.eq(id))
+        .exec(&txn)
+        .await?;
+    // Cascades Snapshots_Events + Events_Tags via their FKs.
+    Events::delete_by_id(id).exec(&txn).await?;
+    txn.commit().await?;
+    Ok(())
+}
+
 /// Get event counts grouped by monitor over time period
 #[instrument(skip(state))]
 pub async fn get_counts_by_monitor(
@@ -343,5 +391,32 @@ pub async fn find_by_id_with_tags(
             Ok(Some((e, tags)))
         }
         None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
+
+    /// `delete_with_children` runs one transaction that removes the six child
+    /// tables plus the event itself — seven exec statements in total. The mock
+    /// supplies exactly seven results, so a missing or extra delete would leave
+    /// the queue mismatched and fail.
+    #[tokio::test]
+    async fn delete_with_children_removes_all_child_rows_and_event() {
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_exec_results(vec![
+                MockExecResult {
+                    last_insert_id: 0,
+                    rows_affected: 1,
+                };
+                7
+            ])
+            .into_connection();
+
+        delete_with_children(&db, 42)
+            .await
+            .expect("transactional delete should succeed");
     }
 }

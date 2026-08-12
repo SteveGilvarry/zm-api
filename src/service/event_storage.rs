@@ -141,8 +141,22 @@ pub(crate) fn build_event_directory_path(
 /// after the row is already gone. An already-absent directory is not an error.
 pub(crate) async fn delete_event_media(state: &AppState, event: &EventModel) -> AppResult<()> {
     let storage_path = resolve_event_storage_path(state, event).await?;
+    remove_event_dir(&storage_path, event).await;
+    Ok(())
+}
+
+/// Remove an event's on-disk media given an already-resolved `storage_path`
+/// (its `Storages.Path` root). The retention reaper calls this directly with
+/// the storage row it already loaded, avoiding a redundant lookup; the
+/// interactive delete path reaches it via [`delete_event_media`]. Sharing this
+/// one function is what keeps the reaper and the endpoint from ever computing
+/// the event directory two different ways.
+///
+/// Best-effort: filesystem errors are logged, not returned. An already-absent
+/// directory is not an error.
+pub(crate) async fn remove_event_dir(storage_path: &str, event: &EventModel) {
     let dir = build_event_directory_path(
-        &storage_path,
+        storage_path,
         event.monitor_id,
         event.id,
         event.start_date_time,
@@ -153,13 +167,13 @@ pub(crate) async fn delete_event_media(state: &AppState, event: &EventModel) -> 
     // directory. The path is built from typed integers/dates and a
     // traversal-checked root, so it always descends at least to the event's own
     // leaf — but refuse to proceed if that invariant is ever violated.
-    let monitor_root = PathBuf::from(&storage_path).join(event.monitor_id.to_string());
+    let monitor_root = PathBuf::from(storage_path).join(event.monitor_id.to_string());
     if !dir.starts_with(&monitor_root) || dir == monitor_root {
         warn!(
             "Refusing to remove suspicious event directory {:?} (monitor root {:?})",
             dir, monitor_root
         );
-        return Ok(());
+        return;
     }
 
     match tokio::fs::remove_dir_all(&dir).await {
@@ -186,8 +200,6 @@ pub(crate) async fn delete_event_media(state: &AppState, event: &EventModel) -> 
             }
         }
     }
-
-    Ok(())
 }
 
 #[cfg(test)]
