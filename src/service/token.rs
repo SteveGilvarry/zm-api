@@ -3,7 +3,7 @@ use crate::constant::*;
 use crate::dto::response::TokenResponse;
 use crate::error::AppResult;
 use crate::util::authz::UserPermissions;
-use crate::util::claim::UserClaims;
+use crate::util::claim::{TokenType, UserClaims};
 
 /// Issue an access + refresh token pair for a user.
 ///
@@ -15,10 +15,22 @@ pub fn generate_tokens(
     user_id: u32,
     perms: UserPermissions,
 ) -> AppResult<TokenResponse> {
-    let access_token = UserClaims::new(EXPIRE_BEARER_TOKEN_SECS, username.clone(), user_id, perms)
-        .encode(&ACCESS_TOKEN_ENCODE_KEY)?;
-    let refresh_token = UserClaims::new(EXPIRE_REFRESH_TOKEN_SECS, username, user_id, perms)
-        .encode(&REFRESH_TOKEN_ENCODE_KEY)?;
+    let access_token = UserClaims::new(
+        EXPIRE_BEARER_TOKEN_SECS,
+        username.clone(),
+        user_id,
+        perms,
+        TokenType::Access,
+    )
+    .encode(&ACCESS_TOKEN_ENCODE_KEY)?;
+    let refresh_token = UserClaims::new(
+        EXPIRE_REFRESH_TOKEN_SECS,
+        username,
+        user_id,
+        perms,
+        TokenType::Refresh,
+    )
+    .encode(&REFRESH_TOKEN_ENCODE_KEY)?;
     Ok(TokenResponse::new(
         access_token,
         refresh_token,
@@ -37,5 +49,23 @@ mod tests {
         assert!(!out.access_token.is_empty());
         assert!(!out.refresh_token.is_empty());
         assert!(out.expire_in > 0);
+    }
+
+    /// A refresh token must not be accepted where an access token is expected,
+    /// and vice versa — even though both decode against their own key. The
+    /// `typ` claim is the guard: crossing the two fails.
+    #[test]
+    fn test_access_and_refresh_tokens_are_not_interchangeable() {
+        let out = generate_tokens("tester".into(), 1, UserPermissions::superuser()).unwrap();
+
+        // Each token validates on its own path...
+        assert!(UserClaims::decode_access(&out.access_token).is_ok());
+        assert!(UserClaims::decode_refresh(&out.refresh_token).is_ok());
+
+        // ...but a refresh token is rejected as an access token, and the
+        // reverse also fails (a token signed by one key won't verify under the
+        // other, and even if it did the `typ` assertion would reject it).
+        assert!(UserClaims::decode_access(&out.refresh_token).is_err());
+        assert!(UserClaims::decode_refresh(&out.access_token).is_err());
     }
 }

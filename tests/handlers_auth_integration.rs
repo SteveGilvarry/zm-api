@@ -31,6 +31,13 @@ async fn create_user_db(
     Ok(())
 }
 
+/// A default `ConnectInfo` for oneshot requests. Production serves with
+/// connect-info, which the auth-route rate limiter reads for peer-IP keying;
+/// without it the limiter cannot extract a key and the request 500s.
+fn ci() -> axum::extract::ConnectInfo<std::net::SocketAddr> {
+    axum::extract::ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 50000)))
+}
+
 /// Delete a single user by exact username. `test_prefix()` is process-wide, so
 /// prefix-based cleanup would let one test delete a sibling's user mid-run when
 /// the suite runs in parallel; exact-username cleanup keeps the tests isolated.
@@ -73,6 +80,7 @@ async fn test_api_auth_login_refresh_logout() {
         .oneshot(
             Request::post("/api/v3/auth/login")
                 .header(header::CONTENT_TYPE, "application/json")
+                .extension(ci())
                 .body(Body::from(login_body))
                 .unwrap(),
         )
@@ -97,6 +105,7 @@ async fn test_api_auth_login_refresh_logout() {
         .oneshot(
             Request::post("/api/v3/auth/refresh")
                 .header(header::CONTENT_TYPE, "application/json")
+                .extension(ci())
                 .body(Body::from(refresh_body))
                 .unwrap(),
         )
@@ -117,6 +126,7 @@ async fn test_api_auth_login_refresh_logout() {
                     header::AUTHORIZATION,
                     format!("Bearer {}", token.access_token),
                 )
+                .extension(ci())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -150,6 +160,7 @@ async fn login(app: &axum::Router, username: &str, password: &str) -> TokenRespo
         .oneshot(
             Request::post("/api/v3/auth/login")
                 .header(header::CONTENT_TYPE, "application/json")
+                .extension(ci())
                 .body(Body::from(body))
                 .unwrap(),
         )
@@ -183,6 +194,7 @@ async fn test_me_returns_authenticated_user() {
                     header::AUTHORIZATION,
                     format!("Bearer {}", tokens.access_token),
                 )
+                .extension(ci())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -201,7 +213,12 @@ async fn test_me_returns_authenticated_user() {
 
     // /me requires a token.
     let resp = app
-        .oneshot(Request::get("/api/v3/me").body(Body::empty()).unwrap())
+        .oneshot(
+            Request::get("/api/v3/me")
+                .extension(ci())
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
@@ -240,6 +257,7 @@ async fn test_change_password_flow() {
             Request::put("/api/v3/me/password")
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(header::AUTHORIZATION, &auth)
+                .extension(ci())
                 .body(Body::from(serde_json::to_vec(&wrong).unwrap()))
                 .unwrap(),
         )
@@ -262,6 +280,7 @@ async fn test_change_password_flow() {
             Request::put("/api/v3/me/password")
                 .header(header::CONTENT_TYPE, "application/json")
                 .header(header::AUTHORIZATION, &auth)
+                .extension(ci())
                 .body(Body::from(serde_json::to_vec(&good).unwrap()))
                 .unwrap(),
         )
@@ -279,6 +298,7 @@ async fn test_change_password_flow() {
         .oneshot(
             Request::get("/api/v3/me")
                 .header(header::AUTHORIZATION, &auth)
+                .extension(ci())
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -296,6 +316,7 @@ async fn test_change_password_flow() {
         .oneshot(
             Request::post("/api/v3/auth/login")
                 .header(header::CONTENT_TYPE, "application/json")
+                .extension(ci())
                 .body(Body::from(
                     serde_json::to_vec(&LoginRequest {
                         username: username.clone(),

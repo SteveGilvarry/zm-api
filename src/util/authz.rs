@@ -23,7 +23,6 @@ use fake::Dummy;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::constant::ACCESS_TOKEN_DECODE_KEY;
 use crate::entity::sea_orm_active_enums as enums;
 use crate::entity::users::Model as UserModel;
 use crate::error::AppError;
@@ -203,7 +202,7 @@ async fn enforce(
         .or_else(|| extract_token_from_query(&request))
         .ok_or_else(|| AppError::UnauthorizedError("Authentication required".to_string()))?;
 
-    let claims = UserClaims::decode(&token, &ACCESS_TOKEN_DECODE_KEY)
+    let claims = UserClaims::decode_access(&token)
         .map_err(|_| AppError::UnauthorizedError("Invalid token".to_string()))?
         .claims;
 

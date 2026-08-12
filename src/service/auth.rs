@@ -1,5 +1,4 @@
 #![allow(clippy::result_large_err)]
-use crate::constant::*;
 use crate::dto::request::{LoginRequest, RefreshTokenRequest};
 use crate::dto::response::TokenResponse;
 use crate::error::AppError;
@@ -41,7 +40,7 @@ pub async fn login(state: &AppState, req: LoginRequest) -> AppResult<TokenRespon
 }
 
 pub async fn refresh_token(state: &AppState, req: RefreshTokenRequest) -> AppResult<TokenResponse> {
-    let user_claims = UserClaims::decode(&req.token, &REFRESH_TOKEN_DECODE_KEY)?.claims;
+    let user_claims = UserClaims::decode_refresh(&req.token)?.claims;
     info!("Refresh token: {user_claims:?}");
     let user = user::find_by_username_and_status(&state.db, &user_claims.user, true)
         .await?

@@ -9,6 +9,7 @@ pub mod middleware;
 pub mod password;
 pub mod path;
 pub mod random;
+pub mod rate_limit;
 pub mod regex;
 pub mod result;
 pub mod retry;

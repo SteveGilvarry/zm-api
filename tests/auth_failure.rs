@@ -104,6 +104,7 @@ fn expired_token() -> String {
     UserClaims {
         iat: 0,
         exp: 100,
+        typ: zm_api::util::claim::TokenType::Access,
         user: "expired".to_string(),
         uid: 1,
         perms: UserPermissions::superuser(),

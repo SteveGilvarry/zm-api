@@ -252,6 +252,7 @@ mod tests {
             "admin".into(),
             1,
             UserPermissions::superuser(),
+            crate::util::claim::TokenType::Access,
         )
     }
 
@@ -262,6 +263,7 @@ mod tests {
             "user".into(),
             uid,
             UserPermissions::default(),
+            crate::util::claim::TokenType::Access,
         )
     }
 

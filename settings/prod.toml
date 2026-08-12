@@ -4,13 +4,20 @@ profile = "prod"
 addr = "0.0.0.0"
 port = 8_080
 
-# Per-client-IP rate limiting, enabled for production.
-# `SmartIpKeyExtractor` reads X-Forwarded-For / X-Real-IP, so this works
-# correctly behind a reverse proxy (the typical ZoneMinder deployment).
+# Per-client-IP rate limiting, enabled for production. `rate_limit_per_second`
+# is the Governor replenish period in seconds, not requests/second.
+#
+# `trust_proxy_headers` is true here because the typical ZoneMinder deployment
+# runs zm_api behind a reverse proxy that sets X-Forwarded-For. If you expose
+# zm_api directly, set this to false so the peer IP is used and forwarding
+# headers can't be spoofed to bypass the limiter.
 [server.middleware]
 body_limit_bytes = 2097152
 rate_limit_per_second = 25
 rate_limit_burst = 50
+trust_proxy_headers = true
+auth_rate_limit_period_secs = 2
+auth_rate_limit_burst = 10
 
 # Database configuration
 # By default, uses ZoneMinder's zm.conf settings (/etc/zm/zm.conf + conf.d/)

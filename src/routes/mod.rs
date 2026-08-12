@@ -8,9 +8,9 @@ use axum::{
     Router,
 };
 use tower::ServiceBuilder;
-use tower_governor::{
-    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
-};
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+
+use crate::util::rate_limit::IpKeyExtractor;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -175,25 +175,28 @@ fn apply_common_middleware(router: Router<AppState>, cors: CorsLayer) -> Router<
         || cfg.server.acme.as_ref().is_some_and(|a| a.enabled);
 
     // Per-IP rate limiting — opt-in via config (`rate_limit_per_second = 0`
-    // disables it). `SmartIpKeyExtractor` reads X-Forwarded-For / X-Real-IP,
-    // so it works behind a reverse proxy.
+    // disables it). The key is the peer IP by default; forwarding headers are
+    // trusted only when `trust_proxy_headers` is set (see `IpKeyExtractor`).
     let rate_limit_layer = if mw.rate_limiting_enabled() {
         match GovernorConfigBuilder::default()
             .per_second(mw.rate_limit_per_second)
             .burst_size(mw.rate_limit_burst.max(1))
-            .key_extractor(SmartIpKeyExtractor)
+            .key_extractor(IpKeyExtractor {
+                trust_proxy: mw.trust_proxy_headers,
+            })
             .finish()
         {
             Some(conf) => {
                 tracing::info!(
-                    "Rate limiting enabled: {} req/s per IP, burst {}",
+                    "Global rate limiting enabled: 1 token/{}s per IP, burst {} (trust_proxy={})",
                     mw.rate_limit_per_second,
                     mw.rate_limit_burst.max(1),
+                    mw.trust_proxy_headers,
                 );
                 Some(GovernorLayer::new(conf))
             }
             None => {
-                tracing::warn!("Invalid rate-limit configuration; rate limiting disabled");
+                tracing::warn!("Invalid rate-limit configuration; global rate limiting disabled");
                 None
             }
         }
@@ -238,7 +241,36 @@ pub fn create_router_app(state: AppState) -> Router {
     // (login, health check, version) and manage their own auth per-route, so
     // they are deliberately not wrapped with a blanket RBAC feature gate.
     let server_routes = server::add_server_routes(Router::new(), state.clone());
-    let auth_routes = auth::add_routers(Router::new(), state.clone());
+    let auth_routes = {
+        let routes = auth::add_routers(Router::new(), state.clone());
+        // Dedicated, tighter rate limit on the authentication surface so
+        // credential brute-forcing is throttled even when the global limiter
+        // is disabled. Same peer-IP-by-default keying as the global limiter.
+        let mw = &crate::constant::CONFIG.server.middleware;
+        let auth_rl = if mw.auth_rate_limiting_enabled() {
+            GovernorConfigBuilder::default()
+                .per_second(mw.auth_rate_limit_period_secs)
+                .burst_size(mw.auth_rate_limit_burst)
+                .key_extractor(IpKeyExtractor {
+                    trust_proxy: mw.trust_proxy_headers,
+                })
+                .finish()
+        } else {
+            None
+        };
+        match auth_rl {
+            Some(conf) => {
+                tracing::info!(
+                    "Auth rate limiting enabled: 1 token/{}s per IP, burst {} (trust_proxy={})",
+                    mw.auth_rate_limit_period_secs,
+                    mw.auth_rate_limit_burst,
+                    mw.trust_proxy_headers,
+                );
+                routes.layer(GovernorLayer::new(conf))
+            }
+            None => routes,
+        }
+    };
 
     // Every other router is gated on the ZoneMinder permission feature it
     // belongs to. `authz::protect` derives the required level from the HTTP

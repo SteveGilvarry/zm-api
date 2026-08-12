@@ -6,7 +6,7 @@ use axum::{
 };
 use tracing::{debug, info, warn};
 
-use crate::{constant::ACCESS_TOKEN_DECODE_KEY, server::state::AppState, util::claim::UserClaims};
+use crate::{server::state::AppState, util::claim::UserClaims};
 
 /// Middleware to verify JWT token for protected routes
 pub async fn auth_middleware(
@@ -41,7 +41,7 @@ pub async fn auth_middleware(
     let token = auth_header[7..].trim();
 
     // Verify the token
-    match UserClaims::decode(token, &ACCESS_TOKEN_DECODE_KEY) {
+    match UserClaims::decode_access(token) {
         Ok(token_data) => {
             // Add user claims to request extensions for handlers to access
             let user_claims = token_data.claims;
@@ -77,7 +77,7 @@ pub async fn authenticated_middleware(
         )
     })?;
 
-    let claims = match UserClaims::decode(&token, &ACCESS_TOKEN_DECODE_KEY) {
+    let claims = match UserClaims::decode_access(&token) {
         Ok(data) => data.claims,
         Err(e) => {
             warn!("JWT token verification failed: {e}");
@@ -130,7 +130,7 @@ pub async fn media_auth_middleware(
     })?;
 
     // Verify the token
-    match UserClaims::decode(&token, &ACCESS_TOKEN_DECODE_KEY) {
+    match UserClaims::decode_access(&token) {
         Ok(token_data) => {
             // Add user claims to request extensions for handlers to access
             let user_claims = token_data.claims;

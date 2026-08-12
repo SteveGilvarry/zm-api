@@ -167,6 +167,14 @@ impl TestRequest {
             };
             builder = builder.header(header::AUTHORIZATION, value);
         }
+        // Production serves with `into_make_service_with_connect_info`, so every
+        // real request carries a `ConnectInfo<SocketAddr>`. The rate-limit layer
+        // on the auth routes reads it (peer-IP keying), so inject a default here
+        // to mirror production; without it the limiter fails to extract a key.
+        builder = builder.extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+            [127, 0, 0, 1],
+            50000,
+        ))));
         let body = match self.body {
             Some((bytes, content_type)) => {
                 builder = builder.header(header::CONTENT_TYPE, content_type);
