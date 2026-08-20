@@ -161,6 +161,7 @@ use crate::util::claim::UserClaims;
         // logs
         crate::handlers::logs::get_log,
         crate::handlers::logs::list_logs,
+        crate::handlers::logs::clear_logs,
 
         // manufacturers
         crate::handlers::manufacturers::create_manufacturer,

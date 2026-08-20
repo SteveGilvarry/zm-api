@@ -1,4 +1,4 @@
-use crate::dto::request::logs::LogQueryParams;
+use crate::dto::request::logs::{LogQueryParams, LogSort};
 use crate::dto::response::logs::{LogResponse, PaginatedLogsResponse};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
@@ -8,16 +8,32 @@ use crate::server::state::AppState;
 /// Default page size for log listing
 const DEFAULT_PAGE_SIZE: u64 = 50;
 
+/// Translate request query params into the repo's filter options.
+fn options_from(params: &LogQueryParams) -> LogQueryOptions {
+    LogQueryOptions {
+        component: params.component.clone(),
+        level: params.level,
+        min_level: params.min_level.map(|l| l.threshold()),
+        search: params.search.clone().filter(|s| !s.is_empty()),
+        start: params.start,
+        end: params.end,
+        // Newest-first unless the caller asks for ascending.
+        sort_desc: !matches!(params.sort, Some(LogSort::Asc)),
+        server_id: params.server_id,
+    }
+}
+
+/// Clear logs matching the filters (legacy "Clear Logs"); returns the count.
+pub async fn delete(state: &AppState, params: &LogQueryParams) -> AppResult<u64> {
+    repo::logs::delete_with_options(state.db(), options_from(params)).await
+}
+
 /// List logs with pagination and filtering
 pub async fn list(state: &AppState, params: &LogQueryParams) -> AppResult<PaginatedLogsResponse> {
     let page = params.page.unwrap_or(1);
     let page_size = params.page_size.unwrap_or(DEFAULT_PAGE_SIZE);
 
-    let options = LogQueryOptions {
-        component: params.component.clone(),
-        level: params.level,
-        server_id: params.server_id,
-    };
+    let options = options_from(params);
 
     let (logs, total) =
         repo::logs::find_with_options(state.db(), options, page - 1, page_size).await?;
