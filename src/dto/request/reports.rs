@@ -11,6 +11,7 @@ pub struct CreateReportRequest {
     pub start_date_time: Option<String>,
     #[schema(value_type = String, example = "2025-01-08T00:00:00Z")]
     pub end_date_time: Option<String>,
+    /// Report interval in seconds (e.g. 604800 = 7 days).
     #[schema(example = 604800)]
     pub interval: Option<u32>,
 }
@@ -25,6 +26,7 @@ pub struct UpdateReportRequest {
     pub start_date_time: Option<String>,
     #[schema(value_type = String, example = "2025-01-08T00:00:00Z")]
     pub end_date_time: Option<String>,
+    /// Report interval in seconds (e.g. 604800 = 7 days).
     #[schema(example = 604800)]
     pub interval: Option<u32>,
 }
