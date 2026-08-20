@@ -49,6 +49,15 @@ pub async fn list(
         sort_direction: params.direction.unwrap_or_default(),
         alarm_frames_min: params.alarm_frames_min,
         archived: params.archived,
+        cause: params.cause.clone().filter(|s| !s.is_empty()),
+        name: params.name.clone().filter(|s| !s.is_empty()),
+        notes: params.notes.clone().filter(|s| !s.is_empty()),
+        // Parse the comma-separated tag_id list, ignoring blanks/non-numerics.
+        tag_ids: params.tag_id.as_ref().map(|s| {
+            s.split(',')
+                .filter_map(|t| t.trim().parse::<u64>().ok())
+                .collect::<Vec<_>>()
+        }),
         monitor_filter: scope.visible_ids(Level::View),
     };
 
@@ -102,6 +111,10 @@ pub async fn list_all(
             direction: None,
             alarm_frames_min: None,
             archived: None,
+            cause: None,
+            name: None,
+            notes: None,
+            tag_id: None,
         },
         scope,
     )
@@ -133,6 +146,10 @@ pub async fn list_by_monitor(
             direction: None,
             alarm_frames_min: None,
             archived: None,
+            cause: None,
+            name: None,
+            notes: None,
+            tag_id: None,
         },
         scope,
     )

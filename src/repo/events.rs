@@ -18,6 +18,12 @@ pub struct EventQueryOptions {
     pub sort_direction: SortDirection,
     pub alarm_frames_min: Option<u32>,
     pub archived: Option<bool>,
+    /// Case-insensitive substring filters on the respective columns.
+    pub cause: Option<String>,
+    pub name: Option<String>,
+    pub notes: Option<String>,
+    /// Keep only events carrying at least one of these tag ids.
+    pub tag_ids: Option<Vec<u64>>,
     /// Row-level ACL allowlist of monitor ids. `None` is unrestricted;
     /// `Some(ids)` limits results to events of those monitors.
     pub monitor_filter: Option<Vec<u32>>,
@@ -34,6 +40,11 @@ fn get_sort_column(field: EventSortField) -> events::Column {
         EventSortField::TotScore => events::Column::TotScore,
         EventSortField::Length => events::Column::Length,
         EventSortField::Id => events::Column::Id,
+        EventSortField::Name => events::Column::Name,
+        EventSortField::Cause => events::Column::Cause,
+        EventSortField::MonitorId => events::Column::MonitorId,
+        EventSortField::Notes => events::Column::Notes,
+        EventSortField::Frames => events::Column::Frames,
     }
 }
 
@@ -88,6 +99,30 @@ pub async fn find_with_options(
 
     if let Some(archived) = options.archived {
         query = query.filter(events::Column::Archived.eq(if archived { 1u8 } else { 0u8 }));
+    }
+
+    if let Some(ref cause) = options.cause {
+        query = query.filter(events::Column::Cause.contains(cause.clone()));
+    }
+    if let Some(ref name) = options.name {
+        query = query.filter(events::Column::Name.contains(name.clone()));
+    }
+    if let Some(ref notes) = options.notes {
+        query = query.filter(events::Column::Notes.contains(notes.clone()));
+    }
+    // Tag filter: events with at least one of the requested tags, via a
+    // subquery over Events_Tags (avoids a join that would duplicate rows).
+    if let Some(ref tag_ids) = options.tag_ids {
+        if !tag_ids.is_empty() {
+            use crate::entity::events_tags;
+            use sea_orm::sea_query::Query;
+            let sub = Query::select()
+                .column(events_tags::Column::EventId)
+                .from(events_tags::Entity)
+                .and_where(events_tags::Column::TagId.is_in(tag_ids.iter().copied()))
+                .to_owned();
+            query = query.filter(events::Column::Id.in_subquery(sub));
+        }
     }
 
     // Row-level ACL: restrict to the caller's permitted monitors.
