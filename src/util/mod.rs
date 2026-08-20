@@ -17,6 +17,51 @@ pub mod revocation;
 pub mod task;
 pub mod ws;
 
+/// Convert a ZoneMinder `DATETIME` value to true UTC.
+///
+/// ZoneMinder stores `DATETIME` columns in the database in the **server's local
+/// time** (naive, no zone). Emitting them with a `Z` suffix as if they were UTC
+/// (the old behaviour) put every timestamp off by the server's UTC offset. This
+/// interprets the naive value in the process's local zone — which on a normal
+/// single-box deployment is the same zone the MySQL server used to write it —
+/// and converts to real UTC.
+///
+/// DST edge cases: an ambiguous local time (the "fall back" hour) takes the
+/// earlier instant; a non-existent local time (the "spring forward" gap) falls
+/// back to treating the value as already-UTC rather than failing.
+pub fn naive_local_to_utc(ndt: chrono::NaiveDateTime) -> chrono::DateTime<chrono::Utc> {
+    use chrono::{Local, LocalResult, TimeZone, Utc};
+    match Local.from_local_datetime(&ndt) {
+        LocalResult::Single(dt) | LocalResult::Ambiguous(dt, _) => dt.with_timezone(&Utc),
+        LocalResult::None => chrono::DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc),
+    }
+}
+
+#[cfg(test)]
+mod naive_local_to_utc_tests {
+    use super::naive_local_to_utc;
+    use chrono::{Local, NaiveDate, TimeZone};
+
+    /// TZ-independent: interpreting the result back in the local zone must yield
+    /// the original naive wall-clock. (Regression for the old code that stamped
+    /// server-local time as UTC, shifting it by the offset.)
+    #[test]
+    fn round_trips_through_local() {
+        let ndt = NaiveDate::from_ymd_opt(2026, 8, 21)
+            .unwrap()
+            .and_hms_opt(0, 40, 11)
+            .unwrap();
+        let utc = naive_local_to_utc(ndt);
+        // Convert back to local and compare the naive wall-clock.
+        assert_eq!(utc.with_timezone(&Local).naive_local(), ndt);
+        // And the absolute instant matches what Local says that wall-clock is
+        // (single, unambiguous for this date in any fixed zone).
+        if let chrono::LocalResult::Single(expected) = Local.from_local_datetime(&ndt) {
+            assert_eq!(utc, expected.with_timezone(&chrono::Utc));
+        }
+    }
+}
+
 pub mod datetime_format {
     use chrono::NaiveDateTime;
     use serde::{self, Deserialize, Deserializer, Serializer};
