@@ -21,6 +21,12 @@ ignore = [
     # used to deserialize attacker-controlled archives in zm_api. Revisit when
     # webrtc bumps rkyv to 0.8.
     "RUSTSEC-2026-0235",
+    # paste unmaintained. Build-time-only proc-macro helper, pulled transitively
+    # (no runtime code); no maintained drop-in replacement across the tree.
+    "RUSTSEC-2024-0436",
+    # proc-macro-error2 unmaintained. Build-time-only derive-macro dependency;
+    # unmaintained but not a vulnerability. Revisit if a maintained fork lands.
+    "RUSTSEC-2026-0173",
 ]
 
 [bans]
