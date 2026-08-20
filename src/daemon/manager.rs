@@ -2373,7 +2373,7 @@ fn validate_zmnext_args(args: &[String]) -> Result<(), String> {
     // Must be whole flag/value pairs. Checking the length up front lets us
     // iterate `chunks(2)` with every chunk guaranteed to have two elements
     // (avoids `chunks_exact`, which a newer clippy flags for `as_chunks`).
-    if args.len() % 2 != 0 {
+    if !args.len().is_multiple_of(2) {
         return Err(format!("zm-core args must be flag/value pairs: {:?}", args));
     }
     let (mut have_monitor, mut have_pipeline, mut have_socket) = (false, false, false);
