@@ -58,6 +58,10 @@ pub async fn drop_database(db: &DatabaseConnection, database_name: &str) -> AppR
 
 pub async fn migrate_database(db: &DatabaseConnection) -> AppResult {
     info!("Start migrate database.");
+    // A database whose ZM schema was created externally (zm_create.sql.in in
+    // CI/dev, or a bridged legacy install) must have the baseline stamped,
+    // not executed. Errors out when an old legacy schema needs the bridge.
+    crate::migration::stamp::stamp_baseline_if_schema_current(db).await?;
     crate::migration::Migrator::up(db, None).await?;
     info!("Migrate database successfully done.");
     Ok(())

@@ -1,15 +1,20 @@
-//! Database migrations for zm_api-owned tables.
+//! Database migrations.
 //!
-//! Note: ZoneMinder's schema is managed externally. These migrations are only
-//! for tables owned by zm_api itself (if any are needed in the future).
+//! As of migration system phase 1 (issue #11) zm_api owns the full ZoneMinder
+//! schema: `m00000000_000001_zm_baseline` creates every ZM table for fresh
+//! installs. Existing ZoneMinder databases must NOT run the baseline — the
+//! upgrade bridge (phase 2) walks the legacy zm_update-*.sql chain to the
+//! cutover release and then stamps the baseline as applied.
 //!
 //! SeaORM supports both MySQL/MariaDB and PostgreSQL - migrations here should
 //! use portable SQL or conditional logic for database-specific syntax.
 
 pub use sea_orm_migration::prelude::*;
 
+mod m00000000_000001_zm_baseline;
 mod m20260625_000001_create_event_synopsis;
 mod m20260627_000001_create_monitor_pipeline;
+pub mod stamp;
 
 pub struct Migrator;
 
@@ -17,8 +22,7 @@ pub struct Migrator;
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
         vec![
-            // zm_api-owned tables only. ZoneMinder's own schema is created and
-            // managed by ZoneMinder itself — never migrated from here.
+            Box::new(m00000000_000001_zm_baseline::Migration),
             Box::new(m20260625_000001_create_event_synopsis::Migration),
             Box::new(m20260627_000001_create_monitor_pipeline::Migration),
         ]

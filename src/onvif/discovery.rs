@@ -238,6 +238,10 @@ pub fn parse_probe_matches(xml: &str) -> Vec<ProbeMatch> {
     // belongs to the endpoint reference only when nested under
     // `EndpointReference`).
     let mut stack: Vec<String> = Vec::new();
+    // Text of the element currently open. quick-xml ≥0.38 splits text around
+    // entity references (separate `GeneralRef` events) — e.g. an XAddrs URL
+    // containing `&amp;` — so fragments are stitched here and applied on End.
+    let mut pending = String::new();
 
     loop {
         match reader.read_event() {
@@ -247,14 +251,21 @@ pub fn parse_probe_matches(xml: &str) -> Vec<ProbeMatch> {
                     current = Some(ProbeMatch::default());
                 }
                 stack.push(local);
+                pending.clear();
             }
             Ok(Event::Text(t)) => {
-                if let Some(m) = current.as_mut() {
-                    let text = t.unescape().unwrap_or_default().into_owned();
-                    apply_text(m, &stack, &text);
-                }
+                pending.push_str(&super::xml::text_content(&t));
+            }
+            Ok(Event::GeneralRef(r)) => {
+                pending.push_str(&super::xml::general_ref_content(&r));
             }
             Ok(Event::End(e)) => {
+                let text = std::mem::take(&mut pending);
+                if !text.is_empty() {
+                    if let Some(m) = current.as_mut() {
+                        apply_text(m, &stack, &text);
+                    }
+                }
                 let local = local_name(e.name().as_ref());
                 if local == "ProbeMatch" {
                     if let Some(m) = current.take() {

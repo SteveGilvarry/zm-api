@@ -1,18 +1,28 @@
+//! The 13 MySQL triggers that maintain Event_Summaries and the
+//! Events_Hour/Day/Week/Month rollup tables, plus Zones counts,
+//! extracted from db/triggers.sql. MySQL dialect only - the Postgres
+//! port (functions + triggers) lands with the Postgres schema work;
+//! until then Postgres installs run without summary triggers.
 
-delimiter //
-DROP TRIGGER IF EXISTS Events_Hour_delete_trigger//
-CREATE TRIGGER Events_Hour_delete_trigger BEFORE DELETE ON Events_Hour
+/// (trigger name, CREATE TRIGGER statement). Names are pub(crate) so
+/// the legacy upgrade bridge can drop-and-recreate to converge old
+/// installs onto the current trigger set.
+pub(crate) fn mysql_triggers() -> Vec<(&'static str, &'static str)> {
+    vec![
+        (
+            "Events_Hour_delete_trigger",
+            r#"CREATE TRIGGER Events_Hour_delete_trigger BEFORE DELETE ON Events_Hour
 FOR EACH ROW BEGIN
   UPDATE Event_Summaries SET
   HourEvents = GREATEST(COALESCE(HourEvents,1)-1,0),
   HourEventDiskSpace=GREATEST(COALESCE(HourEventDiskSpace,0)-COALESCE(OLD.DiskSpace,0),0)
   WHERE Event_Summaries.MonitorId=OLD.MonitorId;
-END; 
-//
-
-DROP TRIGGER IF EXISTS Events_Hour_update_trigger//
-
-CREATE TRIGGER Events_Hour_update_trigger AFTER UPDATE ON Events_Hour
+END
+"#,
+        ),
+        (
+            "Events_Hour_update_trigger",
+            r#"CREATE TRIGGER Events_Hour_update_trigger AFTER UPDATE ON Events_Hour
 FOR EACH ROW
   BEGIN
     declare diff BIGINT default 0;
@@ -26,21 +36,23 @@ FOR EACH ROW
         UPDATE Event_Summaries SET HourEventDiskSpace=COALESCE(HourEventDiskSpace,0)+diff WHERE Event_Summaries.MonitorId=NEW.MonitorId;
       END IF;
     END IF;
-  END;
-//
-
-DROP TRIGGER IF EXISTS Events_Day_delete_trigger//
-CREATE TRIGGER Events_Day_delete_trigger BEFORE DELETE ON Events_Day
+  END
+"#,
+        ),
+        (
+            "Events_Day_delete_trigger",
+            r#"CREATE TRIGGER Events_Day_delete_trigger BEFORE DELETE ON Events_Day
 FOR EACH ROW BEGIN
   UPDATE Event_Summaries SET
   DayEvents = GREATEST(COALESCE(DayEvents,1)-1,0),
   DayEventDiskSpace=GREATEST(COALESCE(DayEventDiskSpace,0)-COALESCE(OLD.DiskSpace,0),0)
   WHERE Event_Summaries.MonitorId=OLD.MonitorId;
-END;
-//
-
-DROP TRIGGER IF EXISTS Events_Day_update_trigger;
-CREATE TRIGGER Events_Day_update_trigger AFTER UPDATE ON Events_Day
+END
+"#,
+        ),
+        (
+            "Events_Day_update_trigger",
+            r#"CREATE TRIGGER Events_Day_update_trigger AFTER UPDATE ON Events_Day
 FOR EACH ROW
   BEGIN
     declare diff BIGINT default 0;
@@ -54,22 +66,23 @@ FOR EACH ROW
         UPDATE Event_Summaries SET DayEventDiskSpace=GREATEST(COALESCE(DayEventDiskSpace,0)+diff,0) WHERE Event_Summaries.MonitorId=NEW.MonitorId;
       END IF;
     END IF;
-  END;
-  //
-
-
-DROP TRIGGER IF EXISTS Events_Week_delete_trigger//
-CREATE TRIGGER Events_Week_delete_trigger BEFORE DELETE ON Events_Week
+  END
+"#,
+        ),
+        (
+            "Events_Week_delete_trigger",
+            r#"CREATE TRIGGER Events_Week_delete_trigger BEFORE DELETE ON Events_Week
 FOR EACH ROW BEGIN
   UPDATE Event_Summaries SET
   WeekEvents = GREATEST(COALESCE(WeekEvents,1)-1,0),
   WeekEventDiskSpace=GREATEST(COALESCE(WeekEventDiskSpace,0)-COALESCE(OLD.DiskSpace,0),0)
   WHERE Event_Summaries.MonitorId=OLD.MonitorId;
-END;
-//
-
-DROP TRIGGER IF EXISTS Events_Week_update_trigger;
-CREATE TRIGGER Events_Week_update_trigger AFTER UPDATE ON Events_Week
+END
+"#,
+        ),
+        (
+            "Events_Week_update_trigger",
+            r#"CREATE TRIGGER Events_Week_update_trigger AFTER UPDATE ON Events_Week
 FOR EACH ROW
   BEGIN
     declare diff BIGINT default 0;
@@ -83,21 +96,23 @@ FOR EACH ROW
         UPDATE Event_Summaries SET WeekEventDiskSpace=GREATEST(COALESCE(WeekEventDiskSpace,0)+diff,0) WHERE Event_Summaries.MonitorId=NEW.MonitorId;
       END IF;
     END IF;
-  END;
-  //
-
-DROP TRIGGER IF EXISTS Events_Month_delete_trigger//
-CREATE TRIGGER Events_Month_delete_trigger BEFORE DELETE ON Events_Month
+  END
+"#,
+        ),
+        (
+            "Events_Month_delete_trigger",
+            r#"CREATE TRIGGER Events_Month_delete_trigger BEFORE DELETE ON Events_Month
 FOR EACH ROW BEGIN
   UPDATE Event_Summaries SET
   MonthEvents = GREATEST(COALESCE(MonthEvents,1)-1,0),
   MonthEventDiskSpace=GREATEST(COALESCE(MonthEventDiskSpace,0)-COALESCE(OLD.DiskSpace,0),0)
   WHERE Event_Summaries.MonitorId=OLD.MonitorId;
-END;
-//
-
-DROP TRIGGER IF EXISTS Events_Month_update_trigger;
-CREATE TRIGGER Events_Month_update_trigger AFTER UPDATE ON Events_Month
+END
+"#,
+        ),
+        (
+            "Events_Month_update_trigger",
+            r#"CREATE TRIGGER Events_Month_update_trigger AFTER UPDATE ON Events_Month
 FOR EACH ROW
   BEGIN
     declare diff BIGINT default 0;
@@ -111,37 +126,12 @@ FOR EACH ROW
         UPDATE Event_Summaries SET MonthEventDiskSpace=GREATEST(COALESCE(MonthEventDiskSpace,0)+diff,0) WHERE Event_Summaries.MonitorId=NEW.MonitorId;
       END IF;
     END IF;
-  END;
-  //
-
-drop procedure if exists update_storage_stats//
-
-/* ============================================================================
- * Canonical lock-acquisition order for every writer that touches Events,
- * the bucket tables, and Event_Summaries. InnoDB X-locks the matched Events
- * row during WHERE evaluation, before either BEFORE or AFTER trigger bodies
- * fire, so the order is the same regardless of trigger timing:
- *
- *   Events[Id] -> Events_Hour/Day/Week/Month[EventId] -> Event_Summaries[MonitorId]
- *
- * Writers that follow this order (and must continue to):
- *   - event_update_trigger (AFTER UPDATE on Events)
- *   - event_delete_trigger (BEFORE DELETE on Events)
- *   - The Event::Event constructor in src/zm_event.cpp: INSERT Events, then
- *     INSERT Events_Hour/Day/Week/Month, then INSERT/UPDATE Event_Summaries
- *     (event_insert_trigger is commented out below; zmc does it directly)
- *   - The bucket update/delete triggers cascade into Event_Summaries in the
- *     same direction
- *   - zmstats.pl prune+resync (bucket DELETEs then UPDATE Event_Summaries)
- *   - zmaudit.pl resync (bucket SELECTs then UPDATE Event_Summaries)
- *
- * Crucially: do NOT pre-lock Event_Summaries before touching the bucket
- * tables — that inverts the order and reintroduces the deadlock cycle
- * against zma/filter/zmc writers.
- * ============================================================================ */
-drop trigger if exists event_update_trigger//
-
-CREATE TRIGGER event_update_trigger AFTER UPDATE ON Events
+  END
+"#,
+        ),
+        (
+            "event_update_trigger",
+            r#"CREATE TRIGGER event_update_trigger AFTER UPDATE ON Events
 FOR EACH ROW
 BEGIN
   declare diff BIGINT default 0;
@@ -182,38 +172,12 @@ BEGIN
     UPDATE Events_Archived SET DiskSpace=NEW.DiskSpace WHERE EventId=NEW.Id;
   END IF;
 
-END;
-
-//
-
-DROP TRIGGER IF EXISTS event_insert_trigger//
-
-/* The assumption is that when an Event is inserted, it has no size yet, so don't bother updating the DiskSpace, just the count.
- * The DiskSpace will get update in the Event Update Trigger
- */
-/*
-CREATE TRIGGER event_insert_trigger AFTER INSERT ON Events
-FOR EACH ROW
-  BEGIN
-
-  INSERT INTO Events_Hour (EventId,MonitorId,StartDateTime,DiskSpace) VALUES (NEW.Id,NEW.MonitorId,NEW.StartDateTime,0);
-  INSERT INTO Events_Day (EventId,MonitorId,StartDateTime,DiskSpace) VALUES (NEW.Id,NEW.MonitorId,NEW.StartDateTime,0);
-  INSERT INTO Events_Week (EventId,MonitorId,StartDateTime,DiskSpace) VALUES (NEW.Id,NEW.MonitorId,NEW.StartDateTime,0);
-  INSERT INTO Events_Month (EventId,MonitorId,StartDateTime,DiskSpace) VALUES (NEW.Id,NEW.MonitorId,NEW.StartDateTime,0);
-  INSERT INTO Event_Summaries (MonitorId,HourEvents,DayEvents,WeekEvents,MonthEvents,TotalEvents) VALUES (NEW.MonitorId,1,1,1,1,1) ON DUPLICATE KEY
-  UPDATE 
-  HourEvents = COALESCE(HourEvents,0)+1,
-  DayEvents = COALESCE(DayEvents,0)+1,
-  WeekEvents = COALESCE(WeekEvents,0)+1,
-  MonthEvents = COALESCE(MonthEvents,0)+1,
-  TotalEvents = COALESCE(TotalEvents,0)+1;
-END;
-//
-*/
-
-DROP TRIGGER IF EXISTS event_delete_trigger//
-
-CREATE TRIGGER event_delete_trigger BEFORE DELETE ON Events
+END
+"#,
+        ),
+        (
+            "event_delete_trigger",
+            r#"CREATE TRIGGER event_delete_trigger BEFORE DELETE ON Events
 FOR EACH ROW
 BEGIN
   DELETE FROM Events_Hour WHERE EventId=OLD.Id;
@@ -234,23 +198,75 @@ BEGIN
     TotalEventDiskSpace=GREATEST(COALESCE(TotalEventDiskSpace,0)-COALESCE(OLD.DiskSpace,0),0)
     WHERE Event_Summaries.MonitorId=OLD.MonitorId;
   END IF;
-END;
-
-//
-
-DROP TRIGGER IF EXISTS Zone_Insert_Trigger//
-CREATE TRIGGER Zone_Insert_Trigger AFTER INSERT ON Zones
+END
+"#,
+        ),
+        (
+            "Zone_Insert_Trigger",
+            r#"CREATE TRIGGER Zone_Insert_Trigger AFTER INSERT ON Zones
 FOR EACH ROW
   BEGIN
     UPDATE Monitors SET ZoneCount=(SELECT COUNT(*) FROM Zones WHERE MonitorId=NEW.MonitorId) WHERE Monitors.Id=NEW.MonitorID;
   END
-//
-DROP TRIGGER IF EXISTS Zone_Delete_Trigger//
-CREATE TRIGGER Zone_Delete_Trigger AFTER DELETE ON Zones
+"#,
+        ),
+        (
+            "Zone_Delete_Trigger",
+            r#"CREATE TRIGGER Zone_Delete_Trigger AFTER DELETE ON Zones
 FOR EACH ROW
   BEGIN
     UPDATE Monitors SET ZoneCount=(SELECT COUNT(*) FROM Zones WHERE MonitorId=OLD.MonitorId) WHERE Monitors.Id=OLD.MonitorID;
   END
-//
+"#,
+        ),
+    ]
+}
 
-DELIMITER ;
+/// Tables with an auto-increment id whose seeds insert explicit ids;
+/// Postgres sequences must be advanced past them after seeding.
+pub(super) fn autoinc_tables() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("Controls", "Id"),
+        ("Devices", "Id"),
+        ("EncoderTemplates", "Id"),
+        ("Events", "Id"),
+        ("Event_Data", "Id"),
+        ("Filters", "Id"),
+        ("Frames", "Id"),
+        ("Groups", "Id"),
+        ("Groups_Monitors", "Id"),
+        ("Groups_Permissions", "Id"),
+        ("Monitors_Permissions", "Id"),
+        ("Role_Groups_Permissions", "Id"),
+        ("Role_Monitors_Permissions", "Id"),
+        ("Logs", "Id"),
+        ("Manufacturers", "Id"),
+        ("Models", "Id"),
+        ("MonitorPresets", "Id"),
+        ("Monitors", "Id"),
+        ("States", "Id"),
+        ("Servers", "Id"),
+        ("Server_Stats", "Id"),
+        ("Stats", "Id"),
+        ("User_Roles", "Id"),
+        ("Users", "Id"),
+        ("User_Preferences", "Id"),
+        ("ZonePresets", "Id"),
+        ("Zones", "Id"),
+        ("Storage", "Id"),
+        ("Maps", "Id"),
+        ("MontageLayouts", "Id"),
+        ("Snapshots", "Id"),
+        ("Snapshots_Events", "Id"),
+        ("Reports", "Id"),
+        ("Tags", "Id"),
+        ("Notifications", "Id"),
+        ("Menu_Items", "Id"),
+        ("Object_Types", "Id"),
+        ("AI_Datasets", "Id"),
+        ("AI_Models", "Id"),
+        ("AI_Object_Classes", "Id"),
+        ("AI_Detection_Settings", "Id"),
+        ("AI_Detections", "Id"),
+    ]
+}

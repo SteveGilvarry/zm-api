@@ -41,8 +41,17 @@ use zm_api::streaming::source::router::{ControlReply, MonitorEventEnvelope};
 const MISSING_EVENT_ID: u64 = 999_000_222;
 
 /// Apply the crate migrations to the test DB (creates `event_synopsis`).
+///
+/// Serialized per test process: SeaORM's migrator is not safe to run
+/// concurrently against one database (its `seaql_migrations` bookkeeping races,
+/// which flaked the parallel synopsis tests). A `OnceCell` runs it exactly once.
 async fn ensure_schema(db: &sea_orm::DatabaseConnection) {
-    migrate_database(db).await.expect("apply zm_api migrations");
+    static SCHEMA: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+    SCHEMA
+        .get_or_init(|| async {
+            migrate_database(db).await.expect("apply zm_api migrations");
+        })
+        .await;
 }
 
 /// Delete every `event_synopsis` row for a monitor on drop.

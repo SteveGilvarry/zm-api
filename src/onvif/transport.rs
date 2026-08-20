@@ -194,6 +194,10 @@ fn parse_soap_fault(xml: &str) -> Option<(String, String)> {
     let mut reason: Option<String> = None;
     // Local-name stack to interpret Value/Text context.
     let mut stack: Vec<String> = Vec::new();
+    // Accumulates the text of the capturing element currently open. quick-xml
+    // ≥0.38 splits text around entity references (emitted as `GeneralRef`), so
+    // fragments are stitched here and committed on the element's End tag.
+    let mut capture: Option<String> = None;
 
     loop {
         match reader.read_event() {
@@ -203,36 +207,54 @@ fn parse_soap_fault(xml: &str) -> Option<(String, String)> {
                     "Fault" => in_fault = true,
                     "Value" if in_fault && parent_is(&stack, "Code") => {
                         in_code_value = true;
+                        capture = Some(String::new());
                     }
                     "Value" if in_fault && parent_is(&stack, "Subcode") => {
                         in_subcode_value = true;
+                        capture = Some(String::new());
                     }
                     "Text" if in_fault && parent_is(&stack, "Reason") => {
                         in_reason_text = true;
+                        capture = Some(String::new());
                     }
                     _ => {}
                 }
                 stack.push(local);
             }
             Ok(Event::Text(t)) => {
-                if in_code_value && code.is_none() {
-                    // Top-level code: first (outermost) Value wins.
-                    code = Some(t.unescape().unwrap_or_default().into_owned());
-                } else if in_subcode_value {
-                    // Subcode: last (innermost / most specific) Value wins.
-                    subcode = Some(t.unescape().unwrap_or_default().into_owned());
-                } else if in_reason_text && reason.is_none() {
-                    reason = Some(t.unescape().unwrap_or_default().into_owned());
+                if let Some(buf) = capture.as_mut() {
+                    buf.push_str(&super::xml::text_content(&t));
+                }
+            }
+            Ok(Event::GeneralRef(r)) => {
+                if let Some(buf) = capture.as_mut() {
+                    buf.push_str(&super::xml::general_ref_content(&r));
                 }
             }
             Ok(Event::End(e)) => {
                 let local = local_name(e.name().as_ref());
                 match local.as_str() {
                     "Value" => {
+                        if let Some(buf) = capture.take().filter(|b| !b.is_empty()) {
+                            if in_code_value && code.is_none() {
+                                // Top-level code: first (outermost) Value wins.
+                                code = Some(buf);
+                            } else if in_subcode_value {
+                                // Subcode: last (innermost / most specific) Value wins.
+                                subcode = Some(buf);
+                            }
+                        }
                         in_code_value = false;
                         in_subcode_value = false;
                     }
-                    "Text" => in_reason_text = false,
+                    "Text" => {
+                        if let Some(buf) = capture.take().filter(|b| !b.is_empty()) {
+                            if in_reason_text && reason.is_none() {
+                                reason = Some(buf);
+                            }
+                        }
+                        in_reason_text = false;
+                    }
                     "Fault" => in_fault = false,
                     _ => {}
                 }

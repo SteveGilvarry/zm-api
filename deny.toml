@@ -15,6 +15,18 @@ ignore = [
     # atomic-polyfill unmaintained. Deep transitive build-dep only
     # (garde -> phonenumber -> postcard -> heapless), no safe upgrade available.
     "RUSTSEC-2023-0089",
+    # rkyv 0.7.46 out-of-bounds read. The fix is rkyv >=0.8.17, but 0.7.46 is
+    # pulled transitively by the webrtc/dtls stack, which pins the 0.7 line; the
+    # directly-reachable rkyv (0.8.x) is already upgraded to 0.8.17. rkyv is not
+    # used to deserialize attacker-controlled archives in zm_api. Revisit when
+    # webrtc bumps rkyv to 0.8.
+    "RUSTSEC-2026-0235",
+    # paste unmaintained. Build-time-only proc-macro helper, pulled transitively
+    # (no runtime code); no maintained drop-in replacement across the tree.
+    "RUSTSEC-2024-0436",
+    # proc-macro-error2 unmaintained. Build-time-only derive-macro dependency;
+    # unmaintained but not a vulnerability. Revisit if a maintained fork lands.
+    "RUSTSEC-2026-0173",
 ]
 
 [bans]

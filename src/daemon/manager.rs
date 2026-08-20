@@ -2334,18 +2334,20 @@ fn validate_daemon_spec(command: &str, args: &[String]) -> Result<(), String> {
 /// which is how zm-api delivers it in-memory so credentials never touch disk).
 fn validate_zmnext_args(args: &[String]) -> Result<(), String> {
     let safe_path = |p: &str| p.starts_with('/') && !p.contains("..");
+    // Must be whole flag/value pairs. Checking the length up front lets us
+    // iterate `chunks(2)` with every chunk guaranteed to have two elements
+    // (avoids `chunks_exact`, which a newer clippy flags for `as_chunks`).
+    if !args.len().is_multiple_of(2) {
+        return Err(format!("zm-core args must be flag/value pairs: {:?}", args));
+    }
     let (mut have_monitor, mut have_pipeline, mut have_socket) = (false, false, false);
-    let mut chunks = args.chunks_exact(2);
-    for pair in chunks.by_ref() {
+    for pair in args.chunks(2) {
         match (pair[0].as_str(), pair[1].as_str()) {
             ("--monitor-id", v) if v.parse::<u32>().is_ok() => have_monitor = true,
             ("--pipeline", v) if v == "-" || safe_path(v) => have_pipeline = true,
             ("--socket", v) if safe_path(v) => have_socket = true,
             _ => return Err(format!("zm-core args invalid: {:?}", args)),
         }
-    }
-    if !chunks.remainder().is_empty() {
-        return Err(format!("zm-core args must be flag/value pairs: {:?}", args));
     }
     if have_monitor && have_pipeline && have_socket {
         Ok(())
