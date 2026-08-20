@@ -36,12 +36,17 @@ pub async fn update(
     db: &DatabaseConnection,
     id: u32,
     name: Option<String>,
+    parent_id: Option<Option<u32>>,
 ) -> AppResult<Option<GroupModel>> {
     use sea_orm::{ActiveModelTrait, Set};
     if let Some(model) = find_by_id(db, id).await? {
         let mut active: crate::entity::groups::ActiveModel = model.into();
         if let Some(n) = name {
             active.name = Set(n);
+        }
+        // Outer Some = "change parent"; inner value may be Some(id) or None (clear).
+        if let Some(pid) = parent_id {
+            active.parent_id = Set(pid);
         }
         let updated = active.update(db).await?;
         Ok(Some(updated))
@@ -94,7 +99,10 @@ mod tests {
             .append_query_results::<GroupModel, _, _>(vec![vec![mk(5, "new")]])
             .into_connection();
 
-        let updated = update(&db, 5, Some("new".into())).await.unwrap().unwrap();
+        let updated = update(&db, 5, Some("new".into()), None)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(updated.name, "new");
     }
 

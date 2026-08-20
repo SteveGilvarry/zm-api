@@ -48,6 +48,26 @@ fn build_app(db: DatabaseConnection) -> axum::Router {
     zm_api::routes::create_router_app(state)
 }
 
+/// GH #19: ZoneMinder's own default sentinels must pass create validation:
+/// `-1` = leave camera setting alone, `0` = default storage / unlimited buffer.
+#[test]
+fn create_monitor_accepts_zoneminder_default_sentinels() {
+    use garde::Validate;
+    let mut req = build_create_monitor_request("SentinelMon".to_string());
+    req.brightness = -1;
+    req.contrast = -1;
+    req.hue = -1;
+    req.colour = -1;
+    req.storage_id = 0;
+    req.max_image_buffer_count = 0;
+    req.stream_replay_buffer = 0;
+    assert!(
+        req.validate().is_ok(),
+        "ZoneMinder default sentinel values must validate: {:?}",
+        req.validate().err()
+    );
+}
+
 fn build_create_monitor_request(name: String) -> CreateMonitorRequest {
     CreateMonitorRequest {
         name,

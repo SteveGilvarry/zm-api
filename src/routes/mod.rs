@@ -1,7 +1,7 @@
 use crate::handlers::openapi::ApiDoc;
 use crate::server::state::AppState;
 use crate::util::authz;
-use axum::extract::{DefaultBodyLimit, MatchedPath};
+use axum::extract::DefaultBodyLimit;
 use axum::{
     http::{header, HeaderName, HeaderValue, Method},
     routing::any,
@@ -65,9 +65,28 @@ pub mod users; // Users
 pub mod zone_presets; // Zone Presets
 pub mod zones; // Zones // go2rtc WebSocket proxy
 
-async fn fallback_handler(path: MatchedPath) -> &'static str {
-    tracing::error!("Unknown route: {}", path.as_str());
-    "Unknown route"
+/// Router fallback for unmatched paths. Returns a 404 with the standard error
+/// envelope so clients can feature-detect optional endpoints instead of seeing
+/// a 500. Previously this extracted `MatchedPath`, which *fails to extract* on
+/// an unmatched route, producing a 500 "No matched path found" for every typo
+/// or missing endpoint (GH #17).
+async fn fallback_handler(
+    method: axum::http::Method,
+    uri: axum::http::Uri,
+) -> (
+    axum::http::StatusCode,
+    axum::Json<crate::error::AppResponseError>,
+) {
+    tracing::debug!("No route for {} {}", method, uri.path());
+    (
+        axum::http::StatusCode::NOT_FOUND,
+        axum::Json(crate::error::AppResponseError::new(
+            "NOT_FOUND_ERROR",
+            format!("No route for {} {}", method, uri.path()),
+            None,
+            vec![],
+        )),
+    )
 }
 
 /// One allowed-origin rule parsed from `ALLOWED_ORIGINS`.

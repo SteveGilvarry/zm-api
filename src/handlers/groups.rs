@@ -57,6 +57,11 @@ pub async fn get_group(
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateGroupRequest {
     pub name: Option<String>,
+    /// Re-parent the group. Omit to leave the parent unchanged; `null` clears
+    /// it (top-level group); a group id nests under that group. Self-parenting
+    /// and cycles are rejected (GH #28).
+    #[serde(default)]
+    pub parent_id: Option<Option<u32>>,
 }
 
 /// Update a group's basic attributes.
@@ -77,7 +82,7 @@ pub async fn update_group(
     scope: GroupScope,
     Json(req): Json<UpdateGroupRequest>,
 ) -> AppResult<Json<GroupResponse>> {
-    let item = crate::service::groups::update(&state, id, req.name, &scope).await?;
+    let item = crate::service::groups::update(&state, id, req.name, req.parent_id, &scope).await?;
     Ok(Json(item))
 }
 
