@@ -77,7 +77,6 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
     let decoding = req.decoding.clone();
     let rtsp2_web_type = req.rtsp2_web_type.clone();
     let orientation = req.orientation.clone();
-    let output_container = req.output_container.clone();
     let recording_source = req.recording_source.clone();
     let default_codec = req.default_codec.clone();
     let importance = req.importance.clone();
@@ -150,7 +149,7 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         video_writer: Set(req.video_writer),
         output_codec: Set(req.output_codec.unwrap_or(0)),
         encoder: Set(req.encoder),
-        output_container: Set(Some(output_container)),
+        output_container: Set(req.output_container),
         encoder_parameters: Set(req.encoder_parameters),
         record_audio: Set(req.record_audio),
         recording_source: Set(recording_source),
@@ -272,7 +271,7 @@ pub async fn update(
         monitor.name = Set(name);
     }
     if let Some(deleted) = req.deleted {
-        monitor.deleted = Set(deleted);
+        monitor.deleted = Set(deleted as i8);
     }
     if req.notes.is_some() {
         monitor.notes = Set(req.notes);

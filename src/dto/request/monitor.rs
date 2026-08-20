@@ -287,9 +287,11 @@ pub struct CreateMonitorRequest {
     #[garde(skip)] // Option<String> can be None
     pub encoder: Option<String>,
 
+    // Nullable so a monitor whose stored OutputContainer is NULL round-trips
+    // GET → POST without a 422 (GH #18).
     #[serde(rename = "output_container")]
     #[garde(skip)]
-    pub output_container: OutputContainer,
+    pub output_container: Option<OutputContainer>,
 
     #[garde(skip)] // Option<String> can be None
     pub encoder_parameters: Option<String>,
@@ -569,7 +571,7 @@ impl Default for CreateMonitorRequest {
             video_writer: 1,
             output_codec: None,
             encoder: None,
-            output_container: OutputContainer::Auto,
+            output_container: Some(OutputContainer::Auto),
             encoder_parameters: None,
             record_audio: 1,
             recording_source: RecordingSource::Primary,
@@ -645,8 +647,9 @@ pub struct UpdateMonitorRequest {
     #[garde(length(min = 1, max = 64))]
     pub name: Option<String>,
 
-    #[garde(range(min = 0, max = 1))]
-    pub deleted: Option<i8>,
+    // Boolean to match CreateMonitorRequest and MonitorResponse (GH #18).
+    #[garde(skip)]
+    pub deleted: Option<bool>,
 
     #[garde(skip)]
     pub notes: Option<String>,

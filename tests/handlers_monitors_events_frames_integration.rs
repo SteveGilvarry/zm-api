@@ -130,7 +130,7 @@ fn build_create_monitor_request(name: String) -> CreateMonitorRequest {
         video_writer: 0,
         output_codec: Some(0),
         encoder: None,
-        output_container: OutputContainer::Auto,
+        output_container: Some(OutputContainer::Auto),
         encoder_parameters: None,
         record_audio: 0,
         recording_source: RecordingSource::Primary,
