@@ -1,10 +1,37 @@
 use crate::constant::API_VERSION;
-use crate::dto::response::VersionResponse;
+use crate::dto::response::{LocaleResponse, VersionResponse};
 use crate::error::{AppError, AppResult};
 use crate::repo;
 use crate::server::state::AppState;
 use tokio::process::Command;
 use tracing::{error, info};
+
+/// Resolve the server's effective locale: timezone (ZoneMinder `ZM_TIMEZONE`,
+/// falling back to the host OS zone), current UTC offset, and the three
+/// ZoneMinder date/time format patterns.
+pub async fn get_locale(state: &AppState) -> AppResult<LocaleResponse> {
+    let db = state.db();
+
+    // ZM_TIMEZONE is often empty; fall back to the host OS IANA zone.
+    let zm_tz = repo::config::get_config_value(db, "ZM_TIMEZONE")
+        .await?
+        .filter(|s| !s.trim().is_empty());
+    let timezone = zm_tz.or_else(|| iana_time_zone::get_timezone().ok());
+
+    // Current offset of the process's local zone.
+    let now = chrono::Local::now();
+    let utc_offset_seconds = now.offset().local_minus_utc();
+    let utc_offset = now.format("%:z").to_string();
+
+    Ok(LocaleResponse {
+        timezone,
+        utc_offset,
+        utc_offset_seconds,
+        date_format: repo::config::get_config_value(db, "ZM_DATE_FORMAT_PATTERN").await?,
+        datetime_format: repo::config::get_config_value(db, "ZM_DATETIME_FORMAT_PATTERN").await?,
+        time_format: repo::config::get_config_value(db, "ZM_TIME_FORMAT_PATTERN").await?,
+    })
+}
 
 // API version (from Cargo.toml via constant)
 

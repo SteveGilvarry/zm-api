@@ -61,6 +61,8 @@ rustls-acme = { version = "0.15", features = ["axum", "tokio", "tower"] }
 base64 = "0.22"
 bcrypt = "0.19"
 chrono = "0.4"
+# Resolve the host OS IANA timezone name for GET /system/locale (#33).
+iana-time-zone = "0.1"
 config = "0.15"
 dotenvy = "0.15"
 fake = { version = "5", features = ["derive", "uuid", "chrono"] }

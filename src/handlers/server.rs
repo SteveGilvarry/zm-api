@@ -2,7 +2,7 @@ use axum::extract::{Path, State};
 use axum::Json;
 use tracing::{info, warn};
 
-use crate::dto::response::{MessageResponse, VersionResponse};
+use crate::dto::response::{LocaleResponse, MessageResponse, VersionResponse};
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use crate::service;
@@ -18,6 +18,23 @@ use crate::service;
 )]
 pub async fn health_check() -> AppResult<Json<MessageResponse>> {
     Ok(Json(MessageResponse::new("Ok")))
+}
+
+/// Server locale: effective timezone, current UTC offset, and ZoneMinder's
+/// date/time format patterns, for rendering server-local time (GH #33).
+#[utoipa::path(
+    get,
+    path = "/api/v3/system/locale",
+    responses(
+        (status = 200, description = "Server timezone and date/time formats", body = LocaleResponse),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError),
+        (status = 500, description = "Internal server error", body = MessageResponse)
+    ),
+    tag = "Server",
+    security(("jwt" = []))
+)]
+pub async fn get_locale(State(state): State<AppState>) -> AppResult<Json<LocaleResponse>> {
+    Ok(Json(service::server::get_locale(&state).await?))
 }
 
 #[utoipa::path(

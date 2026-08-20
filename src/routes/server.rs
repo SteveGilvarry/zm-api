@@ -41,5 +41,19 @@ pub fn add_server_routes(router: Router<AppState>, state: AppState) -> Router<Ap
         state,
     );
 
-    router.merge(public_routes).merge(control_routes)
+    // Read-only server locale (timezone + date/time formats): any authenticated
+    // user, no feature gate.
+    let locale_routes = Router::new()
+        .route(
+            &format!("{}/system/locale", api_prefix),
+            get(server::get_locale),
+        )
+        .layer(axum::middleware::from_fn(
+            crate::util::middleware::auth_middleware,
+        ));
+
+    router
+        .merge(public_routes)
+        .merge(control_routes)
+        .merge(locale_routes)
 }

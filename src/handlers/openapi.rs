@@ -260,6 +260,7 @@ use crate::util::claim::UserClaims;
 
         // server
         crate::handlers::server::change_state,
+        crate::handlers::server::get_locale,
         crate::handlers::server::get_version,
         crate::handlers::server::health_check,
 
@@ -557,6 +558,7 @@ use crate::util::claim::UserClaims;
             // server
             ServiceStatusResponse,
             VersionResponse,
+            crate::dto::response::LocaleResponse,
 
             // server stats
             crate::dto::request::server_stats::CreateServerStatRequest,
