@@ -91,6 +91,21 @@ impl RetentionService {
         Ok(())
     }
 
+    /// Reap a single storage in isolation and report how many events were
+    /// deleted (or would be, under `dry_run`). Exposed for integration tests
+    /// and targeted manual runs so a caller can exercise one storage without
+    /// touching every other storage the way [`reap_once`](Self::reap_once)
+    /// does. `is_default` mirrors the default-storage sentinel matching in
+    /// `reap_once` (events with `StorageId` 0 / NULL belong to the lowest-id
+    /// storage).
+    pub async fn reap_storage_once(
+        &self,
+        st: &storage::Model,
+        is_default: bool,
+    ) -> Result<usize, DbErr> {
+        Ok(self.reap_storage(st, is_default).await?.deleted)
+    }
+
     async fn reap_storage(
         &self,
         st: &storage::Model,
