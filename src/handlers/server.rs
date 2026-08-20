@@ -43,21 +43,28 @@ pub async fn get_version(State(state): State<AppState>) -> AppResult<Json<Versio
     }
 }
 
-/// Control ZoneMinder daemon state (restart, stop, start)
+/// Control the ZoneMinder system: restart / stop / start.
+///
+/// This is whole-system power control (`systemctl restart/stop/start
+/// zoneminder`, with a `zmcontrol.pl` fallback) — it does NOT apply a named run
+/// state from the `States` table. Applying a run state is
+/// `POST /api/v3/system/state`. The canonical path is
+/// `/api/v3/server/control/{action}`; `/api/v3/states/change/{action}` remains
+/// as a deprecated alias (it wrongly implied run-state control).
 #[utoipa::path(
     post,
-    path = "/api/v3/states/change/{action}",
+    path = "/api/v3/server/control/{action}",
     params(
         ("action" = String, Path, description = "Action to perform: restart, stop, or start")
     ),
     responses(
-        (status = 200, description = "State changed successfully", body = MessageResponse),
+        (status = 200, description = "System control action performed", body = MessageResponse),
         (status = 400, description = "Invalid action", body = MessageResponse),
-        (status = 500, description = "Failed to change state", body = MessageResponse)
+        (status = 500, description = "Failed to perform action", body = MessageResponse)
     ),
     tag = "Server",
-    summary = "Control ZoneMinder daemon state",
-    description = "- Changes the ZoneMinder system state (restart/stop/start).\n- Requires a valid JWT with admin permissions.",
+    summary = "Control the ZoneMinder system (restart/stop/start)",
+    description = "- Restarts/stops/starts the ZoneMinder system via systemctl (zmcontrol.pl fallback).\n- This is NOT run-state application; use POST /api/v3/system/state for that.\n- Requires a valid JWT with admin (System) permissions.",
     security(("jwt" = []))
 )]
 pub async fn change_state(

@@ -22,17 +22,24 @@ pub fn add_server_routes(router: Router<AppState>, state: AppState) -> Router<Ap
             get(server::get_version),
         );
 
-    // `/states/change/{action}` invokes `systemctl restart/stop/start
-    // zoneminder`, which is an admin-tier operation. Gate it behind the
-    // `System` feature, not just authentication.
-    let state_change_routes = protect(
-        Router::new().route(
-            &format!("{}/states/change/{{action}}", api_prefix),
-            post(server::change_state),
-        ),
+    // Whole-system power control: `systemctl restart/stop/start zoneminder`
+    // (admin-tier, so gated behind the `System` feature). The canonical path is
+    // `/server/control/{action}`; `/states/change/{action}` is kept as a
+    // deprecated alias — it wrongly implied it applied a run state from the
+    // `States` table (that is `POST /system/state`).
+    let control_routes = protect(
+        Router::new()
+            .route(
+                &format!("{}/server/control/{{action}}", api_prefix),
+                post(server::change_state),
+            )
+            .route(
+                &format!("{}/states/change/{{action}}", api_prefix),
+                post(server::change_state),
+            ),
         Feature::System,
         state,
     );
 
-    router.merge(public_routes).merge(state_change_routes)
+    router.merge(public_routes).merge(control_routes)
 }

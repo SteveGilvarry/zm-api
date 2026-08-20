@@ -221,11 +221,7 @@ async fn execute_command(cmd: DaemonCommand, manager: &Arc<DaemonManager>) -> Da
                 Err(e) => DaemonResponse::error(e.to_string()),
             }
         }
-        DaemonCommand::ApplyState { state_name } => {
-            // State application would query DB for state definition
-            // and start/stop monitors accordingly
-            DaemonResponse::ok(format!("State '{}' applied (stub)", state_name))
-        }
+        DaemonCommand::ApplyState { state_name } => manager.apply_state(&state_name).await,
     }
 }
 
@@ -242,6 +238,29 @@ mod tests {
         let resp = execute_command(DaemonCommand::Check, &manager).await;
         assert!(resp.success);
         assert_eq!(resp.message, "stopped");
+    }
+
+    /// ApplyState used to return a fake success ("... applied (stub)") while
+    /// doing nothing. It now really applies via the DB; with no database
+    /// configured it must report an honest error, never a false success.
+    #[tokio::test]
+    async fn test_apply_state_without_db_is_honest_error() {
+        let config = DaemonConfig::default();
+        let manager = Arc::new(DaemonManager::new(config, None));
+
+        let resp = execute_command(
+            DaemonCommand::ApplyState {
+                state_name: "Night".to_string(),
+            },
+            &manager,
+        )
+        .await;
+        assert!(!resp.success, "no DB configured must be a failure");
+        assert!(
+            !resp.message.contains("stub"),
+            "must not return the old fake-success stub message: {}",
+            resp.message
+        );
     }
 
     #[tokio::test]

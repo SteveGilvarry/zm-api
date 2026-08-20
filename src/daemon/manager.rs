@@ -848,6 +848,42 @@ impl DaemonManager {
         Ok(DaemonResponse::ok("Daemon manager started"))
     }
 
+    /// Apply a named ZoneMinder run state: reconfigure the monitor rows in the
+    /// database, then restart the supervised daemons so they pick up the new
+    /// config. This is the active/takeover-mode path used by the legacy IPC
+    /// `ApplyState` command — the socket only runs when this process supervises
+    /// the daemons. The HTTP path is `service::daemon::apply_state`, and both
+    /// share the DB-side logic via `service::daemon::apply_state_to_db`.
+    pub async fn apply_state(self: &Arc<Self>, state_name: &str) -> DaemonResponse {
+        let db = match &self.db {
+            Some(db) => db.clone(),
+            None => {
+                return DaemonResponse::error(
+                    "Database not configured - cannot apply state".to_string(),
+                )
+            }
+        };
+
+        let updated = match crate::service::daemon::apply_state_to_db(db.as_ref(), state_name).await
+        {
+            Ok(n) => n,
+            Err(e) => return DaemonResponse::error(format!("apply state '{state_name}': {e}")),
+        };
+
+        // We supervise the daemons here, so restart them to apply the change.
+        let _ = self.shutdown_all().await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        match self.start_all_daemons().await {
+            Ok(resp) => DaemonResponse::ok(format!(
+                "State '{state_name}' applied: {updated} monitors updated. {}",
+                resp.message
+            )),
+            Err(e) => DaemonResponse::error(format!(
+                "state '{state_name}' applied ({updated} monitors) but daemon restart failed: {e}"
+            )),
+        }
+    }
+
     /// Start all ZoneMinder daemons.
     ///
     /// This matches the behavior of zmpkg.pl startup:

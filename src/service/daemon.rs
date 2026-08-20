@@ -201,27 +201,31 @@ pub async fn system_logrot(state: &AppState) -> AppResult<DaemonActionResponse> 
     )))
 }
 
-/// Apply a named system state from the database.
+/// Apply a run state's definition to the monitor rows and flip `IsActive`, all
+/// in one transaction; returns the number of monitors updated.
 ///
-/// States define monitor configurations. Two formats are supported:
-/// - Legacy (3-part): "id:function:enabled" - Updates Function and Enabled fields
-/// - New (4-part): "id:capturing:analysing:recording" - Updates Capturing, Analysing, Recording fields
+/// The `States.Definition` is a comma list of per-monitor entries, in one of
+/// two formats:
+/// - Legacy 3-part `id:function:enabled` — sets Function + Capturing.
+/// - New 4-part `id:capturing:analysing:recording` — sets those three.
 ///
-/// Applying a state:
-/// 1. Looks up the state by name in the States table
-/// 2. Parses the Definition to get monitor configurations
-/// 3. Updates monitor settings in the database
-/// 4. Restarts affected daemons
-pub async fn apply_state(state: &AppState, state_name: &str) -> AppResult<DaemonActionResponse> {
+/// This is the shared DB-side of applying a state, used by both the HTTP
+/// handler (`apply_state`) and the legacy IPC `ApplyState` command
+/// (`DaemonManager::apply_state`). No daemon restart or run-mode logic lives
+/// here — callers decide that.
+pub async fn apply_state_to_db(
+    db: &sea_orm::DatabaseConnection,
+    state_name: &str,
+) -> AppResult<u32> {
     use crate::entity::states;
     use sea_orm::ActiveValue::Set;
 
-    info!("Applying state: {}", state_name);
+    info!("Applying state to database: {}", state_name);
 
     // Look up the state by name
     let zm_state = states::Entity::find()
         .filter(states::Column::Name.eq(state_name))
-        .one(state.db.as_ref())
+        .one(db)
         .await?
         .ok_or_else(|| {
             AppError::NotFoundError(crate::error::Resource {
@@ -244,9 +248,7 @@ pub async fn apply_state(state: &AppState, state_name: &str) -> AppResult<Daemon
     use sea_orm::TransactionTrait;
 
     let state_name_owned = state_name.to_string();
-    let updated_monitors = state
-        .db
-        .as_ref()
+    let updated_monitors = db
         .transaction::<_, u32, AppError>(move |txn| {
             Box::pin(async move {
                 let definition = zm_state.definition.clone();
@@ -400,16 +402,24 @@ pub async fn apply_state(state: &AppState, state_name: &str) -> AppResult<Daemon
             sea_orm::TransactionError::Transaction(app) => app,
         })?;
 
-    // The daemon restart depends on run mode:
-    // - Takeover/active mode (daemon manager present): zm_api supervises the
-    //   ZoneMinder daemons, so restart them to pick up the new monitor config.
-    // - Passive mode (no daemon manager, the default): zm_api is just a REST
-    //   API over the shared ZoneMinder database. `zoneminder.service` owns the
-    //   daemon lifecycle (zmdc/zmpkg) and reconciles from the DB itself — we
-    //   must not restart anything. Previously this path called `system_restart`
-    //   unconditionally, which failed with "Daemon manager not available"
-    //   *after* the transaction had already committed, so the caller saw an
-    //   error even though the state was correctly applied to the database.
+    Ok(updated_monitors)
+}
+
+/// Apply a named run state over the HTTP API.
+///
+/// Reconfigures monitors + activates the state via [`apply_state_to_db`], then
+/// decides whether to restart daemons based on run mode:
+/// - Takeover/active mode (daemon manager present): zm_api supervises the
+///   ZoneMinder daemons, so restart them to pick up the new monitor config.
+/// - Passive mode (no daemon manager, the default): zm_api is just a REST API
+///   over the shared ZoneMinder database; `zoneminder.service` owns the daemon
+///   lifecycle (zmdc/zmpkg) and reconciles from the DB itself — we must not
+///   restart anything. Calling `system_restart` unconditionally previously
+///   failed with "Daemon manager not available" *after* the transaction had
+///   committed, so the caller saw an error even though the state was applied.
+pub async fn apply_state(state: &AppState, state_name: &str) -> AppResult<DaemonActionResponse> {
+    let updated_monitors = apply_state_to_db(state.db.as_ref(), state_name).await?;
+
     if state.daemon_manager.is_some() {
         info!(
             "State '{}' applied to {} monitors, restarting supervised daemons",
