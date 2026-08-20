@@ -400,17 +400,36 @@ pub async fn apply_state(state: &AppState, state_name: &str) -> AppResult<Daemon
             sea_orm::TransactionError::Transaction(app) => app,
         })?;
 
-    // Restart to apply changes
-    info!(
-        "State '{}' applied to {} monitors, restarting system",
-        state_name, updated_monitors
-    );
-    let restart_result = system_restart(state).await?;
-
-    Ok(DaemonActionResponse::success(format!(
-        "State '{}' applied: {} monitors updated. {}",
-        state_name, updated_monitors, restart_result.message
-    )))
+    // The daemon restart depends on run mode:
+    // - Takeover/active mode (daemon manager present): zm_api supervises the
+    //   ZoneMinder daemons, so restart them to pick up the new monitor config.
+    // - Passive mode (no daemon manager, the default): zm_api is just a REST
+    //   API over the shared ZoneMinder database. `zoneminder.service` owns the
+    //   daemon lifecycle (zmdc/zmpkg) and reconciles from the DB itself — we
+    //   must not restart anything. Previously this path called `system_restart`
+    //   unconditionally, which failed with "Daemon manager not available"
+    //   *after* the transaction had already committed, so the caller saw an
+    //   error even though the state was correctly applied to the database.
+    if state.daemon_manager.is_some() {
+        info!(
+            "State '{}' applied to {} monitors, restarting supervised daemons",
+            state_name, updated_monitors
+        );
+        let restart_result = system_restart(state).await?;
+        Ok(DaemonActionResponse::success(format!(
+            "State '{}' applied: {} monitors updated. {}",
+            state_name, updated_monitors, restart_result.message
+        )))
+    } else {
+        info!(
+            "State '{}' applied to {} monitors (passive mode; daemon reconciliation left to zoneminder.service)",
+            state_name, updated_monitors
+        );
+        Ok(DaemonActionResponse::success(format!(
+            "State '{}' applied: {} monitors updated (daemons managed by zoneminder.service)",
+            state_name, updated_monitors
+        )))
+    }
 }
 
 /// Parse a function string to the Function enum.
