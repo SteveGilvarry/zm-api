@@ -49,7 +49,9 @@ fn protected_routes() -> Vec<ProtectedRoute> {
         route(Method::GET, "/api/v3/montage_layouts"),
         route(Method::POST, "/api/v3/system/shutdown"),
         // Invokes `systemctl restart/stop/start zoneminder` — must require
-        // System (admin) RBAC, not just authentication.
+        // System (admin) RBAC, not just authentication. Canonical path plus the
+        // deprecated `/states/change` alias; both must be gated.
+        route(Method::POST, "/api/v3/server/control/restart"),
         route(Method::POST, "/api/v3/states/change/restart"),
         // --- Monitors ---
         route(Method::GET, "/api/v3/monitors"),
@@ -104,6 +106,7 @@ fn expired_token() -> String {
     UserClaims {
         iat: 0,
         exp: 100,
+        typ: zm_api::util::claim::TokenType::Access,
         user: "expired".to_string(),
         uid: 1,
         perms: UserPermissions::superuser(),

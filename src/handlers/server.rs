@@ -2,7 +2,7 @@ use axum::extract::{Path, State};
 use axum::Json;
 use tracing::{info, warn};
 
-use crate::dto::response::{MessageResponse, VersionResponse};
+use crate::dto::response::{LocaleResponse, MessageResponse, VersionResponse};
 use crate::error::AppResult;
 use crate::server::state::AppState;
 use crate::service;
@@ -18,6 +18,23 @@ use crate::service;
 )]
 pub async fn health_check() -> AppResult<Json<MessageResponse>> {
     Ok(Json(MessageResponse::new("Ok")))
+}
+
+/// Server locale: effective timezone, current UTC offset, and ZoneMinder's
+/// date/time format patterns, for rendering server-local time (GH #33).
+#[utoipa::path(
+    get,
+    path = "/api/v3/system/locale",
+    responses(
+        (status = 200, description = "Server timezone and date/time formats", body = LocaleResponse),
+        (status = 401, description = "Unauthorized", body = crate::error::AppResponseError),
+        (status = 500, description = "Internal server error", body = MessageResponse)
+    ),
+    tag = "Server",
+    security(("jwt" = []))
+)]
+pub async fn get_locale(State(state): State<AppState>) -> AppResult<Json<LocaleResponse>> {
+    Ok(Json(service::server::get_locale(&state).await?))
 }
 
 #[utoipa::path(
@@ -43,21 +60,28 @@ pub async fn get_version(State(state): State<AppState>) -> AppResult<Json<Versio
     }
 }
 
-/// Control ZoneMinder daemon state (restart, stop, start)
+/// Control the ZoneMinder system: restart / stop / start.
+///
+/// This is whole-system power control (`systemctl restart/stop/start
+/// zoneminder`, with a `zmcontrol.pl` fallback) — it does NOT apply a named run
+/// state from the `States` table. Applying a run state is
+/// `POST /api/v3/system/state`. The canonical path is
+/// `/api/v3/server/control/{action}`; `/api/v3/states/change/{action}` remains
+/// as a deprecated alias (it wrongly implied run-state control).
 #[utoipa::path(
     post,
-    path = "/api/v3/states/change/{action}",
+    path = "/api/v3/server/control/{action}",
     params(
         ("action" = String, Path, description = "Action to perform: restart, stop, or start")
     ),
     responses(
-        (status = 200, description = "State changed successfully", body = MessageResponse),
+        (status = 200, description = "System control action performed", body = MessageResponse),
         (status = 400, description = "Invalid action", body = MessageResponse),
-        (status = 500, description = "Failed to change state", body = MessageResponse)
+        (status = 500, description = "Failed to perform action", body = MessageResponse)
     ),
     tag = "Server",
-    summary = "Control ZoneMinder daemon state",
-    description = "- Changes the ZoneMinder system state (restart/stop/start).\n- Requires a valid JWT with admin permissions.",
+    summary = "Control the ZoneMinder system (restart/stop/start)",
+    description = "- Restarts/stops/starts the ZoneMinder system via systemctl (zmcontrol.pl fallback).\n- This is NOT run-state application; use POST /api/v3/system/state for that.\n- Requires a valid JWT with admin (System) permissions.",
     security(("jwt" = []))
 )]
 pub async fn change_state(

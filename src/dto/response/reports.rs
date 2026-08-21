@@ -10,6 +10,7 @@ pub struct ReportResponse {
     pub filter_id: Option<u32>,
     pub start_date_time: Option<String>,
     pub end_date_time: Option<String>,
+    /// Report interval in seconds (e.g. 604800 = 7 days).
     pub interval: Option<u32>,
 }
 

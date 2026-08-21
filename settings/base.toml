@@ -20,9 +20,22 @@ http_port = 80
 [server.middleware]
 # Maximum accepted request body size, in bytes (2 MiB).
 body_limit_bytes = 2097152
-# Per-client-IP rate limit. 0 disables rate limiting; enable in prod.toml.
+# Global per-client-IP rate limit. The value is the Governor replenish period
+# in seconds (one unit of quota restored per interval), NOT requests/second.
+# 0 disables the global limiter; enable in prod.toml.
 rate_limit_per_second = 0
 rate_limit_burst = 0
+# Trust X-Forwarded-For / X-Real-IP for rate-limit keying. Keep false unless a
+# trusted reverse proxy sets these headers: when the service is exposed
+# directly they are attacker-controlled and would let a client bypass the
+# limiter by rotating the header. When false, the socket peer IP is used.
+trust_proxy_headers = false
+# Dedicated tighter limit on the auth endpoints (/auth/*, /me*), on by default
+# so credential brute-forcing is throttled even when the global limiter is off.
+# Period is the replenish interval in seconds; burst is the allowance. Set
+# either to 0 to disable.
+auth_rate_limit_period_secs = 2
+auth_rate_limit_burst = 10
 
 # Database configuration
 # By default, uses ZoneMinder's zm.conf settings (/etc/zm/zm.conf + conf.d/)

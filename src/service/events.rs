@@ -49,6 +49,15 @@ pub async fn list(
         sort_direction: params.direction.unwrap_or_default(),
         alarm_frames_min: params.alarm_frames_min,
         archived: params.archived,
+        cause: params.cause.clone().filter(|s| !s.is_empty()),
+        name: params.name.clone().filter(|s| !s.is_empty()),
+        notes: params.notes.clone().filter(|s| !s.is_empty()),
+        // Parse the comma-separated tag_id list, ignoring blanks/non-numerics.
+        tag_ids: params.tag_id.as_ref().map(|s| {
+            s.split(',')
+                .filter_map(|t| t.trim().parse::<u64>().ok())
+                .collect::<Vec<_>>()
+        }),
         monitor_filter: scope.visible_ids(Level::View),
     };
 
@@ -102,6 +111,10 @@ pub async fn list_all(
             direction: None,
             alarm_frames_min: None,
             archived: None,
+            cause: None,
+            name: None,
+            notes: None,
+            tag_id: None,
         },
         scope,
     )
@@ -133,6 +146,10 @@ pub async fn list_by_monitor(
             direction: None,
             alarm_frames_min: None,
             archived: None,
+            cause: None,
+            name: None,
+            notes: None,
+            tag_id: None,
         },
         scope,
     )
@@ -255,17 +272,28 @@ pub async fn update(
     Ok(EventResponse::from(updated_event))
 }
 
-/// Delete an event
+/// Delete an event, including its on-disk media.
+///
+/// The database row is removed first (it is the authoritative record of the
+/// event's existence), then the media directory is cleaned up best-effort. A
+/// filesystem failure is logged but does not fail the request — leaving a rare
+/// orphaned directory is preferable to reporting a delete failure after the row
+/// is already gone. Previously the media was never removed, so every deletion
+/// leaked the recorded video and frames on disk.
 #[instrument(skip(state))]
 pub async fn delete(state: &AppState, id: u32, scope: &MonitorScope) -> AppResult<()> {
-    // Fetch first so the event's monitor can be checked against the ACL.
+    // Fetch first so the event's monitor can be checked against the ACL and its
+    // on-disk location resolved from its own fields.
     let event = events_repo::find_by_id(state, id as u64)
         .await?
         .ok_or_else(|| event_not_found(id))?;
     if !scope.allows(event.monitor_id, Level::Edit) {
         return Err(event_not_found(id));
     }
-    events_repo::delete(state, id as u64).await?;
+    // Remove the event and its child rows (frames, per-period stats) atomically,
+    // then the on-disk media — the same delete the retention reaper performs.
+    events_repo::delete_with_children(state.db(), id as u64).await?;
+    crate::service::event_storage::delete_event_media(state, &event).await?;
     Ok(())
 }
 
@@ -463,13 +491,36 @@ mod tests {
         .unwrap();
         assert_eq!(out_upd.name, "new");
 
-        // Delete — the service fetches the event first to ACL-check its monitor.
+        // Delete — the service fetches the event first to ACL-check its
+        // monitor, deletes the row, then resolves storage to remove media. The
+        // storage row points at an empty tempdir, so the media cleanup finds no
+        // directory (a no-op) and nothing on disk is touched.
+        let tmp = tempfile::tempdir().unwrap();
+        let storage = crate::entity::storage::Model {
+            id: 1,
+            path: tmp.path().to_string_lossy().into_owned(),
+            name: "store".into(),
+            r#type: crate::entity::sea_orm_active_enums::StorageType::Local,
+            url: None,
+            disk_space: None,
+            scheme: crate::entity::sea_orm_active_enums::Scheme::Deep,
+            server_id: None,
+            do_delete: 1,
+            enabled: 1,
+        };
+        // delete_with_children runs a transaction: 6 child-table deletes
+        // (frames + Events_Hour/Day/Week/Month + Events_Archived) then the event
+        // delete — 7 exec results.
         let db_del = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<EventModel, _, _>(vec![vec![mk_event(7, "old")]])
-            .append_exec_results(vec![MockExecResult {
-                last_insert_id: 0,
-                rows_affected: 1,
-            }])
+            .append_exec_results(vec![
+                MockExecResult {
+                    last_insert_id: 0,
+                    rows_affected: 1,
+                };
+                7
+            ])
+            .append_query_results::<crate::entity::storage::Model, _, _>(vec![vec![storage]])
             .into_connection();
         let state_del = AppState::for_test_with_db(db_del);
         assert!(delete(&state_del, 7, &MonitorScope::All).await.is_ok());

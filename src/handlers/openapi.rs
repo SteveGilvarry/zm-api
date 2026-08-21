@@ -26,6 +26,8 @@ use crate::util::claim::UserClaims;
         crate::handlers::auth::login,
         crate::handlers::auth::logout,
         crate::handlers::auth::refresh_token,
+        crate::handlers::auth::me,
+        crate::handlers::auth::change_password,
 
         // config
         crate::handlers::configs::get_config,
@@ -159,6 +161,7 @@ use crate::util::claim::UserClaims;
         // logs
         crate::handlers::logs::get_log,
         crate::handlers::logs::list_logs,
+        crate::handlers::logs::clear_logs,
 
         // manufacturers
         crate::handlers::manufacturers::create_manufacturer,
@@ -257,6 +260,7 @@ use crate::util::claim::UserClaims;
 
         // server
         crate::handlers::server::change_state,
+        crate::handlers::server::get_locale,
         crate::handlers::server::get_version,
         crate::handlers::server::health_check,
 
@@ -365,6 +369,7 @@ use crate::util::claim::UserClaims;
             LoginResponse,
             MessageResponse,
             RefreshTokenRequest,
+            crate::dto::request::ChangePasswordRequest,
             TokenInfoRequest,
             TokenResponse,
             UserClaims,
@@ -553,6 +558,7 @@ use crate::util::claim::UserClaims;
             // server
             ServiceStatusResponse,
             VersionResponse,
+            crate::dto::response::LocaleResponse,
 
             // server stats
             crate::dto::request::server_stats::CreateServerStatRequest,
@@ -594,7 +600,6 @@ use crate::util::claim::UserClaims;
             crate::handlers::storage::UpdateStorageRequest,
 
             // streaming
-            crate::dto::response::MonitorStreamingDetails,
             crate::dto::response::StreamEndpoints,
 
             // tags

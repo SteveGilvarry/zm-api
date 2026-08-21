@@ -18,6 +18,12 @@ pub struct EventQueryOptions {
     pub sort_direction: SortDirection,
     pub alarm_frames_min: Option<u32>,
     pub archived: Option<bool>,
+    /// Case-insensitive substring filters on the respective columns.
+    pub cause: Option<String>,
+    pub name: Option<String>,
+    pub notes: Option<String>,
+    /// Keep only events carrying at least one of these tag ids.
+    pub tag_ids: Option<Vec<u64>>,
     /// Row-level ACL allowlist of monitor ids. `None` is unrestricted;
     /// `Some(ids)` limits results to events of those monitors.
     pub monitor_filter: Option<Vec<u32>>,
@@ -34,6 +40,11 @@ fn get_sort_column(field: EventSortField) -> events::Column {
         EventSortField::TotScore => events::Column::TotScore,
         EventSortField::Length => events::Column::Length,
         EventSortField::Id => events::Column::Id,
+        EventSortField::Name => events::Column::Name,
+        EventSortField::Cause => events::Column::Cause,
+        EventSortField::MonitorId => events::Column::MonitorId,
+        EventSortField::Notes => events::Column::Notes,
+        EventSortField::Frames => events::Column::Frames,
     }
 }
 
@@ -88,6 +99,30 @@ pub async fn find_with_options(
 
     if let Some(archived) = options.archived {
         query = query.filter(events::Column::Archived.eq(if archived { 1u8 } else { 0u8 }));
+    }
+
+    if let Some(ref cause) = options.cause {
+        query = query.filter(events::Column::Cause.contains(cause.clone()));
+    }
+    if let Some(ref name) = options.name {
+        query = query.filter(events::Column::Name.contains(name.clone()));
+    }
+    if let Some(ref notes) = options.notes {
+        query = query.filter(events::Column::Notes.contains(notes.clone()));
+    }
+    // Tag filter: events with at least one of the requested tags, via a
+    // subquery over Events_Tags (avoids a join that would duplicate rows).
+    if let Some(ref tag_ids) = options.tag_ids {
+        if !tag_ids.is_empty() {
+            use crate::entity::events_tags;
+            use sea_orm::sea_query::Query;
+            let sub = Query::select()
+                .column(events_tags::Column::EventId)
+                .from(events_tags::Entity)
+                .and_where(events_tags::Column::TagId.is_in(tag_ids.iter().copied()))
+                .to_owned();
+            query = query.filter(events::Column::Id.in_subquery(sub));
+        }
     }
 
     // Row-level ACL: restrict to the caller's permitted monitors.
@@ -179,6 +214,54 @@ pub async fn update(state: &AppState, event: events::ActiveModel) -> Result<even
 #[instrument(skip(state))]
 pub async fn delete(state: &AppState, id: u64) -> Result<DeleteResult, DbErr> {
     Events::delete_by_id(id).exec(state.db()).await
+}
+
+/// Delete an event and all of its child rows in a single transaction.
+///
+/// ZoneMinder's `Frames` and the per-period stats tables
+/// (`Events_Hour/Day/Week/Month`) plus `Events_Archived` have **no** FK cascade
+/// to `Events`, so deleting only the event row orphans them. `Snapshots_Events`
+/// and `Events_Tags` *do* cascade via their FKs and are removed by the event
+/// delete itself. This is the single DB-side delete both the interactive
+/// `DELETE /events/{id}` path and the retention reaper use, so they can never
+/// leave different debris behind.
+pub async fn delete_with_children<C>(conn: &C, id: u64) -> Result<(), DbErr>
+where
+    C: ConnectionTrait + TransactionTrait,
+{
+    use crate::entity::{
+        events_archived, events_day, events_hour, events_month, events_week, frames,
+    };
+
+    let txn = conn.begin().await?;
+    frames::Entity::delete_many()
+        .filter(frames::Column::EventId.eq(id))
+        .exec(&txn)
+        .await?;
+    events_hour::Entity::delete_many()
+        .filter(events_hour::Column::EventId.eq(id))
+        .exec(&txn)
+        .await?;
+    events_day::Entity::delete_many()
+        .filter(events_day::Column::EventId.eq(id))
+        .exec(&txn)
+        .await?;
+    events_week::Entity::delete_many()
+        .filter(events_week::Column::EventId.eq(id))
+        .exec(&txn)
+        .await?;
+    events_month::Entity::delete_many()
+        .filter(events_month::Column::EventId.eq(id))
+        .exec(&txn)
+        .await?;
+    events_archived::Entity::delete_many()
+        .filter(events_archived::Column::EventId.eq(id))
+        .exec(&txn)
+        .await?;
+    // Cascades Snapshots_Events + Events_Tags via their FKs.
+    Events::delete_by_id(id).exec(&txn).await?;
+    txn.commit().await?;
+    Ok(())
 }
 
 /// Get event counts grouped by monitor over time period
@@ -343,5 +426,32 @@ pub async fn find_by_id_with_tags(
             Ok(Some((e, tags)))
         }
         None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
+
+    /// `delete_with_children` runs one transaction that removes the six child
+    /// tables plus the event itself — seven exec statements in total. The mock
+    /// supplies exactly seven results, so a missing or extra delete would leave
+    /// the queue mismatched and fail.
+    #[tokio::test]
+    async fn delete_with_children_removes_all_child_rows_and_event() {
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_exec_results(vec![
+                MockExecResult {
+                    last_insert_id: 0,
+                    rows_affected: 1,
+                };
+                7
+            ])
+            .into_connection();
+
+        delete_with_children(&db, 42)
+            .await
+            .expect("transactional delete should succeed");
     }
 }

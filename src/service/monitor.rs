@@ -2,7 +2,7 @@
 use crate::dto::request::{
     AlarmControlRequest, CreateMonitorRequest, UpdateMonitorRequest, UpdateStateRequest,
 };
-use crate::dto::response::{MonitorResponse, MonitorStreamingDetails};
+use crate::dto::response::MonitorResponse;
 use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::entity::monitors;
 use crate::error::{AppError, AppResult, Resource, ResourceType};
@@ -13,7 +13,6 @@ use crate::util::authz::Level;
 use rust_decimal::prelude::*;
 use sea_orm::ActiveValue::{NotSet, Set};
 use tracing::info;
-use url::Url;
 
 fn monitor_not_found(id: u32) -> AppError {
     AppError::NotFoundError(Resource {
@@ -68,7 +67,8 @@ pub async fn get_by_id(
 }
 
 pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<MonitorResponse> {
-    info!("Creating new monitor with request: {req:?}.");
+    // Name only: the request carries camera RTSP/ONVIF credentials.
+    info!("Creating new monitor: {}.", req.name);
 
     // Convert string values to their corresponding enum types
     let monitor_type = req.r#type.clone();
@@ -77,7 +77,6 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
     let decoding = req.decoding.clone();
     let rtsp2_web_type = req.rtsp2_web_type.clone();
     let orientation = req.orientation.clone();
-    let output_container = req.output_container.clone();
     let recording_source = req.recording_source.clone();
     let default_codec = req.default_codec.clone();
     let importance = req.importance.clone();
@@ -150,7 +149,7 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         video_writer: Set(req.video_writer),
         output_codec: Set(req.output_codec.unwrap_or(0)),
         encoder: Set(req.encoder),
-        output_container: Set(Some(output_container)),
+        output_container: Set(req.output_container),
         encoder_parameters: Set(req.encoder_parameters),
         record_audio: Set(req.record_audio),
         recording_source: Set(recording_source),
@@ -251,7 +250,8 @@ pub async fn update(
     req: UpdateMonitorRequest,
     scope: &MonitorScope,
 ) -> AppResult<MonitorResponse> {
-    info!("Updating monitor with ID: {id} and request: {req:?}.");
+    // Id only: the request carries camera RTSP/ONVIF credentials.
+    info!("Updating monitor with ID: {id}.");
     ensure_visible(scope, id, Level::Edit)?;
 
     // Fetch the monitor through the repository
@@ -271,7 +271,7 @@ pub async fn update(
         monitor.name = Set(name);
     }
     if let Some(deleted) = req.deleted {
-        monitor.deleted = Set(deleted);
+        monitor.deleted = Set(deleted as i8);
     }
     if req.notes.is_some() {
         monitor.notes = Set(req.notes);
@@ -734,92 +734,6 @@ pub async fn update_state(
     Ok(MonitorResponse::from(monitor_model))
 }
 
-/// Get streaming connection details for a monitor
-pub async fn get_streaming_details(
-    state: &AppState,
-    monitor_id: u32,
-) -> AppResult<MonitorStreamingDetails> {
-    let monitor = repo::monitors::get_streaming_details(state.db(), monitor_id)
-        .await?
-        .ok_or_else(|| {
-            AppError::NotFoundError(Resource {
-                details: vec![("id".to_string(), monitor_id.to_string())],
-                resource_type: ResourceType::Monitor,
-            })
-        })?;
-
-    // Extract user and password
-    let user = monitor.user.clone().unwrap_or_default();
-    let pass = monitor.pass.clone().unwrap_or_default();
-
-    // Extract host and port from the path field
-    let (host, port) = parse_host_port(&monitor.path)?;
-
-    // Get the actual RTSP URLs from the Path and SecondPath fields
-    let rtsp_url = monitor.path.clone();
-    let rtsp_url_secondary = monitor.second_path.clone();
-
-    Ok(MonitorStreamingDetails {
-        id: monitor.id,
-        name: monitor.name.clone(),
-        rtsp_url,
-        rtsp_url_secondary,
-        user,
-        pass,
-        host,
-        port,
-    })
-}
-
-/// Parse the host and port from a URL string
-fn parse_host_port(url_str: &Option<String>) -> AppResult<(String, u16)> {
-    let default_port = 80;
-
-    match url_str {
-        Some(url_string) if !url_string.is_empty() => {
-            // Try to parse as URL
-            match Url::parse(url_string) {
-                Ok(url) => {
-                    if let Some(host) = url.host_str() {
-                        let port = url.port().unwrap_or(default_port);
-                        Ok((host.to_string(), port))
-                    } else {
-                        // Handle inputs like "host:port" where Url::parse treated it as a scheme.
-                        if url_string.contains("://") {
-                            return Err(AppError::BadRequestError(
-                                "URL is missing host".to_string(),
-                            ));
-                        }
-                        if let Some((host, port_str)) = url_string.rsplit_once(':') {
-                            let port = port_str.parse::<u16>().map_err(|_| {
-                                AppError::BadRequestError("Invalid port number".to_string())
-                            })?;
-                            Ok((host.to_string(), port))
-                        } else {
-                            Ok((url_string.to_string(), default_port))
-                        }
-                    }
-                }
-                Err(_) => {
-                    // If URL parsing fails, try to extract host:port directly
-                    if let Some((host, port_str)) = url_string.rsplit_once(':') {
-                        let port = port_str.parse::<u16>().map_err(|_| {
-                            AppError::BadRequestError("Invalid port number".to_string())
-                        })?;
-                        Ok((host.to_string(), port))
-                    } else {
-                        // If no port, return host with default port
-                        Ok((url_string.to_string(), default_port))
-                    }
-                }
-            }
-        }
-        _ => Err(AppError::BadRequestError(
-            "Missing or empty URL".to_string(),
-        )),
-    }
-}
-
 pub async fn control_alarm(
     state: &AppState,
     id: u32,
@@ -920,38 +834,4 @@ pub async fn control_alarm(
 
     // Return the current monitor state from DB
     Ok(MonitorResponse::from(monitor_model))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_host_port_variants() {
-        // Host:port string
-        let hp = Some("host.local:9090".to_string());
-        let (h2, p2) = parse_host_port(&hp).unwrap();
-        assert_eq!(h2, "host.local");
-        assert_eq!(p2, 9090);
-
-        // Bare host
-        let host_only = Some("camera.lan".to_string());
-        let (h4, p4) = parse_host_port(&host_only).unwrap();
-        assert_eq!(h4, "camera.lan");
-        assert_eq!(p4, 80);
-
-        // Missing input
-        let none: Option<String> = None;
-        assert!(matches!(
-            parse_host_port(&none).err().unwrap(),
-            AppError::BadRequestError(_)
-        ));
-
-        // Invalid port
-        let bad_port = Some("camera.lan:notaport".to_string());
-        assert!(matches!(
-            parse_host_port(&bad_port).err().unwrap(),
-            AppError::BadRequestError(_)
-        ));
-    }
 }

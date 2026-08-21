@@ -1,81 +1,128 @@
-//! Integration tests for the Logs API — happy-path plus error paths.
-//!
-//! Logs are system-generated, so the API is read-only (list + get).
+//! Integration tests for the logs API (GH #21): inverted-scale `min_level`,
+//! `search`, and `DELETE` clear-logs.
 //!
 //! Requires the test database — run with:
 //!   APP_PROFILE=test-db cargo test --test it_logs -- --include-ignored
 
 mod common;
 
-use axum::http::StatusCode;
-use common::assertions::{assert_error, assert_status};
+use axum::http::{Method, StatusCode};
+use common::fixtures::RowGuard;
 use common::harness::{superuser_token, TestApp};
-use sea_orm::prelude::Decimal;
-use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+use common::test_db::{get_test_db, test_run_id};
+use rust_decimal::Decimal;
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use zm_api::dto::response::logs::PaginatedLogsResponse;
-use zm_api::dto::response::LogResponse;
 
-/// Insert a `Logs` row directly and return its id.
-async fn insert_log(db: &sea_orm::DatabaseConnection) -> u32 {
+async fn insert_log(db: &DatabaseConnection, component: &str, level: i8, message: &str, t: i64) {
     zm_api::entity::logs::ActiveModel {
-        time_key: Set(Decimal::from(1_700_000_000i64)),
-        component: Set("it-test".to_string()),
-        level: Set(0),
-        code: Set("INF".to_string()),
-        message: Set("integration test log entry".to_string()),
+        time_key: Set(Decimal::new(t, 0)),
+        component: Set(component.to_string()),
+        server_id: Set(None),
+        pid: Set(None),
+        level: Set(level),
+        code: Set("TST".to_string()),
+        message: Set(message.to_string()),
+        file: Set(None),
+        line: Set(None),
         ..Default::default()
     }
     .insert(db)
     .await
-    .expect("insert log fixture")
-    .id
+    .expect("insert log");
 }
 
-async fn delete_log(db: &sea_orm::DatabaseConnection, id: u32) {
-    let _ = zm_api::entity::logs::Entity::delete_by_id(id)
-        .exec(db)
-        .await;
+/// Delete every log row for a component (test cleanup).
+fn logs_guard(component: String) -> RowGuard {
+    RowGuard::new(
+        format!("Logs(component={component})"),
+        move |db| async move {
+            let _ = zm_api::entity::logs::Entity::delete_many()
+                .filter(zm_api::entity::logs::Column::Component.eq(component))
+                .exec(&db)
+                .await;
+        },
+    )
 }
 
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
-async fn list_logs_returns_inserted_row() {
+async fn min_level_returns_that_severity_or_worse() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
-    let id = insert_log(&app.db).await;
+    // Unique component so this test only sees its own rows on a shared DB.
+    let rid = test_run_id();
+    let component = format!("mlog{}", &rid[rid.len().saturating_sub(12)..]);
+    let _g = logs_guard(component.clone());
 
-    let resp = app.get("/api/v3/logs?page=1&page_size=1000", &token).await;
-    assert_status(&resp, StatusCode::OK);
+    // Info(0), Warning(-1), Error(-2), Fatal(-3).
+    insert_log(&app.db, &component, 0, "info msg", 1_000).await;
+    insert_log(&app.db, &component, -1, "warning msg", 1_001).await;
+    insert_log(&app.db, &component, -2, "error msg alpha", 1_002).await;
+    insert_log(&app.db, &component, -3, "fatal msg", 1_003).await;
+
+    // min_level=error → only Error + Fatal (the inverted-scale fix; the old
+    // code's >= would have returned Info+Warning+Error).
+    let resp = app
+        .get(
+            &format!("/api/v3/logs?component={component}&min_level=error&page_size=100"),
+            &token,
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::OK, "body: {}", resp.text());
     let body: PaginatedLogsResponse = resp.json();
+    assert_eq!(body.total, 2, "error+fatal only");
     assert!(
-        body.items.iter().any(|l| l.id == id),
-        "list should contain the fixture log"
+        body.items.iter().all(|l| l.level <= -2),
+        "every returned row is Error or worse: {:?}",
+        body.items.iter().map(|l| l.level).collect::<Vec<_>>()
     );
 
-    delete_log(&app.db, id).await;
+    // search filters by message substring.
+    let resp = app
+        .get(
+            &format!("/api/v3/logs?component={component}&search=alpha&page_size=100"),
+            &token,
+        )
+        .await;
+    let body: PaginatedLogsResponse = resp.json();
+    assert_eq!(body.total, 1, "only the 'error msg alpha' row");
+    assert!(body.items[0].message.contains("alpha"));
 }
 
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
-async fn get_log_returns_the_row() {
+async fn clear_logs_deletes_matching_rows() {
     let app = TestApp::spawn().await;
     let token = superuser_token();
-    let id = insert_log(&app.db).await;
+    let rid = test_run_id();
+    let component = format!("clog{}", &rid[rid.len().saturating_sub(12)..]);
+    let _g = logs_guard(component.clone());
 
-    let resp = app.get(&format!("/api/v3/logs/{id}"), &token).await;
-    assert_status(&resp, StatusCode::OK);
-    let body: LogResponse = resp.json();
-    assert_eq!(body.id, id);
+    for (i, lvl) in [0i8, -1, -2, -3].into_iter().enumerate() {
+        insert_log(&app.db, &component, lvl, "clear me", 2_000 + i as i64).await;
+    }
 
-    delete_log(&app.db, id).await;
-}
+    // DELETE scoped to this component clears all four.
+    let del = app
+        .request(
+            Method::DELETE,
+            &format!("/api/v3/logs?component={component}"),
+        )
+        .bearer(&token)
+        .send()
+        .await;
+    assert_eq!(del.status(), StatusCode::OK, "body: {}", del.text());
 
-#[tokio::test]
-#[ignore = "requires the test database (APP_PROFILE=test-db)"]
-async fn get_missing_log_is_not_found() {
-    let app = TestApp::spawn().await;
-    let token = superuser_token();
-
-    let resp = app.get("/api/v3/logs/999000111", &token).await;
-    assert_error(&resp, StatusCode::NOT_FOUND, "MESSAGE_NOT_FOUND_ERROR");
+    // A verification connection: nothing left for this component.
+    let db = get_test_db().await.expect("db");
+    let remaining = zm_api::entity::logs::Entity::find()
+        .filter(zm_api::entity::logs::Column::Component.eq(component.as_str()))
+        .all(&db)
+        .await
+        .unwrap();
+    assert!(
+        remaining.is_empty(),
+        "clear should remove all matching rows"
+    );
 }

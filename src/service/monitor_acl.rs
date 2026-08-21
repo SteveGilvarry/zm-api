@@ -26,7 +26,6 @@ use axum::middleware::Next;
 use axum::response::Response;
 use sea_orm::DatabaseConnection;
 
-use crate::constant::ACCESS_TOKEN_DECODE_KEY;
 use crate::entity::sea_orm_active_enums::Permission;
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
@@ -168,7 +167,7 @@ async fn resolve_from_request(
 ) -> AppResult<MonitorScope> {
     let token = extract_token(headers, uri)
         .ok_or_else(|| AppError::UnauthorizedError("Authentication required".to_string()))?;
-    let claims = UserClaims::decode(&token, &ACCESS_TOKEN_DECODE_KEY)
+    let claims = UserClaims::decode_access(&token)
         .map_err(|_| AppError::UnauthorizedError("Invalid token".to_string()))?
         .claims;
     resolve(state.db(), claims.uid).await

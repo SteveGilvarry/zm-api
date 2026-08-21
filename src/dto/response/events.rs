@@ -1,4 +1,3 @@
-use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -113,11 +112,9 @@ pub struct EventResponse {
 
 impl From<EventModel> for EventResponse {
     fn from(model: EventModel) -> Self {
-        // Helper closure to convert NaiveDateTime to DateTime<Utc>
-        let to_utc = |ndt: NaiveDateTime| -> DateTime<Utc> {
-            // Assuming NaiveDateTime is already in UTC
-            DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc)
-        };
+        // ZoneMinder stores DATETIME in server-local time; convert to true UTC
+        // (GH #16).
+        let to_utc = crate::util::naive_local_to_utc;
 
         Self {
             id: model.id,

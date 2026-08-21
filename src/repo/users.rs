@@ -99,6 +99,31 @@ pub async fn create(
     Ok(am.insert(db).await?)
 }
 
+/// Set a user's bcrypt password hash.
+pub async fn set_password(db: &DatabaseConnection, id: u32, hash: String) -> AppResult<()> {
+    use crate::entity::users::Column;
+    use sea_orm::sea_query::Expr;
+    Users::update_many()
+        .col_expr(Column::Password, Expr::value(hash))
+        .filter(Column::Id.eq(id))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
+/// Raise the user's token-revocation floor: tokens issued before `min_iat`
+/// (unix seconds) become invalid. Used by logout and password changes.
+pub async fn set_token_min_expiry(db: &DatabaseConnection, id: u32, min_iat: u64) -> AppResult<()> {
+    use crate::entity::users::Column;
+    use sea_orm::sea_query::Expr;
+    Users::update_many()
+        .col_expr(Column::TokenMinExpiry, Expr::value(min_iat))
+        .filter(Column::Id.eq(id))
+        .exec(db)
+        .await?;
+    Ok(())
+}
+
 pub async fn delete_by_id(db: &DatabaseConnection, id: u32) -> AppResult<bool> {
     use sea_orm::EntityTrait;
     let res = Users::delete_by_id(id).exec(db).await?;

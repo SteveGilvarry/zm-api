@@ -97,7 +97,8 @@ pub struct CreateMonitorRequest {
     pub notes: Option<String>,
     #[garde(skip)] // Option<u32> can be None, or we could validate if Some
     pub server_id: Option<u32>,
-    #[garde(range(min = 1))]
+    // 0 is ZoneMinder's sentinel for the default storage (GH #19).
+    #[garde(range(min = 0))]
     pub storage_id: u16,
     #[garde(skip)] // Option<u32> can be None
     pub manufacturer_id: Option<u32>,
@@ -286,9 +287,11 @@ pub struct CreateMonitorRequest {
     #[garde(skip)] // Option<String> can be None
     pub encoder: Option<String>,
 
+    // Nullable so a monitor whose stored OutputContainer is NULL round-trips
+    // GET → POST without a 422 (GH #18).
     #[serde(rename = "output_container")]
     #[garde(skip)]
-    pub output_container: OutputContainer,
+    pub output_container: Option<OutputContainer>,
 
     #[garde(skip)] // Option<String> can be None
     pub encoder_parameters: Option<String>,
@@ -303,16 +306,17 @@ pub struct CreateMonitorRequest {
     #[garde(skip)] // Option<u8> can be None
     pub rtsp_describe: Option<u8>,
 
-    #[garde(range(min = 0, max = i32::MAX))]
+    // -1 is ZoneMinder's "leave the camera setting alone" sentinel (GH #19).
+    #[garde(range(min = -1, max = i32::MAX))]
     pub brightness: i32,
 
-    #[garde(range(min = 0, max = i32::MAX))] // Validate range
+    #[garde(range(min = -1, max = i32::MAX))]
     pub contrast: i32,
 
-    #[garde(range(min = 0, max = i32::MAX))]
+    #[garde(range(min = -1, max = i32::MAX))]
     pub hue: i32,
 
-    #[garde(range(min = 0, max = i32::MAX))]
+    #[garde(range(min = -1, max = i32::MAX))]
     pub colour: i32,
 
     #[garde(length(min = 0))] // Empty string is valid
@@ -333,7 +337,8 @@ pub struct CreateMonitorRequest {
     #[garde(range(min = 1))]
     pub image_buffer_count: u16,
 
-    #[garde(range(min = 1))]
+    // 0 means unlimited in ZoneMinder (GH #19).
+    #[garde(range(min = 0))]
     pub max_image_buffer_count: u16,
 
     #[garde(skip)] // u16 doesn't need validation in this case
@@ -345,7 +350,7 @@ pub struct CreateMonitorRequest {
     #[garde(skip)] // u16 doesn't need validation in this case
     pub post_event_count: u16,
 
-    #[garde(range(min = 1))]
+    #[garde(range(min = 0))]
     pub stream_replay_buffer: u32,
 
     #[garde(range(min = 1))]
@@ -566,7 +571,7 @@ impl Default for CreateMonitorRequest {
             video_writer: 1,
             output_codec: None,
             encoder: None,
-            output_container: OutputContainer::Auto,
+            output_container: Some(OutputContainer::Auto),
             encoder_parameters: None,
             record_audio: 1,
             recording_source: RecordingSource::Primary,
@@ -642,8 +647,9 @@ pub struct UpdateMonitorRequest {
     #[garde(length(min = 1, max = 64))]
     pub name: Option<String>,
 
-    #[garde(range(min = 0, max = 1))]
-    pub deleted: Option<i8>,
+    // Boolean to match CreateMonitorRequest and MonitorResponse (GH #18).
+    #[garde(skip)]
+    pub deleted: Option<bool>,
 
     #[garde(skip)]
     pub notes: Option<String>,
@@ -651,7 +657,8 @@ pub struct UpdateMonitorRequest {
     #[garde(skip)]
     pub server_id: Option<u32>,
 
-    #[garde(range(min = 1))]
+    // 0 = ZoneMinder default storage (GH #19).
+    #[garde(range(min = 0))]
     pub storage_id: Option<u16>,
 
     #[garde(skip)]
@@ -850,16 +857,16 @@ pub struct UpdateMonitorRequest {
     #[garde(skip)]
     pub rtsp_describe: Option<u8>,
 
-    #[garde(range(min = 0, max = i32::MAX))]
+    #[garde(range(min = -1, max = i32::MAX))]
     pub brightness: Option<i32>,
 
-    #[garde(range(min = 0, max = i32::MAX))]
+    #[garde(range(min = -1, max = i32::MAX))]
     pub contrast: Option<i32>,
 
-    #[garde(range(min = 0, max = i32::MAX))]
+    #[garde(range(min = -1, max = i32::MAX))]
     pub hue: Option<i32>,
 
-    #[garde(range(min = 0, max = i32::MAX))]
+    #[garde(range(min = -1, max = i32::MAX))]
     pub colour: Option<i32>,
 
     #[garde(length(min = 0))]
@@ -880,7 +887,8 @@ pub struct UpdateMonitorRequest {
     #[garde(range(min = 1))]
     pub image_buffer_count: Option<u16>,
 
-    #[garde(range(min = 1))]
+    // 0 = unlimited (GH #19).
+    #[garde(range(min = 0))]
     pub max_image_buffer_count: Option<u16>,
 
     #[garde(skip)]
@@ -892,7 +900,7 @@ pub struct UpdateMonitorRequest {
     #[garde(skip)]
     pub post_event_count: Option<u16>,
 
-    #[garde(range(min = 1))]
+    #[garde(range(min = 0))]
     pub stream_replay_buffer: Option<u32>,
 
     #[garde(range(min = 1))]

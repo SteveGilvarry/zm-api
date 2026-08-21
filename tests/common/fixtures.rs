@@ -23,7 +23,10 @@ use zm_api::entity::monitors::{ActiveModel as MonitorActiveModel, Model as Monit
 use zm_api::entity::monitors_permissions::{
     ActiveModel as MonitorPermActiveModel, Column as MonitorPermColumn, Entity as MonitorPermEntity,
 };
-use zm_api::entity::sea_orm_active_enums::{DeviceType, Permission};
+use zm_api::entity::sea_orm_active_enums::{DeviceType, Permission, Scheme, StorageType};
+use zm_api::entity::storage::{
+    ActiveModel as StorageActiveModel, Entity as StorageEntity, Model as StorageModel,
+};
 use zm_api::entity::users::{ActiveModel as UserActiveModel, Entity as UserEntity};
 
 use super::test_db::{cleanup_by_prefix, get_test_db, test_prefix};
@@ -69,6 +72,33 @@ pub async fn insert_monitor(db: &DatabaseConnection, label: &str) -> Result<Moni
     }
     .insert(db)
     .await
+}
+
+/// Insert a `Storage` row rooted at `path` with the given directory `scheme`.
+/// The id is auto-assigned; guard cleanup with `RowGuard::storage(model.id)`.
+pub async fn insert_storage(
+    db: &DatabaseConnection,
+    label: &str,
+    path: &str,
+    scheme: Scheme,
+) -> Result<StorageModel, DbErr> {
+    StorageActiveModel {
+        path: Set(path.to_string()),
+        name: Set(unique_name(label)),
+        r#type: Set(StorageType::Local),
+        scheme: Set(scheme),
+        do_delete: Set(1),
+        enabled: Set(1),
+        ..Default::default()
+    }
+    .insert(db)
+    .await
+}
+
+/// Delete a `Storage` row by id (retention/delete test cleanup).
+pub async fn delete_storage(db: &DatabaseConnection, id: u16) -> Result<(), DbErr> {
+    StorageEntity::delete_by_id(id).exec(db).await?;
+    Ok(())
 }
 
 /// Insert a `Users` row with an explicit id.

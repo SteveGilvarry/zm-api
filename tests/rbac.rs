@@ -135,15 +135,20 @@ async fn monitors_edit_alone_cannot_grant_monitor_permissions() {
 
 #[tokio::test]
 async fn state_change_requires_system_edit() {
-    // POST /api/v3/states/change/{action} invokes `systemctl restart` on
+    // POST /api/v3/server/control/{action} invokes `systemctl restart` on
     // zoneminder. Any token-holder must not be able to trigger it; require
     // System:Edit even though Monitors:Edit is the "biggest" feature most
-    // operators carry.
+    // operators carry. Both the canonical path and the deprecated
+    // `/states/change` alias must enforce it.
     let perms = UserPermissions {
         monitors: Level::Edit,
         ..UserPermissions::default()
     };
     let t = token(perms);
+    assert_eq!(
+        status("POST", "/api/v3/server/control/restart", Some(&t)).await,
+        StatusCode::FORBIDDEN
+    );
     assert_eq!(
         status("POST", "/api/v3/states/change/restart", Some(&t)).await,
         StatusCode::FORBIDDEN

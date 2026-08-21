@@ -133,7 +133,14 @@ impl From<bcrypt::BcryptError> for AppError {
 impl AppError {
     pub fn response(self) -> (StatusCode, AppResponseError) {
         use AppError::*;
-        let message = self.to_string();
+        let mut message = self.to_string();
+        // Raw SeaORM/sqlx error text can leak SQL fragments, table and column
+        // names, and connection details. Log the detail server-side but return
+        // a generic message to the client.
+        if let DatabaseError(err) = &self {
+            tracing::error!("database error: {err}");
+            message = "A database error occurred".to_string();
+        }
         let (kind, code, details, status_code) = match self {
             InvalidPayloadError(_err) => (
                 "INVALID_PAYLOAD_ERROR".to_string(),
@@ -502,5 +509,19 @@ mod tests {
     fn invalid_session_error_maps_to_401() {
         let (status, _) = AppError::InvalidSessionError("nope".into()).response();
         assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    /// Raw SeaORM/sqlx error text must not reach the client: the response
+    /// message is generic even though the underlying error names a column.
+    #[test]
+    fn database_error_message_is_generic() {
+        let err = AppError::DatabaseError(sea_orm::error::DbErr::Custom(
+            "column Users.Password does not exist".into(),
+        ));
+        let (status, body) = err.response();
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body.error_message, "A database error occurred");
+        assert!(!body.error_message.contains("Password"));
+        assert!(!body.error_message.contains("column"));
     }
 }

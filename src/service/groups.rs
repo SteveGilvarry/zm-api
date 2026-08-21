@@ -45,14 +45,56 @@ pub async fn update(
     state: &AppState,
     id: u32,
     name: Option<String>,
+    parent_id: Option<Option<u32>>,
     scope: &GroupScope,
 ) -> AppResult<GroupResponse> {
     if !scope.allows(id, Level::Edit) {
         return Err(not_found(id));
     }
-    let item = repo::groups::update(state.db(), id, name).await?;
+    // Re-parenting to a real group must not form a cycle or self-parent.
+    if let Some(Some(new_parent)) = parent_id {
+        validate_new_parent(state, id, new_parent).await?;
+    }
+    let item = repo::groups::update(state.db(), id, name, parent_id).await?;
     let item = item.ok_or_else(|| not_found(id))?;
     Ok(GroupResponse::from(&item))
+}
+
+/// Reject re-parenting `id` under `new_parent` when it would self-parent, name
+/// a non-existent parent, or create a cycle (i.e. `id` is already an ancestor
+/// of `new_parent`).
+async fn validate_new_parent(state: &AppState, id: u32, new_parent: u32) -> AppResult<()> {
+    if new_parent == id {
+        return Err(AppError::BadRequestError(
+            "a group cannot be its own parent".to_string(),
+        ));
+    }
+    // Walk up from the proposed parent; if we reach `id`, this would cycle.
+    let mut cursor = Some(new_parent);
+    let mut hops = 0u32;
+    while let Some(pid) = cursor {
+        if pid == id {
+            return Err(AppError::BadRequestError(
+                "re-parenting would create a cycle in the group hierarchy".to_string(),
+            ));
+        }
+        match repo::groups::find_by_id(state.db(), pid).await? {
+            Some(model) => cursor = model.parent_id,
+            None => {
+                if pid == new_parent {
+                    return Err(AppError::BadRequestError(format!(
+                        "parent group {new_parent} does not exist"
+                    )));
+                }
+                break; // a dangling ancestor link; not our concern here
+            }
+        }
+        hops += 1;
+        if hops > 10_000 {
+            break; // defensive: never loop forever on corrupt data
+        }
+    }
+    Ok(())
 }
 
 pub async fn create(
@@ -87,6 +129,45 @@ mod tests {
             name: name.into(),
             parent_id: None,
         }
+    }
+
+    #[tokio::test]
+    async fn update_rejects_self_parenting() {
+        // No query needed: self-parent is caught before any DB lookup.
+        let db = MockDatabase::new(DatabaseBackend::MySql).into_connection();
+        let state = AppState::for_test_with_db(db);
+        let err = update(&state, 5, None, Some(Some(5)), &GroupScope::All)
+            .await
+            .expect_err("a group cannot be its own parent");
+        assert!(matches!(err, AppError::BadRequestError(_)), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn update_rejects_reparent_cycle() {
+        // Re-parent group 5 under group 10, whose parent is already 5 → cycle.
+        let mut g10 = mk_group(10, "g10");
+        g10.parent_id = Some(5);
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<GroupModel, _, _>(vec![vec![g10]])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let err = update(&state, 5, None, Some(Some(10)), &GroupScope::All)
+            .await
+            .expect_err("re-parenting into a cycle must be rejected");
+        assert!(matches!(err, AppError::BadRequestError(_)), "got {err:?}");
+    }
+
+    #[tokio::test]
+    async fn update_rejects_nonexistent_parent() {
+        let empty: Vec<GroupModel> = vec![];
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<GroupModel, _, _>(vec![empty])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let err = update(&state, 5, None, Some(Some(999)), &GroupScope::All)
+            .await
+            .expect_err("re-parenting under a missing group must be rejected");
+        assert!(matches!(err, AppError::BadRequestError(_)), "got {err:?}");
     }
 
     #[tokio::test]
@@ -142,7 +223,7 @@ mod tests {
             .into_connection();
         let state_ok = AppState::for_test_with_db(db_ok);
         assert_eq!(
-            update(&state_ok, 3, Some("new".into()), &GroupScope::All)
+            update(&state_ok, 3, Some("new".into()), None, &GroupScope::All)
                 .await
                 .unwrap()
                 .name,
@@ -155,7 +236,7 @@ mod tests {
             .into_connection();
         let state_none = AppState::for_test_with_db(db_none);
         assert!(matches!(
-            update(&state_none, 3, Some("x".into()), &GroupScope::All)
+            update(&state_none, 3, Some("x".into()), None, &GroupScope::All)
                 .await
                 .err()
                 .unwrap(),

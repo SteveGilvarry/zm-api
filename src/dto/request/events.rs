@@ -26,6 +26,16 @@ pub enum EventSortField {
     Length,
     /// Sort by event ID
     Id,
+    /// Sort by event name
+    Name,
+    /// Sort by cause
+    Cause,
+    /// Sort by monitor id
+    MonitorId,
+    /// Sort by notes
+    Notes,
+    /// Sort by total frame count
+    Frames,
 }
 
 /// Sort direction
@@ -80,6 +90,27 @@ pub struct EventQueryParams {
     #[schema(example = "true")]
     #[garde(skip)]
     pub archived: Option<bool>,
+
+    /// Case-insensitive substring match on the event cause.
+    #[schema(example = "Motion")]
+    #[garde(skip)]
+    pub cause: Option<String>,
+
+    /// Case-insensitive substring match on the event name.
+    #[schema(example = "Front")]
+    #[garde(skip)]
+    pub name: Option<String>,
+
+    /// Case-insensitive substring match on the event notes.
+    #[garde(skip)]
+    pub notes: Option<String>,
+
+    /// Filter to events carrying any of these tag ids (comma-separated, e.g.
+    /// `tag_id=1,4,5`). Standard query strings can't repeat a key into a list,
+    /// so a comma-separated value is used.
+    #[schema(example = "1,4")]
+    #[garde(skip)]
+    pub tag_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]

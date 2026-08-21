@@ -18,12 +18,26 @@ use serde::Deserialize;
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use crate::constant::ACCESS_TOKEN_DECODE_KEY;
+use crate::constant::{ACCESS_TOKEN_DECODE_KEY, REFRESH_TOKEN_DECODE_KEY};
 use crate::error::{AppError, AppResult};
 use crate::util::authz::UserPermissions;
 
 pub static DECODE_HEADER: Lazy<Validation> = Lazy::new(|| Validation::new(Algorithm::RS256));
 pub static ENCODE_HEADER: Lazy<Header> = Lazy::new(|| Header::new(Algorithm::RS256));
+
+/// Which of the two token kinds a JWT is. Access and refresh tokens are
+/// otherwise structurally identical `UserClaims`, separated only by the key
+/// pair that signs them; `typ` makes the distinction explicit so a
+/// misconfiguration that pointed both key paths at the same pair could not
+/// silently let a refresh token act as an access token (or vice versa).
+#[derive(
+    Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Dummy, ToSchema,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum TokenType {
+    Access,
+    Refresh,
+}
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Clone, Dummy, ToSchema)]
 pub struct UserClaims {
@@ -31,6 +45,9 @@ pub struct UserClaims {
     pub iat: i64,
     // expiration
     pub exp: i64,
+    // token kind — asserted on decode so access and refresh tokens are not
+    // interchangeable even if the signing keys were ever misconfigured.
+    pub typ: TokenType,
     // username
     pub user: String,
     // numeric user id, used to resolve row-level monitor ACLs. Required at
@@ -47,11 +64,18 @@ pub struct UserClaims {
 }
 
 impl UserClaims {
-    pub fn new(duration: Duration, username: String, user_id: u32, perms: UserPermissions) -> Self {
+    pub fn new(
+        duration: Duration,
+        username: String,
+        user_id: u32,
+        perms: UserPermissions,
+        typ: TokenType,
+    ) -> Self {
         let now = Utc::now().timestamp();
         Self {
             iat: now,
             exp: now + (duration.as_secs() as i64),
+            typ,
             user: username,
             uid: user_id,
             perms,
@@ -63,6 +87,27 @@ impl UserClaims {
         key: &DecodingKey,
     ) -> Result<TokenData<Self>, jsonwebtoken::errors::Error> {
         jsonwebtoken::decode::<UserClaims>(token, key, &DECODE_HEADER)
+    }
+
+    /// Decode and validate an **access** token against the access key, then
+    /// assert its `typ` is [`TokenType::Access`]. A refresh token presented
+    /// here is rejected as `InvalidToken`.
+    pub fn decode_access(token: &str) -> Result<TokenData<Self>, jsonwebtoken::errors::Error> {
+        let data = Self::decode(token, &ACCESS_TOKEN_DECODE_KEY)?;
+        if data.claims.typ != TokenType::Access {
+            return Err(jsonwebtoken::errors::ErrorKind::InvalidToken.into());
+        }
+        Ok(data)
+    }
+
+    /// Decode and validate a **refresh** token against the refresh key, then
+    /// assert its `typ` is [`TokenType::Refresh`].
+    pub fn decode_refresh(token: &str) -> Result<TokenData<Self>, jsonwebtoken::errors::Error> {
+        let data = Self::decode(token, &REFRESH_TOKEN_DECODE_KEY)?;
+        if data.claims.typ != TokenType::Refresh {
+            return Err(jsonwebtoken::errors::ErrorKind::InvalidToken.into());
+        }
+        Ok(data)
     }
 
     pub fn encode(&self, key: &EncodingKey) -> Result<String, jsonwebtoken::errors::Error> {
@@ -101,7 +146,7 @@ where
         let TypedHeader(Authorization(bearer)) = parts
             .extract::<TypedHeader<Authorization<Bearer>>>()
             .await?;
-        let user_claims = UserClaims::decode(bearer.token(), &ACCESS_TOKEN_DECODE_KEY)?.claims;
+        let user_claims = UserClaims::decode_access(bearer.token())?.claims;
         Ok(user_claims)
     }
 }
@@ -122,6 +167,7 @@ mod tests {
             username,
             42,
             UserPermissions::superuser(),
+            TokenType::Access,
         );
         // println!(
         //     "private key: {}",

@@ -59,6 +59,20 @@ impl TestApp {
         }
     }
 
+    /// Build the production router from a caller-supplied state — for tests
+    /// that pre-seed state (token revocations, custom mock query/exec
+    /// results) before wiring the router. The `db` fixture handle is a
+    /// detached mock and must not be queried.
+    pub fn from_state(state: AppState) -> Self {
+        use sea_orm::{DatabaseBackend, MockDatabase};
+        let fixture_db = MockDatabase::new(DatabaseBackend::MySql).into_connection();
+        let router = zm_api::routes::create_router_app(state);
+        Self {
+            db: fixture_db,
+            router,
+        }
+    }
+
     /// Begin building a request. The router is cloned per call so a single
     /// `TestApp` can serve any number of requests.
     pub fn request(&self, method: Method, path: &str) -> TestRequest {
@@ -153,6 +167,14 @@ impl TestRequest {
             };
             builder = builder.header(header::AUTHORIZATION, value);
         }
+        // Production serves with `into_make_service_with_connect_info`, so every
+        // real request carries a `ConnectInfo<SocketAddr>`. The rate-limit layer
+        // on the auth routes reads it (peer-IP keying), so inject a default here
+        // to mirror production; without it the limiter fails to extract a key.
+        builder = builder.extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+            [127, 0, 0, 1],
+            50000,
+        ))));
         let body = match self.body {
             Some((bytes, content_type)) => {
                 builder = builder.header(header::CONTENT_TYPE, content_type);

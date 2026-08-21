@@ -8,8 +8,11 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: test_root_pass
       MYSQL_DATABASE: zm_test
-      MYSQL_USER: zm_test_user
-      MYSQL_PASSWORD: zm_test_pass
+      # Match tests/common/test_db.rs's fallback URL
+      # (mysql://zmuser:zmpass@127.0.0.1:3307/zm_test) so `docker compose up`
+      # + the default test connection work without setting TEST_DATABASE_URL.
+      MYSQL_USER: zmuser
+      MYSQL_PASSWORD: zmpass
     ports:
       - "3307:3306"
     volumes:

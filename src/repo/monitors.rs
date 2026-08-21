@@ -138,19 +138,6 @@ where
     Ok(())
 }
 
-/// Get streaming details for a monitor
-#[tracing::instrument(skip_all)]
-pub async fn get_streaming_details<C>(
-    conn: &C,
-    id: u32,
-) -> AppResult<Option<entity::monitors::Model>>
-where
-    C: ConnectionTrait,
-{
-    let monitor = entity::monitors::Entity::find_by_id(id).one(conn).await?;
-    Ok(monitor)
-}
-
 /// Read a monitor's `UseZmNext` flag.
 ///
 /// Deliberately a standalone raw query rather than a column on the generated

@@ -8,7 +8,7 @@ use utoipa::ToSchema;
 pub struct MonitorResponse {
     pub id: u32,
     pub name: String,
-    pub deleted: i8,
+    pub deleted: bool,
     pub notes: Option<String>,
     pub server_id: Option<u32>,
     pub storage_id: u16,
@@ -34,7 +34,8 @@ pub struct MonitorResponse {
     pub onvif_url: String,
     pub onvif_events_path: String,
     pub onvif_username: String,
-    pub onvif_password: String,
+    // The camera's ONVIF password is deliberately absent: read access to a
+    // monitor must not hand out credentials for the camera itself.
     pub onvif_options: String,
     pub onvif_event_listener: i8,
     pub onvif_alarm_text: Option<String>,
@@ -53,7 +54,8 @@ pub struct MonitorResponse {
     pub second_path: Option<String>,
     pub options: Option<String>,
     pub user: Option<String>,
-    pub pass: Option<String>,
+    // The camera's RTSP password (`pass`) is deliberately absent — see
+    // `onvif_password` above.
     pub width: u16,
     pub height: u16,
     pub colours: u8,
@@ -136,24 +138,35 @@ pub struct MonitorResponse {
     pub recording: String,
 }
 
+/// Serialize a ZoneMinder DB enum to the variant-name form the request DTOs
+/// accept (e.g. `Rotate90`, `System`, `Auto`), not the SCREAMING DB value that
+/// `.to_string()` yields (`ROTATE_90`, `system`). Keeps GET → POST round trips
+/// (clone / import) from 422ing on the casing mismatch (GH #18).
+fn enum_str<T: serde::Serialize>(v: &T) -> String {
+    match serde_json::to_value(v) {
+        Ok(serde_json::Value::String(s)) => s,
+        other => other.map(|o| o.to_string()).unwrap_or_default(),
+    }
+}
+
 impl From<monitors::Model> for MonitorResponse {
     fn from(model: monitors::Model) -> Self {
         Self {
             id: model.id,
             name: model.name,
-            deleted: model.deleted,
+            deleted: model.deleted != 0,
             notes: model.notes,
             server_id: model.server_id,
             storage_id: model.storage_id.unwrap_or(0),
             manufacturer_id: model.manufacturer_id,
             model_id: model.model_id,
-            r#type: model.r#type.to_string(),
-            function: model.function.to_string(),
-            capturing: model.capturing.to_string(),
+            r#type: enum_str(&model.r#type),
+            function: enum_str(&model.function),
+            capturing: enum_str(&model.capturing),
             decoding_enabled: model.decoding_enabled,
-            decoding: model.decoding.to_string(),
+            decoding: enum_str(&model.decoding),
             rtsp2_web_enabled: model.rtsp2_web_enabled,
-            rtsp2_web_type: model.rtsp2_web_type.to_string(),
+            rtsp2_web_type: enum_str(&model.rtsp2_web_type),
             janus_enabled: model.janus_enabled,
             janus_audio_enabled: model.janus_audio_enabled,
             janus_profile_override: Some(model.janus_profile_override),
@@ -167,7 +180,6 @@ impl From<monitors::Model> for MonitorResponse {
             onvif_url: model.onvif_url,
             onvif_events_path: model.onvif_events_path,
             onvif_username: model.onvif_username,
-            onvif_password: model.onvif_password,
             onvif_options: model.onvif_options,
             onvif_event_listener: model.onvif_event_listener,
             onvif_alarm_text: model.onvif_alarm_text,
@@ -186,12 +198,11 @@ impl From<monitors::Model> for MonitorResponse {
             second_path: model.second_path,
             options: model.options,
             user: model.user,
-            pass: model.pass,
             width: model.width,
             height: model.height,
             colours: model.colours,
             palette: model.palette,
-            orientation: model.orientation.to_string(),
+            orientation: enum_str(&model.orientation),
             deinterlacing: model.deinterlacing,
             decoder: model.decoder,
             decoder_hw_accel_name: model.decoder_hw_accel_name,
@@ -200,10 +211,10 @@ impl From<monitors::Model> for MonitorResponse {
             video_writer: model.video_writer,
             output_codec: Some(model.output_codec),
             encoder: model.encoder,
-            output_container: model.output_container.map(|c| c.to_string()),
+            output_container: model.output_container.as_ref().map(enum_str),
             encoder_parameters: model.encoder_parameters,
             record_audio: model.record_audio,
-            recording_source: model.recording_source.to_string(),
+            recording_source: enum_str(&model.recording_source),
             rtsp_describe: model.rtsp_describe,
             brightness: model.brightness,
             contrast: model.contrast,
@@ -223,7 +234,7 @@ impl From<monitors::Model> for MonitorResponse {
             alarm_frame_count: model.alarm_frame_count,
             section_length: model.section_length,
             section_length_warn: model.section_length_warn,
-            event_close_mode: model.event_close_mode.to_string(),
+            event_close_mode: enum_str(&model.event_close_mode),
             min_section_length: model.min_section_length,
             frame_skip: model.frame_skip,
             motion_frame_skip: model.motion_frame_skip,
@@ -246,7 +257,7 @@ impl From<monitors::Model> for MonitorResponse {
             modect_during_ptz: model.modect_during_ptz,
             default_rate: model.default_rate,
             default_scale: model.default_scale.to_string(),
-            default_codec: model.default_codec.to_string(),
+            default_codec: enum_str(&model.default_codec),
             signal_check_points: model.signal_check_points,
             signal_check_colour: model.signal_check_colour,
             web_colour: model.web_colour,
@@ -259,14 +270,51 @@ impl From<monitors::Model> for MonitorResponse {
             rtsp_server: model.rtsp_server,
             rtsp_stream_name: model.rtsp_stream_name,
             soap_wsa_compl: model.soap_wsa_compl,
-            importance: model.importance.to_string(),
+            importance: enum_str(&model.importance),
             mqtt_enabled: model.mqtt_enabled,
             mqtt_subscriptions: model.mqtt_subscriptions.unwrap_or_default(),
             startup_delay: model.startup_delay,
-            analysing: model.analysing.to_string(),
-            analysis_source: model.analysis_source.to_string(),
-            analysis_image: model.analysis_image.to_string(),
-            recording: model.recording.to_string(),
+            analysing: enum_str(&model.analysing),
+            analysis_source: enum_str(&model.analysis_source),
+            analysis_image: enum_str(&model.analysis_image),
+            recording: enum_str(&model.recording),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fake::{Fake, Faker};
+
+    /// Read access to a monitor must never expose the camera's own
+    /// credentials: the serialized response has no password-bearing keys.
+    #[test]
+    fn monitor_response_never_serializes_camera_credentials() {
+        let resp: MonitorResponse = Faker.fake();
+        let json = serde_json::to_value(&resp).unwrap();
+        let obj = json.as_object().unwrap();
+        assert!(!obj.contains_key("pass"));
+        assert!(!obj.contains_key("onvif_password"));
+    }
+
+    /// GH #18: `enum_str` emits the request-accepted variant name (not the
+    /// SCREAMING DB value), and that string deserializes straight back into the
+    /// request enum — so a GET → POST round trip does not 422 on casing.
+    #[test]
+    fn enum_str_round_trips_into_request_enums() {
+        use crate::entity::sea_orm_active_enums::{
+            DefaultCodec, EventCloseMode, Orientation, Rtsp2WebType,
+        };
+
+        assert_eq!(enum_str(&Orientation::Rotate90), "Rotate90");
+        assert_eq!(enum_str(&EventCloseMode::System), "System");
+        assert_eq!(enum_str(&DefaultCodec::Auto), "Auto");
+        assert_eq!(enum_str(&Rtsp2WebType::WebRtc), "WebRtc");
+
+        // The emitted string parses back into the same request enum.
+        let s = enum_str(&Orientation::Rotate90);
+        let back: Orientation = serde_json::from_value(serde_json::Value::String(s)).unwrap();
+        assert_eq!(back, Orientation::Rotate90);
     }
 }

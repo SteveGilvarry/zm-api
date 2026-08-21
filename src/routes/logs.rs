@@ -6,7 +6,10 @@ use axum::{middleware, routing::get, Router};
 pub fn add_log_routes(router: Router<AppState>) -> Router<AppState> {
     let api_prefix = "/api/v3";
     let protected = Router::new()
-        .route(&format!("{}/logs", api_prefix), get(logs::list_logs))
+        .route(
+            &format!("{}/logs", api_prefix),
+            get(logs::list_logs).delete(logs::clear_logs),
+        )
         .route(&format!("{}/logs/{{id}}", api_prefix), get(logs::get_log))
         .layer(middleware::from_fn(auth_middleware));
     router.merge(protected)

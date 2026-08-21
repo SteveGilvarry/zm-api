@@ -16,20 +16,16 @@
 //! to reclaim) rather than an orphan *row* (shows as broken playback).
 
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use sea_orm::{
-    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, ModelTrait, QueryFilter,
-    QueryOrder, TransactionTrait,
+    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder,
 };
 use tracing::{info, warn};
 
 use crate::configure::retention::RetentionConfig;
-use crate::entity::sea_orm_active_enums::Scheme;
-use crate::entity::{
-    events, events_archived, events_day, events_hour, events_month, events_week, frames, storage,
-};
+use crate::entity::{events, storage};
 
 pub struct RetentionService {
     db: Arc<DatabaseConnection>,
@@ -93,6 +89,21 @@ impl RetentionService {
             }
         }
         Ok(())
+    }
+
+    /// Reap a single storage in isolation and report how many events were
+    /// deleted (or would be, under `dry_run`). Exposed for integration tests
+    /// and targeted manual runs so a caller can exercise one storage without
+    /// touching every other storage the way [`reap_once`](Self::reap_once)
+    /// does. `is_default` mirrors the default-storage sentinel matching in
+    /// `reap_once` (events with `StorageId` 0 / NULL belong to the lowest-id
+    /// storage).
+    pub async fn reap_storage_once(
+        &self,
+        st: &storage::Model,
+        is_default: bool,
+    ) -> Result<usize, DbErr> {
+        Ok(self.reap_storage(st, is_default).await?.deleted)
     }
 
     async fn reap_storage(
@@ -186,79 +197,18 @@ impl RetentionService {
 
     /// Delete one event: DB rows in a transaction, then its on-disk directory.
     async fn delete_event(&self, ev: &events::Model, st: &storage::Model) -> Result<(), DbErr> {
-        let dir = event_dir(st, ev);
-
-        let txn = self.db.begin().await?;
-        // No FK cascade covers these (only Snapshots_Events / Events_Tags do),
-        // so delete the children explicitly before the parent.
-        frames::Entity::delete_many()
-            .filter(frames::Column::EventId.eq(ev.id))
-            .exec(&txn)
-            .await?;
-        events_hour::Entity::delete_many()
-            .filter(events_hour::Column::EventId.eq(ev.id))
-            .exec(&txn)
-            .await?;
-        events_day::Entity::delete_many()
-            .filter(events_day::Column::EventId.eq(ev.id))
-            .exec(&txn)
-            .await?;
-        events_week::Entity::delete_many()
-            .filter(events_week::Column::EventId.eq(ev.id))
-            .exec(&txn)
-            .await?;
-        events_month::Entity::delete_many()
-            .filter(events_month::Column::EventId.eq(ev.id))
-            .exec(&txn)
-            .await?;
-        events_archived::Entity::delete_many()
-            .filter(events_archived::Column::EventId.eq(ev.id))
-            .exec(&txn)
-            .await?;
-        // Cascades Snapshots_Events + Events_Tags via their FKs.
-        ev.clone().delete(&txn).await?;
-        txn.commit().await?;
-
-        // Files last: an orphan file is reclaimable; an orphan row is not.
-        if let Some(dir) = dir {
-            if dir.exists() {
-                if let Err(e) = std::fs::remove_dir_all(&dir) {
-                    warn!(
-                        "retention: removed DB rows for event {} but failed to remove {}: {e}",
-                        ev.id,
-                        dir.display()
-                    );
-                }
-            }
-        }
+        // DB rows first (children + event in one transaction); files last, so a
+        // crash orphans a reclaimable file rather than a broken-playback row.
+        // Both the delete and the media removal are shared with the interactive
+        // `DELETE /events/{id}` path so the two can never diverge.
+        crate::repo::events::delete_with_children(self.db.as_ref(), ev.id).await?;
+        crate::service::event_storage::remove_event_dir(&st.path, ev).await;
         Ok(())
     }
 }
 
 const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
 const MIB: f64 = 1024.0 * 1024.0;
-
-/// Resolve an event's on-disk directory under its storage, honouring the
-/// storage `Scheme` (zm-next writes `Medium`). Returns `None` if the resolved
-/// path would escape the storage root.
-fn event_dir(st: &storage::Model, ev: &events::Model) -> Option<PathBuf> {
-    let root = PathBuf::from(&st.path);
-    let base = root.join(ev.monitor_id.to_string());
-    let dir = match (&st.scheme, ev.start_date_time) {
-        (Scheme::Medium, Some(dt)) => base
-            .join(dt.format("%Y-%m-%d").to_string())
-            .join(ev.id.to_string()),
-        (Scheme::Deep, Some(dt)) => base.join(dt.format("%y/%m/%d/%H/%M/%S").to_string()),
-        // Shallow, or anything without a start time.
-        _ => base.join(ev.id.to_string()),
-    };
-    // Defensive: never rm outside the storage root.
-    if dir.starts_with(&root) {
-        Some(dir)
-    } else {
-        None
-    }
-}
 
 /// `(total_bytes, available_bytes)` for the filesystem holding `path`.
 fn fs_total_avail(path: &str) -> Option<(u64, u64)> {

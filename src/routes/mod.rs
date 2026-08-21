@@ -1,16 +1,16 @@
 use crate::handlers::openapi::ApiDoc;
 use crate::server::state::AppState;
 use crate::util::authz;
-use axum::extract::{DefaultBodyLimit, MatchedPath};
+use axum::extract::DefaultBodyLimit;
 use axum::{
     http::{header, HeaderName, HeaderValue, Method},
     routing::any,
     Router,
 };
 use tower::ServiceBuilder;
-use tower_governor::{
-    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
-};
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+
+use crate::util::rate_limit::IpKeyExtractor;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -65,9 +65,28 @@ pub mod users; // Users
 pub mod zone_presets; // Zone Presets
 pub mod zones; // Zones // go2rtc WebSocket proxy
 
-async fn fallback_handler(path: MatchedPath) -> &'static str {
-    tracing::error!("Unknown route: {}", path.as_str());
-    "Unknown route"
+/// Router fallback for unmatched paths. Returns a 404 with the standard error
+/// envelope so clients can feature-detect optional endpoints instead of seeing
+/// a 500. Previously this extracted `MatchedPath`, which *fails to extract* on
+/// an unmatched route, producing a 500 "No matched path found" for every typo
+/// or missing endpoint (GH #17).
+async fn fallback_handler(
+    method: axum::http::Method,
+    uri: axum::http::Uri,
+) -> (
+    axum::http::StatusCode,
+    axum::Json<crate::error::AppResponseError>,
+) {
+    tracing::debug!("No route for {} {}", method, uri.path());
+    (
+        axum::http::StatusCode::NOT_FOUND,
+        axum::Json(crate::error::AppResponseError::new(
+            "NOT_FOUND_ERROR",
+            format!("No route for {} {}", method, uri.path()),
+            None,
+            vec![],
+        )),
+    )
 }
 
 /// One allowed-origin rule parsed from `ALLOWED_ORIGINS`.
@@ -175,25 +194,28 @@ fn apply_common_middleware(router: Router<AppState>, cors: CorsLayer) -> Router<
         || cfg.server.acme.as_ref().is_some_and(|a| a.enabled);
 
     // Per-IP rate limiting — opt-in via config (`rate_limit_per_second = 0`
-    // disables it). `SmartIpKeyExtractor` reads X-Forwarded-For / X-Real-IP,
-    // so it works behind a reverse proxy.
+    // disables it). The key is the peer IP by default; forwarding headers are
+    // trusted only when `trust_proxy_headers` is set (see `IpKeyExtractor`).
     let rate_limit_layer = if mw.rate_limiting_enabled() {
         match GovernorConfigBuilder::default()
             .per_second(mw.rate_limit_per_second)
             .burst_size(mw.rate_limit_burst.max(1))
-            .key_extractor(SmartIpKeyExtractor)
+            .key_extractor(IpKeyExtractor {
+                trust_proxy: mw.trust_proxy_headers,
+            })
             .finish()
         {
             Some(conf) => {
                 tracing::info!(
-                    "Rate limiting enabled: {} req/s per IP, burst {}",
+                    "Global rate limiting enabled: 1 token/{}s per IP, burst {} (trust_proxy={})",
                     mw.rate_limit_per_second,
                     mw.rate_limit_burst.max(1),
+                    mw.trust_proxy_headers,
                 );
                 Some(GovernorLayer::new(conf))
             }
             None => {
-                tracing::warn!("Invalid rate-limit configuration; rate limiting disabled");
+                tracing::warn!("Invalid rate-limit configuration; global rate limiting disabled");
                 None
             }
         }
@@ -237,14 +259,44 @@ pub fn create_router_app(state: AppState) -> Router {
     // `auth` and `server` expose a mix of public and protected endpoints
     // (login, health check, version) and manage their own auth per-route, so
     // they are deliberately not wrapped with a blanket RBAC feature gate.
-    let server_routes = server::add_server_routes(Router::new());
-    let auth_routes = auth::add_routers(Router::new());
+    let server_routes = server::add_server_routes(Router::new(), state.clone());
+    let auth_routes = {
+        let routes = auth::add_routers(Router::new(), state.clone());
+        // Dedicated, tighter rate limit on the authentication surface so
+        // credential brute-forcing is throttled even when the global limiter
+        // is disabled. Same peer-IP-by-default keying as the global limiter.
+        let mw = &crate::constant::CONFIG.server.middleware;
+        let auth_rl = if mw.auth_rate_limiting_enabled() {
+            GovernorConfigBuilder::default()
+                .per_second(mw.auth_rate_limit_period_secs)
+                .burst_size(mw.auth_rate_limit_burst)
+                .key_extractor(IpKeyExtractor {
+                    trust_proxy: mw.trust_proxy_headers,
+                })
+                .finish()
+        } else {
+            None
+        };
+        match auth_rl {
+            Some(conf) => {
+                tracing::info!(
+                    "Auth rate limiting enabled: 1 token/{}s per IP, burst {} (trust_proxy={})",
+                    mw.auth_rate_limit_period_secs,
+                    mw.auth_rate_limit_burst,
+                    mw.trust_proxy_headers,
+                );
+                routes.layer(GovernorLayer::new(conf))
+            }
+            None => routes,
+        }
+    };
 
     // Every other router is gated on the ZoneMinder permission feature it
     // belongs to. `authz::protect` derives the required level from the HTTP
     // method (read -> View, write -> Edit).
     use authz::Feature;
-    let protect = authz::protect;
+    let protect =
+        |router: Router<AppState>, feature| authz::protect(router, feature, state.clone());
 
     let monitors_routes = protect(
         monitors::add_monitor_routes(Router::new()),

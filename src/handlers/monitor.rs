@@ -115,7 +115,8 @@ pub async fn create_monitor(
             "creating monitors requires unrestricted monitor access".to_string(),
         ));
     }
-    info!("Creating new monitor with request: {req:?}.");
+    // Log the name only: the request body carries camera RTSP/ONVIF credentials.
+    info!("Creating new monitor: {}.", req.name);
     match service::monitor::create(&state, req).await {
         Ok(monitor) => Ok(Json(monitor)),
         Err(e) => {
@@ -151,7 +152,8 @@ pub async fn update_monitor(
     Json(req): Json<UpdateMonitorRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
     req.validate().map_err(AppError::InvalidInputError)?;
-    info!("Editing monitor with ID: {id} and request: {req:?}.");
+    // Log the id only: the request body carries camera RTSP/ONVIF credentials.
+    info!("Editing monitor with ID: {id}.");
     match service::monitor::update(&state, id, req, &scope).await {
         Ok(monitor) => Ok(Json(monitor)),
         Err(e) => {

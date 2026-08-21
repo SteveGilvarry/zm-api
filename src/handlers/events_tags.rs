@@ -8,6 +8,7 @@ use crate::dto::response::EventTagResponse;
 use crate::dto::PaginationParams;
 use crate::error::AppResult;
 use crate::server::state::AppState;
+use crate::service::monitor_acl::MonitorScope;
 
 /// List all event-tag associations with pagination.
 #[utoipa::path(
@@ -26,10 +27,12 @@ use crate::server::state::AppState;
 pub async fn list_events_tags(
     Query(filter): Query<EventTagQuery>,
     Query(params): Query<PaginationParams>,
+    scope: MonitorScope,
     State(state): State<AppState>,
 ) -> AppResult<Json<PaginatedEventsTagsResponse>> {
     let result = crate::service::events_tags::list_paginated(
         &state,
+        &scope,
         filter.event_id,
         filter.tag_id,
         &params,
@@ -52,9 +55,10 @@ pub async fn list_events_tags(
 )]
 pub async fn get_event_tag(
     Path((tag_id, event_id)): Path<(u64, u64)>,
+    scope: MonitorScope,
     State(state): State<AppState>,
 ) -> AppResult<Json<EventTagResponse>> {
-    let item = crate::service::events_tags::get_by_id(&state, tag_id, event_id).await?;
+    let item = crate::service::events_tags::get_by_id(&state, &scope, tag_id, event_id).await?;
     Ok(Json(item))
 }
 
@@ -68,10 +72,11 @@ pub async fn get_event_tag(
     security(("jwt" = []))
 )]
 pub async fn create_event_tag(
+    scope: MonitorScope,
     State(state): State<AppState>,
     Json(req): Json<CreateEventTagRequest>,
 ) -> AppResult<(StatusCode, Json<EventTagResponse>)> {
-    let item = crate::service::events_tags::create(&state, req).await?;
+    let item = crate::service::events_tags::create(&state, &scope, req).await?;
     Ok((StatusCode::CREATED, Json(item)))
 }
 
@@ -89,8 +94,9 @@ pub async fn create_event_tag(
 )]
 pub async fn delete_event_tag(
     Path((tag_id, event_id)): Path<(u64, u64)>,
+    scope: MonitorScope,
     State(state): State<AppState>,
 ) -> AppResult<StatusCode> {
-    crate::service::events_tags::delete(&state, tag_id, event_id).await?;
+    crate::service::events_tags::delete(&state, &scope, tag_id, event_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

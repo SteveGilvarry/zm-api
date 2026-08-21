@@ -33,10 +33,14 @@ use crate::{
         ("monitor_id" = Option<u32>, Query, description = "Filter by monitor ID", example = 1),
         ("start_time" = Option<String>, Query, description = "Filter by start time (ISO8601)", example = "2025-04-28T00:00:00Z"),
         ("end_time" = Option<String>, Query, description = "Filter by end time (ISO8601)", example = "2025-04-29T23:59:59Z"),
-        ("sort" = Option<String>, Query, description = "Field to sort by: start_time, end_time, alarm_frames, max_score, avg_score, tot_score, length, id", example = "start_time"),
+        ("sort" = Option<String>, Query, description = "Field to sort by: start_time, end_time, alarm_frames, max_score, avg_score, tot_score, length, id, name, cause, monitor_id, notes, frames", example = "start_time"),
         ("direction" = Option<String>, Query, description = "Sort direction: asc or desc", example = "desc"),
         ("alarm_frames_min" = Option<u32>, Query, description = "Minimum number of alarm frames", example = 5),
-        ("archived" = Option<bool>, Query, description = "Filter by archived status", example = false)
+        ("archived" = Option<bool>, Query, description = "Filter by archived status", example = false),
+        ("cause" = Option<String>, Query, description = "Substring match on cause", example = "Motion"),
+        ("name" = Option<String>, Query, description = "Substring match on name", example = "Front"),
+        ("notes" = Option<String>, Query, description = "Substring match on notes"),
+        ("tag_id" = Option<String>, Query, description = "Events with any of these tag ids (comma-separated)", example = "1,4")
     ),
     responses(
         (status = 200, description = "List of events", body = PaginatedEventsResponse),

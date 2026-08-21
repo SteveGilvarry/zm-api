@@ -10,7 +10,6 @@ use axum::{
     response::Response,
     Json,
 };
-use chrono::{Datelike, Timelike};
 use serde::{Deserialize, Serialize};
 use std::path::{Path as StdPath, PathBuf};
 use tokio::fs::File;
@@ -19,10 +18,10 @@ use tokio_util::io::ReaderStream;
 use tracing::{debug, warn};
 
 use crate::entity::events::Model as EventModel;
-use crate::entity::sea_orm_active_enums::Scheme;
 use crate::error::{AppError, AppResponseError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
+use crate::service::event_storage::{build_event_directory_path, resolve_event_storage_path};
 use crate::service::monitor_acl::MonitorScope;
 use crate::util::authz::Level;
 
@@ -219,62 +218,6 @@ pub(crate) fn not_found_event(event_id: u64) -> AppError {
     })
 }
 
-/// Resolve the storage path for an event, falling back to the config default
-/// when the event's storage row is missing, and rejecting any value that
-/// contains a `..` traversal component.
-///
-/// `Storages.Path` is only writable by an admin (`System:Edit`), but the API
-/// runs as `www-data` and serves files based on that path — a malicious or
-/// mistaken admin entry like `/var/cache/zm/events/..` could let an
-/// otherwise-permitted event read end up resolving outside the events tree.
-/// Reject those at the DB-read boundary.
-async fn resolve_event_storage_path(state: &AppState, event: &EventModel) -> AppResult<String> {
-    let storage_path = if is_default_storage(event.storage_id) {
-        default_storage_path(state).await?
-    } else {
-        let sid = event.storage_id.expect("non-default storage_id is Some");
-        match repo::storage::find_by_id(state.db(), sid).await? {
-            Some(s) => s.path,
-            None => {
-                warn!(
-                    "Storage {} not found in database, using default storage",
-                    sid
-                );
-                default_storage_path(state).await?
-            }
-        }
-    };
-
-    if crate::util::path::contains_traversal(&storage_path) {
-        warn!(
-            "Refusing storage path with '..' traversal: {:?}",
-            storage_path
-        );
-        return Err(AppError::InternalServerError(
-            "storage path contains '..' traversal".to_string(),
-        ));
-    }
-
-    Ok(storage_path)
-}
-
-/// True iff `storage_id` denotes ZoneMinder's primary/default storage rather
-/// than a real `Storage` row. ZoneMinder writes `Events.StorageId = 0` (and
-/// occasionally NULL) as a sentinel meaning "the default storage" — it is not a
-/// foreign key, so looking up row 0 always misses.
-fn is_default_storage(storage_id: Option<u16>) -> bool {
-    matches!(storage_id, None | Some(0))
-}
-
-/// Resolve the default events directory: ZoneMinder's primary storage row when
-/// the `Storage` table is populated, otherwise the configured `events_dir`.
-async fn default_storage_path(state: &AppState) -> AppResult<String> {
-    if let Some(s) = repo::storage::find_default(state.db()).await? {
-        return Ok(s.path);
-    }
-    Ok(state.config.streaming.zoneminder.events_dir.clone())
-}
-
 /// True iff the event is still recording. ZoneMinder sets `EndDateTime` on
 /// close, so a NULL end means the event is in progress — there is no finalized
 /// `{id}-video.*.mp4` yet, only a growing `incomplete.*.mp4` plus ZoneMinder's
@@ -363,53 +306,6 @@ fn replace_map_uri(line: &str, media_uri: &str) -> String {
         }
     }
     line.to_string()
-}
-
-/// Build the event directory path based on ZoneMinder's storage scheme
-fn build_event_directory_path(
-    storage_path: &str,
-    monitor_id: u32,
-    event_id: u64,
-    start_time: Option<chrono::NaiveDateTime>,
-    scheme: &Scheme,
-) -> PathBuf {
-    let base = PathBuf::from(storage_path).join(monitor_id.to_string());
-
-    match scheme {
-        Scheme::Deep => {
-            // Deep: {storage}/{monitor_id}/{YY/MM/DD/HH/MM/SS}/
-            if let Some(dt) = start_time {
-                base.join(format!("{:02}", dt.year() % 100))
-                    .join(format!("{:02}", dt.month()))
-                    .join(format!("{:02}", dt.day()))
-                    .join(format!("{:02}", dt.hour()))
-                    .join(format!("{:02}", dt.minute()))
-                    .join(format!("{:02}", dt.second()))
-            } else {
-                // Fallback to shallow if no start time
-                base.join(event_id.to_string())
-            }
-        }
-        Scheme::Medium => {
-            // Medium: {storage}/{monitor_id}/{YYYY-MM-DD}/{event_id}/
-            if let Some(dt) = start_time {
-                base.join(format!(
-                    "{:04}-{:02}-{:02}",
-                    dt.year(),
-                    dt.month(),
-                    dt.day()
-                ))
-                .join(event_id.to_string())
-            } else {
-                // Fallback to shallow if no start time
-                base.join(event_id.to_string())
-            }
-        }
-        Scheme::Shallow => {
-            // Shallow: {storage}/{monitor_id}/{event_id}/
-            base.join(event_id.to_string())
-        }
-    }
 }
 
 /// Parse HTTP Range header
@@ -953,7 +849,7 @@ pub async fn get_event_thumbnail(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDate;
+    use crate::service::event_storage::is_default_storage;
 
     // ------------------------------------------------------------------
     // parse_range_header
@@ -1055,58 +951,8 @@ mod tests {
         assert_eq!(parse_range_header(Some("bytes=0-0"), 0), None);
     }
 
-    // ------------------------------------------------------------------
-    // build_event_directory_path
-    // ------------------------------------------------------------------
-
-    fn sample_dt() -> chrono::NaiveDateTime {
-        NaiveDate::from_ymd_opt(2026, 3, 9)
-            .unwrap()
-            .and_hms_opt(7, 4, 5)
-            .unwrap()
-    }
-
-    #[test]
-    fn build_event_directory_path_shallow() {
-        let path =
-            build_event_directory_path("/events", 7, 467, Some(sample_dt()), &Scheme::Shallow);
-        assert_eq!(path, PathBuf::from("/events/7/467"));
-    }
-
-    #[test]
-    fn build_event_directory_path_shallow_ignores_start_time() {
-        // Shallow scheme never uses the timestamp.
-        let with =
-            build_event_directory_path("/events", 7, 467, Some(sample_dt()), &Scheme::Shallow);
-        let without = build_event_directory_path("/events", 7, 467, None, &Scheme::Shallow);
-        assert_eq!(with, without);
-    }
-
-    #[test]
-    fn build_event_directory_path_medium() {
-        let path =
-            build_event_directory_path("/events", 7, 467, Some(sample_dt()), &Scheme::Medium);
-        assert_eq!(path, PathBuf::from("/events/7/2026-03-09/467"));
-    }
-
-    #[test]
-    fn build_event_directory_path_deep() {
-        let path = build_event_directory_path("/events", 7, 467, Some(sample_dt()), &Scheme::Deep);
-        // Deep uses YY/MM/DD/HH/MM/SS, all two-digit zero-padded.
-        assert_eq!(path, PathBuf::from("/events/7/26/03/09/07/04/05"));
-    }
-
-    #[test]
-    fn build_event_directory_path_deep_falls_back_to_shallow_without_start_time() {
-        let path = build_event_directory_path("/events", 7, 467, None, &Scheme::Deep);
-        assert_eq!(path, PathBuf::from("/events/7/467"));
-    }
-
-    #[test]
-    fn build_event_directory_path_medium_falls_back_to_shallow_without_start_time() {
-        let path = build_event_directory_path("/events", 7, 467, None, &Scheme::Medium);
-        assert_eq!(path, PathBuf::from("/events/7/467"));
-    }
+    // Event directory/scheme resolution is tested in `service::event_storage`,
+    // the module that now owns `build_event_directory_path` / `is_default_storage`.
 
     #[test]
     fn is_safe_event_filename_accepts_normal_video_names() {
@@ -1200,6 +1046,7 @@ mod tests {
         assert!(is_default_storage(Some(0)));
         assert!(!is_default_storage(Some(1)));
         assert!(!is_default_storage(Some(7)));
+        // (owned by `service::event_storage`; kept here as a smoke check)
     }
 
     #[test]
@@ -1257,16 +1104,5 @@ mod tests {
         assert!(out.contains("#EXT-X-ENDLIST"));
         assert!(out.contains("\nmedia.mp4\n"));
         assert!(!out.contains("index.php"));
-    }
-
-    #[test]
-    fn build_event_directory_path_year_two_digit_wrap() {
-        // Year 2008 -> "08"; month/day single-digit zero-padded.
-        let dt = NaiveDate::from_ymd_opt(2008, 1, 2)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap();
-        let path = build_event_directory_path("/srv", 1, 5, Some(dt), &Scheme::Deep);
-        assert_eq!(path, PathBuf::from("/srv/1/08/01/02/00/00/00"));
     }
 }

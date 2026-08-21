@@ -16,12 +16,24 @@ impl From<TokenResponse> for LoginResponse {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, ToSchema, Dummy, Clone)]
+#[derive(Serialize, Deserialize, ToSchema, Dummy, Clone)]
 pub struct TokenResponse {
     pub token_type: String,
     pub access_token: String,
     pub refresh_token: String,
     pub expire_in: u64,
+}
+
+// Manual Debug: both tokens are live credentials and must never reach logs.
+impl std::fmt::Debug for TokenResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenResponse")
+            .field("token_type", &self.token_type)
+            .field("access_token", &"[REDACTED]")
+            .field("refresh_token", &"[REDACTED]")
+            .field("expire_in", &self.expire_in)
+            .finish()
+    }
 }
 
 impl TokenResponse {
@@ -32,5 +44,26 @@ impl TokenResponse {
             refresh_token,
             expire_in,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_response_debug_redacts_tokens() {
+        let resp = TokenResponse::new(
+            "eyJhbGciOiJSUzI1NiJ9.access.secret".to_string(),
+            "eyJhbGciOiJSUzI1NiJ9.refresh.secret".to_string(),
+            600,
+        );
+        let out = format!("{resp:?}");
+        assert!(!out.contains("secret"));
+        assert!(!out.contains("eyJhbGciOiJSUzI1NiJ9"));
+        assert!(out.contains("[REDACTED]"));
+        // LoginResponse wraps TokenResponse; its derived Debug must inherit the redaction.
+        let wrapped = format!("{:?}", LoginResponse::Token(resp));
+        assert!(!wrapped.contains("secret"));
     }
 }

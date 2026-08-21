@@ -1,5 +1,4 @@
 #![allow(clippy::result_large_err)]
-use crate::constant::*;
 use crate::dto::request::{LoginRequest, RefreshTokenRequest};
 use crate::dto::response::TokenResponse;
 use crate::error::AppError;
@@ -41,11 +40,18 @@ pub async fn login(state: &AppState, req: LoginRequest) -> AppResult<TokenRespon
 }
 
 pub async fn refresh_token(state: &AppState, req: RefreshTokenRequest) -> AppResult<TokenResponse> {
-    let user_claims = UserClaims::decode(&req.token, &REFRESH_TOKEN_DECODE_KEY)?.claims;
+    let user_claims = UserClaims::decode_refresh(&req.token)?.claims;
     info!("Refresh token: {user_claims:?}");
     let user = user::find_by_username_and_status(&state.db, &user_claims.user, true)
         .await?
         .to_result()?;
+    // Durable revocation check: refresh tokens minted before the user's
+    // TokenMinExpiry floor (logout, password change) must not mint new tokens.
+    if user_claims.iat < user.token_min_expiry as i64 {
+        return Err(AppError::UnauthorizedError(
+            "Token has been revoked".to_string(),
+        ));
+    }
     info!("Set new session for user: {}", user.id);
     // Re-read permissions from the user row so a refresh picks up any
     // permission changes made since the previous token was issued.
@@ -53,6 +59,48 @@ pub async fn refresh_token(state: &AppState, req: RefreshTokenRequest) -> AppRes
     let resp = token::generate_tokens(user.username, user.id, perms)?;
     info!("Refresh token success: {user_claims:?}");
     Ok(resp)
+}
+
+/// Revoke every token issued to `uid` before this instant: persist the floor
+/// to `Users.TokenMinExpiry` and mirror it into the in-memory registry that
+/// [`crate::util::authz`] consults on each request.
+pub async fn logout(state: &AppState, uid: u32) -> AppResult<()> {
+    // Floor at now+1 so tokens minted earlier in the *current* second (e.g.
+    // the one authenticating this very logout) are revoked too.
+    let floor = chrono::Utc::now().timestamp() + 1;
+    user::set_token_min_expiry(&state.db, uid, floor as u64).await?;
+    state.revocations.revoke(uid, floor);
+    info!("Revoked all tokens for user id {uid} issued before {floor}");
+    Ok(())
+}
+
+/// Change the authenticated user's own password: verify the current password,
+/// store a fresh bcrypt hash, and revoke every existing token so old sessions
+/// (and anyone holding a stolen token) are logged out.
+pub async fn change_password(
+    state: &AppState,
+    uid: u32,
+    current_password: String,
+    new_password: String,
+) -> AppResult<()> {
+    let user = user::find_by_id(&state.db, uid)
+        .await?
+        .ok_or_else(|| AppError::UnauthorizedError("User not found".to_string()))?;
+
+    // Verify the current password before allowing the change.
+    if !password::verify_existing_or_dummy(current_password, Some(user.password.clone())).await {
+        return Err(AppError::UnauthorizedError(
+            "Current password is incorrect".to_string(),
+        ));
+    }
+
+    let new_hash = password::hash(new_password).await?;
+    user::set_password(&state.db, uid, new_hash).await?;
+
+    // A password change invalidates every outstanding session.
+    logout(state, uid).await?;
+    info!("Password changed for user id {uid}");
+    Ok(())
 }
 
 #[cfg(test)]
@@ -163,6 +211,33 @@ mod tests {
     /// login intact. The repo filters on the column, so a disabled-API
     /// user looks like a missing user to the auth path — same unified
     /// error.
+    /// A refresh token minted before the user's `TokenMinExpiry` floor
+    /// (logout / password change) must not mint new tokens.
+    #[tokio::test]
+    async fn test_refresh_rejected_when_issued_before_token_min_expiry() {
+        let mut user_row = mk_user("dave", "irrelevant-hash");
+        user_row.token_min_expiry = (chrono::Utc::now().timestamp() + 10_000) as u64;
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<crate::entity::users::Model, _, _>(vec![vec![user_row]])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+
+        let tokens =
+            token::generate_tokens("dave".to_string(), 1, UserPermissions::default()).unwrap();
+        let err = refresh_token(
+            &state,
+            RefreshTokenRequest {
+                token: tokens.refresh_token,
+            },
+        )
+        .await
+        .expect_err("refresh with a pre-floor token must fail");
+        assert!(
+            matches!(err, AppError::UnauthorizedError(_)),
+            "expected UnauthorizedError, got {err:?}"
+        );
+    }
+
     #[tokio::test]
     async fn test_login_api_disabled_user_returns_unauthorized() {
         // Empty result set models how `find_by_username_and_status` will
