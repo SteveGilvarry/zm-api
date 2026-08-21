@@ -525,6 +525,206 @@ pub async fn focus_stop(
     Ok(Json(result))
 }
 
+/// Open the iris
+#[utoipa::path(
+    post,
+    path = "/api/v3/ptz/monitors/{id}/iris/open",
+    operation_id = "ptzIrisOpen",
+    tag = "PTZ",
+    params(("id" = u32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Command executed", body = PtzCommandResponse),
+        (status = 400, description = "Bad request", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError),
+        (status = 500, description = "Internal server error", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn iris_open(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<PtzCommandResponse>> {
+    let ptz_manager = state.ptz_manager();
+    let result = service::ptz::iris(&state, ptz_manager, id, "open").await?;
+    Ok(Json(result))
+}
+
+/// Close the iris
+#[utoipa::path(
+    post,
+    path = "/api/v3/ptz/monitors/{id}/iris/close",
+    operation_id = "ptzIrisClose",
+    tag = "PTZ",
+    params(("id" = u32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Command executed", body = PtzCommandResponse),
+        (status = 400, description = "Bad request", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError),
+        (status = 500, description = "Internal server error", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn iris_close(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<PtzCommandResponse>> {
+    let ptz_manager = state.ptz_manager();
+    let result = service::ptz::iris(&state, ptz_manager, id, "close").await?;
+    Ok(Json(result))
+}
+
+/// Enable auto-iris
+#[utoipa::path(
+    post,
+    path = "/api/v3/ptz/monitors/{id}/iris/auto",
+    operation_id = "ptzIrisAuto",
+    tag = "PTZ",
+    params(("id" = u32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Command executed", body = PtzCommandResponse),
+        (status = 400, description = "Bad request", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError),
+        (status = 500, description = "Internal server error", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn iris_auto(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<PtzCommandResponse>> {
+    let ptz_manager = state.ptz_manager();
+    let result = service::ptz::iris(&state, ptz_manager, id, "auto").await?;
+    Ok(Json(result))
+}
+
+/// Stop iris movement
+#[utoipa::path(
+    post,
+    path = "/api/v3/ptz/monitors/{id}/iris/stop",
+    operation_id = "ptzIrisStop",
+    tag = "PTZ",
+    params(("id" = u32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Command executed", body = PtzCommandResponse),
+        (status = 400, description = "Bad request", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError),
+        (status = 500, description = "Internal server error", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn iris_stop(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<PtzCommandResponse>> {
+    let ptz_manager = state.ptz_manager();
+    let result = service::ptz::iris(&state, ptz_manager, id, "stop").await?;
+    Ok(Json(result))
+}
+
+/// Wake the camera
+#[utoipa::path(
+    post,
+    path = "/api/v3/ptz/monitors/{id}/power/wake",
+    operation_id = "ptzPowerWake",
+    tag = "PTZ",
+    params(("id" = u32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Command executed", body = PtzCommandResponse),
+        (status = 400, description = "Bad request", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError),
+        (status = 500, description = "Internal server error", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn power_wake(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<PtzCommandResponse>> {
+    let ptz_manager = state.ptz_manager();
+    let result = service::ptz::power(&state, ptz_manager, id, "wake").await?;
+    Ok(Json(result))
+}
+
+/// Put the camera to sleep
+#[utoipa::path(
+    post,
+    path = "/api/v3/ptz/monitors/{id}/power/sleep",
+    operation_id = "ptzPowerSleep",
+    tag = "PTZ",
+    params(("id" = u32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Command executed", body = PtzCommandResponse),
+        (status = 400, description = "Bad request", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError),
+        (status = 500, description = "Internal server error", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn power_sleep(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<PtzCommandResponse>> {
+    let ptz_manager = state.ptz_manager();
+    let result = service::ptz::power(&state, ptz_manager, id, "sleep").await?;
+    Ok(Json(result))
+}
+
+/// Reset the camera
+#[utoipa::path(
+    post,
+    path = "/api/v3/ptz/monitors/{id}/power/reset",
+    operation_id = "ptzPowerReset",
+    tag = "PTZ",
+    params(("id" = u32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Command executed", body = PtzCommandResponse),
+        (status = 400, description = "Bad request", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError),
+        (status = 500, description = "Internal server error", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn power_reset(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<PtzCommandResponse>> {
+    let ptz_manager = state.ptz_manager();
+    let result = service::ptz::power(&state, ptz_manager, id, "reset").await?;
+    Ok(Json(result))
+}
+
+/// Reboot the camera
+#[utoipa::path(
+    post,
+    path = "/api/v3/ptz/monitors/{id}/power/reboot",
+    operation_id = "ptzPowerReboot",
+    tag = "PTZ",
+    params(("id" = u32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Command executed", body = PtzCommandResponse),
+        (status = 400, description = "Bad request", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError),
+        (status = 500, description = "Internal server error", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn power_reboot(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<PtzCommandResponse>> {
+    let ptz_manager = state.ptz_manager();
+    let result = service::ptz::power(&state, ptz_manager, id, "reboot").await?;
+    Ok(Json(result))
+}
+
 /// Go to preset
 #[utoipa::path(
     post,
