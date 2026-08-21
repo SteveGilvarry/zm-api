@@ -99,12 +99,15 @@ pub async fn logout(
     Ok(Json(MessageResponse::new("Logout successful")))
 }
 
-/// Return the authenticated user's own account.
+/// Return the authenticated user's own account plus their token metadata.
+///
+/// The token fields (`issued_at`, `expires_at`, `token_type`) let a client show
+/// session expiry without decoding the JWT itself.
 #[utoipa::path(
     get,
     path = "/api/v3/me",
     responses(
-        (status = 200, description = "The authenticated user's account", body = UserResponse),
+        (status = 200, description = "The authenticated user's account and token metadata", body = crate::dto::response::MeResponse),
         (status = 401, description = "Unauthorized - Invalid or missing token", body = AppResponseError)
     ),
     security(("jwt" = [])),
@@ -113,7 +116,7 @@ pub async fn logout(
 pub async fn me(
     State(state): State<AppState>,
     Extension(claims): Extension<UserClaims>,
-) -> AppResult<Json<UserResponse>> {
+) -> AppResult<Json<crate::dto::response::MeResponse>> {
     let user = crate::repo::users::find_by_id(&state.db, claims.uid)
         .await?
         .ok_or_else(|| {
@@ -122,7 +125,15 @@ pub async fn me(
                 resource_type: ResourceType::User,
             })
         })?;
-    Ok(Json(UserResponse::from(&user)))
+    Ok(Json(crate::dto::response::MeResponse {
+        user: UserResponse::from(&user),
+        issued_at: claims.iat,
+        expires_at: claims.exp,
+        token_type: match claims.typ {
+            crate::util::claim::TokenType::Access => "access".to_string(),
+            crate::util::claim::TokenType::Refresh => "refresh".to_string(),
+        },
+    }))
 }
 
 /// Change the authenticated user's own password.

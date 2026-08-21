@@ -24,6 +24,8 @@ pub struct EventQueryOptions {
     pub notes: Option<String>,
     /// Keep only events carrying at least one of these tag ids.
     pub tag_ids: Option<Vec<u64>>,
+    /// Keep only events stored on this storage.
+    pub storage_id: Option<u16>,
     /// Row-level ACL allowlist of monitor ids. `None` is unrestricted;
     /// `Some(ids)` limits results to events of those monitors.
     pub monitor_filter: Option<Vec<u32>>,
@@ -109,6 +111,9 @@ pub async fn find_with_options(
     }
     if let Some(ref notes) = options.notes {
         query = query.filter(events::Column::Notes.contains(notes.clone()));
+    }
+    if let Some(storage_id) = options.storage_id {
+        query = query.filter(events::Column::StorageId.eq(storage_id));
     }
     // Tag filter: events with at least one of the requested tags, via a
     // subquery over Events_Tags (avoids a join that would duplicate rows).

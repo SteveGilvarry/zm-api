@@ -67,3 +67,18 @@ mod tests {
         assert!(!wrapped.contains("secret"));
     }
 }
+
+/// The authenticated caller's account plus the metadata carried by their
+/// current access token, so a client can show "signed in as / expires at"
+/// without decoding the JWT itself (GH #37).
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct MeResponse {
+    /// The caller's user record (permissions, profile).
+    pub user: crate::dto::response::users::UserResponse,
+    /// Token issued-at, unix seconds.
+    pub issued_at: i64,
+    /// Token expiry, unix seconds.
+    pub expires_at: i64,
+    /// Token kind: `access` or `refresh` (always `access` here).
+    pub token_type: String,
+}

@@ -19,12 +19,17 @@ pub fn is_valid_state(value: &str, _ctx: &()) -> garde::Result {
     }
 }
 
-// Custom validator for alarm actions
+// Custom validator for alarm actions.
+//
+// `cancel` is accepted as a synonym for `off`: the service already handles it
+// (`service::monitor::control_alarm`) and the field's own documentation
+// advertises it, but the validator used to reject it with a 422 before the
+// request ever reached the service.
 pub fn is_valid_alarm_action(value: &str, _ctx: &()) -> garde::Result {
     match value {
-        "on" | "off" | "status" => Ok(()),
+        "on" | "off" | "cancel" | "status" => Ok(()),
         _ => Err(garde::Error::new(
-            "invalid alarm action; must be 'on', 'off', or 'status'",
+            "invalid alarm action; must be 'on', 'off', 'cancel', or 'status'",
         )),
     }
 }
@@ -93,6 +98,10 @@ pub struct CreateMonitorRequest {
     pub name: String,
     #[garde(skip)] // Boolean type doesn't need validation
     pub deleted: bool,
+    /// Whether the monitor is enabled (ZoneMinder's `Monitors.Enabled`).
+    /// Defaults to enabled when omitted.
+    #[garde(range(min = 0, max = 1))]
+    pub enabled: Option<u8>,
     #[garde(skip)] // Option<String> can be None, or we could validate if Some
     pub notes: Option<String>,
     #[garde(skip)] // Option<u32> can be None, or we could validate if Some
@@ -513,6 +522,7 @@ impl Default for CreateMonitorRequest {
             // callers (e.g. onboarding) always override this.
             name: "Monitor".to_string(),
             deleted: false,
+            enabled: None,
             notes: None,
             server_id: None,
             storage_id: 1,
@@ -650,6 +660,10 @@ pub struct UpdateMonitorRequest {
     // Boolean to match CreateMonitorRequest and MonitorResponse (GH #18).
     #[garde(skip)]
     pub deleted: Option<bool>,
+
+    /// Enable/disable the monitor (ZoneMinder's `Monitors.Enabled`).
+    #[garde(range(min = 0, max = 1))]
+    pub enabled: Option<u8>,
 
     #[garde(skip)]
     pub notes: Option<String>,
@@ -1164,5 +1178,20 @@ mod validator_tests {
         super::CreateMonitorRequest::default()
             .validate()
             .expect("default CreateMonitorRequest must pass validation");
+    }
+}
+
+#[cfg(test)]
+mod parity_tests {
+    use super::is_valid_alarm_action;
+
+    /// GH #37: `cancel` is documented and handled by the service, but the
+    /// validator used to reject it with a 422 before it ever got there.
+    #[test]
+    fn alarm_action_accepts_cancel() {
+        for a in ["on", "off", "cancel", "status"] {
+            assert!(is_valid_alarm_action(a, &()).is_ok(), "{a} should be valid");
+        }
+        assert!(is_valid_alarm_action("explode", &()).is_err());
     }
 }

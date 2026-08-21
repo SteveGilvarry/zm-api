@@ -9,7 +9,7 @@ use common::test_db::{get_test_db, test_prefix};
 use sea_orm::{ActiveModelTrait, Set};
 use tower::ServiceExt;
 use zm_api::dto::request::{LoginRequest, RefreshTokenRequest};
-use zm_api::dto::response::{MessageResponse, TokenResponse, UserResponse};
+use zm_api::dto::response::{MeResponse, MessageResponse, TokenResponse};
 
 async fn create_user_db(
     db: &sea_orm::DatabaseConnection,
@@ -202,8 +202,14 @@ async fn test_me_returns_authenticated_user() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     let bytes = body::to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
-    let me: UserResponse = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(me.username, username);
+    let me: MeResponse = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(me.user.username, username);
+    // Token metadata is echoed so clients need not decode the JWT (GH #37).
+    assert_eq!(me.token_type, "access");
+    assert!(
+        me.expires_at > me.issued_at,
+        "token expiry follows issued-at"
+    );
     // The password hash must never appear in the /me payload.
     let raw = String::from_utf8_lossy(&bytes);
     assert!(

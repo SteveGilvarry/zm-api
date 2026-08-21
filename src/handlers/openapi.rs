@@ -370,6 +370,7 @@ use crate::util::claim::UserClaims;
             MessageResponse,
             RefreshTokenRequest,
             crate::dto::request::ChangePasswordRequest,
+            crate::dto::response::MeResponse,
             TokenInfoRequest,
             TokenResponse,
             UserClaims,

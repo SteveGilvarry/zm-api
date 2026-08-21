@@ -40,7 +40,8 @@ use crate::{
         ("cause" = Option<String>, Query, description = "Substring match on cause", example = "Motion"),
         ("name" = Option<String>, Query, description = "Substring match on name", example = "Front"),
         ("notes" = Option<String>, Query, description = "Substring match on notes"),
-        ("tag_id" = Option<String>, Query, description = "Events with any of these tag ids (comma-separated)", example = "1,4")
+        ("tag_id" = Option<String>, Query, description = "Events with any of these tag ids (comma-separated)", example = "1,4"),
+        ("storage_id" = Option<u16>, Query, description = "Filter by the storage holding the event media", example = 1)
     ),
     responses(
         (status = 200, description = "List of events", body = PaginatedEventsResponse),
