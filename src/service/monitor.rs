@@ -98,7 +98,7 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         r#type: Set(monitor_type),
         function: Set(function),
         capturing: Set(capturing),
-        enabled: NotSet,
+        enabled: req.enabled.map(Set).unwrap_or(NotSet),
         decoding_enabled: Set(req.decoding_enabled),
         decoding: Set(decoding),
         rtsp2_web_enabled: Set(req.rtsp2_web_enabled),
@@ -272,6 +272,9 @@ pub async fn update(
     }
     if let Some(deleted) = req.deleted {
         monitor.deleted = Set(deleted as i8);
+    }
+    if let Some(enabled) = req.enabled {
+        monitor.enabled = Set(enabled);
     }
     if req.notes.is_some() {
         monitor.notes = Set(req.notes);

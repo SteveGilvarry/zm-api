@@ -105,7 +105,21 @@ pub async fn get_system_status(state: &AppState) -> AppResult<SystemStatusRespon
         .ok_or_else(|| AppError::ServiceUnavailableError("Daemon manager not available".into()))?;
 
     let status = manager.get_status().await;
-    Ok(status.into())
+    let mut response: SystemStatusResponse = status.into();
+    // Live DB pool usage (the legacy header's `DB: n/max`). Read here rather
+    // than in the IPC stats struct, which only carries OS metrics.
+    if let Some(stats) = response.stats.as_mut() {
+        let (used, max) = db_pool_usage(state);
+        stats.db_connections = used;
+        stats.db_max_connections = max;
+    }
+    Ok(response)
+}
+
+/// Current and maximum database connections, if the pool can be inspected.
+fn db_pool_usage(state: &AppState) -> (Option<u32>, Option<u32>) {
+    let pool = state.db().get_mysql_connection_pool();
+    (Some(pool.size()), Some(state.config.db.max_connections))
 }
 
 /// Perform full system startup.

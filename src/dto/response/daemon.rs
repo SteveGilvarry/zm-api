@@ -94,6 +94,13 @@ pub struct SystemStatsResponse {
     pub free_disk: u64,
     /// Disk usage percentage
     pub disk_usage_percent: f64,
+    /// Database connections currently held by the pool (the legacy header's
+    /// `DB: n/max`). `None` when the pool cannot be inspected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub db_connections: Option<u32>,
+    /// Configured maximum size of the database connection pool.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub db_max_connections: Option<u32>,
 }
 
 impl From<SystemStats> for SystemStatsResponse {
@@ -107,6 +114,8 @@ impl From<SystemStats> for SystemStatsResponse {
             free_swap: stats.free_swap,
             total_disk: stats.total_disk,
             used_disk: stats.used_disk,
+            db_connections: None,
+            db_max_connections: None,
             free_disk: stats.free_disk,
             disk_usage_percent: stats.disk_usage_percent,
         }

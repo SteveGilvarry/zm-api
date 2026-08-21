@@ -105,6 +105,11 @@ pub struct EventQueryParams {
     #[garde(skip)]
     pub notes: Option<String>,
 
+    /// Filter by the storage the event's media lives on.
+    #[schema(example = 1)]
+    #[garde(skip)]
+    pub storage_id: Option<u16>,
+
     /// Filter to events carrying any of these tag ids (comma-separated, e.g.
     /// `tag_id=1,4,5`). Standard query strings can't repeat a key into a list,
     /// so a comma-separated value is used.

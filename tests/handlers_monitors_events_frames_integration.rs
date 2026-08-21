@@ -72,6 +72,7 @@ fn build_create_monitor_request(name: String) -> CreateMonitorRequest {
     CreateMonitorRequest {
         name,
         deleted: false,
+        enabled: None,
         notes: None,
         server_id: None,
         storage_id: 1,
