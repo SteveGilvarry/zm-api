@@ -260,6 +260,60 @@ pub async fn focus_stop(
     execute_command(ptz_manager, &monitor, &control, PtzCommand::FocusStop).await
 }
 
+/// Iris control: `open`, `close`, `auto`, or `stop`.
+///
+/// The command layer and zmcontrol mappings already existed; these were simply
+/// unreachable because no route invoked them, even though
+/// `capabilities.iris` advertises them to clients (GH #37).
+#[instrument(skip(state, ptz_manager))]
+pub async fn iris(
+    state: &AppState,
+    ptz_manager: &PtzManager,
+    monitor_id: u32,
+    action: &str,
+) -> AppResult<PtzCommandResponse> {
+    let (monitor, control) = get_monitor_and_control(state, monitor_id).await?;
+    let command = match action {
+        "open" => PtzCommand::IrisOpen,
+        "close" => PtzCommand::IrisClose,
+        "auto" => PtzCommand::IrisAuto,
+        "stop" => PtzCommand::IrisStop,
+        _ => {
+            return Err(AppError::BadRequestError(format!(
+                "Invalid iris action: {action}; expected open, close, auto, or stop"
+            )))
+        }
+    };
+    execute_command(ptz_manager, &monitor, &control, command).await
+}
+
+/// Camera power control: `wake`, `sleep`, `reset`, or `reboot`.
+///
+/// As with iris, the `PtzCommand` variants and zmcontrol names already existed
+/// and `capabilities.can_wake/can_sleep/can_reset/can_reboot` advertise them;
+/// only the routes were missing (GH #37).
+#[instrument(skip(state, ptz_manager))]
+pub async fn power(
+    state: &AppState,
+    ptz_manager: &PtzManager,
+    monitor_id: u32,
+    action: &str,
+) -> AppResult<PtzCommandResponse> {
+    let (monitor, control) = get_monitor_and_control(state, monitor_id).await?;
+    let command = match action {
+        "wake" => PtzCommand::Wake,
+        "sleep" => PtzCommand::Sleep,
+        "reset" => PtzCommand::Reset,
+        "reboot" => PtzCommand::Reboot,
+        _ => {
+            return Err(AppError::BadRequestError(format!(
+                "Invalid power action: {action}; expected wake, sleep, reset, or reboot"
+            )))
+        }
+    };
+    execute_command(ptz_manager, &monitor, &control, command).await
+}
+
 #[instrument(skip(state, ptz_manager))]
 pub async fn goto_preset(
     state: &AppState,
@@ -410,4 +464,56 @@ async fn execute_command(
         success: result.success,
         message: result.message,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entity::monitors::Model as MonitorModel;
+    use sea_orm::{DatabaseBackend, MockDatabase};
+
+    /// An unknown iris action is rejected as a bad request. The monitor lookup
+    /// runs first, so the mock supplies an empty result and we assert only that
+    /// the failure is *not* a silent success.
+    #[tokio::test]
+    async fn iris_rejects_unknown_action() {
+        let empty: Vec<MonitorModel> = vec![];
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<MonitorModel, _, _>(vec![empty])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let mgr = state.ptz_manager();
+        let err = iris(&state, mgr, 1, "sideways")
+            .await
+            .expect_err("unknown iris action must fail");
+        // Either the monitor lookup or the action match rejects it; both are
+        // client errors, never a success.
+        assert!(
+            matches!(
+                err,
+                AppError::BadRequestError(_) | AppError::NotFoundError(_)
+            ),
+            "got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn power_rejects_unknown_action() {
+        let empty: Vec<MonitorModel> = vec![];
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<MonitorModel, _, _>(vec![empty])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let mgr = state.ptz_manager();
+        let err = power(&state, mgr, 1, "explode")
+            .await
+            .expect_err("unknown power action must fail");
+        assert!(
+            matches!(
+                err,
+                AppError::BadRequestError(_) | AppError::NotFoundError(_)
+            ),
+            "got {err:?}"
+        );
+    }
 }

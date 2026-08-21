@@ -93,6 +93,40 @@ pub fn add_ptz_routes(router: Router<AppState>) -> Router<AppState> {
             &format!("{}/ptz/monitors/{{id}}/focus/stop", api_prefix),
             post(ptz::focus_stop),
         )
+        // Iris
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/iris/open", api_prefix),
+            post(ptz::iris_open),
+        )
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/iris/close", api_prefix),
+            post(ptz::iris_close),
+        )
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/iris/auto", api_prefix),
+            post(ptz::iris_auto),
+        )
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/iris/stop", api_prefix),
+            post(ptz::iris_stop),
+        )
+        // Camera power
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/power/wake", api_prefix),
+            post(ptz::power_wake),
+        )
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/power/sleep", api_prefix),
+            post(ptz::power_sleep),
+        )
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/power/reset", api_prefix),
+            post(ptz::power_reset),
+        )
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/power/reboot", api_prefix),
+            post(ptz::power_reboot),
+        )
         // Presets
         .route(
             &format!(
