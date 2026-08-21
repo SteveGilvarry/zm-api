@@ -66,6 +66,7 @@ async fn test_api_users_create_get_delete() {
         name: Some("Test User".to_string()),
         phone: None,
         enabled: Some(1),
+        ..Default::default()
     })
     .expect("serialize user");
 
@@ -215,6 +216,7 @@ async fn test_api_groups_permissions_create_delete() {
         name: Some("Test User".to_string()),
         phone: None,
         enabled: Some(1),
+        ..Default::default()
     })
     .expect("serialize user");
 
@@ -351,6 +353,7 @@ async fn test_api_monitors_permissions_create_delete() {
         name: Some("Test User".to_string()),
         phone: None,
         enabled: Some(1),
+        ..Default::default()
     })
     .expect("serialize user");
 

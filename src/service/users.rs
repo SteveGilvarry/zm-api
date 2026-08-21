@@ -32,10 +32,19 @@ pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<UserResponse> {
 pub async fn update(
     state: &AppState,
     id: u32,
-    email: Option<String>,
-    enabled: Option<u8>,
+    req: crate::dto::request::UpdateUserRequest,
 ) -> AppResult<UserResponse> {
-    let item = repo::users::update(state.db(), id, email, enabled).await?;
+    // Hash a new password before it reaches the DB (never store plaintext).
+    let hashed_password = match &req.password {
+        Some(pw) if !pw.is_empty() => Some(crate::util::password::hash(pw.clone()).await?),
+        _ => None,
+    };
+    // Mirror an explicit token-revocation floor into the in-memory registry so
+    // an admin revoke-all takes effect immediately, not just on restart.
+    if let Some(floor) = req.token_min_expiry {
+        state.revocations.revoke(id, floor as i64);
+    }
+    let item = repo::users::update(state.db(), id, &req, hashed_password).await?;
     let item = item.ok_or_else(|| {
         AppError::NotFoundError(Resource {
             details: vec![("id".into(), id.to_string())],
@@ -98,9 +107,17 @@ mod tests {
             .append_query_results::<UserModel, _, _>(vec![empty])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let err = update(&state, 1, Some("x@y.com".into()), Some(1))
-            .await
-            .expect_err("should err");
+        let err = update(
+            &state,
+            1,
+            crate::dto::request::UpdateUserRequest {
+                email: Some("x@y.com".into()),
+                enabled: Some(1),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect_err("should err");
         matches!(err, AppError::NotFoundError(_));
     }
 
@@ -183,9 +200,17 @@ mod tests {
             .append_query_results::<UserModel, _, _>(vec![vec![after.clone()]])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let out = update(&state, 5, Some("new@example.com".into()), Some(0))
-            .await
-            .unwrap();
+        let out = update(
+            &state,
+            5,
+            crate::dto::request::UpdateUserRequest {
+                email: Some("new@example.com".into()),
+                enabled: Some(0),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
         assert_eq!(out.email, "new@example.com");
         assert_eq!(out.enabled, 0);
     }
@@ -208,6 +233,7 @@ mod tests {
             email: "eve@example.com".into(),
             phone: None,
             enabled: Some(1),
+            ..Default::default()
         };
         // NOTE: this exercises the hashing code path but cannot assert on the
         // stored value — `MockDatabase` returns a canned row and the connection

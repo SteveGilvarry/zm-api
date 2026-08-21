@@ -620,7 +620,8 @@ use crate::util::claim::UserClaims;
             // users
             crate::dto::request::users::CreateUserRequest,
             crate::dto::response::users::UserResponse,
-            crate::handlers::users::UpdateUserRequest,
+            crate::dto::request::UpdateUserRequest,
+            crate::dto::request::users::UserPermissionsInput,
 
             // wrappers
             DateTimeWrapper,

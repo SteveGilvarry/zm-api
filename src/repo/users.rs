@@ -45,26 +45,79 @@ pub async fn find_by_username_and_status(
         .await?)
 }
 
+/// Apply a partial update. `password` is expected to already be hashed by the
+/// caller (the service layer). Only provided fields change.
 pub async fn update(
     db: &DatabaseConnection,
     id: u32,
-    email: Option<String>,
-    enabled: Option<u8>,
+    req: &crate::dto::request::UpdateUserRequest,
+    hashed_password: Option<String>,
 ) -> AppResult<Option<UserModel>> {
     use sea_orm::{ActiveModelTrait, Set};
-    if let Some(model) = find_by_id(db, id).await? {
-        let mut active: crate::entity::users::ActiveModel = model.into();
-        if let Some(e) = email {
-            active.email = Set(e);
-        }
-        if let Some(en) = enabled {
-            active.enabled = Set(en);
-        }
-        let updated = active.update(db).await?;
-        Ok(Some(updated))
-    } else {
-        Ok(None)
+    let Some(model) = find_by_id(db, id).await? else {
+        return Ok(None);
+    };
+    let mut active: crate::entity::users::ActiveModel = model.into();
+
+    if let Some(e) = &req.email {
+        active.email = Set(e.clone());
     }
+    if let Some(en) = req.enabled {
+        active.enabled = Set(en);
+    }
+    if let Some(pw) = hashed_password {
+        active.password = Set(pw);
+    }
+    if let Some(n) = &req.name {
+        active.name = Set(n.clone());
+    }
+    if let Some(p) = &req.phone {
+        active.phone = Set(p.clone());
+    }
+    if let Some(l) = &req.language {
+        active.language = Set(Some(l.clone()));
+    }
+    if let Some(hv) = &req.home_view {
+        active.home_view = Set(hv.clone());
+    }
+    if let Some(a) = req.api_enabled {
+        active.api_enabled = Set(a);
+    }
+    if let Some(mb) = &req.max_bandwidth {
+        active.max_bandwidth = Set(Some(mb.clone()));
+    }
+    if let Some(t) = req.token_min_expiry {
+        active.token_min_expiry = Set(t);
+    }
+    // Permission levels are validated/parsed from their string form.
+    let p = &req.permissions;
+    if let Some(v) = p.stream_level()? {
+        active.stream = Set(v);
+    }
+    if let Some(v) = p.events_level()? {
+        active.events = Set(v);
+    }
+    if let Some(v) = p.control_level()? {
+        active.control = Set(v);
+    }
+    if let Some(v) = p.monitors_level()? {
+        active.monitors = Set(v);
+    }
+    if let Some(v) = p.groups_level()? {
+        active.groups = Set(v);
+    }
+    if let Some(v) = p.devices_level()? {
+        active.devices = Set(v);
+    }
+    if let Some(v) = p.snapshots_level()? {
+        active.snapshots = Set(v);
+    }
+    if let Some(v) = p.system_level()? {
+        active.system = Set(v);
+    }
+
+    let updated = active.update(db).await?;
+    Ok(Some(updated))
 }
 
 pub async fn create(
@@ -74,6 +127,7 @@ pub async fn create(
     use crate::entity::sea_orm_active_enums as E;
     use crate::entity::users::ActiveModel as AM;
     use sea_orm::{ActiveModelTrait, Set};
+    let p = &req.permissions;
     let am = AM {
         id: Default::default(),
         username: Set(req.username.clone()),
@@ -81,20 +135,24 @@ pub async fn create(
         name: Set(req.name.clone().unwrap_or_default()),
         email: Set(req.email.clone()),
         phone: Set(req.phone.clone().unwrap_or_default()),
-        language: Set(None),
+        language: Set(req.language.clone()),
         enabled: Set(req.enabled.unwrap_or(1)),
-        stream: Set(E::Stream::View),
-        events: Set(E::Events::View),
-        control: Set(E::Control::View),
-        monitors: Set(E::Monitors::View),
-        groups: Set(E::Groups::View),
-        devices: Set(E::Devices::View),
-        snapshots: Set(E::Snapshots::View),
-        system: Set(E::System::View),
-        max_bandwidth: Set(None),
+        // Omitted permissions default to View (the previous behaviour).
+        stream: Set(p.stream_level()?.unwrap_or(E::Stream::View)),
+        events: Set(p.events_level()?.unwrap_or(E::Events::View)),
+        control: Set(p.control_level()?.unwrap_or(E::Control::View)),
+        monitors: Set(p.monitors_level()?.unwrap_or(E::Monitors::View)),
+        groups: Set(p.groups_level()?.unwrap_or(E::Groups::View)),
+        devices: Set(p.devices_level()?.unwrap_or(E::Devices::View)),
+        snapshots: Set(p.snapshots_level()?.unwrap_or(E::Snapshots::View)),
+        system: Set(p.system_level()?.unwrap_or(E::System::View)),
+        max_bandwidth: Set(req.max_bandwidth.clone()),
         token_min_expiry: Set(0),
-        api_enabled: Set(1),
-        home_view: Set("console".to_string()),
+        api_enabled: Set(req.api_enabled.unwrap_or(1)),
+        home_view: Set(req
+            .home_view
+            .clone()
+            .unwrap_or_else(|| "console".to_string())),
     };
     Ok(am.insert(db).await?)
 }
@@ -204,10 +262,12 @@ mod tests {
             .append_query_results::<UserModel, _, _>(vec![vec![after.clone()]])
             .into_connection();
 
-        let updated = update(&db, 42, Some("new@example.com".into()), Some(0))
-            .await
-            .unwrap()
-            .unwrap();
+        let req = crate::dto::request::UpdateUserRequest {
+            email: Some("new@example.com".into()),
+            enabled: Some(0),
+            ..Default::default()
+        };
+        let updated = update(&db, 42, &req, None).await.unwrap().unwrap();
         assert_eq!(updated.email, "new@example.com");
         assert_eq!(updated.enabled, 0);
     }

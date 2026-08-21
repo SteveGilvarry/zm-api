@@ -8,7 +8,6 @@ use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use serde::Deserialize;
 
 /// List ZoneMinder users with pagination.
 ///
@@ -51,31 +50,27 @@ pub async fn get_user(
     Ok(Json(item))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
-pub struct UpdateUserRequest {
-    pub email: Option<String>,
-    pub enabled: Option<u8>,
-}
-
-/// Update user fields (email/enabled).
+/// Update user fields.
 ///
-/// - Partial update; only provided fields are changed.
-/// - Requires a valid JWT.
+/// - Partial update; only provided fields are changed. Can set the profile
+///   fields, a new password (re-hashed), the eight permission levels, and the
+///   token-revocation floor (admin revoke-all).
+/// - Requires a valid JWT with System (admin) permission.
 #[utoipa::path(
     put,
     path = "/api/v3/users/{id}",
     params(("id" = u32, Path, description = "User ID")),
-    request_body = UpdateUserRequest,
-    responses((status = 200, description = "Updated user", body = serde_json::Value)),
+    request_body = crate::dto::request::UpdateUserRequest,
+    responses((status = 200, description = "Updated user", body = UserResponse)),
     tag = "Users",
     security(("jwt" = []))
 )]
 pub async fn update_user(
     Path(id): Path<u32>,
     State(state): State<AppState>,
-    Json(req): Json<UpdateUserRequest>,
+    Json(req): Json<crate::dto::request::UpdateUserRequest>,
 ) -> AppResult<Json<UserResponse>> {
-    let item = crate::service::users::update(&state, id, req.email, req.enabled).await?;
+    let item = crate::service::users::update(&state, id, req).await?;
     Ok(Json(item))
 }
 
