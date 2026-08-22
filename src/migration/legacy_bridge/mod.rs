@@ -554,15 +554,74 @@ async fn converge_schema(conn: &DatabaseConnection) -> Result<(), DbErr> {
         .await?;
     }
 
-    // -- Tables created by the chain under the server-default collation -----
-    // Fresh creates inherit utf8mb4_unicode_ci from the connection; chain
-    // creates on newer MariaDB got utf8mb4_uca1400_ai_ci.
-    conn.execute_unprepared(
-        "ALTER TABLE `EncoderTemplates` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci",
+    // -- Collation drift from the legacy chain ------------------------------
+    //
+    // `EncoderTemplates` is created by the zm_update chain with an explicit
+    // `utf8mb4_unicode_ci`, while a fresh baseline gets whatever the database
+    // defaults to — `utf8mb4_uca1400_ai_ci` on MariaDB 11.8. That difference is
+    // what the upgrade-parity check reports (GH #40).
+    //
+    // Converge on the *database default* rather than a hardcoded collation, so
+    // a bridged install matches a fresh one on whichever server it is running,
+    // instead of matching on one version and diverging on the next. An earlier
+    // fix here forced `utf8mb4_unicode_ci`, which is the legacy value — it
+    // normalised in the direction that guarantees the mismatch.
+    converge_collation(conn, "EncoderTemplates").await?;
+    report_collation_drift(conn).await;
+
+    Ok(())
+}
+
+/// Rewrite one table to the database's default collation.
+///
+/// Targeted rather than a general sweep on purpose: `CONVERT TO CHARACTER SET`
+/// rebuilds the whole table, and doing that to `Frames` or `Events` on a real
+/// install would take hours and hold locks throughout. Only tables the chain is
+/// known to create with an explicit collation belong here.
+async fn converge_collation(conn: &DatabaseConnection, table: &str) -> Result<(), DbErr> {
+    if !table_exists(conn, table).await? {
+        return Ok(());
+    }
+    let default = scalar(
+        conn,
+        "SELECT DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA \
+         WHERE SCHEMA_NAME = DATABASE()",
+        vec![],
     )
     .await?;
 
+    // Only a utf8mb4 collation is safe to name here; anything else and we let
+    // the server pick the default for the charset.
+    let sql = match default.as_deref() {
+        Some(c) if c.starts_with("utf8mb4_") => {
+            format!("ALTER TABLE `{table}` CONVERT TO CHARACTER SET utf8mb4 COLLATE {c}")
+        }
+        _ => format!("ALTER TABLE `{table}` CONVERT TO CHARACTER SET utf8mb4"),
+    };
+    conn.execute_unprepared(&sql).await?;
     Ok(())
+}
+
+/// Log any other table whose collation differs from the database default.
+///
+/// Not converted — see `converge_collation` for why a blanket rewrite is a bad
+/// idea. This exists so the next table to drift is named in the log rather than
+/// surfacing as an unexplained parity failure months later.
+async fn report_collation_drift(conn: &DatabaseConnection) {
+    let sql = "SELECT GROUP_CONCAT(t.TABLE_NAME) FROM information_schema.TABLES t \
+               JOIN information_schema.SCHEMATA s ON s.SCHEMA_NAME = t.TABLE_SCHEMA \
+               WHERE t.TABLE_SCHEMA = DATABASE() \
+                 AND t.TABLE_TYPE = 'BASE TABLE' \
+                 AND t.TABLE_COLLATION IS NOT NULL \
+                 AND t.TABLE_COLLATION <> s.DEFAULT_COLLATION_NAME";
+    match scalar(conn, sql, vec![]).await {
+        Ok(Some(tables)) if !tables.is_empty() => tracing::warn!(
+            "these tables do not use the database default collation, which will \
+             show as upgrade-parity drift: {tables}"
+        ),
+        Ok(_) => {}
+        Err(e) => tracing::debug!("could not check collation drift: {e}"),
+    }
 }
 
 #[cfg(test)]
