@@ -2,7 +2,7 @@
 addr = "0.0.0.0"
 port = 8080
 # Browser origins allowed to call the API (CORS). Set this whenever a dashboard
-# (zm-dash) is served from anything other than localhost — browsers block the
+# (zm-web) is served from anything other than localhost — browsers block the
 # requests otherwise, and the only symptom is in the browser console.
 #
 # Each entry is an exact origin ("https://zm.example.com") or a host with a ":*"
@@ -10,7 +10,7 @@ port = 8080
 # "*" is not accepted: credentials are enabled and the CORS spec forbids that
 # pairing. Empty means localhost only.
 #
-# Same-origin deployments (zm-dash behind the same hostname via a reverse proxy)
+# Same-origin deployments (zm-web behind the same hostname via a reverse proxy)
 # make no CORS request and need nothing here.
 #
 # Override per-host with: APP_SERVER__ALLOWED_ORIGINS=https://zm.example.com
@@ -25,7 +25,7 @@ key_path = "/etc/letsencrypt/live/example.com/privkey.pem"
 enabled = false
 domains = []
 contact_emails = []
-cache_dir = "/var/lib/zm_api/acme"
+cache_dir = "/var/lib/zm-api/acme"
 production = false
 challenge = "tls-alpn-01"
 http_port = 80
@@ -164,7 +164,7 @@ render_timeout_seconds = 120
 max_concurrent_renders = 2
 # Days a rendered artifact is kept before the cleanup job removes it (0 = keep).
 retention_days = 7
-cache_dir = "/var/lib/zm_api/synopsis"
+cache_dir = "/var/lib/zm-api/synopsis"
 # Output synopsis frame rate for the rendered mp4.
 output_fps = 12
 # Cap on tubes drawn into one output frame (0 = unlimited).
@@ -184,7 +184,7 @@ enabled_monitors = []
 enabled = "off"        # off | auto | on  (auto = enable iff a vector backend is found)
 backend = "auto"       # auto -> sqlite today (MySQL 8.0 has no native VECTOR); mariadb|postgres later
 embed_dim = 384        # Matryoshka-truncate to 256-384
-sqlite_path = "/var/lib/zm_api/search.db"
+sqlite_path = "/var/lib/zm-api/search.db"
 rerank = true
 embed_url = "http://127.0.0.1:8090/embed"    # text(+image) embeddings (TEI/llama.cpp/Ollama)
 rerank_url = "http://127.0.0.1:8090/rerank"  # cross-encoder reranker
@@ -194,9 +194,11 @@ image_embed = false    # also embed on-disk crop JPEGs (off = text-only)
 
 # Daemon controller configuration (replaces zmdc.pl/zmpkg.pl)
 [daemon]
-# Passive by default: run as a REST API alongside stock ZoneMinder without
-# touching its daemons. Flip to true (and disable zoneminder.service) only when
-# you want zm_api to take over daemon supervision. See packaging/zm_api-takeover.sh.
+# Passive by default so a fresh install cannot disturb a running ZoneMinder.
+# That is the on-ramp, not the end state: takeover replaces zmdc.pl and
+# zmwatch.pl with one native supervisor. Flip to true (and disable
+# zoneminder.service) when ready — or use packaging/zm-api-takeover.sh, which
+# sequences both services correctly in either direction.
 enabled = false
 socket_path = "/run/zm"
 socket_name = "zmdc.sock"

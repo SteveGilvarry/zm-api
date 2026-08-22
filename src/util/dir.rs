@@ -29,10 +29,12 @@ mod tests {
     #[test]
     fn test_get_cargo_project_root() {
         let root = get_cargo_project_root().unwrap().unwrap();
-        let pkg = env!("CARGO_PKG_NAME");
         let dir_name = root.file_name().unwrap().to_str().unwrap();
-        // Normalize directory name:  replace hyphens with underscores to match package name
-        let normalized_dir_name = dir_name.replace('-', "_");
-        assert_eq!(normalized_dir_name, pkg);
+        // Compare separator-insensitively: the package is `zm-api`, but a
+        // checkout may sit in either `zm-api` or `zm_api` (CI uses the repo
+        // name, some local clones predate the rename). Normalising only one
+        // side would make this unsatisfiable for one of them.
+        let norm = |s: &str| s.replace('-', "_");
+        assert_eq!(norm(dir_name), norm(env!("CARGO_PKG_NAME")));
     }
 }

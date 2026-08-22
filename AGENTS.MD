@@ -5,7 +5,7 @@ Keep it practical: commands that work, where code lives, and project-specific co
 
 ## Project Summary
 
-`zm_api` is a Rust REST API server for managing a ZoneMinder installation.
+`zm-api` is a Rust REST API server for managing a ZoneMinder installation.
 
 - Web framework: Axum
 - ORM: SeaORM (current app config builds a `mysql://...` URL)
@@ -86,8 +86,8 @@ Config is loaded from, in order:
 Relevant env vars:
 
 - `APP_PROFILE` (supported: `dev`, `test`, `test-db`, `prod`)
-- `APP_CONFIG_DIR` to point at a config directory (packaging uses `/etc/zm_api`)
-- `APP_STATIC_DIR` to point at static assets (packaging uses `/usr/share/zm_api/static`)
+- `APP_CONFIG_DIR` to point at a config directory (packaging uses `/etc/zm-api`)
+- `APP_STATIC_DIR` to point at static assets (packaging uses `/usr/share/zm-api/static`)
 - Env override prefix is `APP_` and nested keys use `__` (example: `APP_DB__HOST=10.0.0.5`)
 
 ## Database & Integration Tests

@@ -58,7 +58,7 @@ impl Default for SynopsisConfig {
             render_timeout_seconds: 120,
             max_concurrent_renders: 2,
             retention_days: 7,
-            cache_dir: PathBuf::from("/var/lib/zm_api/synopsis"),
+            cache_dir: PathBuf::from("/var/lib/zm-api/synopsis"),
             output_fps: 12,
             max_tubes_per_frame: 8,
             collision_budget: 0.05,

@@ -5,15 +5,15 @@ usage() {
   cat <<'EOF'
 Usage: ./scripts/package.sh [deb|rpm|arch|all]
 
-Builds distribution packages for zm_api.
+Builds distribution packages for zm-api.
 
   deb   Debian/Ubuntu .deb via cargo-deb (built here when tooling is present).
-  rpm   Fedora/RHEL/openSUSE .rpm from packaging/rpm/zm_api.spec via rpmbuild.
+  rpm   Fedora/RHEL/openSUSE .rpm from packaging/rpm/zm-api.spec via rpmbuild.
   arch  Arch PKGBUILD via makepkg.
   all   deb plus whatever rpm/arch tooling is available.
 
-All packages ship in PASSIVE mode (REST API only). Use `zm_api-takeover` on the
-target host to hand ZoneMinder daemon supervision to zm_api.
+All packages ship in PASSIVE mode (REST API only). Use `zm-api-takeover` on the
+target host to hand ZoneMinder daemon supervision to zm-api.
 EOF
 }
 
@@ -38,7 +38,7 @@ build_deb() {
 build_rpm() {
   if ! command -v rpmbuild >/dev/null 2>&1; then
     echo "rpmbuild not found. Build on a Fedora/EL/openSUSE host, or submit" >&2
-    echo "packaging/rpm/zm_api.spec to COPR (Fedora) / OBS (openSUSE)." >&2
+    echo "packaging/rpm/zm-api.spec to COPR (Fedora) / OBS (openSUSE)." >&2
     return 1
   fi
   # The spec's %autosetup uses the upstream Version (no pre-release suffix), so
@@ -47,10 +47,10 @@ build_rpm() {
   upstream="${VERSION%%-*}"
   topdir="$(rpm --eval %_topdir)"
   mkdir -p "$topdir/SOURCES"
-  tarball="$topdir/SOURCES/zm_api-${upstream}.tar.gz"
+  tarball="$topdir/SOURCES/zm-api-${upstream}.tar.gz"
   echo "Creating source tarball $tarball"
-  (cd "$ROOT" && git archive --format=tar.gz --prefix="zm_api-${upstream}/" -o "$tarball" HEAD)
-  rpmbuild -bb "$ROOT/packaging/rpm/zm_api.spec"
+  (cd "$ROOT" && git archive --format=tar.gz --prefix="zm-api-${upstream}/" -o "$tarball" HEAD)
+  rpmbuild -bb "$ROOT/packaging/rpm/zm-api.spec"
 }
 
 build_arch() {

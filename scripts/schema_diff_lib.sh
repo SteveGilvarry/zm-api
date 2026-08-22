@@ -24,7 +24,7 @@ sql() { # sql [client args...]  - reads statements from stdin
 # legacy ALTER chains append columns in a different physical order than a
 # fresh create, which is semantically irrelevant and would require full
 # table rebuilds on user databases to converge. Comparison is restricted to
-# the table set of <table_source_db> so additive zm_api-owned tables and
+# the table set of <table_source_db> so additive zm-api-owned tables and
 # seaql_migrations don't produce noise; a table missing from the candidate
 # still fails because its rows appear only in the reference dump.
 dump_db() {

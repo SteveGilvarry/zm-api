@@ -2,7 +2,7 @@
 //!
 //! ## Why this exists (stored / second-order SQL injection)
 //!
-//! `zm_api` never executes a filter's `Query_json` itself — it only stores it.
+//! `zm-api` never executes a filter's `Query_json` itself — it only stores it.
 //! But ZoneMinder's `zmfilter.pl` (via `ZoneMinder::Filter`) reads that JSON
 //! back and **builds a SQL `WHERE`/`ORDER BY`/`LIMIT` clause from it**, then
 //! runs it. The pieces of a filter term that become SQL *identifiers* and

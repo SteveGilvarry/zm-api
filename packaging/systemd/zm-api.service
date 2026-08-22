@@ -21,7 +21,7 @@ Group=zoneminder
 # drop-in — NOT by editing this line, and note that naming a group that does
 # not exist makes systemd refuse to start the unit (status=216/GROUP):
 #
-#   sudo systemctl edit zm_api
+#   sudo systemctl edit zm-api
 #   [Service]
 #   SupplementaryGroups=<value of ZM_STREAM_SOCKET_GROUP>
 #
@@ -30,16 +30,16 @@ Group=zoneminder
 SupplementaryGroups=video ssl-cert
 
 # Environment configuration
-EnvironmentFile=-/etc/zm_api/zm_api.env
+EnvironmentFile=-/etc/zm-api/zm-api.env
 
 # Paths
 WorkingDirectory=/usr/share/zoneminder
 RuntimeDirectory=zm
 RuntimeDirectoryMode=0755
-StateDirectory=zm_api
+StateDirectory=zm-api
 
 # Execution
-ExecStart=/usr/bin/zm_api
+ExecStart=/usr/bin/zm-api
 ExecReload=/bin/kill -HUP $MAINPID
 
 # Graceful shutdown - match our 30s SIGTERM timeout

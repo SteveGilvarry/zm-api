@@ -7,7 +7,7 @@
 > (CDATA-spanning text, `xml:lang` Reason), Phase 5 live event push to API
 > clients (SSE/webhook).
 
-Goal: make zm_api a **client-only ONVIF NVR** — discover cameras, retrieve media
+Goal: make zm-api a **client-only ONVIF NVR** — discover cameras, retrieve media
 profiles/stream URIs, control PTZ natively, and consume device events — by adding
 a reusable ONVIF client subsystem and wiring it into the existing monitor, PTZ,
 streaming, and event layers.
@@ -23,7 +23,7 @@ Media, PTZ, Events, plus WS-Discovery). It therefore lives in its **own
 top-level module** `src/onvif/` as a reusable client/transport library, and each
 consuming subsystem holds a thin adapter:
 
-| ONVIF service | Consumer in zm_api |
+| ONVIF service | Consumer in zm-api |
 |---|---|
 | WS-Discovery (UDP 239.255.255.250:3702) | `src/service/discovery.rs` + handler/route |
 | Device (GetCapabilities, GetDeviceInformation) | discovery + monitor create |

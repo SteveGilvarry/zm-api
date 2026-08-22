@@ -1,6 +1,6 @@
 //! Database migrations.
 //!
-//! As of migration system phase 1 (issue #11) zm_api owns the full ZoneMinder
+//! As of migration system phase 1 (issue #11) zm-api owns the full ZoneMinder
 //! schema: `m00000000_000001_zm_baseline` creates every ZM table for fresh
 //! installs. Existing ZoneMinder databases must NOT run the baseline — the
 //! upgrade bridge (phase 2) walks the legacy zm_update-*.sql chain to the

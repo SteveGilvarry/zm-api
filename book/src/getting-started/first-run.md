@@ -3,9 +3,9 @@
 ## Start it
 
 ```bash
-sudo systemctl enable --now zm_api
-systemctl status zm_api
-journalctl -u zm_api -f
+sudo systemctl enable --now zm-api
+systemctl status zm-api
+journalctl -u zm-api -f
 ```
 
 ## Check it responds
@@ -32,9 +32,9 @@ You get back an access token (10 minutes) and a refresh token (1 hour). Send
 
 ## Two things that commonly need setting
 
-**Database.** zm_api reads `/etc/zm/zm.conf` automatically, so on a normal
+**Database.** zm-api reads `/etc/zm/zm.conf` automatically, so on a normal
 single-host install there is nothing to configure. Only set `APP_DB__*` in
-`/etc/zm_api/zm_api.env` if the database is somewhere else.
+`/etc/zm-api/zm-api.env` if the database is somewhere else.
 
 **CORS.** If you are serving a dashboard from a different origin than the API,
 set this or the browser blocks every request:
@@ -44,7 +44,7 @@ APP_SERVER__ALLOWED_ORIGINS=https://zm.example.com
 ```
 
 The failure is quiet — the dashboard loads and each request fails, reported
-only in the browser console. zm_api logs its effective origin list at startup
+only in the browser console. zm-api logs its effective origin list at startup
 and warns when it fell back to the localhost-only default, so check there
 first. Not needed when both sit behind one hostname; see
 [Serving a dashboard](../guide/dashboard.md).
@@ -55,7 +55,7 @@ zmc's per-monitor stream sockets are mode 0660, owned by ZoneMinder's
 `ZM_STREAM_SOCKET_GROUP`. If that group is not `zoneminder`, add it:
 
 ```bash
-sudo systemctl edit zm_api
+sudo systemctl edit zm-api
 ```
 
 ```ini

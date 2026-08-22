@@ -2,7 +2,7 @@
 
 Three binaries, each with a man page.
 
-## `zm_api`
+## `zm-api`
 
 The server. It takes no arguments beyond these — everything else is
 configuration.
@@ -17,15 +17,15 @@ All three are handled before configuration loads, so they still answer on a
 host whose config is broken.
 
 ```bash
-zm_api --openapi > openapi.json          # diff the API between releases
-zm_api --openapi | jq '.paths | keys'    # list every route
+zm-api --openapi > openapi.json          # diff the API between releases
+zm-api --openapi | jq '.paths | keys'    # list every route
 ```
 
-`man 8 zm_api`
+`man 8 zm-api`
 
-## `zm_api-db`
+## `zm-api-db`
 
-Database migrations. Built by cargo as `migrator`; installed as `zm_api-db`.
+Database migrations. Built by cargo as `migrator`; installed as `zm-api-db`.
 
 | Command | When |
 | --- | --- |
@@ -37,12 +37,12 @@ The URL can come from `DATABASE_URL` instead of `-u`. See
 [Upgrading](../getting-started/upgrading.md) — picking the wrong one of
 `bridge`/`up` matters.
 
-`man 8 zm_api-db`
+`man 8 zm-api-db`
 
-## `zm_api-takeover`
+## `zm-api-takeover`
 
 Switches the host between passive and takeover mode, sequencing
-`zoneminder.service` and `zm_api.service` so they are never both supervising.
+`zoneminder.service` and `zm-api.service` so they are never both supervising.
 
 | Option | What |
 | --- | --- |
@@ -52,8 +52,8 @@ Switches the host between passive and takeover mode, sequencing
 
 Requires root. See [Passive and takeover mode](../guide/takeover.md).
 
-`man 8 zm_api-takeover`
+`man 8 zm-api-takeover`
 
 ## Configuration reference
 
-`man 5 zm_api.env` documents every `APP_*` variable.
+`man 5 zm-api.env` documents every `APP_*` variable.

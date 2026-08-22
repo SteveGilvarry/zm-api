@@ -11,11 +11,11 @@ Set the dashboard's origin:
 APP_SERVER__ALLOWED_ORIGINS=https://zm.example.com
 ```
 
-zm_api logs its effective origin list at startup and warns when it fell back to
+zm-api logs its effective origin list at startup and warns when it fell back to
 the localhost-only default — check there first:
 
 ```bash
-journalctl -u zm_api | grep -i cors
+journalctl -u zm-api | grep -i cors
 ```
 
 A bare `*` is not accepted. The API sends credentials and the CORS spec forbids
@@ -28,7 +28,7 @@ The service user is not in ZoneMinder's `ZM_STREAM_SOCKET_GROUP`. The
 per-monitor sockets are mode 0660.
 
 ```bash
-sudo systemctl edit zm_api
+sudo systemctl edit zm-api
 ```
 
 ```ini
@@ -41,12 +41,12 @@ systemd refuse to start the service entirely (`status=216/GROUP`).
 
 ## The service starts but features are missing
 
-Migrations probably failed. zm_api only *warns* on migration failure at startup,
+Migrations probably failed. zm-api only *warns* on migration failure at startup,
 so the service looks healthy.
 
 ```bash
-journalctl -u zm_api | grep -i migrat
-zm_api-db status -u mysql://zmuser:zmpass@localhost/zm
+journalctl -u zm-api | grep -i migrat
+zm-api-db status -u mysql://zmuser:zmpass@localhost/zm
 ```
 
 See [Upgrading](../getting-started/upgrading.md).
@@ -54,8 +54,8 @@ See [Upgrading](../getting-started/upgrading.md).
 ## The unit won't start at all
 
 ```bash
-systemctl status zm_api
-journalctl -u zm_api -n 100 --no-pager
+systemctl status zm-api
+journalctl -u zm-api -n 100 --no-pager
 ```
 
 Common causes:
@@ -64,7 +64,7 @@ Common causes:
 | --- | --- |
 | `status=216/GROUP` | A `SupplementaryGroups=` entry names a group that doesn't exist |
 | Cannot connect to database | `APP_DB__*` set to something wrong, overriding the working `zm.conf` fallback |
-| Missing JWT keys | `/var/lib/zm_api/keys` not provisioned — run `/usr/share/zm_api/setup-instance.sh` |
+| Missing JWT keys | `/var/lib/zm-api/keys` not provisioned — run `/usr/share/zm-api/setup-instance.sh` |
 | Port in use | Something else on 8080; set `APP_SERVER__PORT` |
 
 ## Streams stall behind a reverse proxy
@@ -90,10 +90,10 @@ it every client shares the proxy's single bucket.
 ## Turning up the logs
 
 ```bash
-sudo systemctl edit zm_api      # [Service] Environment=RUST_LOG=debug
+sudo systemctl edit zm-api      # [Service] Environment=RUST_LOG=debug
 # or per-module:
-#   RUST_LOG=info,zm_api::streaming=debug
-#   RUST_LOG=info,zm_api::daemon=debug
-sudo systemctl restart zm_api
-journalctl -u zm_api -f
+#   RUST_LOG=info,zm-api::streaming=debug
+#   RUST_LOG=info,zm-api::daemon=debug
+sudo systemctl restart zm-api
+journalctl -u zm-api -f
 ```

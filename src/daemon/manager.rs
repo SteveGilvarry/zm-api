@@ -2544,7 +2544,7 @@ fn zminfer_daemon_id(gpu: u32) -> String {
 /// Spawn a daemon process with PR_SET_PDEATHSIG on Linux.
 ///
 /// This ensures that child processes receive SIGTERM when the parent process dies,
-/// preventing orphaned daemons when zm_api crashes or is killed.
+/// preventing orphaned daemons when zm-api crashes or is killed.
 #[cfg(target_os = "linux")]
 fn spawn_daemon(
     path: &std::path::Path,
@@ -2779,7 +2779,7 @@ mod tests {
                 "--monitor-id",
                 "7",
                 "--pipeline",
-                "/var/lib/zm_api/pipelines/monitor_7.json",
+                "/var/lib/zm-api/pipelines/monitor_7.json",
                 "--socket",
                 "/run/zm/stream_7.sock",
             ])

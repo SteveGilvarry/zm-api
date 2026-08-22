@@ -121,6 +121,7 @@ pub enum Decoding {
     #[sea_orm(string_value = "KeyFrames")]
     KeyFrames,
     #[sea_orm(string_value = "KeyFrames+Ondemand")]
+    #[serde(rename = "KeyFrames+Ondemand", alias = "KeyFramesOndemand")]
     KeyFramesOndemand,
     #[sea_orm(string_value = "Always")]
     Always,
@@ -139,10 +140,13 @@ pub enum Decoding {
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "DefaultCodec")]
 pub enum DefaultCodec {
     #[sea_orm(string_value = "auto")]
+    #[serde(rename = "auto", alias = "Auto")]
     Auto,
     #[sea_orm(string_value = "MP4")]
+    #[serde(rename = "MP4", alias = "Mp4")]
     Mp4,
     #[sea_orm(string_value = "MJPEG")]
+    #[serde(rename = "MJPEG", alias = "Mjpeg")]
     Mjpeg,
 }
 #[derive(
@@ -181,14 +185,19 @@ pub enum EmailFormat {
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "EventCloseMode")]
 pub enum EventCloseMode {
     #[sea_orm(string_value = "system")]
+    #[serde(rename = "system", alias = "System")]
     System,
     #[sea_orm(string_value = "time")]
+    #[serde(rename = "time", alias = "Time")]
     Time,
     #[sea_orm(string_value = "duration")]
+    #[serde(rename = "duration", alias = "Duration")]
     Duration,
     #[sea_orm(string_value = "idle")]
+    #[serde(rename = "idle", alias = "Idle")]
     Idle,
     #[sea_orm(string_value = "alarm")]
+    #[serde(rename = "alarm", alias = "Alarm")]
     Alarm,
 }
 #[derive(
@@ -289,16 +298,22 @@ pub enum Monitors {
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Orientation")]
 pub enum Orientation {
     #[sea_orm(string_value = "ROTATE_0")]
+    #[serde(rename = "ROTATE_0", alias = "Rotate0")]
     Rotate0,
     #[sea_orm(string_value = "ROTATE_90")]
+    #[serde(rename = "ROTATE_90", alias = "Rotate90")]
     Rotate90,
     #[sea_orm(string_value = "ROTATE_180")]
+    #[serde(rename = "ROTATE_180", alias = "Rotate180")]
     Rotate180,
     #[sea_orm(string_value = "ROTATE_270")]
+    #[serde(rename = "ROTATE_270", alias = "Rotate270")]
     Rotate270,
     #[sea_orm(string_value = "FLIP_HORI")]
+    #[serde(rename = "FLIP_HORI", alias = "FlipHori")]
     FlipHori,
     #[sea_orm(string_value = "FLIP_VERT")]
+    #[serde(rename = "FLIP_VERT", alias = "FlipVert")]
     FlipVert,
 }
 #[derive(
@@ -315,12 +330,16 @@ pub enum Orientation {
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "OutputContainer")]
 pub enum OutputContainer {
     #[sea_orm(string_value = "auto")]
+    #[serde(rename = "auto", alias = "Auto")]
     Auto,
     #[sea_orm(string_value = "mp4")]
+    #[serde(rename = "mp4", alias = "Mp4")]
     Mp4,
     #[sea_orm(string_value = "mkv")]
+    #[serde(rename = "mkv", alias = "Mkv")]
     Mkv,
     #[sea_orm(string_value = "webm")]
+    #[serde(rename = "webm", alias = "Webm")]
     Webm,
 }
 #[derive(
@@ -371,10 +390,13 @@ pub enum StreamChannel {
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "RTSP2WebType")]
 pub enum Rtsp2WebType {
     #[sea_orm(string_value = "HLS")]
+    #[serde(rename = "HLS", alias = "Hls")]
     Hls,
     #[sea_orm(string_value = "MSE")]
+    #[serde(rename = "MSE", alias = "Mse")]
     Mse,
     #[sea_orm(string_value = "WebRTC")]
+    #[serde(rename = "WebRTC", alias = "WebRtc")]
     WebRtc,
 }
 #[derive(
@@ -519,10 +541,12 @@ pub enum MonitorType {
     #[sea_orm(string_value = "Libvlc")]
     Libvlc,
     #[sea_orm(string_value = "cURL")]
+    #[serde(rename = "cURL", alias = "Curl")]
     Curl,
     #[sea_orm(string_value = "WebSite")]
     WebSite,
     #[sea_orm(string_value = "VNC")]
+    #[serde(rename = "VNC", alias = "Vnc")]
     Vnc,
 }
 
@@ -573,12 +597,14 @@ pub enum FrameType {
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "StorageType")]
 pub enum StorageType {
     #[sea_orm(string_value = "local")]
+    #[serde(rename = "local", alias = "Local")]
     Local,
     #[sea_orm(string_value = "s3fs")]
+    #[serde(rename = "s3fs", alias = "S3fs")]
     S3fs,
 }
 
-/// Render lifecycle of a motion-synopsis row (zm_api-owned `event_synopsis`
+/// Render lifecycle of a motion-synopsis row (zm-api-owned `event_synopsis`
 /// table — not part of ZoneMinder's schema). Stored as a short portable string
 /// column, so the migration needs no native DB `ENUM` type.
 #[derive(
@@ -598,15 +624,19 @@ pub enum StorageType {
 pub enum SynopsisStatus {
     /// Manifest ingested; nothing rendered yet.
     #[sea_orm(string_value = "pending")]
+    #[serde(rename = "pending", alias = "Pending")]
     Pending,
     /// A render task is in flight.
     #[sea_orm(string_value = "generating")]
+    #[serde(rename = "generating", alias = "Generating")]
     Generating,
     /// A rendered artifact is cached and servable.
     #[sea_orm(string_value = "ready")]
+    #[serde(rename = "ready", alias = "Ready")]
     Ready,
     /// The render failed (missing assets, no encoder, …); safe to retry.
     #[sea_orm(string_value = "failed")]
+    #[serde(rename = "failed", alias = "Failed")]
     Failed,
 }
 
@@ -662,4 +692,82 @@ pub enum Framework {
     TensorRt,
     #[sea_orm(string_value = "Other")]
     Other,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_orm::ActiveEnum;
+
+    /// Every variant must serialize to the value ZoneMinder actually stores
+    /// (GH #59).
+    ///
+    /// `#[sea_orm(string_value = …)]` governs only the database mapping; serde
+    /// defaults to the Rust variant name. Where the two spellings differ —
+    /// `ROTATE_90` vs `Rotate90`, `cURL` vs `Curl` — the API was emitting a
+    /// value ZoneMinder does not use, and the mismatch was invisible because
+    /// requests accepted the same wrong spelling they emitted. Anything that
+    /// knows the real values (the PHP UI, the CakePHP API, a client ported from
+    /// either) saw a value it could not match.
+    ///
+    /// Written as a macro over `ActiveEnum::values()` rather than a hand-listed
+    /// table so a newly generated enum is covered without anyone remembering
+    /// to add it.
+    macro_rules! assert_serializes_to_db_values {
+        ($($ty:ty),+ $(,)?) => {$({
+            for value in <$ty as ActiveEnum>::values() {
+                let db: String = value.to_string();
+                let parsed = <$ty as ActiveEnum>::try_from_value(&value)
+                    .expect("value() round-trips through try_from_value");
+                let json = serde_json::to_value(&parsed).expect("serialize");
+                let wire = json.as_str().expect("enums serialize as strings");
+                assert_eq!(
+                    wire,
+                    db,
+                    "{}::{:?} serializes as {:?} but ZoneMinder stores {:?} — \
+                     add #[serde(rename = {:?})]",
+                    stringify!($ty), parsed, wire, db, db
+                );
+            }
+        })+};
+    }
+
+    #[test]
+    fn enums_serialize_to_the_values_zoneminder_stores() {
+        assert_serializes_to_db_values!(
+            Orientation,
+            MonitorType,
+            DefaultCodec,
+            EventCloseMode,
+            Rtsp2WebType,
+            Decoding,
+            OutputContainer,
+            StorageType,
+            SynopsisStatus,
+            Framework,
+        );
+    }
+
+    #[test]
+    fn the_previous_rust_variant_spelling_is_still_accepted() {
+        // Clients written against the old (incorrect) output keep working while
+        // they migrate: the alias deserializes, even though it is never emitted.
+        let from_old: Orientation = serde_json::from_str("\"Rotate90\"").expect("alias accepted");
+        assert_eq!(from_old, Orientation::Rotate90);
+        let from_new: Orientation =
+            serde_json::from_str("\"ROTATE_90\"").expect("db value accepted");
+        assert_eq!(from_new, Orientation::Rotate90);
+        assert_eq!(
+            serde_json::to_value(Orientation::Rotate90).unwrap(),
+            serde_json::json!("ROTATE_90"),
+            "the DB spelling is what goes on the wire"
+        );
+
+        let curl: MonitorType = serde_json::from_str("\"Curl\"").expect("alias accepted");
+        assert_eq!(curl, MonitorType::Curl);
+        assert_eq!(
+            serde_json::to_value(MonitorType::Curl).unwrap(),
+            serde_json::json!("cURL")
+        );
+    }
 }

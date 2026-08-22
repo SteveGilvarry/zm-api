@@ -33,7 +33,7 @@ pre=""
 [[ "$cargo_version" == *-* ]] && pre="${cargo_version#*-}"
 
 # --- rpm spec ---------------------------------------------------------------
-spec=packaging/rpm/zm_api.spec
+spec=packaging/rpm/zm-api.spec
 spec_version=$(grep -m1 '^Version:' "$spec" | awk '{print $2}')
 spec_release=$(grep -m1 '^Release:' "$spec" | awk '{print $2}')
 

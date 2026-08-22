@@ -1,27 +1,27 @@
-.TH ZM_API-DB 8 "2026-08-22" "zm_api" "System Administration"
+.TH ZM-API-DB 8 "2026-08-22" "zm-api" "System Administration"
 .SH NAME
-zm_api\-db \- database migration and upgrade tool for zm_api
+zm-api\-db \- database migration and upgrade tool for zm-api
 .SH SYNOPSIS
-.B zm_api-db
+.B zm-api-db
 .B bridge
 .BI \-u " URL"
 .br
-.B zm_api-db
+.B zm-api-db
 .B up
 .RB [ \-u
 .IR URL ]
 .br
-.B zm_api-db
+.B zm-api-db
 .B status
 .RB [ \-u
 .IR URL ]
 .SH DESCRIPTION
 Applies
-.BR zm_api (8)'s
+.BR zm-api (8)'s
 own schema migrations. Which command you want depends entirely on whether the
 database already contains a ZoneMinder installation.
 .PP
-.B zm_api
+.B zm-api
 also runs pending migrations itself at startup. It logs a warning rather than
 refusing to start when they fail, so a database left in the wrong state
 produces a service that looks healthy but has features silently missing. Run
@@ -32,7 +32,7 @@ this tool explicitly when upgrading, and read its output.
 .B For an existing ZoneMinder database
 (1.26.0 or newer). Walks the embedded
 .I zm_update
-chain to bring the schema up to the version zm_api expects, converges triggers,
+chain to bring the schema up to the version zm-api expects, converges triggers,
 stamps the baseline migration as already applied, then runs any remaining
 migrations.
 .IP
@@ -69,9 +69,9 @@ Upgrade an existing ZoneMinder database, having taken a backup first:
 .RS 4
 .EX
 mysqldump --single-transaction --routines --triggers zm > zm-backup.sql
-sudo systemctl stop zm_api
-zm_api-db bridge -u mysql://zmuser:zmpass@localhost/zm
-sudo systemctl start zm_api
+sudo systemctl stop zm-api
+zm-api-db bridge -u mysql://zmuser:zmpass@localhost/zm
+sudo systemctl start zm-api
 .EE
 .RE
 .PP
@@ -79,7 +79,7 @@ Check what has been applied:
 .PP
 .RS 4
 .EX
-zm_api-db status -u mysql://zmuser:zmpass@localhost/zm
+zm-api-db status -u mysql://zmuser:zmpass@localhost/zm
 .EE
 .RE
 .SH EXIT STATUS
@@ -98,6 +98,6 @@ Take a database backup before
 It rewrites schema across many ZoneMinder versions in one pass and has no
 undo.
 .SH SEE ALSO
-.BR zm_api (8),
-.BR zm_api.env (5),
+.BR zm-api (8),
+.BR zm-api.env (5),
 .BR mysqldump (1)

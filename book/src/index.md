@@ -1,6 +1,6 @@
 <div class="zm-hero">
 
-# zm_api
+# zm-api
 
 A modern, fast, type-safe REST API for ZoneMinder — rebuilding a twenty-year-old
 Perl, PHP, and CGI surface as one native service.
@@ -20,12 +20,15 @@ Perl, PHP, and CGI surface as one native service.
 
 </div>
 
-zm_api talks directly to an existing ZoneMinder MySQL/MariaDB database and ships
+zm-api talks directly to an existing ZoneMinder MySQL/MariaDB database and ships
 in **passive mode** — it serves the REST API and leaves ZoneMinder's own daemons
 running exactly as they were. Installing it changes nothing about how your
 cameras record, so it is safe to put on a live box and take back off again.
 
-When you want it to, it can also take over daemon supervision entirely.
+When you are ready, it takes over daemon supervision too, replacing `zmdc.pl`
+and `zmwatch.pl` with one native supervisor. Passive is the on-ramp; takeover is
+where it is meant to end up, and `zm-api-takeover` moves you either way in one
+command.
 
 <div class="zm-cards">
 
@@ -50,8 +53,13 @@ When you want it to, it can also take over daemon supervision entirely.
 </div>
 
 <div class="zm-card">
-<h3>Safe to try</h3>
-<p>Passive by default. It reads your database and serves HTTP; it does not touch your capture daemons until you ask.</p>
+<h3>A better supervisor</h3>
+<p>Takeover replaces zmdc.pl and zmwatch.pl with one native process: exponential backoff, database reconciliation, and daemon control over REST.</p>
+</div>
+
+<div class="zm-card">
+<h3>Safe to adopt</h3>
+<p>Passive by default, so installing changes nothing. Switch to takeover when you choose, and back again with one command.</p>
 </div>
 
 <div class="zm-card">
@@ -63,7 +71,7 @@ When you want it to, it can also take over daemon supervision entirely.
 
 ## Where to start
 
-If you have a running ZoneMinder and want zm_api alongside it, go to
+If you have a running ZoneMinder and want zm-api alongside it, go to
 [Install](getting-started/install.html) and then
 [Upgrading an existing ZoneMinder](getting-started/upgrading.html) — the
 database migration step is easy to miss and fails quietly.
@@ -79,7 +87,7 @@ to serve a dashboard.
 
 ## Status
 
-zm_api is in active development at `3.0.0-alpha`. It keeps the `v3` major from
+zm-api is in active development at `3.0.0-alpha`. It keeps the `v3` major from
 ZoneMinder's API lineage, so the URL shape is familiar, but it is not a
 drop-in replacement for the CakePHP API — the response envelopes, authentication,
 and error format are all different.

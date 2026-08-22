@@ -24,7 +24,7 @@ Example config:
 - `server.acme.enabled = true`
 - `server.acme.domains = ["api.example.com"]`
 - `server.acme.contact_emails = ["ops@example.com"]`
-- `server.acme.cache_dir = "/var/lib/zm_api/acme"`
+- `server.acme.cache_dir = "/var/lib/zm-api/acme"`
 - `server.acme.production = true`
 - `server.acme.challenge = "tls-alpn-01"` (default)
 
@@ -36,7 +36,7 @@ Environment variable equivalents:
 - `APP_SERVER__ACME__ENABLED=true`
 - `APP_SERVER__ACME__DOMAINS__0=api.example.com`
 - `APP_SERVER__ACME__CONTACT_EMAILS__0=ops@example.com`
-- `APP_SERVER__ACME__CACHE_DIR=/var/lib/zm_api/acme`
+- `APP_SERVER__ACME__CACHE_DIR=/var/lib/zm-api/acme`
 - `APP_SERVER__ACME__PRODUCTION=true`
 - `APP_SERVER__ACME__CHALLENGE=tls-alpn-01`
 
@@ -47,8 +47,8 @@ Use a pre/post hook so certbot can bind port 80/443 during issuance:
 ```
 certbot certonly --standalone -d api.example.com \
   --agree-tos -m ops@example.com \
-  --pre-hook "systemctl stop zm_api" \
-  --post-hook "systemctl start zm_api"
+  --pre-hook "systemctl stop zm-api" \
+  --post-hook "systemctl start zm-api"
 ```
 
 Renewals are handled by the certbot timer:
@@ -64,7 +64,7 @@ lego --email ops@example.com --domains api.example.com \
 
 On renew, restart the API so it reloads the new certs:
 ```
-systemctl restart zm_api
+systemctl restart zm-api
 ```
 
 ## Notes

@@ -8,8 +8,8 @@ port = 8_080
 # is the Governor replenish period in seconds, not requests/second.
 #
 # `trust_proxy_headers` is true here because the typical ZoneMinder deployment
-# runs zm_api behind a reverse proxy that sets X-Forwarded-For. If you expose
-# zm_api directly, set this to false so the peer IP is used and forwarding
+# runs zm-api behind a reverse proxy that sets X-Forwarded-For. If you expose
+# zm-api directly, set this to false so the peer IP is used and forwarding
 # headers can't be spoofed to bypass the limiter.
 [server.middleware]
 body_limit_bytes = 2097152
@@ -36,10 +36,10 @@ enabled = false
 dsn = ""
 
 [secret]
-private_access_key = "/var/lib/zm_api/keys/private_access_rsa_key.pem"
-public_access_key = "/var/lib/zm_api/keys/public_access_rsa_key.pem"
-private_refresh_key = "/var/lib/zm_api/keys/private_refresh_rsa_key.pem"
-public_refresh_key = "/var/lib/zm_api/keys/public_refresh_rsa_key.pem"
+private_access_key = "/var/lib/zm-api/keys/private_access_rsa_key.pem"
+public_access_key = "/var/lib/zm-api/keys/public_access_rsa_key.pem"
+private_refresh_key = "/var/lib/zm-api/keys/private_refresh_rsa_key.pem"
+public_refresh_key = "/var/lib/zm-api/keys/public_refresh_rsa_key.pem"
 
 [http]
 timeout = 10

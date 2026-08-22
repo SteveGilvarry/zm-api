@@ -1,6 +1,6 @@
 # Local build settings tuned for memory-constrained dev hosts.
 #
-# This box (16 GiB RAM, 4 GiB swap, 4 cores) runs ZoneMinder + zm_api
+# This box (16 GiB RAM, 4 GiB swap, 4 cores) runs ZoneMinder + zm-api
 # in parallel with cargo. systemd-oomd was killing the entire tmux
 # scope whenever `cargo test` linked several test binaries at once.
 # The caps below trade wall-time for a much lower memory ceiling.

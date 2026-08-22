@@ -1,4 +1,4 @@
-//! Create the zm_api-owned `monitor_pipeline` table.
+//! Create the zm-api-owned `monitor_pipeline` table.
 //!
 //! One row per monitor that runs on zm-next: it stores the **processing plugin
 //! graph** (the `{id,kind,cfg,children}` tree from `decode` downward) that

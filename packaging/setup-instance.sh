@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 #
-# setup-instance.sh — idempotent first-run provisioning for a zm_api install.
+# setup-instance.sh — idempotent first-run provisioning for a zm-api install.
 #
-# Installed to /usr/share/zm_api/setup-instance.sh and invoked by the
+# Installed to /usr/share/zm-api/setup-instance.sh and invoked by the
 # distribution post-install scripts (deb postinst, rpm %post, Arch .install).
 # Safe to run repeatedly. Does NOT enable or start the service and does NOT
-# touch ZoneMinder's daemons — zm_api ships in passive mode (see zm_api.env).
+# touch ZoneMinder's daemons — zm-api ships in passive mode (see zm-api.env).
 #
 set -euo pipefail
 
 ZM_USER="zoneminder"
 ZM_GROUP="zoneminder"
 ZM_HOME="/var/lib/zoneminder"
-STATE_DIR="/var/lib/zm_api"
+STATE_DIR="/var/lib/zm-api"
 KEY_DIR="${STATE_DIR}/keys"
-LOG_DIR="/var/log/zm_api"
+LOG_DIR="/var/log/zm-api"
 
 # 1. Reuse ZoneMinder's service account; create it only if absent so we never
 #    clobber an existing ZoneMinder install's user/group.
@@ -45,5 +45,5 @@ if command -v openssl >/dev/null 2>&1; then
     fi
   done
 else
-  echo "zm_api: openssl not found — generate JWT keys in ${KEY_DIR} before starting" >&2
+  echo "zm-api: openssl not found — generate JWT keys in ${KEY_DIR} before starting" >&2
 fi

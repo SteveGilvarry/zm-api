@@ -9,7 +9,7 @@ ignore = [
     # rsa "Marvin Attack" timing side-channel. No fixed `rsa` release exists and
     # the crate is pulled in transitively (and unavoidably) by sqlx-mysql for the
     # MariaDB/MySQL auth handshake — it is not used for any attacker-facing crypto
-    # in zm_api. Exploitation requires timing many RSA private-key operations;
+    # in zm-api. Exploitation requires timing many RSA private-key operations;
     # mitigated by a local/TLS database connection. Revisit when sqlx drops rsa.
     "RUSTSEC-2023-0071",
     # atomic-polyfill unmaintained. Deep transitive build-dep only
@@ -18,7 +18,7 @@ ignore = [
     # rkyv 0.7.46 out-of-bounds read. The fix is rkyv >=0.8.17, but 0.7.46 is
     # pulled transitively by the webrtc/dtls stack, which pins the 0.7 line; the
     # directly-reachable rkyv (0.8.x) is already upgraded to 0.8.17. rkyv is not
-    # used to deserialize attacker-controlled archives in zm_api. Revisit when
+    # used to deserialize attacker-controlled archives in zm-api. Revisit when
     # webrtc bumps rkyv to 0.8.
     "RUSTSEC-2026-0235",
     # paste unmaintained. Build-time-only proc-macro helper, pulled transitively
@@ -52,7 +52,7 @@ allow = [
     "CC0-1.0",
     "OpenSSL",
     "BSL-1.0",
-    # zm_api's own license (the workspace crate is scanned too).
+    # zm-api's own license (the workspace crate is scanned too).
     "AGPL-3.0-or-later",
     # Permissive licenses carried by transitive deps.
     "CDLA-Permissive-2.0",

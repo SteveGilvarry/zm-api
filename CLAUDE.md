@@ -5,13 +5,13 @@ Keep it practical: commands that work, where code lives, and project-specific co
 
 ## Project Summary
 
-`zm_api` is a Rust REST API server for managing a ZoneMinder installation.
+`zm-api` is a Rust REST API server for managing a ZoneMinder installation.
 
 - Web framework: Axum v0.8.8
 - ORM: SeaORM v1.1 (current app config builds a `mysql://...` URL)
 - API docs: Utoipa v5.4.0 + Swagger UI (`/api-docs/openapi.json`, `/swagger-ui`)
 - Live streaming is WebRTC + HLS (the earlier MSE scaffolding was removed in commit `ab731fc`). Treat streaming as product code: don’t refactor broadly unless the task requires it.
-- Live media comes from zmc’s per-monitor **stream socket** (`{ZM_PATH_SOCKS}/stream_{id}.sock`, one connection carrying video + audio with a HELLO codec handshake — see ZoneMinder’s `docs/stream_socket.rst`). The old media FIFOs are gone; `src/streaming/source/` holds the protocol parser (`protocol.rs`), reader (`stream_socket.rs`), shared media helpers (`media.rs`) and router. The zm_api service user must be in ZoneMinder’s `ZM_STREAM_SOCKET_GROUP` (socket mode 0660).
+- Live media comes from zmc’s per-monitor **stream socket** (`{ZM_PATH_SOCKS}/stream_{id}.sock`, one connection carrying video + audio with a HELLO codec handshake — see ZoneMinder’s `docs/stream_socket.rst`). The old media FIFOs are gone; `src/streaming/source/` holds the protocol parser (`protocol.rs`), reader (`stream_socket.rs`), shared media helpers (`media.rs`) and router. The zm-api service user must be in ZoneMinder’s `ZM_STREAM_SOCKET_GROUP` (socket mode 0660).
 
 ## Guardrails (Important)
 
@@ -102,8 +102,8 @@ Config is loaded from, in order:
 Relevant env vars:
 
 - `APP_PROFILE` (supported: `dev`, `test`, `test-db`, `prod`)
-- `APP_CONFIG_DIR` to point at a config directory (packaging uses `/etc/zm_api`)
-- `APP_STATIC_DIR` to point at static assets (packaging uses `/usr/share/zm_api/static`)
+- `APP_CONFIG_DIR` to point at a config directory (packaging uses `/etc/zm-api`)
+- `APP_STATIC_DIR` to point at static assets (packaging uses `/usr/share/zm-api/static`)
 - Env override prefix is `APP_` and nested keys use `__` (example: `APP_DB__HOST=10.0.0.5`)
 
 ## Database & Integration Tests

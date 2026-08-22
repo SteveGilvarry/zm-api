@@ -1,6 +1,6 @@
 # Serving a dashboard
 
-**zm_api serves no static files.** There is no `ServeDir`, no SPA fallback — any
+**zm-api serves no static files.** There is no `ServeDir`, no SPA fallback — any
 unmatched path returns a JSON 404, including `/index.html`. `APP_STATIC_DIR`
 despite its name is not an HTTP-served directory; it only locates JWT keys and a
 couple of image constants.
@@ -15,8 +15,8 @@ server {
     server_name zm.example.com;
 
     # Dashboard: static build output. The SPA fallback lives here, because
-    # zm_api has none — see above.
-    root /var/www/zm-dash;
+    # zm-api has none — see above.
+    root /var/www/zm-web;
     location / {
         try_files $uri $uri/ /index.html;
     }
@@ -57,7 +57,7 @@ hostname, one certificate, one thing to get wrong.
 Since the proxy is trusted here, also set
 `APP_SERVER__MIDDLEWARE__TRUST_PROXY_HEADERS=true` so rate limits key on the
 real client IP rather than the proxy's — otherwise every client shares one
-bucket. Leave it `false` on any host where zm_api is reachable directly: the
+bucket. Leave it `false` on any host where zm-api is reachable directly: the
 headers are attacker-controlled there, and trusting them lets a client mint a
 fresh bucket per request.
 
@@ -70,9 +70,9 @@ Then CORS **is** in play and you must set:
 APP_SERVER__ALLOWED_ORIGINS=https://dash.example.com
 ```
 
-Unset, zm_api allows localhost only. The failure mode is quiet — the dashboard
+Unset, zm-api allows localhost only. The failure mode is quiet — the dashboard
 loads and every request fails, reported only in the browser console — so this is
-the single most likely day-one problem. zm_api logs its effective origin list at
+the single most likely day-one problem. zm-api logs its effective origin list at
 startup and warns when it fell back to the default; check there first.
 
 A bare `*` is not accepted. The API sends credentials, and the CORS spec forbids

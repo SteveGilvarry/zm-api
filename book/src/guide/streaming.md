@@ -71,7 +71,7 @@ These need `Events: View`, not `Stream`.
 
 ## Behind a reverse proxy
 
-Streaming routes are deliberately excluded from zm_api's own compression layer,
+Streaming routes are deliberately excluded from zm-api's own compression layer,
 and they must not be buffered either. With `proxy_buffering on` an HLS or MP4
 route stalls. See [Serving a dashboard](dashboard.md) for a working nginx
 config.

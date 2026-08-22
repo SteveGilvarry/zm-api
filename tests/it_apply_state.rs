@@ -2,7 +2,7 @@
 //! (`POST /api/v3/system/state`) in **passive mode**.
 //!
 //! The test harness builds the app with no daemon manager (the shipped
-//! default: zm_api is a REST API and `zoneminder.service` owns the daemons).
+//! default: zm-api is a REST API and `zoneminder.service` owns the daemons).
 //! Applying a state must write the monitor + state rows and return success
 //! WITHOUT attempting a daemon restart — previously it errored with "Daemon
 //! manager not available" after the DB was already mutated.

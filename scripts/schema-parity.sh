@@ -66,7 +66,7 @@ echo "== Comparing schemas"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# Reference is the legacy DB's table set: additive zm_api-owned tables and
+# Reference is the legacy DB's table set: additive zm-api-owned tables and
 # seaql_migrations in the baseline DB are by design.
 compare_structure "$LEGACY_DB" "$BASELINE_DB" "$WORK"
 

@@ -21,7 +21,7 @@ is constant at 122 MB), NOT library code (`Shared_Clean` constant ~256 MB). Lead
 **Monitor-2 stays flat (~1.19 GB) while identical Monitors 1 & 3 climb in lockstep to
 1857 MB**; and the shared stdout is flooded with repeated FFmpeg `mov,mp4` demuxer
 probe warnings at ever-new heap addresses (repeated `AVFormatContext` creation —
-classic leak vector; source not yet attributed to worker vs zm_api playback).
+classic leak vector; source not yet attributed to worker vs zm-api playback).
 
 **Implication for this plan:** the leak must be found/fixed *regardless* of the
 daemon. The Phase-1 daemon does not fix a per-worker decode/record leak, and would

@@ -1,4 +1,4 @@
-//! Create the zm_api-owned `event_synopsis` table.
+//! Create the zm-api-owned `event_synopsis` table.
 //!
 //! One row per `review_assets` (0x0306) event: it stores the manifest JSON, the
 //! resolved asset directory, and the render lifecycle (`status`/`rendered_path`/

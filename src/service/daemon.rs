@@ -423,9 +423,9 @@ pub async fn apply_state_to_db(
 ///
 /// Reconfigures monitors + activates the state via [`apply_state_to_db`], then
 /// decides whether to restart daemons based on run mode:
-/// - Takeover/active mode (daemon manager present): zm_api supervises the
+/// - Takeover/active mode (daemon manager present): zm-api supervises the
 ///   ZoneMinder daemons, so restart them to pick up the new monitor config.
-/// - Passive mode (no daemon manager, the default): zm_api is just a REST API
+/// - Passive mode (no daemon manager, the default): zm-api is just a REST API
 ///   over the shared ZoneMinder database; `zoneminder.service` owns the daemon
 ///   lifecycle (zmdc/zmpkg) and reconciles from the DB itself — we must not
 ///   restart anything. Calling `system_restart` unconditionally previously

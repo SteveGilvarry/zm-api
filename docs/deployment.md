@@ -2,30 +2,30 @@
 
 This document covers **packaging internals and the release process**.
 
-For installing, configuring, and deploying zm_api, see the documentation site:
+For installing, configuring, and deploying zm-api, see the documentation site:
 <https://stevegilvarry.github.io/zm-api/> — in particular
 [Architecture](https://stevegilvarry.github.io/zm-api/guide/architecture.html)
-for how ZoneMinder, zm_api, and a dashboard fit together.
+for how ZoneMinder, zm-api, and a dashboard fit together.
 
 ## Environments
 - dev: local developer runs with `APP_PROFILE=dev`, uses local `settings/`.
 - staging: production-like config, separate database, limited access.
-- prod: managed service with systemd, config in `/etc/zm_api`, assets in `/usr/share/zm_api`.
+- prod: managed service with systemd, config in `/etc/zm-api`, assets in `/usr/share/zm-api`.
 
 ## Configuration strategy
 - Base config is `settings/base.toml` plus `settings/{APP_PROFILE}.toml`.
 - Environment variables override config values using the `APP_` prefix and `__` separators.
   - Example: `APP_DB__HOST=10.0.0.5`
-- Use `APP_CONFIG_DIR` to point the app at `/etc/zm_api` in packaged installs.
-- Use `APP_STATIC_DIR` to point the app at `/usr/share/zm_api/static` in packaged installs.
-- Secrets should live outside the repo. Store keys under `/var/lib/zm_api/keys` and update
+- Use `APP_CONFIG_DIR` to point the app at `/etc/zm-api` in packaged installs.
+- Use `APP_STATIC_DIR` to point the app at `/usr/share/zm-api/static` in packaged installs.
+- Secrets should live outside the repo. Store keys under `/var/lib/zm-api/keys` and update
   the `secret.*_key` paths in the profile config.
-- Generate per-install JWT keys with `scripts/generate-jwt-keys.sh /var/lib/zm_api/keys`
-  (or `JWT_KEY_DIR=/var/lib/zm_api/keys`).
+- Generate per-install JWT keys with `scripts/generate-jwt-keys.sh /var/lib/zm-api/keys`
+  (or `JWT_KEY_DIR=/var/lib/zm-api/keys`).
 
 ## Upgrading an existing ZoneMinder database
 
-**This is the step most likely to be skipped, and it fails quietly.** zm_api runs
+**This is the step most likely to be skipped, and it fails quietly.** zm-api runs
 pending migrations at startup but only *warns* if they fail, so a database left in
 the wrong state yields a service that starts, answers requests, and has features
 silently missing.
@@ -34,43 +34,46 @@ There are two distinct cases and they need different commands:
 
 | Database | Command |
 | --- | --- |
-| Existing ZoneMinder (1.26.0+) | `zm_api-db bridge -u mysql://zmuser:zmpass@localhost/zm` |
-| Fresh / empty | `zm_api-db up -u mysql://...` |
+| Existing ZoneMinder (1.26.0+) | `zm-api-db bridge -u mysql://zmuser:zmpass@localhost/zm` |
+| Fresh / empty | `zm-api-db up -u mysql://...` |
 
 `bridge` walks the embedded `zm_update` chain, converges triggers, stamps the
 baseline migration as applied, then runs the rest. `up` assumes it is *creating*
 the schema — never run it against a database that already has ZoneMinder tables.
 
 Back up first (`bridge` rewrites schema across many ZoneMinder versions in one
-pass and has no undo), and check the result with `zm_api-db status`. Full details
-in `man 8 zm_api-db`.
+pass and has no undo), and check the result with `zm-api-db status`. Full details
+in `man 8 zm-api-db`.
 
 > The tool is built by cargo as `migrator` (the name `scripts/*-parity.sh` use)
-> and installed as `/usr/bin/zm_api-db`.
+> and installed as `/usr/bin/zm-api-db`.
 
 ## Passive vs. active (daemon control)
-zm_api ships **passive** by default (`daemon.enabled = false`): it serves only the
+zm-api ships **passive** by default (`daemon.enabled = false`): it serves only the
 REST API and does not create the daemon manager, bind `/run/zm/zmdc.sock`, or run
 `kill_orphan_daemons()`. This makes it safe to install **alongside a running stock
 ZoneMinder** — the package never fights the existing `zmdc.pl`/`zmc`/`zmfilter`
 processes.
 
-When you are ready to let zm_api supervise the ZoneMinder daemons itself:
+Passive is the install-time default, not the intended end state. Takeover
+replaces both `zmdc.pl` and `zmwatch.pl` with one native supervisor, and is
+where a zm-api host is meant to end up; passive exists so the operator picks the
+moment. When you are ready:
 
 ```bash
-sudo zm_api-takeover          # stops+disables zoneminder.service, flips the flag, restarts zm_api
-sudo zm_api-takeover --revert # hand control back to ZoneMinder
+sudo zm-api-takeover          # stops+disables zoneminder.service, flips the flag, restarts zm-api
+sudo zm-api-takeover --revert # hand control back to ZoneMinder
 ```
 
 Equivalent manual steps: `systemctl disable --now zoneminder`, set
-`APP_DAEMON__ENABLED=true` in `/etc/zm_api/zm_api.env`, `systemctl restart zm_api`.
+`APP_DAEMON__ENABLED=true` in `/etc/zm-api/zm-api.env`, `systemctl restart zm-api`.
 
 ## Recommended deployment flow
 1. Install the package (see matrix below). It creates the `zoneminder` user (if
-   absent), provisions `/var/lib/zm_api/keys` with generated JWT keys, installs
-   the unit, and starts zm_api in **passive** mode.
-2. Confirm DB connectivity — zm_api falls back to `/etc/zm/zm.conf` when the
-   `[db]` placeholders are unchanged; otherwise set `APP_DB__*` in `zm_api.env`.
+   absent), provisions `/var/lib/zm-api/keys` with generated JWT keys, installs
+   the unit, and starts zm-api in **passive** mode.
+2. Confirm DB connectivity — zm-api falls back to `/etc/zm/zm.conf` when the
+   `[db]` placeholders are unchanged; otherwise set `APP_DB__*` in `zm-api.env`.
 3. Configure TLS/ACME if needed (see `docs/tls.md`).
 4. If a dashboard will be served from a different origin than the API, set
    `APP_SERVER__ALLOWED_ORIGINS` to that origin. Skipping this is the most
@@ -79,31 +82,31 @@ Equivalent manual steps: `systemctl disable --now zoneminder`, set
    behind one hostname — see the docs site.
 5. Add the service user to ZoneMinder's `ZM_STREAM_SOCKET_GROUP` if it is not
    `zoneminder`, or live streaming fails on socket permissions:
-   `systemctl edit zm_api` → `[Service]` → `SupplementaryGroups=<group>`.
+   `systemctl edit zm-api` → `[Service]` → `SupplementaryGroups=<group>`.
 6. Validate health with `/swagger-ui` and a smoke test against `/api-docs/openapi.json`.
-7. When ready, run `sudo zm_api-takeover` to assume daemon supervision
-   (prerequisites, verification, and rollback: `man 8 zm_api-takeover`).
+7. When ready, run `sudo zm-api-takeover` to assume daemon supervision
+   (prerequisites, verification, and rollback: `man 8 zm-api-takeover`).
 
 JWT keys are generated automatically on install by `setup-instance.sh`. For a
-manual/source install, run `scripts/generate-jwt-keys.sh /var/lib/zm_api/keys`
+manual/source install, run `scripts/generate-jwt-keys.sh /var/lib/zm-api/keys`
 and point `secret.*_key` (or `APP_SECRET__*`) at that directory.
 
 ## Packaging layout
-- Binary: `/usr/bin/zm_api`; takeover helper: `/usr/bin/zm_api-takeover`;
-  migration tool: `/usr/bin/zm_api-db`
-- Man pages: `zm_api(8)`, `zm_api-takeover(8)`, `zm_api-db(8)`, `zm_api.env(5)`
-- Config: `/etc/zm_api/base.toml`, `/etc/zm_api/prod.toml`, `/etc/zm_api/zm_api.env`
-- State (JWT keys): `/var/lib/zm_api/keys` (generated per-install; never packaged)
-- Setup helper: `/usr/share/zm_api/setup-instance.sh`
-- Systemd unit: `/lib/systemd/system/zm_api.service` (Deb) or `/usr/lib/systemd/system/zm_api.service` (RPM/Arch)
+- Binary: `/usr/bin/zm-api`; takeover helper: `/usr/bin/zm-api-takeover`;
+  migration tool: `/usr/bin/zm-api-db`
+- Man pages: `zm-api(8)`, `zm-api-takeover(8)`, `zm-api-db(8)`, `zm-api.env(5)`
+- Config: `/etc/zm-api/base.toml`, `/etc/zm-api/prod.toml`, `/etc/zm-api/zm-api.env`
+- State (JWT keys): `/var/lib/zm-api/keys` (generated per-install; never packaged)
+- Setup helper: `/usr/share/zm-api/setup-instance.sh`
+- Systemd unit: `/lib/systemd/system/zm-api.service` (Deb) or `/usr/lib/systemd/system/zm-api.service` (RPM/Arch)
 
 ## Distro matrix
 | Family | Definition | Build / publish |
 | --- | --- | --- |
 | Debian/Ubuntu (`.deb`) | `Cargo.toml [package.metadata.deb]` + `packaging/debian/{postinst,prerm,postrm}` | `cargo deb` / `./scripts/package.sh deb` |
-| Fedora/RHEL/Rocky/Alma (`.rpm`) | `packaging/rpm/zm_api.spec` | `rpmbuild` / COPR / `./scripts/package.sh rpm` |
+| Fedora/RHEL/Rocky/Alma (`.rpm`) | `packaging/rpm/zm-api.spec` | `rpmbuild` / COPR / `./scripts/package.sh rpm` |
 | openSUSE (`.rpm`) | same spec (has `%if 0%{?suse_version}` branches) | OBS / `rpmbuild` |
-| Arch (`PKGBUILD`) | `packaging/arch/PKGBUILD` + `zm_api.install` | `makepkg` / AUR |
+| Arch (`PKGBUILD`) | `packaging/arch/PKGBUILD` + `zm-api.install` | `makepkg` / AUR |
 
 ## Building packages
 - Debian/Ubuntu: `cargo install cargo-deb` then `./scripts/package.sh deb`.
@@ -128,7 +131,7 @@ lineage and uses SemVer pre-releases while it stabilises:
   not create a Release.
 - **Per-distro pre-release ordering** (so the eventual stable upgrades cleanly):
   - Debian: cargo-deb maps `-alpha.1` → `~alpha.1` automatically.
-  - RPM (`packaging/rpm/zm_api.spec`): `Release: 0.1.alpha1%{?dist}` (set back to
+  - RPM (`packaging/rpm/zm-api.spec`): `Release: 0.1.alpha1%{?dist}` (set back to
     `1%{?dist}` for stable).
   - Arch (`packaging/arch/PKGBUILD`): `pkgver=3.0.0~alpha1`, git tag in `_pkgtag`.
 - **Bumping the version** touches four spots, kept in sync by hand: `Cargo.toml`,

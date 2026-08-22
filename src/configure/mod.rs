@@ -64,7 +64,7 @@ impl AppConfig {
     /// 3. Base TOML file (settings/base.toml)
     /// 4. ZoneMinder zm.conf (/etc/zm/zm.conf + /etc/zm/conf.d/*.conf)
     ///
-    /// This allows zm_api to work out of the box on ZoneMinder installations.
+    /// This allows zm-api to work out of the box on ZoneMinder installations.
     pub fn read(env_src: Environment) -> Result<Self, config::ConfigError> {
         let config_dir = get_settings_dir()?;
         let profile = std::env::var("APP_PROFILE")

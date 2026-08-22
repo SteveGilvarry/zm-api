@@ -1,5 +1,5 @@
 [book]
-title = "zm_api"
+title = "zm-api"
 description = "A modern, fast, type-safe REST API for ZoneMinder"
 authors = ["Steve Gilvarry and contributors"]
 language = "en"

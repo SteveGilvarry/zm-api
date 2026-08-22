@@ -1,5 +1,5 @@
 #!/bin/sh
-# Debian postrm for zm_api.
+# Debian postrm for zm-api.
 set -e
 
 case "$1" in
@@ -11,7 +11,7 @@ case "$1" in
   purge)
     # Remove generated state (JWT keys) and logs. The shared `zoneminder`
     # user/group is intentionally left in place — it may belong to ZoneMinder.
-    rm -rf /var/lib/zm_api /var/log/zm_api
+    rm -rf /var/lib/zm-api /var/log/zm-api
     if [ -d /run/systemd/system ]; then
       systemctl daemon-reload || true
     fi

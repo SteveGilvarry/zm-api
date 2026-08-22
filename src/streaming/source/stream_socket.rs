@@ -55,7 +55,7 @@ pub enum SourceError {
     /// 0660 owned by `ZM_STREAM_SOCKET_GROUP`, so the bare OS message ("permission
     /// denied") names nothing the operator can act on.
     #[error(
-        "permission denied opening stream socket {path}: the zm_api service user must be a \
+        "permission denied opening stream socket {path}: the zm-api service user must be a \
          member of ZoneMinder's ZM_STREAM_SOCKET_GROUP (the socket is mode 0660)"
     )]
     PermissionDenied { path: PathBuf },
@@ -1138,7 +1138,7 @@ mod tests {
 
     #[test]
     fn eacces_on_connect_names_the_stream_socket_group() {
-        // zmc creates the socket 0660; if zm_api's user isn't in
+        // zmc creates the socket 0660; if zm-api's user isn't in
         // ZM_STREAM_SOCKET_GROUP every stream fails with a bare "permission
         // denied" that points at nothing. The error must name the fix.
         let err = classify_connect_error(

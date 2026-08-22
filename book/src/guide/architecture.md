@@ -1,4 +1,4 @@
-# How ZoneMinder, zm_api, and a dashboard fit together
+# How ZoneMinder, zm-api, and a dashboard fit together
 
 Which process owns what, what has to share a host, and how a browser frontend
 reaches the API.
@@ -8,17 +8,17 @@ reaches the API.
 | Component | What it is | Owns |
 | --- | --- | --- |
 | **ZoneMinder** | The existing C++/Perl/PHP install | Capture daemons (`zmc`, `zma`), the `zm` database schema, the events directory, the legacy web UI |
-| **zm_api** | This project — one native binary | The REST API on port 8080, live streaming (WebRTC + HLS), event playback/VOD, retention |
-| **zm-dash** | A browser dashboard (separate project) | Nothing server-side — it is static files calling the API |
+| **zm-api** | This project — one native binary | The REST API on port 8080, live streaming (WebRTC + HLS), event playback/VOD, retention |
+| **zm-web** | The browser UI (separate project) — replaces ZoneMinder's PHP `web/` | Nothing server-side: static files calling this API |
 
-zm_api does not replace ZoneMinder's capture pipeline. In the default
+zm-api does not replace ZoneMinder's capture pipeline. In the default
 configuration it does not manage ZoneMinder's processes at all; it reads and
 writes the same database, the same events directory, and the same shared memory
 that ZoneMinder itself uses, and adds an HTTP surface over them.
 
 ## What must share a host
 
-This is the constraint that shapes every deployment: **zm_api must run on the
+This is the constraint that shapes every deployment: **zm-api must run on the
 same machine as `zmc`.**
 
 | Resource | Path | Access | Same host? |
@@ -35,37 +35,44 @@ sockets and alarm control writes ZoneMinder's shared memory, neither of which
 crosses a machine boundary.
 
 Two consequences worth stating plainly. The stream sockets are mode 0660 owned
-by ZoneMinder's `ZM_STREAM_SOCKET_GROUP`, so **the zm_api service user must be a
+by ZoneMinder's `ZM_STREAM_SOCKET_GROUP`, so **the zm-api service user must be a
 member of that group** or every live stream fails with a permission error. And
-zm_api runs schema migrations against the shared ZoneMinder database at
-startup — see the upgrade section of [Configuration](configuration.md) before
-first run on an existing install.
+zm-api runs schema migrations against the shared ZoneMinder database at
+startup — see [Upgrading an existing ZoneMinder](../getting-started/upgrading.md)
+before first run on an existing install.
 
 ## Passive and takeover mode
 
-zm_api ships **passive** (`daemon.enabled = false`) and most deployments should
-stay there.
+zm-api ships **passive** (`daemon.enabled = false`) so installing it cannot
+disturb a running ZoneMinder. That is the on-ramp, not the destination —
+**takeover is where zm-api is meant to end up**, and passive exists so the
+switch happens on your schedule rather than at install time.
 
-**Passive.** zm_api serves the REST API. `zoneminder.service` keeps supervising
-`zmdc.pl`, `zmc`, `zmfilter` and the rest, exactly as before zm_api was
+**Passive.** zm-api serves the REST API. `zoneminder.service` keeps supervising
+`zmdc.pl`, `zmc`, `zmfilter` and the rest, exactly as before zm-api was
 installed. Installing the package changes nothing about how ZoneMinder records.
 The daemon-control endpoints (`/api/v3/daemons*`, `/api/v3/system/*`) are still
 registered but return 503.
 
-**Takeover** (`daemon.enabled = true`). zm_api supervises the ZoneMinder daemons
-itself, replacing `zmdc.pl` and `zmwatch.pl` with its own manager and health
-loop.
+**Takeover** (`daemon.enabled = true`). zm-api supervises the ZoneMinder daemons
+itself, replacing both `zmdc.pl` and `zmwatch.pl` with one native supervisor:
+exponential backoff that resets once a daemon stays up, a reconciliation loop
+that keeps running daemons in step with the `Monitors` table, daemon control
+over the REST API, and supervision events in the journal rather than in
+ZoneMinder's own logs. The legacy `zmdc.sock` IPC shim stays bound, so tooling
+that talks to `zmdc.pl` keeps working. See
+[Passive and takeover mode](takeover.md).
 
-Exactly one supervisor may run. On startup in takeover mode zm_api runs
+Exactly one supervisor may run. On startup in takeover mode zm-api runs
 `kill_orphan_daemons()`, which `pkill -9`s `zmc`, `zma`, `zmfilter.pl` and
 friends before starting its own — so leaving `zoneminder.service` enabled means
 two supervisors killing and restarting each other's processes. Use
-`zm_api-takeover`, which sequences both services correctly, rather than editing
-the flag by hand. See `man 8 zm_api-takeover`.
+`zm-api-takeover`, which sequences both services correctly, rather than editing
+the flag by hand. See `man 8 zm-api-takeover`.
 
 ## Serving a dashboard
 
-zm_api serves no static files, so a dashboard is always served by something
+zm-api serves no static files, so a dashboard is always served by something
 else. See [Serving a dashboard](dashboard.md).
 
 ## Ports
@@ -125,7 +132,7 @@ different results from the same endpoint.
 
 ## Startup order
 
-Nothing enforces ordering between the two services, and nothing needs to: zm_api
+Nothing enforces ordering between the two services, and nothing needs to: zm-api
 retries, and systemd restarts it on failure. The unit is ordered `After=`
 mariadb/mysql but deliberately does **not** `Requires=` them, so a host using a
 remote database or `mysql.service` still starts.

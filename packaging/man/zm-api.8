@@ -1,22 +1,24 @@
-.TH ZM_API 8 "2026-08-22" "zm_api" "System Administration"
+.TH ZM-API 8 "2026-08-22" "zm-api" "System Administration"
 .SH NAME
-zm_api \- REST API server for a ZoneMinder installation
+zm-api \- REST API server for a ZoneMinder installation
 .SH SYNOPSIS
-.B zm_api
+.B zm-api
 .RI [ OPTIONS ]
 .SH DESCRIPTION
-.B zm_api
+.B zm-api
 serves a versioned HTTP REST API over an existing ZoneMinder installation:
 monitors, events, zones, users, live streaming (WebRTC and HLS), PTZ control,
 and recording retention. It is a single native binary with no PHP, CGI, or Perl
 runtime of its own.
 .PP
-It runs in one of two modes.
+It runs in one of two modes. Passive is the install-time default so the package
+cannot disturb a running ZoneMinder; takeover is the intended destination, taken
+when the operator chooses.
 .TP
 .B Passive
 .RB ( daemon.enabled " = " false ,
 the default) \(em
-.B zm_api
+.B zm-api
 serves the REST API only. It does not create the daemon manager, bind
 .IR /run/zm/zmdc.sock ,
 or reap orphaned daemons, so it is safe to install alongside a running stock
@@ -31,13 +33,27 @@ and
 .B Active (takeover)
 .RB ( daemon.enabled " = " true )
 \(em
-.B zm_api
-supervises the ZoneMinder daemons itself.
+.B zm-api
+supervises the ZoneMinder daemons itself, replacing both
+.BR zmdc.pl (8)
+and
+.BR zmwatch.pl (8)
+with one native supervisor: exponential restart backoff that resets once a
+daemon stays up, a reconciliation loop keeping running daemons in step with the
+.B Monitors
+table, daemon control over the REST API, and supervision events in the journal.
+The legacy
+.I zmdc.sock
+IPC shim stays bound, so tooling written against
+.BR zmdc.pl
+keeps working.
+.IP
 .B zoneminder.service
 must be stopped and disabled first, or the two supervisors fight over the same
 processes and shared memory. Use
-.BR zm_api-takeover (8)
-to switch modes; it performs both halves in the right order.
+.BR zm-api-takeover (8)
+to switch modes; it performs both halves in the right order, in either
+direction.
 .SH OPTIONS
 .TP
 .BR \-h ", " \-\-help
@@ -75,7 +91,7 @@ install work against an existing ZoneMinder without being told anything.
 .IP 4. 4
 .B APP_*
 environment variables, from
-.I /etc/zm_api/zm_api.env
+.I /etc/zm-api/zm-api.env
 in a packaged install.
 .PP
 The config directory is
@@ -87,7 +103,7 @@ relative to the working directory. Nested keys use a double underscore:
 sets
 .IR db.host .
 See
-.BR zm_api.env (5)
+.BR zm-api.env (5)
 for the variables.
 .SH ENDPOINTS
 .TP
@@ -107,26 +123,26 @@ Access and refresh tokens are signed with separate RSA key pairs and are not
 interchangeable.
 .SH FILES
 .TP
-.I /etc/zm_api/base.toml
+.I /etc/zm-api/base.toml
 Packaged defaults. Replaced on upgrade.
 .TP
-.I /etc/zm_api/prod.toml
+.I /etc/zm-api/prod.toml
 Profile configuration. Safe to edit.
 .TP
-.I /etc/zm_api/zm_api.env
+.I /etc/zm-api/zm-api.env
 Environment overrides read by the systemd unit. Safe to edit; see
-.BR zm_api.env (5).
+.BR zm-api.env (5).
 .TP
-.I /var/lib/zm_api/keys/
+.I /var/lib/zm-api/keys/
 JWT signing keys, generated per install and never packaged.
 .TP
-.I /var/log/zm_api/
+.I /var/log/zm-api/
 Log files.
 .TP
 .I /run/zm/zmdc.sock
 Daemon-control socket. Bound only in takeover mode.
 .TP
-.I /usr/share/zm_api/static/
+.I /usr/share/zm-api/static/
 Static assets.
 .SH DIAGNOSTICS
 .TP
@@ -140,13 +156,13 @@ to the dashboard's origin.
 The service user is not a member of ZoneMinder's
 .BR ZM_STREAM_SOCKET_GROUP .
 The per-monitor stream sockets are mode 0660; add the group with
-.B systemctl edit zm_api
+.B systemctl edit zm-api
 and a
 .B SupplementaryGroups=
 line.
 .SH SEE ALSO
-.BR zm_api.env (5),
-.BR zm_api-takeover (8),
+.BR zm-api.env (5),
+.BR zm-api-takeover (8),
 .BR zmpkg.pl (8),
 .BR zmdc.pl (8)
 .PP
