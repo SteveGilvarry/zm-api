@@ -2,12 +2,13 @@ use crate::dto::request::reports::{CreateReportRequest, UpdateReportRequest};
 use crate::dto::response::reports::PaginatedReportsResponse;
 use crate::dto::response::ReportResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 
 /// List all reports with pagination.
 ///
@@ -53,7 +54,10 @@ pub async fn get_report(
     post,
     path = "/api/v3/reports",
     request_body = CreateReportRequest,
-    responses((status = 201, description = "Created report", body = ReportResponse)),
+    responses(
+        (status = 201, description = "Created report", body = ReportResponse),
+        (status = 400, description = "Invalid input", body = crate::error::AppResponseError)
+    ),
     tag = "Reports",
     security(("jwt" = []))
 )]
@@ -61,6 +65,7 @@ pub async fn create_report(
     State(state): State<AppState>,
     Json(req): Json<CreateReportRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<ReportResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::reports::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -71,7 +76,10 @@ pub async fn create_report(
     path = "/api/v3/reports/{id}",
     params(("id" = u32, Path, description = "Report ID")),
     request_body = UpdateReportRequest,
-    responses((status = 200, description = "Updated report", body = ReportResponse)),
+    responses(
+        (status = 200, description = "Updated report", body = ReportResponse),
+        (status = 400, description = "Invalid input", body = crate::error::AppResponseError)
+    ),
     tag = "Reports",
     security(("jwt" = []))
 )]
@@ -80,6 +88,7 @@ pub async fn update_report(
     State(state): State<AppState>,
     Json(req): Json<UpdateReportRequest>,
 ) -> AppResult<Json<ReportResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::reports::update(&state, id, req).await?;
     Ok(Json(item))
 }

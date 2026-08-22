@@ -2,12 +2,13 @@ use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 use tracing::info;
 
 use crate::dto::request::config::ConfigQueryParams;
 use crate::dto::response::config::{CategoryCountResponse, PaginatedConfigsResponse};
 use crate::dto::{request::config::UpdateConfigRequest, response::config::ConfigResponse};
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use crate::service;
 
@@ -38,6 +39,7 @@ pub async fn list_configs(
     Query(params): Query<ConfigQueryParams>,
 ) -> AppResult<Json<PaginatedConfigsResponse>> {
     info!("Listing config entries with pagination");
+    params.validate().map_err(AppError::InvalidInputError)?;
     let result = service::config::list_filtered(&state, &params).await?;
     Ok(Json(PaginatedConfigsResponse::from(result)))
 }

@@ -197,6 +197,7 @@ pub async fn list_classes(
     Query(params): Query<PaginationParams>,
     State(state): State<AppState>,
 ) -> AppResult<Json<PaginatedAiObjectClassesResponse>> {
+    filter.validate().map_err(AppError::InvalidInputError)?;
     let result = service::ai::list_classes(&state, &params, filter.dataset_id).await?;
     Ok(Json(PaginatedAiObjectClassesResponse::from(result)))
 }
