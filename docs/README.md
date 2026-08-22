@@ -40,7 +40,8 @@ before relying on any specific phase verdict.
 
 | Doc | Scope |
 |---|---|
-| [deployment.md](deployment.md) | Packaging, profiles, passive/active mode, distro matrix, release flow. |
+| [architecture.md](architecture.md) | How ZoneMinder + zm_api + a dashboard fit together: what must share a host, serving the frontend (reverse proxy vs separate origins), ports, and the auth surface a frontend needs. |
+| [deployment.md](deployment.md) | Packaging, profiles, upgrading an existing ZM database, passive/active mode, distro matrix, release flow. |
 | [tls.md](tls.md) | Built-in TLS + ACMEv2 config and external certbot/lego flows. |
 
 ## Archive (kept for history)

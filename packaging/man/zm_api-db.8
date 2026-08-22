@@ -1,0 +1,103 @@
+.TH ZM_API-DB 8 "2026-08-22" "zm_api" "System Administration"
+.SH NAME
+zm_api\-db \- database migration and upgrade tool for zm_api
+.SH SYNOPSIS
+.B zm_api-db
+.B bridge
+.BI \-u " URL"
+.br
+.B zm_api-db
+.B up
+.RB [ \-u
+.IR URL ]
+.br
+.B zm_api-db
+.B status
+.RB [ \-u
+.IR URL ]
+.SH DESCRIPTION
+Applies
+.BR zm_api (8)'s
+own schema migrations. Which command you want depends entirely on whether the
+database already contains a ZoneMinder installation.
+.PP
+.B zm_api
+also runs pending migrations itself at startup. It logs a warning rather than
+refusing to start when they fail, so a database left in the wrong state
+produces a service that looks healthy but has features silently missing. Run
+this tool explicitly when upgrading, and read its output.
+.SH COMMANDS
+.TP
+.B bridge
+.B For an existing ZoneMinder database
+(1.26.0 or newer). Walks the embedded
+.I zm_update
+chain to bring the schema up to the version zm_api expects, converges triggers,
+stamps the baseline migration as already applied, then runs any remaining
+migrations.
+.IP
+This is the upgrade path from a stock ZoneMinder install, and the only correct
+first command for a database that has ZoneMinder tables in it.
+.TP
+.B up
+.B For a fresh, empty database only.
+Applies the baseline migration and everything after it.
+.IP
+Do not run this against an existing ZoneMinder database: the baseline assumes
+it is creating the schema, not adopting one. Use
+.B bridge
+there instead.
+.TP
+.B status
+List migrations and whether each has been applied. Read-only; safe at any time.
+.PP
+The underlying SeaORM CLI accepts further subcommands
+.RB ( down ", " fresh ", " refresh ", " reset ).
+They exist for development and will drop data; none is part of a supported
+upgrade.
+.SH OPTIONS
+.TP
+.BI \-u " URL" "\fR, \fP" \-\-database\-url " URL"
+Database connection URL, for example
+.IR mysql://zmuser:zmpass@localhost/zm .
+Falls back to the
+.B DATABASE_URL
+environment variable; the tool exits with status 2 if neither is given.
+.SH EXAMPLES
+Upgrade an existing ZoneMinder database, having taken a backup first:
+.PP
+.RS 4
+.EX
+mysqldump --single-transaction --routines --triggers zm > zm-backup.sql
+sudo systemctl stop zm_api
+zm_api-db bridge -u mysql://zmuser:zmpass@localhost/zm
+sudo systemctl start zm_api
+.EE
+.RE
+.PP
+Check what has been applied:
+.PP
+.RS 4
+.EX
+zm_api-db status -u mysql://zmuser:zmpass@localhost/zm
+.EE
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Could not connect, or the migration failed.
+.TP
+.B 2
+No database URL supplied.
+.SH CAVEATS
+Take a database backup before
+.BR bridge .
+It rewrites schema across many ZoneMinder versions in one pass and has no
+undo.
+.SH SEE ALSO
+.BR zm_api (8),
+.BR zm_api.env (5),
+.BR mysqldump (1)

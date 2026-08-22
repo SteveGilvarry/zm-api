@@ -74,6 +74,7 @@ systemctl restart zm_api
 - `server.acme.enabled` and `server.tls.enabled` are mutually exclusive.
 - HTTP-01 mode starts a separate listener on `server.acme.http_port` for challenges.
 - `server.acme.cache_dir` must be writable by the service user.
-- The systemd unit uses `DynamicUser` with `SupplementaryGroups=ssl-cert`. Ensure the
-  cert/key are readable by the `ssl-cert` group (for example with `setfacl`) or
-  switch the unit to a static `User=`/`Group=` if you prefer fixed ownership.
+- The systemd unit runs as `User=zoneminder` / `Group=zoneminder` with
+  `SupplementaryGroups=video ssl-cert`. Ensure the cert/key are readable by the
+  `ssl-cert` group — for example `setfacl -m g:ssl-cert:rx /etc/letsencrypt/{live,archive}`
+  — or chown them to `zoneminder` if you prefer fixed ownership.

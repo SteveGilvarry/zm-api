@@ -16,6 +16,15 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Cheap gate: catch a half-finished version bump before spending three
+  # package builds on it. The four version strings are hand-synced.
+  versions:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-version-consistency.sh
+
   # Debian/Ubuntu/Raspberry Pi OS — the flagship, built natively per arch.
   deb:
     name: deb (${{ matrix.arch }})
@@ -44,7 +53,11 @@ jobs:
         run: cargo install cargo-deb --locked
 
       - name: Build .deb
-        run: cargo deb
+        # Build every bin target first: the asset list ships `migrator` as
+        # zm_api-db alongside the server, and cargo-deb only copies paths.
+        run: |
+          cargo build --release --bins
+          cargo deb --no-build
 
       - name: Sanity-check package (no private keys, lists files)
         run: |
@@ -154,9 +167,46 @@ jobs:
 
   # Attach every artifact that built to the GitHub Release. Runs on tags only;
   # `always()` so a single distro failure still publishes the rest.
+  # The OpenAPI spec as a release asset: lets the API surface be diffed between
+  # releases and fed to a client generator without standing a server up.
+  openapi:
+    name: OpenAPI spec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FFmpeg/OpenSSL dev libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev \
+            libavutil-dev libavformat-dev libavfilter-dev \
+            libavdevice-dev libavcodec-dev libswscale-dev libswresample-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Export spec
+        run: cargo run --release --bin zm_api -- --openapi > openapi.json
+
+      - name: Sanity-check spec
+        run: |
+          python3 -c "
+          import json, sys
+          spec = json.load(open('openapi.json'))
+          paths = len(spec.get('paths', {}))
+          print(f'openapi {spec[\"openapi\"]}, {paths} paths')
+          sys.exit(0 if paths > 50 else 'suspiciously few paths')
+          "
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openapi
+          path: openapi.json
+
   release:
     name: Publish release
-    needs: [deb, rpm, arch]
+    needs: [deb, rpm, arch, openapi]
     if: always() && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
@@ -168,11 +218,42 @@ jobs:
       - name: List artifacts
         run: ls -lR artifacts || true
 
+      # So a downloader can verify what they got. Paths are flattened to bare
+      # filenames, which is how they appear on the release page.
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          find . -type f ! -name 'SHA256SUMS' -printf '%P\n' \
+            | sort \
+            | xargs -r sha256sum > SHA256SUMS
+          cat SHA256SUMS
+
+      # The hand-written entry for this version, if CHANGELOG.md has one. Falls
+      # back to GitHub's generated commit list, which is better than nothing but
+      # says little to someone deciding whether to upgrade.
+      - uses: actions/checkout@v4
+        with: { path: src }
+
+      - name: Extract release notes
+        id: notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if awk -v v="$version" '
+                /^## \[/ { inside = index($0, "[" v "]") > 0; next }
+                inside   { print }
+              ' src/CHANGELOG.md > notes.md && [ -s notes.md ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "no CHANGELOG.md entry for ${version}; using generated notes"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**
           fail_on_unmatched_files: false
-          generate_release_notes: true
+          body_path: ${{ steps.notes.outputs.found == 'true' && 'notes.md' || '' }}
+          generate_release_notes: ${{ steps.notes.outputs.found != 'true' }}
           # Any SemVer pre-release tag (contains a hyphen, e.g. v3.0.0-alpha.1)
           # is published as a GitHub pre-release.
           prerelease: ${{ contains(github.ref_name, '-') }}

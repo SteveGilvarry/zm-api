@@ -1,7 +1,7 @@
 //! Configuration for the daemon controller.
 
 use serde::Deserialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Configuration for the daemon controller service.
@@ -29,7 +29,9 @@ pub struct DaemonConfig {
     #[serde(default = "default_bin_path")]
     pub bin_path: PathBuf,
 
-    /// Path to ZM scripts (default: /usr/share/zoneminder/scripts)
+    /// Path to ZM scripts (default: /usr/bin). Only a hint — see
+    /// [`DaemonConfig::resolve_daemon_path`], which searches the standard
+    /// per-distribution locations when the configured one has no match.
     #[serde(default = "default_script_path")]
     pub script_path: PathBuf,
 
@@ -128,14 +130,48 @@ impl DaemonConfig {
     }
 
     /// Resolve a daemon command to its full path.
+    ///
+    /// The configured directory is tried first, then the standard locations —
+    /// distributions disagree about where ZoneMinder's Perl scripts land
+    /// (`/usr/bin` on Debian/Ubuntu, `/usr/share/zoneminder/scripts` on the RPM
+    /// distros), and a single packaged default cannot be right for everyone.
+    /// Falls back to the configured path when nothing exists, so a genuinely
+    /// missing daemon still reports the path the operator configured.
     pub fn resolve_daemon_path(&self, command: &str) -> PathBuf {
-        if command.ends_with(".pl") {
-            self.script_path.join(command)
+        let configured = if command.ends_with(".pl") {
+            &self.script_path
         } else {
-            self.bin_path.join(command)
+            &self.bin_path
+        };
+        let fallbacks = if command.ends_with(".pl") {
+            SCRIPT_PATH_FALLBACKS
+        } else {
+            BIN_PATH_FALLBACKS
+        };
+
+        let preferred = configured.join(command);
+        if preferred.exists() {
+            return preferred;
         }
+        for dir in fallbacks {
+            let candidate = Path::new(dir).join(command);
+            if candidate.exists() {
+                return candidate;
+            }
+        }
+        preferred
     }
 }
+
+/// Where ZoneMinder's Perl scripts live, by distribution.
+const SCRIPT_PATH_FALLBACKS: &[&str] = &[
+    "/usr/bin",                      // Debian / Ubuntu
+    "/usr/share/zoneminder/scripts", // Fedora / openSUSE / RHEL
+    "/usr/local/bin",                // source installs
+];
+
+/// Where ZoneMinder's compiled binaries (zmc, zma) live.
+const BIN_PATH_FALLBACKS: &[&str] = &["/usr/bin", "/usr/local/bin"];
 
 fn default_enabled() -> bool {
     // Passive by default: never seize daemon control from a running ZoneMinder
@@ -244,5 +280,52 @@ mod tests {
         assert_eq!(config.stats_update_interval(), Duration::from_secs(60));
         assert_eq!(config.watch_check_interval(), Duration::from_secs(10));
         assert_eq!(config.watch_max_delay(), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn resolve_prefers_the_configured_directory_when_it_has_the_script() {
+        // Per-process dir: a fixed name would collide between concurrent runs.
+        let dir =
+            std::env::temp_dir().join(format!("zmapi-resolve-configured-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("zmdc.pl"), b"").unwrap();
+
+        let cfg = DaemonConfig {
+            script_path: dir.clone(),
+            ..DaemonConfig::default()
+        };
+        assert_eq!(cfg.resolve_daemon_path("zmdc.pl"), dir.join("zmdc.pl"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resolve_falls_back_to_the_configured_path_when_nothing_exists() {
+        // A genuinely missing daemon must still report the configured location,
+        // not a fallback the operator never chose.
+        let cfg = DaemonConfig {
+            script_path: PathBuf::from("/nonexistent/zm/scripts"),
+            ..DaemonConfig::default()
+        };
+        assert_eq!(
+            cfg.resolve_daemon_path("definitely-not-a-real-daemon.pl"),
+            PathBuf::from("/nonexistent/zm/scripts/definitely-not-a-real-daemon.pl")
+        );
+    }
+
+    #[test]
+    fn scripts_and_binaries_use_their_own_search_paths() {
+        // `.pl` resolves against script_path, everything else against bin_path.
+        let cfg = DaemonConfig {
+            script_path: PathBuf::from("/nonexistent/scripts"),
+            bin_path: PathBuf::from("/nonexistent/bin"),
+            ..DaemonConfig::default()
+        };
+        assert!(cfg
+            .resolve_daemon_path("zmnosuch.pl")
+            .starts_with("/nonexistent/scripts"));
+        assert!(cfg
+            .resolve_daemon_path("zmnosuch")
+            .starts_with("/nonexistent/bin"));
     }
 }

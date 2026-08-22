@@ -545,6 +545,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn engine_keeps_the_ice_servers_it_was_configured_with() {
+        // Regression: AppState built the engine with `Default::default()`, so a
+        // configured TURN server was parsed and then thrown away — WebRTC failed
+        // for clients behind symmetric NAT with nothing in the log to say why.
+        use crate::configure::streaming::TurnConfig;
+
+        let engine = WebRtcEngine::new(WebRtcConfig {
+            stun_servers: vec!["stun:stun.example.com:3478".to_string()],
+            turn: Some(TurnConfig {
+                enabled: true,
+                server: "turn:turn.example.com:3478".to_string(),
+                username: "user".to_string(),
+                password: "pass".to_string(),
+            }),
+            ..WebRtcConfig::default()
+        })
+        .expect("engine");
+
+        let urls: Vec<&str> = engine
+            .ice_servers
+            .iter()
+            .flat_map(|s| s.urls.iter().map(String::as_str))
+            .collect();
+        assert!(urls.contains(&"stun:stun.example.com:3478"), "got {urls:?}");
+        assert!(urls.contains(&"turn:turn.example.com:3478"), "got {urls:?}");
+    }
+
+    #[tokio::test]
     async fn offer_advertises_actpass_dtls_role() {
         // Documents the webrtc-rs invariant that drives the ~1.1s DTLS gap: as
         // the offerer we always send `setup:actpass`, so the role resolves via

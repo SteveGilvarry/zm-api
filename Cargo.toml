@@ -209,8 +209,16 @@ priority = "optional"
 maintainer-scripts = "packaging/debian"
 assets = [
   ["target/release/zm_api", "usr/bin/zm_api", "755"],
+  # Migration/upgrade tool. Built as `migrator` (the cargo bin name the parity
+  # scripts use) but installed under the zm_api- prefix: `migrator` is far too
+  # generic a name for /usr/bin.
+  ["target/release/migrator", "usr/bin/zm_api-db", "755"],
   ["packaging/zm_api-takeover.sh", "usr/bin/zm_api-takeover", "755"],
   ["packaging/setup-instance.sh", "usr/share/zm_api/setup-instance.sh", "755"],
+  ["packaging/man/zm_api.8", "usr/share/man/man8/zm_api.8", "644"],
+  ["packaging/man/zm_api-takeover.8", "usr/share/man/man8/zm_api-takeover.8", "644"],
+  ["packaging/man/zm_api-db.8", "usr/share/man/man8/zm_api-db.8", "644"],
+  ["packaging/man/zm_api.env.5", "usr/share/man/man5/zm_api.env.5", "644"],
   ["settings/base.toml", "etc/zm_api/base.toml", "644"],
   ["settings/prod.toml", "etc/zm_api/prod.toml", "644"],
   ["packaging/systemd/zm_api.env", "etc/zm_api/zm_api.env", "644"],
@@ -225,26 +233,6 @@ conf-files = [
   "/etc/zm_api/prod.toml",
   "/etc/zm_api/zm_api.env",
 ]
-
-[package.metadata.rpm]
-package = "zm-api"
-license = "AGPL-3.0-or-later"
-
-[package.metadata.rpm.cargo]
-buildflags = ["--release"]
-
-[package.metadata.rpm.targets]
-zm_api = { path = "/usr/bin/zm_api" }
-
-[package.metadata.rpm.files]
-"settings/base.toml" = { path = "/etc/zm_api/base.toml", mode = "644", config = true }
-"settings/prod.toml" = { path = "/etc/zm_api/prod.toml", mode = "644", config = true }
-"packaging/systemd/zm_api.env" = { path = "/etc/zm_api/zm_api.env", mode = "644", config = true }
-"packaging/systemd/zm_api.service" = { path = "/usr/lib/systemd/system/zm_api.service", mode = "644" }
-"packaging/zm_api-takeover.sh" = { path = "/usr/bin/zm_api-takeover", mode = "755" }
-"packaging/setup-instance.sh" = { path = "/usr/share/zm_api/setup-instance.sh", mode = "755" }
-# `static/` is intentionally NOT shipped — it holds dev JWT keys; packaged
-# installs generate their own in /var/lib/zm_api/keys.
 
 # Full DWARF debug info triples the linker's peak memory and pushes this dev
 # box (16 GiB / 4 GiB swap, with ZoneMinder + zm_api already resident) into

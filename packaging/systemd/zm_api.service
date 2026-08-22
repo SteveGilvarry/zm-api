@@ -1,9 +1,12 @@
 [Unit]
 Description=ZoneMinder API Service
 Documentation=https://github.com/ZoneMinder/zoneminder
+# Ordered after a local database if one is present, but deliberately not
+# dependent on it: a hard Requires=mariadb.service fails the start outright on
+# hosts using mysql.service or a remote database. Restart=on-failure covers a
+# database that is merely slow to come up.
 After=network-online.target mariadb.service mysql.service
 Wants=network-online.target
-Requires=mariadb.service
 
 [Service]
 Type=simple
@@ -11,6 +14,19 @@ Type=simple
 User=zoneminder
 Group=zoneminder
 # video: camera access, ssl-cert: TLS certificates
+#
+# Live streaming also needs read access to zmc's per-monitor stream sockets
+# ({ZM_PATH_SOCKS}/stream_*.sock), which are mode 0660 owned by ZoneMinder's
+# ZM_STREAM_SOCKET_GROUP. If that group is not "zoneminder", add it here via a
+# drop-in — NOT by editing this line, and note that naming a group that does
+# not exist makes systemd refuse to start the unit (status=216/GROUP):
+#
+#   sudo systemctl edit zm_api
+#   [Service]
+#   SupplementaryGroups=<value of ZM_STREAM_SOCKET_GROUP>
+#
+# Symptom when it is missing: streams fail and the log reports "permission
+# denied opening stream socket ...".
 SupplementaryGroups=video ssl-cert
 
 # Environment configuration

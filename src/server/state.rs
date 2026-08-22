@@ -72,8 +72,12 @@ impl AppState {
             SearchService::new(http.clone(), db.clone(), config.search.clone()).await,
         ));
 
-        // Initialize native WebRTC engine (Phase 2)
-        let native_webrtc_engine = match WebRtcEngine::new(Default::default()) {
+        // Initialize native WebRTC engine (Phase 2). Pass the configured
+        // `[streaming.webrtc]` block, not the defaults: the engine turns
+        // `stun_servers`/`turn` into its ICE server list, so defaulting here
+        // silently discarded any configured TURN server and left clients behind
+        // symmetric NAT unable to connect.
+        let native_webrtc_engine = match WebRtcEngine::new(config.streaming.webrtc.clone()) {
             Ok(engine) => {
                 tracing::info!("Native WebRTC engine initialized successfully");
                 Some(Arc::new(engine))

@@ -1,5 +1,10 @@
 # Deployment and Packaging Guide
 
+For how ZoneMinder, zm_api, and a dashboard fit together as a system — what has
+to share a host, how to serve the frontend, ports, and the auth surface — see
+[architecture.md](architecture.md). This document covers installing and
+packaging.
+
 ## Environments
 - dev: local developer runs with `APP_PROFILE=dev`, uses local `settings/`.
 - staging: production-like config, separate database, limited access.
@@ -15,6 +20,31 @@
   the `secret.*_key` paths in the profile config.
 - Generate per-install JWT keys with `scripts/generate-jwt-keys.sh /var/lib/zm_api/keys`
   (or `JWT_KEY_DIR=/var/lib/zm_api/keys`).
+
+## Upgrading an existing ZoneMinder database
+
+**This is the step most likely to be skipped, and it fails quietly.** zm_api runs
+pending migrations at startup but only *warns* if they fail, so a database left in
+the wrong state yields a service that starts, answers requests, and has features
+silently missing.
+
+There are two distinct cases and they need different commands:
+
+| Database | Command |
+| --- | --- |
+| Existing ZoneMinder (1.26.0+) | `zm_api-db bridge -u mysql://zmuser:zmpass@localhost/zm` |
+| Fresh / empty | `zm_api-db up -u mysql://...` |
+
+`bridge` walks the embedded `zm_update` chain, converges triggers, stamps the
+baseline migration as applied, then runs the rest. `up` assumes it is *creating*
+the schema — never run it against a database that already has ZoneMinder tables.
+
+Back up first (`bridge` rewrites schema across many ZoneMinder versions in one
+pass and has no undo), and check the result with `zm_api-db status`. Full details
+in `man 8 zm_api-db`.
+
+> The tool is built by cargo as `migrator` (the name `scripts/*-parity.sh` use)
+> and installed as `/usr/bin/zm_api-db`.
 
 ## Passive vs. active (daemon control)
 zm_api ships **passive** by default (`daemon.enabled = false`): it serves only the
@@ -40,15 +70,26 @@ Equivalent manual steps: `systemctl disable --now zoneminder`, set
 2. Confirm DB connectivity — zm_api falls back to `/etc/zm/zm.conf` when the
    `[db]` placeholders are unchanged; otherwise set `APP_DB__*` in `zm_api.env`.
 3. Configure TLS/ACME if needed (see `docs/tls.md`).
-4. Validate health with `/swagger-ui` and a smoke test against `/api-docs/openapi.json`.
-5. When ready, run `sudo zm_api-takeover` to assume daemon supervision.
+4. If a dashboard will be served from a different origin than the API, set
+   `APP_SERVER__ALLOWED_ORIGINS` to that origin. Skipping this is the most
+   common day-one failure: the dashboard loads and every request is
+   CORS-blocked, visible only in the browser console. Not needed when both sit
+   behind one hostname — see [architecture.md](architecture.md).
+5. Add the service user to ZoneMinder's `ZM_STREAM_SOCKET_GROUP` if it is not
+   `zoneminder`, or live streaming fails on socket permissions:
+   `systemctl edit zm_api` → `[Service]` → `SupplementaryGroups=<group>`.
+6. Validate health with `/swagger-ui` and a smoke test against `/api-docs/openapi.json`.
+7. When ready, run `sudo zm_api-takeover` to assume daemon supervision
+   (prerequisites, verification, and rollback: `man 8 zm_api-takeover`).
 
 JWT keys are generated automatically on install by `setup-instance.sh`. For a
 manual/source install, run `scripts/generate-jwt-keys.sh /var/lib/zm_api/keys`
 and point `secret.*_key` (or `APP_SECRET__*`) at that directory.
 
 ## Packaging layout
-- Binary: `/usr/bin/zm_api`; takeover helper: `/usr/bin/zm_api-takeover`
+- Binary: `/usr/bin/zm_api`; takeover helper: `/usr/bin/zm_api-takeover`;
+  migration tool: `/usr/bin/zm_api-db`
+- Man pages: `zm_api(8)`, `zm_api-takeover(8)`, `zm_api-db(8)`, `zm_api.env(5)`
 - Config: `/etc/zm_api/base.toml`, `/etc/zm_api/prod.toml`, `/etc/zm_api/zm_api.env`
 - State (JWT keys): `/var/lib/zm_api/keys` (generated per-install; never packaged)
 - Setup helper: `/usr/share/zm_api/setup-instance.sh`

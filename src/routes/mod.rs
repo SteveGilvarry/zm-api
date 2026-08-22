@@ -115,27 +115,99 @@ impl OriginRule {
     }
 }
 
-/// Build the CORS layer from the `ALLOWED_ORIGINS` environment variable.
+/// Origins allowed when nothing is configured: any localhost / 127.0.0.1 port,
+/// so new frontend dev ports don't need registering one by one. Deliberately
+/// useless in production — a packaged install serving a dashboard from a real
+/// hostname must set `server.allowed_origins`.
+const DEFAULT_ALLOWED_ORIGINS: &[&str] = &["http://localhost:*", "http://127.0.0.1:*"];
+
+/// Legacy, un-prefixed environment variable. Superseded by
+/// `server.allowed_origins` (`APP_SERVER__ALLOWED_ORIGINS`) but still honoured
+/// so existing deployments keep working across the upgrade.
+const LEGACY_ORIGINS_ENV: &str = "ALLOWED_ORIGINS";
+
+/// Where the effective origin list came from, for the startup log line.
+#[derive(Debug, PartialEq, Eq)]
+enum OriginSource {
+    Config,
+    LegacyEnv,
+    Default,
+}
+
+/// Resolve the effective allowed-origin list: configured value first, then the
+/// legacy environment variable, then the localhost-only default.
 ///
-/// `ALLOWED_ORIGINS` is a comma-separated list. Each entry is either an exact
-/// origin (`https://app.example.com`) or a host with a `:*` port wildcard
-/// (`http://localhost:*`) that matches that host on any port. The default
-/// (dev) allows any localhost / 127.0.0.1 port so new frontend dev ports don't
-/// need to be registered one by one.
+/// Split out from [`build_cors_layer`] so the precedence is testable without
+/// mutating process environment.
+fn resolve_allowed_origins(
+    configured: &[String],
+    legacy: Option<String>,
+) -> (Vec<String>, OriginSource) {
+    if !configured.is_empty() {
+        return (configured.to_vec(), OriginSource::Config);
+    }
+    if let Some(raw) = legacy {
+        let parsed: Vec<String> = raw
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .collect();
+        if !parsed.is_empty() {
+            return (parsed, OriginSource::LegacyEnv);
+        }
+    }
+    (
+        DEFAULT_ALLOWED_ORIGINS
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+        OriginSource::Default,
+    )
+}
+
+/// Build the CORS layer from `server.allowed_origins`.
+///
+/// Each entry is either an exact origin (`https://app.example.com`) or a host
+/// with a `:*` port wildcard (`http://localhost:*`) that matches that host on
+/// any port.
 ///
 /// Note: the layer sets `Access-Control-Allow-Credentials: true`, and the CORS
 /// spec forbids pairing credentials with a literal `*` origin (browsers reject
 /// it). So "all origins" is intentionally not offered; the `:*` rule reflects
 /// the specific matching origin back instead, which is credentials-safe and,
 /// for `localhost`, does not expose the API to other hosts. In production set
-/// `ALLOWED_ORIGINS` to the exact deployed front-end origin(s).
+/// `server.allowed_origins` to the exact deployed front-end origin(s).
 fn build_cors_layer() -> CorsLayer {
-    let frontend_urls = std::env::var("ALLOWED_ORIGINS")
-        .unwrap_or_else(|_| "http://localhost:*,http://127.0.0.1:*".to_string());
+    let (origins, source) = resolve_allowed_origins(
+        &crate::constant::CONFIG.server.allowed_origins,
+        std::env::var(LEGACY_ORIGINS_ENV).ok(),
+    );
 
+    match source {
+        OriginSource::Config => {
+            tracing::info!("CORS allowed origins (server.allowed_origins): {origins:?}");
+        }
+        OriginSource::LegacyEnv => {
+            tracing::warn!(
+                "CORS allowed origins came from the deprecated {LEGACY_ORIGINS_ENV} \
+                 environment variable: {origins:?}. Set server.allowed_origins \
+                 (APP_SERVER__ALLOWED_ORIGINS) instead."
+            );
+        }
+        OriginSource::Default => {
+            // Say this loudly: a dashboard on any other origin is CORS-blocked,
+            // and the browser-side symptom gives no hint of the cause.
+            tracing::warn!(
+                "CORS allowed origins not configured, defaulting to {origins:?}. \
+                 Browsers will block a dashboard served from any other origin — \
+                 set server.allowed_origins (APP_SERVER__ALLOWED_ORIGINS) to it."
+            );
+        }
+    }
+
+    let frontend_urls = origins.join(",");
     let rules = parse_origin_rules(&frontend_urls);
-
-    tracing::info!("Configuring CORS with allowed origins: {:?}", frontend_urls);
 
     let allow_origin = AllowOrigin::predicate(move |origin: &HeaderValue, _req| {
         rules.iter().any(|r| r.matches(origin))
@@ -164,7 +236,7 @@ fn build_cors_layer() -> CorsLayer {
         .allow_credentials(true)
 }
 
-/// Parse `ALLOWED_ORIGINS` into a set of [`OriginRule`]s. Entries ending in
+/// Parse an origin list into a set of [`OriginRule`]s. Entries ending in
 /// `:*` become any-port host rules; the rest are exact origins. Entries that
 /// are neither parseable as a header value nor a `:*` rule are skipped.
 fn parse_origin_rules(raw: &str) -> Vec<OriginRule> {
@@ -592,5 +664,33 @@ mod tests {
         let rules = parse_origin_rules(" , ,http://localhost:*, ");
         assert_eq!(rules.len(), 1);
         assert!(allows(&rules, "http://localhost:9999"));
+    }
+
+    #[test]
+    fn configured_origins_win_over_the_legacy_env_var() {
+        let configured = vec!["https://zm.example.com".to_string()];
+        let (origins, source) =
+            resolve_allowed_origins(&configured, Some("https://stale.example".into()));
+        assert_eq!(origins, configured);
+        assert_eq!(source, OriginSource::Config);
+    }
+
+    #[test]
+    fn legacy_env_var_is_still_honoured_when_nothing_is_configured() {
+        // Existing deployments set only the bare ALLOWED_ORIGINS; upgrading
+        // must not silently start CORS-blocking their dashboard.
+        let (origins, source) =
+            resolve_allowed_origins(&[], Some(" https://a.example, https://b.example ".into()));
+        assert_eq!(origins, vec!["https://a.example", "https://b.example"]);
+        assert_eq!(source, OriginSource::LegacyEnv);
+    }
+
+    #[test]
+    fn falls_back_to_localhost_when_unset_or_blank() {
+        for legacy in [None, Some(String::new()), Some(" , ".to_string())] {
+            let (origins, source) = resolve_allowed_origins(&[], legacy);
+            assert_eq!(origins, DEFAULT_ALLOWED_ORIGINS);
+            assert_eq!(source, OriginSource::Default);
+        }
     }
 }

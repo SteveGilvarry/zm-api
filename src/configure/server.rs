@@ -11,9 +11,50 @@ pub struct ServerConfig {
     pub tls: Option<ServerTlsConfig>,
     #[serde(default)]
     pub acme: Option<ServerAcmeConfig>,
+    /// Browser origins allowed to call the API (CORS). Accepts a TOML array
+    /// or, so a single environment variable can carry the whole list, one
+    /// comma-separated string: `APP_SERVER__ALLOWED_ORIGINS=https://zm.example.com`.
+    ///
+    /// Each entry is an exact origin (`https://zm.example.com`) or a host with
+    /// a `:*` port wildcard (`http://localhost:*`). Empty means "unset", which
+    /// falls back to the legacy `ALLOWED_ORIGINS` variable and then to a
+    /// localhost-only default — see `routes::resolve_allowed_origins`.
+    #[serde(default, deserialize_with = "de_string_or_seq")]
+    pub allowed_origins: Vec<String>,
     /// HTTP middleware tuning (body limits, rate limiting).
     #[serde(default)]
     pub middleware: MiddlewareConfig,
+}
+
+/// Accept either a comma-separated string or a sequence. TOML users write an
+/// array; the `APP_` environment layer can only ever deliver a string, and
+/// `APP_SERVER__ALLOWED_ORIGINS__0=` indexing is a poor fit for a setting most
+/// people set once to a single origin.
+fn de_string_or_seq<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrSeq {
+        String(String),
+        Seq(Vec<String>),
+    }
+
+    let split = |s: &str| -> Vec<String> {
+        s.split(',')
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+
+    Ok(match StringOrSeq::deserialize(deserializer)? {
+        StringOrSeq::String(s) => split(&s),
+        // Split sequence entries too, so a one-element array holding a
+        // comma-separated string behaves the same as the bare string.
+        StringOrSeq::Seq(v) => v.iter().flat_map(|s| split(s)).collect(),
+    })
 }
 
 /// Tuning for the cross-cutting HTTP middleware stack.
@@ -139,6 +180,43 @@ pub mod tests {
 
     use super::*;
 
+    /// The deployment path that matters: `APP_SERVER__ALLOWED_ORIGINS` arriving
+    /// through the real `config` env layer. Worth its own test because the
+    /// string-or-seq deserializer is `untagged`, which needs the backend to
+    /// support `deserialize_any` — serde_json proves nothing about the `config`
+    /// crate's own deserializer. Uses `Environment::source` rather than real
+    /// environment variables, which are process-global and race other tests.
+    #[test]
+    fn allowed_origins_round_trips_through_the_config_env_layer() {
+        let env = config::Environment::with_prefix("APP")
+            .prefix_separator("_")
+            .separator("__")
+            .source(Some(
+                [(
+                    "APP_SERVER__ALLOWED_ORIGINS".to_string(),
+                    "https://zm.example.com,https://alt.example.com".to_string(),
+                )]
+                .into_iter()
+                .collect(),
+            ));
+
+        let cfg = config::Config::builder()
+            .set_default("server.addr", "0.0.0.0")
+            .unwrap()
+            .set_default("server.port", 8080)
+            .unwrap()
+            .add_source(env)
+            .build()
+            .expect("build config")
+            .get::<ServerConfig>("server")
+            .expect("deserialize ServerConfig");
+
+        assert_eq!(
+            cfg.allowed_origins,
+            vec!["https://zm.example.com", "https://alt.example.com"]
+        );
+    }
+
     #[test]
     pub fn app_config_http_addr_test() {
         let config = ServerConfig {
@@ -146,6 +224,7 @@ pub mod tests {
             port: 1024,
             tls: None,
             acme: None,
+            allowed_origins: Vec::new(),
             middleware: MiddlewareConfig::default(),
         };
         assert_eq!(config.get_http_addr(), "http://127.0.0.1:1024");
@@ -174,5 +253,42 @@ pub mod tests {
             ..Default::default()
         };
         assert!(!mw.auth_rate_limiting_enabled());
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct OriginsHolder {
+        #[serde(default, deserialize_with = "de_string_or_seq")]
+        allowed_origins: Vec<String>,
+    }
+
+    fn parse_origins(json: &str) -> Vec<String> {
+        serde_json::from_str::<OriginsHolder>(json)
+            .expect("parse")
+            .allowed_origins
+    }
+
+    #[test]
+    fn allowed_origins_accepts_a_sequence() {
+        // The shape a TOML array in base.toml deserializes to.
+        assert_eq!(
+            parse_origins(r#"{"allowed_origins": ["https://a.example", "http://localhost:*"]}"#),
+            vec!["https://a.example", "http://localhost:*"]
+        );
+    }
+
+    #[test]
+    fn allowed_origins_accepts_a_comma_separated_string() {
+        // The only shape the APP_SERVER__ALLOWED_ORIGINS env layer can produce.
+        assert_eq!(
+            parse_origins(r#"{"allowed_origins": "https://a.example, http://localhost:*"}"#),
+            vec!["https://a.example", "http://localhost:*"]
+        );
+    }
+
+    #[test]
+    fn allowed_origins_defaults_to_empty_and_drops_blanks() {
+        assert!(parse_origins("{}").is_empty());
+        assert!(parse_origins(r#"{"allowed_origins": "  ,, "}"#).is_empty());
+        assert!(parse_origins(r#"{"allowed_origins": []}"#).is_empty());
     }
 }
