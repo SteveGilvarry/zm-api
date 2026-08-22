@@ -58,6 +58,19 @@ GET    /api/v3/monitors/{monitor_id}/snapshot
 
 The snapshot route accepts `?token=<JWT>` because `<img>` cannot set headers.
 
+## Still images are rotated for you
+
+`/events/{id}/thumbnail` and `/monitors/{id}/snapshot` apply the monitor's
+`Orientation` before returning the JPEG, matching what ZoneMinder's own image
+view serves. A client can size and render the result directly.
+
+This is deliberately **stills only**. Rotating live video would mean
+re-encoding the stream; a client can do it in CSS for nothing, so WebRTC and HLS
+hand back the camera's own frames.
+
+`ROTATE_0` — almost every camera — still streams the bytes straight off disk
+with no decode.
+
 ## Recorded playback
 
 ```
@@ -71,7 +84,7 @@ These need `Events: View`, not `Stream`.
 
 ## Behind a reverse proxy
 
-Streaming routes are deliberately excluded from zm_api's own compression layer,
+Streaming routes are deliberately excluded from zm-api's own compression layer,
 and they must not be buffered either. With `proxy_buffering on` an HLS or MP4
 route stalls. See [Serving a dashboard](dashboard.md) for a working nginx
 config.

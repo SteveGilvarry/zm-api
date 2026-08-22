@@ -1,11 +1,11 @@
 # RPM spec for zm-api — covers Fedora / RHEL / Rocky / AlmaLinux and openSUSE.
-# Build locally with:  rpmbuild -bb packaging/rpm/zm_api.spec  (after placing a
+# Build locally with:  rpmbuild -bb packaging/rpm/zm-api.spec  (after placing a
 # source tarball in ~/rpmbuild/SOURCES), or submit to COPR / openSUSE OBS.
 
 # Package name is hyphenated (distro convention, matches the .deb and the repo).
 # The Rust crate/binary, systemd unit and install paths stay underscored
-# (zm_api) — %{appname} carries that everywhere paths/files are referenced.
-%global appname zm_api
+# (zm-api) — %{appname} carries that everywhere paths/files are referenced.
+%global appname zm-api
 
 Name:           zm-api
 Version:        3.0.0
@@ -48,7 +48,7 @@ Requires(preun): systemd
 Requires(postun): systemd
 
 %description
-zm_api is a Rust REST API for managing a ZoneMinder installation. It can run
+zm-api is a Rust REST API for managing a ZoneMinder installation. It can run
 passively alongside stock ZoneMinder (REST API only) or, after disabling
 zoneminder.service, take over supervision of the ZoneMinder daemons.
 
@@ -62,18 +62,18 @@ cargo build --release --locked
 install -D -m 0755 target/release/%{appname}          %{buildroot}%{_bindir}/%{appname}
 # Built as `migrator`; installed prefixed, that name is too generic for /usr/bin.
 install -D -m 0755 target/release/migrator             %{buildroot}%{_bindir}/%{appname}-db
-install -D -m 0755 packaging/zm_api-takeover.sh        %{buildroot}%{_bindir}/%{appname}-takeover
+install -D -m 0755 packaging/zm-api-takeover.sh        %{buildroot}%{_bindir}/%{appname}-takeover
 install -D -m 0755 packaging/setup-instance.sh         %{buildroot}%{_datadir}/%{appname}/setup-instance.sh
 install -D -m 0644 settings/base.toml                  %{buildroot}%{_sysconfdir}/%{appname}/base.toml
 install -D -m 0644 settings/prod.toml                  %{buildroot}%{_sysconfdir}/%{appname}/prod.toml
-install -D -m 0644 packaging/systemd/zm_api.env        %{buildroot}%{_sysconfdir}/%{appname}/zm_api.env
-install -D -m 0644 packaging/systemd/zm_api.service    %{buildroot}%{_unitdir}/%{appname}.service
-install -D -m 0644 packaging/man/zm_api.8              %{buildroot}%{_mandir}/man8/%{appname}.8
-install -D -m 0644 packaging/man/zm_api-takeover.8     %{buildroot}%{_mandir}/man8/%{appname}-takeover.8
-install -D -m 0644 packaging/man/zm_api-db.8           %{buildroot}%{_mandir}/man8/%{appname}-db.8
-install -D -m 0644 packaging/man/zm_api.env.5          %{buildroot}%{_mandir}/man5/zm_api.env.5
+install -D -m 0644 packaging/systemd/zm-api.env        %{buildroot}%{_sysconfdir}/%{appname}/zm-api.env
+install -D -m 0644 packaging/systemd/zm-api.service    %{buildroot}%{_unitdir}/%{appname}.service
+install -D -m 0644 packaging/man/zm-api.8              %{buildroot}%{_mandir}/man8/%{appname}.8
+install -D -m 0644 packaging/man/zm-api-takeover.8     %{buildroot}%{_mandir}/man8/%{appname}-takeover.8
+install -D -m 0644 packaging/man/zm-api-db.8           %{buildroot}%{_mandir}/man8/%{appname}-db.8
+install -D -m 0644 packaging/man/zm-api.env.5          %{buildroot}%{_mandir}/man5/zm-api.env.5
 # NOTE: static/ is not packaged — it holds dev JWT keys. Per-install keys are
-# generated into /var/lib/zm_api/keys by setup-instance.sh.
+# generated into /var/lib/zm-api/keys by setup-instance.sh.
 
 %post
 # Provision user/dirs/JWT keys (idempotent), then register the unit. Ships in
@@ -98,16 +98,16 @@ fi
 %{_mandir}/man8/%{appname}.8*
 %{_mandir}/man8/%{appname}-takeover.8*
 %{_mandir}/man8/%{appname}-db.8*
-%{_mandir}/man5/zm_api.env.5*
+%{_mandir}/man5/zm-api.env.5*
 %dir %{_datadir}/%{appname}
 %{_datadir}/%{appname}/setup-instance.sh
 %{_unitdir}/%{appname}.service
 %dir %{_sysconfdir}/%{appname}
 %config(noreplace) %{_sysconfdir}/%{appname}/base.toml
 %config(noreplace) %{_sysconfdir}/%{appname}/prod.toml
-%config(noreplace) %{_sysconfdir}/%{appname}/zm_api.env
+%config(noreplace) %{_sysconfdir}/%{appname}/zm-api.env
 
 %changelog
 * Sun May 31 2026 Steve Gilvarry <SteveGilvarry@users.noreply.github.com> - 3.0.0-0.1.alpha1
-- First Rust release (3.0.0-alpha.1). Passive by default; zm_api-takeover for
+- First Rust release (3.0.0-alpha.1). Passive by default; zm-api-takeover for
   daemon control. Initial RPM packaging.

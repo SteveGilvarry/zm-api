@@ -70,7 +70,7 @@ impl Default for SearchConfig {
             enabled: SearchEnabled::Off,
             backend: BackendPref::Auto,
             embed_dim: 384,
-            sqlite_path: PathBuf::from("/var/lib/zm_api/search.db"),
+            sqlite_path: PathBuf::from("/var/lib/zm-api/search.db"),
             rerank: true,
             embed_url: "http://127.0.0.1:8090/embed".to_string(),
             rerank_url: "http://127.0.0.1:8090/rerank".to_string(),

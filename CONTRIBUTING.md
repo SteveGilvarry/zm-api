@@ -1,11 +1,11 @@
-# Contributing to zm_api
+# Contributing to zm-api
 
-Thanks for your interest in improving zm_api! This guide covers how to get a change
+Thanks for your interest in improving zm-api! This guide covers how to get a change
 merged.
 
 ## 📜 Contributor License Agreement
 
-zm_api is **dual-licensed** — open source under [AGPL-3.0](LICENSE), and available under a
+zm-api is **dual-licensed** — open source under [AGPL-3.0](LICENSE), and available under a
 separate commercial license. For the project to be offered under both, every contribution
 must be covered by the [Contributor License Agreement](CLA.md).
 
@@ -37,7 +37,7 @@ Without the required-check setting the CLA status is advisory only.
 
 ## 🛠️ Development workflow
 
-zm_api works tests-first. Before opening a PR:
+zm-api works tests-first. Before opening a PR:
 
 1. **Add or update a test** that captures the behaviour change — it should fail for the
    right reason first.

@@ -135,7 +135,7 @@ wire into `AppState` in `src/server/state.rs`):
 enabled = "auto"          # auto | on | off
 backend = "auto"          # auto -> sqlite today (MySQL 8.0 has no native VECTOR); mariadb|postgres later
 embed_dim = 384           # truncate (Matryoshka) to 256–384
-sqlite_path = "/var/lib/zm_api/search.db"
+sqlite_path = "/var/lib/zm-api/search.db"
 rerank = true
 # Inference = external local HTTP endpoints (Option 1). Models are chosen by URL, not files:
 embed_url  = "http://127.0.0.1:8090/embed"     # text (+image) embeddings (TEI/llama.cpp/Ollama)
@@ -214,7 +214,7 @@ exactly like `src/handlers/events_playback.rs:198-210` — filter hits to monito
   count? }`.
 - `GET /api/v3/events/{id}/similar?k=` → "find more like this" (vector NN of the event's embedding).
 Cache hot queries (DashMap, mirror `SnapshotService` `src/streaming/snapshot.rs:52-62`); ETag.
-Apps: NL query box + "find more like this" + citation deep-links in zm-dashboard / zm-mobile.
+Apps: NL query box + "find more like this" + citation deep-links in zm-web / zm-mobile.
 
 ---
 

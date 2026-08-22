@@ -54,7 +54,7 @@ jobs:
 
       - name: Build .deb
         # Build every bin target first: the asset list ships `migrator` as
-        # zm_api-db alongside the server, and cargo-deb only copies paths.
+        # zm-api-db alongside the server, and cargo-deb only copies paths.
         run: |
           cargo build --release --bins
           cargo deb --no-build
@@ -75,7 +75,7 @@ jobs:
           path: target/debian/*.deb
           if-no-files-found: error
 
-  # Fedora/RHEL/Rocky/Alma and openSUSE, built from packaging/rpm/zm_api.spec.
+  # Fedora/RHEL/Rocky/Alma and openSUSE, built from packaging/rpm/zm-api.spec.
   # Deps are requested via pkgconfig() capabilities so each distro resolves its
   # own FFmpeg/OpenSSL -devel packages (Fedora's *-free-devel, openSUSE's, ...).
   rpm:
@@ -150,7 +150,7 @@ jobs:
           # The checkout is owned by a different uid than root in the container.
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git archive --format=tar.gz --prefix="zm-api-${pkgtag#v}/" \
-            -o "/tmp/build/zm_api-${pkgver}.tar.gz" HEAD
+            -o "/tmp/build/zm-api-${pkgver}.tar.gz" HEAD
           chown -R builder:builder /tmp/build
           # makepkg refuses root; runuser (util-linux) avoids needing sudo.
           # -d skips dep checks (deps pre-installed above); the staged tarball
@@ -187,7 +187,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Export spec
-        run: cargo run --release --bin zm_api -- --openapi > openapi.json
+        run: cargo run --release --bin zm-api -- --openapi > openapi.json
 
       - name: Sanity-check spec
         run: |

@@ -1,6 +1,6 @@
 # Authentication
 
-zm_api uses bearer JWTs. **No cookies are involved anywhere.**
+zm-api uses bearer JWTs. **No cookies are involved anywhere.**
 
 ## Getting tokens
 
@@ -88,4 +88,4 @@ page load can behave differently in production than in development.
 
 Behind a reverse proxy, set `APP_SERVER__MIDDLEWARE__TRUST_PROXY_HEADERS=true`
 or every client shares the proxy's single bucket. Leave it `false` anywhere
-zm_api is reachable directly — the headers are attacker-controlled there.
+zm-api is reachable directly — the headers are attacker-controlled there.

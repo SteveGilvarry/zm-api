@@ -1,4 +1,4 @@
-//! DB query layer for the zm_api-owned `event_synopsis` table.
+//! DB query layer for the zm-api-owned `event_synopsis` table.
 
 use sea_orm::*;
 

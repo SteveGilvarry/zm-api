@@ -1,4 +1,4 @@
-//! DB query layer for the zm_api-owned `monitor_pipeline` table.
+//! DB query layer for the zm-api-owned `monitor_pipeline` table.
 //!
 //! One row per monitor holds the zm-next processing plugin graph (see
 //! [`crate::entity::monitor_pipeline`]). `monitor_id` is the primary key.

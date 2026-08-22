@@ -1,4 +1,4 @@
-//! zm_api-owned `event_synopsis` table — render state for a motion synopsis.
+//! zm-api-owned `event_synopsis` table — render state for a motion synopsis.
 //!
 //! Unlike the rest of `src/entity/`, this is **not** generated from
 //! ZoneMinder's schema: it is a zm-api-owned table created by the migration in

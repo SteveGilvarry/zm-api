@@ -39,7 +39,7 @@ const ACTION_BASE: &str = "http://www.onvif.org/ver10/media/wsdl";
 
 /// A media profile as reported by `GetProfiles`.
 ///
-/// Only the fields zm_api consumes are surfaced. `token` is the stable handle
+/// Only the fields zm-api consumes are surfaced. `token` is the stable handle
 /// used in subsequent `GetStreamUri`/`GetSnapshotUri` calls; the video encoder
 /// fields are optional because a profile may lack a video source configuration.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

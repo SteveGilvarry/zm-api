@@ -58,7 +58,7 @@ jobs:
       # build-and-run — no services to stand up.
       - name: Export the OpenAPI spec
         run: |
-          cargo run --release --bin zm_api -- --openapi > book/src/openapi.json
+          cargo run --release --bin zm-api -- --openapi > book/src/openapi.json
           python3 -c "
           import json, sys
           spec = json.load(open('book/src/openapi.json'))

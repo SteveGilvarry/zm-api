@@ -35,8 +35,8 @@ enabled = true                       # master switch
 binary = "zm-core"                   # resolved under daemon.bin_path
 
 [zmnext.pipeline]
-dir = "/var/lib/zm_api/pipelines"    # generated monitor_{id}.json files
-model_path = "/var/lib/zm_api/models/yolo26n.onnx"
+dir = "/var/lib/zm-api/pipelines"    # generated monitor_{id}.json files
+model_path = "/var/lib/zm-api/models/yolo26n.onnx"
 detect_hw = "auto"
 detect_input_size = 640
 detect_conf_threshold = 0.35

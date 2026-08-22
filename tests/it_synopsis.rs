@@ -8,7 +8,7 @@
 //!   - the `GET /api/v3/events/{id}/synopsis/review` endpoint: auth, ACL
 //!     not-found, and the disabled-by-default gate.
 //!
-//! The `event_synopsis` table is zm_api-owned, so each test first applies the
+//! The `event_synopsis` table is zm-api-owned, so each test first applies the
 //! crate migrations (idempotent) — it is not part of ZoneMinder's schema.
 //!
 //! Requires the test database — run with:
@@ -49,7 +49,7 @@ async fn ensure_schema(db: &sea_orm::DatabaseConnection) {
     static SCHEMA: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
     SCHEMA
         .get_or_init(|| async {
-            migrate_database(db).await.expect("apply zm_api migrations");
+            migrate_database(db).await.expect("apply zm-api migrations");
         })
         .await;
 }

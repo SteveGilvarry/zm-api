@@ -90,6 +90,19 @@ async fn fallback_handler(
     )
 }
 
+/// Paths that belong to this API rather than to the browser UI.
+///
+/// When the UI is served from this binary its SPA fallback must not swallow
+/// these: a typo'd endpoint has to keep returning the JSON 404 envelope that
+/// clients feature-detect on, not an HTML page with status 200. Getting this
+/// backwards is the classic SPA-behind-an-API bug — every mistyped request
+/// silently succeeds and the client tries to parse `<!doctype html>`.
+const API_PATH_PREFIXES: &[&str] = &["/api/", "/swagger-ui", "/api-docs", "/.well-known/"];
+
+fn is_api_path(path: &str) -> bool {
+    API_PATH_PREFIXES.iter().any(|p| path.starts_with(p))
+}
+
 /// One allowed-origin rule parsed from `ALLOWED_ORIGINS`.
 enum OriginRule {
     /// Exact origin match, e.g. `https://app.example.com`.
@@ -597,12 +610,107 @@ pub fn create_router_app(state: AppState) -> Router {
 
     let api = api.layer(CompressionLayer::new());
 
-    let app = Router::new()
-        .merge(api)
-        .merge(streaming)
-        .fallback(any(fallback_handler));
+    let app = Router::new().merge(api).merge(streaming);
+
+    // The browser UI (zm-web), when this binary is serving it. Mounted as the
+    // fallback so every real route above still wins; only unmatched paths reach
+    // the SPA.
+    let web = &crate::constant::CONFIG.web;
+    let app = if web.should_serve() {
+        tracing::info!(
+            "Serving the zm-web UI from {} (assets cached {}s)",
+            web.root.display(),
+            web.asset_max_age_secs
+        );
+        app.fallback(any(web_fallback))
+    } else {
+        if web.enabled {
+            // Enabled but nothing there: warn rather than refuse to boot. The
+            // API is the more important half, and a missing UI package should
+            // not take it down.
+            tracing::warn!(
+                "web.enabled is true but {} has no index.html — not serving the UI",
+                web.root.display()
+            );
+        }
+        app.fallback(any(fallback_handler))
+    };
 
     apply_common_middleware(app, cors).with_state(state)
+}
+
+/// Serve a file from the UI root, falling back to `index.html` so client-side
+/// routes like `/events/123` load the app instead of 404ing.
+///
+/// API paths are excluded and keep the JSON 404 envelope — see
+/// [`API_PATH_PREFIXES`].
+async fn web_fallback(
+    method: axum::http::Method,
+    uri: axum::http::Uri,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
+    let path = uri.path().to_string();
+    if is_api_path(&path) {
+        return fallback_handler(method, uri).await.into_response();
+    }
+
+    let web = &crate::constant::CONFIG.web;
+    let index = web.index_path();
+
+    // `ServeDir` resolves the request path against the root and rejects
+    // traversal itself; `ServeFile` handles the SPA case. Both are constructed
+    // per request, which is cheap — they hold a path, not an open handle.
+    let service = tower_http::services::ServeDir::new(&web.root)
+        .precompressed_gzip()
+        .precompressed_br()
+        .fallback(tower_http::services::ServeFile::new(&index));
+
+    let mut response = match tower::ServiceExt::oneshot(service, req).await {
+        Ok(resp) => resp.into_response(),
+        Err(e) => {
+            tracing::error!("serving the UI failed for {path}: {e}");
+            return axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    apply_web_headers(&mut response, &path, web);
+    response
+}
+
+/// Cache and security headers for UI responses.
+///
+/// Fingerprinted assets are immutable and cached hard; `index.html` names the
+/// current asset hashes, so caching it would pin a browser to a stale build and
+/// it is always revalidated.
+fn apply_web_headers(
+    response: &mut axum::response::Response,
+    path: &str,
+    web: &crate::configure::web::WebConfig,
+) {
+    let headers = response.headers_mut();
+
+    let served_index = path == "/"
+        || path.ends_with('/')
+        || path.ends_with(".html")
+        // A client-side route (no file extension) falls back to index.html.
+        || !path.rsplit('/').next().is_some_and(|s| s.contains('.'));
+
+    let cache = if served_index {
+        "no-cache".to_string()
+    } else {
+        format!("public, max-age={}, immutable", web.asset_max_age_secs)
+    };
+    if let Ok(value) = HeaderValue::from_str(&cache) {
+        headers.insert(header::CACHE_CONTROL, value);
+    }
+
+    if !web.content_security_policy.is_empty() {
+        if let Ok(value) = HeaderValue::from_str(&web.content_security_policy) {
+            headers.insert(HeaderName::from_static("content-security-policy"), value);
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a zm_api .deb for the dev ZoneMinder box and install it over SSH.
+# Build a zm-api .deb for the dev ZoneMinder box and install it over SSH.
 #
 # macOS cannot link FFmpeg/OpenSSL for Linux, so the package is built inside a
 # Linux container whose distro + arch match the target box (Ubuntu 24.04 arm64).
@@ -16,13 +16,13 @@
 #   ZM_SSH_USER=<required>      SSH user with passwordless sudo on the box
 #   ARCH=arm64                  target arch (arm64|amd64)
 #   DISTRO_IMAGE=ubuntu:24.04   build base; MUST match the box's distro+FFmpeg
-#   SERVICE=zm_api              systemd unit name
+#   SERVICE=zm-api              systemd unit name
 set -euo pipefail
 
 ZM_HOST="${ZM_HOST:-192.168.0.45}"
 ARCH="${ARCH:-arm64}"
 DISTRO_IMAGE="${DISTRO_IMAGE:-ubuntu:24.04}"
-SERVICE="${SERVICE:-zm_api}"
+SERVICE="${SERVICE:-zm-api}"
 FAST="no"
 BUILD_ONLY="no"
 for arg in "$@"; do
@@ -95,23 +95,23 @@ run_builder() {
 # Build the artifact (binary for --fast, else the .deb).
 if [ "$FAST" = "yes" ]; then
     info "Fast build: compiling release binary in container..."
-    run_builder "cargo build --release --bin zm_api"
-    ARTIFACT="${PROJECT_ROOT}/${LINUX_TARGET}/release/zm_api"
+    run_builder "cargo build --release --bin zm-api"
+    ARTIFACT="${PROJECT_ROOT}/${LINUX_TARGET}/release/zm-api"
     [ -f "$ARTIFACT" ] || die "binary not found at $ARTIFACT"
 else
     info "Building .deb in container ($DISTRO_IMAGE / $ARCH)..."
-    run_builder "cargo deb --output /src/${LINUX_TARGET}/zm_api.deb"
-    ARTIFACT="${PROJECT_ROOT}/${LINUX_TARGET}/zm_api.deb"
+    run_builder "cargo deb --output /src/${LINUX_TARGET}/zm-api.deb"
+    ARTIFACT="${PROJECT_ROOT}/${LINUX_TARGET}/zm-api.deb"
     [ -f "$ARTIFACT" ] || die "no .deb produced at $ARTIFACT"
 fi
 info "Built $(basename "$ARTIFACT") ($(du -h "$ARTIFACT" | cut -f1))"
 
 # On-box install command for whichever artifact we built.
 if [ "$FAST" = "yes" ]; then
-    REMOTE="/tmp/zm_api.new"
-    INSTALL_CMD="sudo install -m 0755 ${REMOTE} /usr/bin/zm_api && rm -f ${REMOTE} && sudo systemctl restart ${SERVICE} && systemctl --no-pager --full status ${SERVICE} | head -n 15"
+    REMOTE="/tmp/zm-api.new"
+    INSTALL_CMD="sudo install -m 0755 ${REMOTE} /usr/bin/zm-api && rm -f ${REMOTE} && sudo systemctl restart ${SERVICE} && systemctl --no-pager --full status ${SERVICE} | head -n 15"
 else
-    REMOTE="/tmp/zm_api.deb"
+    REMOTE="/tmp/zm-api.deb"
     INSTALL_CMD="sudo apt-get install -y ${REMOTE} && rm -f ${REMOTE} && sudo systemctl enable --now ${SERVICE} && sudo systemctl restart ${SERVICE} && systemctl --no-pager --full status ${SERVICE} | head -n 20"
 fi
 

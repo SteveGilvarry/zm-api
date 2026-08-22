@@ -1,9 +1,9 @@
 # Maintainer: Steve Gilvarry <SteveGilvarry@users.noreply.github.com>
 # Package name is hyphenated (distro convention, matches the .deb and the repo).
 # The Rust crate/binary, systemd unit and install paths stay underscored
-# (zm_api) — ${_appname} carries that everywhere paths/files are referenced.
+# (zm-api) — ${_appname} carries that everywhere paths/files are referenced.
 pkgname=zm-api
-_appname=zm_api
+_appname=zm-api
 # pkgver cannot contain '-'; pacman 6.1+ treats '~' as a pre-release that sorts
 # before the final 3.0.0. The actual git tag is the SemVer string in _pkgtag.
 pkgver=3.0.0~alpha1
@@ -22,7 +22,7 @@ install="${_appname}.install"
 backup=(
   "etc/${_appname}/base.toml"
   "etc/${_appname}/prod.toml"
-  "etc/${_appname}/zm_api.env"
+  "etc/${_appname}/zm-api.env"
 )
 # GitHub names the extracted dir after the tag with any leading 'v' stripped.
 _srcdir="zm-api-${_pkgtag#v}"
@@ -40,17 +40,17 @@ package() {
   install -Dm755 "target/release/${_appname}"         "${pkgdir}/usr/bin/${_appname}"
   # Built as `migrator`; installed prefixed, that name is too generic for /usr/bin.
   install -Dm755 target/release/migrator               "${pkgdir}/usr/bin/${_appname}-db"
-  install -Dm755 packaging/zm_api-takeover.sh          "${pkgdir}/usr/bin/${_appname}-takeover"
+  install -Dm755 packaging/zm-api-takeover.sh          "${pkgdir}/usr/bin/${_appname}-takeover"
   install -Dm755 packaging/setup-instance.sh           "${pkgdir}/usr/share/${_appname}/setup-instance.sh"
   install -Dm644 settings/base.toml                    "${pkgdir}/etc/${_appname}/base.toml"
   install -Dm644 settings/prod.toml                    "${pkgdir}/etc/${_appname}/prod.toml"
-  install -Dm644 packaging/systemd/zm_api.env          "${pkgdir}/etc/${_appname}/zm_api.env"
-  install -Dm644 packaging/systemd/zm_api.service      "${pkgdir}/usr/lib/systemd/system/${_appname}.service"
-  install -Dm644 packaging/man/zm_api.8                 "${pkgdir}/usr/share/man/man8/${_appname}.8"
-  install -Dm644 packaging/man/zm_api-takeover.8       "${pkgdir}/usr/share/man/man8/${_appname}-takeover.8"
-  install -Dm644 packaging/man/zm_api-db.8             "${pkgdir}/usr/share/man/man8/${_appname}-db.8"
-  install -Dm644 packaging/man/zm_api.env.5            "${pkgdir}/usr/share/man/man5/zm_api.env.5"
+  install -Dm644 packaging/systemd/zm-api.env          "${pkgdir}/etc/${_appname}/zm-api.env"
+  install -Dm644 packaging/systemd/zm-api.service      "${pkgdir}/usr/lib/systemd/system/${_appname}.service"
+  install -Dm644 packaging/man/zm-api.8                 "${pkgdir}/usr/share/man/man8/${_appname}.8"
+  install -Dm644 packaging/man/zm-api-takeover.8       "${pkgdir}/usr/share/man/man8/${_appname}-takeover.8"
+  install -Dm644 packaging/man/zm-api-db.8             "${pkgdir}/usr/share/man/man8/${_appname}-db.8"
+  install -Dm644 packaging/man/zm-api.env.5            "${pkgdir}/usr/share/man/man5/zm-api.env.5"
   install -Dm644 LICENSE                               "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
   # static/ is not packaged — it holds dev JWT keys; per-install keys are
-  # generated into /var/lib/zm_api/keys by setup-instance.sh.
+  # generated into /var/lib/zm-api/keys by setup-instance.sh.
 }

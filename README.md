@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🎥 zm_api
+# 🎥 zm-api
 
 ### A modern, fast, type-safe REST API for [ZoneMinder](https://zoneminder.com)
 
@@ -21,8 +21,8 @@ with live streaming, fine-grained access control, and OpenAPI docs baked in.*
 
 ## 📦 Install
 
-Install the prebuilt package — it runs as a systemd service in **passive mode** (REST API
-only), safe to drop onto an existing ZoneMinder box:
+Install the prebuilt package — it starts in **passive mode** (REST API only), so it is safe
+to drop onto a live ZoneMinder box without changing how anything records:
 
 ```bash
 sudo dpkg -i zm-api_*.deb        # Debian / Ubuntu / Raspberry Pi OS
@@ -30,8 +30,8 @@ sudo dnf install zm-api-*.rpm    # Fedora / RHEL / Rocky / Alma  (zypper on open
 ```
 
 **Already running ZoneMinder?** Migrate its database before the first start —
-`zm_api-db bridge -u mysql://zmuser:zmpass@localhost/zm`. Only a fresh, empty database
-should use `zm_api-db up`. See `man 8 zm_api-db`.
+`zm-api-db bridge -u mysql://zmuser:zmpass@localhost/zm`. Only a fresh, empty database
+should use `zm-api-db up`. See `man 8 zm-api-db`.
 
 📖 **[Full documentation](https://stevegilvarry.github.io/zm-api/)** — install, configuration,
 deployment architecture, and a browsable
@@ -43,10 +43,10 @@ What changed: **[`CHANGELOG.md`](CHANGELOG.md)**.
 
 ---
 
-## ✨ Why zm_api?
+## ✨ Why zm-api?
 
 ZoneMinder is a rock-solid surveillance platform, but its API grew organically across Perl,
-PHP, and CGI over two decades. **zm_api** replaces that surface with one cohesive service:
+PHP, and CGI over two decades. **zm-api** replaces that surface with one cohesive service:
 
 - 🦀 **One binary, one language** — no PHP-FPM, no CGI, no Perl runtime to babysit.
 - ⚡ **Fast & async** — built on Axum + Tokio; streaming endpoints don't block the API.
@@ -149,19 +149,21 @@ flowchart TD
 
 ### Install as a service (packages)
 
-The fastest path. Packages install zm_api as a systemd service in **passive mode** — it serves
+The fastest path. Packages install zm-api as a systemd service in **passive mode** — it serves
 the REST API alongside a running ZoneMinder without touching its daemons, so it's safe on an
-existing box.
+existing box. That's the on-ramp, not the end state.
 
 ```bash
 sudo dpkg -i zm-api_*.deb        # Debian / Ubuntu / Raspberry Pi OS
 sudo dnf install zm-api-*.rpm    # Fedora / RHEL / Rocky / Alma  (zypper on openSUSE)
 ```
 
-To have zm_api take over ZoneMinder daemon supervision (stops & disables `zoneminder.service`):
+When you're ready, hand daemon supervision to zm-api — one native supervisor replacing
+`zmdc.pl` and `zmwatch.pl`, with restart backoff, database reconciliation, and daemon control
+over REST (this stops & disables `zoneminder.service`):
 
 ```bash
-sudo zm_api-takeover             # --revert hands control back to ZoneMinder
+sudo zm-api-takeover             # --revert hands control back to ZoneMinder
 ```
 
 Build packages yourself with `./scripts/package.sh [deb|rpm|arch|all]`. Full distro matrix,
@@ -216,7 +218,7 @@ Settings are layered, last one wins:
 ```bash
 APP_PROFILE=prod
 APP_DB__HOST=10.0.0.5            # overrides db.host
-APP_CONFIG_DIR=/etc/zm_api       # alternate config directory
+APP_CONFIG_DIR=/etc/zm-api       # alternate config directory
 ```
 
 > 💡 Local profiles like `settings/dev.toml` are gitignored — keep secrets out of version control.
@@ -283,12 +285,12 @@ See [`CLAUDE.md`](CLAUDE.md) for the full development workflow and conventions.
 
 ## 📄 License
 
-zm_api is **dual-licensed**:
+zm-api is **dual-licensed**:
 
 - 🆓 **Open source — [AGPL-3.0](LICENSE).** Free to use, modify, and self-host. If you
   run a modified version as a network service, the AGPL requires you to publish your
   changes.
-- 💼 **Commercial license.** For embedding zm_api in a closed-source product, or running a
+- 💼 **Commercial license.** For embedding zm-api in a closed-source product, or running a
   modified version as a hosted service without the AGPL's source-sharing obligation, a
   commercial license is available. Contact the maintainer to enquire.
 

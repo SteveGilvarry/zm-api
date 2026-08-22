@@ -9,11 +9,11 @@ use std::time::Duration;
 pub struct DaemonConfig {
     /// Whether the daemon controller is enabled.
     ///
-    /// Defaults to `false` ("passive" mode): zm_api runs as a REST API only and
+    /// Defaults to `false` ("passive" mode): zm-api runs as a REST API only and
     /// does not create the daemon manager, bind the `zmdc.sock` socket, or run
     /// `kill_orphan_daemons()` — so it coexists safely with a running stock
     /// ZoneMinder install. Set to `true` ("active"/takeover mode) only after
-    /// disabling `zoneminder.service`, so zm_api can supervise the ZM daemons.
+    /// disabling `zoneminder.service`, so zm-api can supervise the ZM daemons.
     #[serde(default = "default_enabled")]
     pub enabled: bool,
 

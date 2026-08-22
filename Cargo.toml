@@ -1,18 +1,18 @@
 [package]
-name = "zm_api"
+name = "zm-api"
 # Pre-release: first Rust version, carrying the v3 lineage from ZoneMinder's API
 # history. cargo-deb maps the `-alpha.1` suffix to a Debian `~alpha.1` so it
-# sorts before the eventual 3.0.0. See packaging/rpm/zm_api.spec and
+# sorts before the eventual 3.0.0. See packaging/rpm/zm-api.spec and
 # packaging/arch/PKGBUILD for the rpm/Arch equivalents, and docs/deployment.md.
 version = "3.0.0-alpha.1"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 description = "A modern REST API for ZoneMinder"
 repository = "https://github.com/SteveGilvarry/zm-api"
-# The crate ships two binaries (the server `zm_api` and the `fixture-doctor`
+# The crate ships two binaries (the server `zm-api` and the `fixture-doctor`
 # maintenance tool), so plain `cargo run` is ambiguous without this — keep it
 # defaulting to the server.
-default-run = "zm_api"
+default-run = "zm-api"
 
 # Features
 [features]
@@ -208,34 +208,34 @@ section = "net"
 priority = "optional"
 maintainer-scripts = "packaging/debian"
 assets = [
-  ["target/release/zm_api", "usr/bin/zm_api", "755"],
+  ["target/release/zm-api", "usr/bin/zm-api", "755"],
   # Migration/upgrade tool. Built as `migrator` (the cargo bin name the parity
-  # scripts use) but installed under the zm_api- prefix: `migrator` is far too
+  # scripts use) but installed under the zm-api- prefix: `migrator` is far too
   # generic a name for /usr/bin.
-  ["target/release/migrator", "usr/bin/zm_api-db", "755"],
-  ["packaging/zm_api-takeover.sh", "usr/bin/zm_api-takeover", "755"],
-  ["packaging/setup-instance.sh", "usr/share/zm_api/setup-instance.sh", "755"],
-  ["packaging/man/zm_api.8", "usr/share/man/man8/zm_api.8", "644"],
-  ["packaging/man/zm_api-takeover.8", "usr/share/man/man8/zm_api-takeover.8", "644"],
-  ["packaging/man/zm_api-db.8", "usr/share/man/man8/zm_api-db.8", "644"],
-  ["packaging/man/zm_api.env.5", "usr/share/man/man5/zm_api.env.5", "644"],
-  ["settings/base.toml", "etc/zm_api/base.toml", "644"],
-  ["settings/prod.toml", "etc/zm_api/prod.toml", "644"],
-  ["packaging/systemd/zm_api.env", "etc/zm_api/zm_api.env", "644"],
-  ["packaging/systemd/zm_api.service", "lib/systemd/system/zm_api.service", "644"],
+  ["target/release/migrator", "usr/bin/zm-api-db", "755"],
+  ["packaging/zm-api-takeover.sh", "usr/bin/zm-api-takeover", "755"],
+  ["packaging/setup-instance.sh", "usr/share/zm-api/setup-instance.sh", "755"],
+  ["packaging/man/zm-api.8", "usr/share/man/man8/zm-api.8", "644"],
+  ["packaging/man/zm-api-takeover.8", "usr/share/man/man8/zm-api-takeover.8", "644"],
+  ["packaging/man/zm-api-db.8", "usr/share/man/man8/zm-api-db.8", "644"],
+  ["packaging/man/zm-api.env.5", "usr/share/man/man5/zm-api.env.5", "644"],
+  ["settings/base.toml", "etc/zm-api/base.toml", "644"],
+  ["settings/prod.toml", "etc/zm-api/prod.toml", "644"],
+  ["packaging/systemd/zm-api.env", "etc/zm-api/zm-api.env", "644"],
+  ["packaging/systemd/zm-api.service", "lib/systemd/system/zm-api.service", "644"],
   # NOTE: do not ship `static/` wholesale — it holds the dev JWT keys
   # (static/key/*.pem). Packaged installs generate their own keys in
-  # /var/lib/zm_api/keys. If real web assets are added later, ship a scoped
-  # glob such as ["static/images/**/*", "usr/share/zm_api/static/images/", "644"].
+  # /var/lib/zm-api/keys. If real web assets are added later, ship a scoped
+  # glob such as ["static/images/**/*", "usr/share/zm-api/static/images/", "644"].
 ]
 conf-files = [
-  "/etc/zm_api/base.toml",
-  "/etc/zm_api/prod.toml",
-  "/etc/zm_api/zm_api.env",
+  "/etc/zm-api/base.toml",
+  "/etc/zm-api/prod.toml",
+  "/etc/zm-api/zm-api.env",
 ]
 
 # Full DWARF debug info triples the linker's peak memory and pushes this dev
-# box (16 GiB / 4 GiB swap, with ZoneMinder + zm_api already resident) into
+# box (16 GiB / 4 GiB swap, with ZoneMinder + zm-api already resident) into
 # systemd-oomd's kill range — `cargo test` was reliably killing the tmux
 # scope. Line tables alone still give file/line numbers in panics and
 # backtraces; the variable/type info dropped here is rarely used outside an

@@ -6,7 +6,7 @@ which specific monitors and groups you see.
 
 ## Feature-level RBAC
 
-ZoneMinder accounts carry eight permission columns. zm_api enforces all of them,
+ZoneMinder accounts carry eight permission columns. zm-api enforces all of them,
 deriving the required level from the HTTP method — reads need `View`, writes
 need `Edit`.
 

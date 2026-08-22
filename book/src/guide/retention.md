@@ -43,7 +43,7 @@ and Shallow layout schemes.
 ## Watching it
 
 ```bash
-journalctl -u zm_api -f | grep -i reap
+journalctl -u zm-api -f | grep -i reap
 ```
 
 Every deletion is logged with the event id and the limit that triggered it.

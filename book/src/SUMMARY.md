@@ -1,6 +1,6 @@
 # Summary
 
-[zm_api](index.md)
+[zm-api](index.md)
 
 # Getting started
 

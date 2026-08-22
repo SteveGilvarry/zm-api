@@ -15,7 +15,7 @@ use crate::error::AppResult;
 /// Get the log directory from environment or use default.
 ///
 /// Reads from `APP_LOG_DIR` environment variable. If not set:
-/// - Returns `/var/log/zm_api` if it exists (production)
+/// - Returns `/var/log/zm-api` if it exists (production)
 /// - Otherwise returns `./logs` (development)
 pub fn get_log_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("APP_LOG_DIR") {
@@ -23,8 +23,8 @@ pub fn get_log_dir() -> PathBuf {
             return PathBuf::from(dir);
         }
     }
-    // Default to /var/log/zm_api for production if it exists
-    let prod_path = PathBuf::from("/var/log/zm_api");
+    // Default to /var/log/zm-api for production if it exists
+    let prod_path = PathBuf::from("/var/log/zm-api");
     if prod_path.exists() {
         return prod_path;
     }
@@ -58,10 +58,10 @@ where
 
 pub fn init() -> AppResult<WorkerGuard> {
     let log_dir = get_log_dir();
-    let file_appender = RollingFileAppender::new(Rotation::DAILY, &log_dir, "zm_api.log");
+    let file_appender = RollingFileAppender::new(Rotation::DAILY, &log_dir, "zm-api.log");
     let (file_appender, file_appender_guard) = tracing_appender::non_blocking(file_appender);
     init_subscriber(create_subscriber(
-        "zm_api",
+        "zm-api",
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         file_appender,
     ))?;

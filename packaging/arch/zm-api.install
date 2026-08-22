@@ -1,0 +1,16 @@
+# Arch post-(un)install scriptlets for zm-api. Ships in passive mode.
+
+post_install() {
+  [ -x /usr/share/zm-api/setup-instance.sh ] && /usr/share/zm-api/setup-instance.sh || true
+  echo "zm-api installed in passive mode (REST API only)."
+  echo "To take over ZoneMinder daemon supervision: sudo zm-api-takeover"
+  echo "Enable the service with: systemctl enable --now zm-api.service"
+}
+
+post_upgrade() {
+  [ -x /usr/share/zm-api/setup-instance.sh ] && /usr/share/zm-api/setup-instance.sh || true
+}
+
+pre_remove() {
+  systemctl disable --now zm-api.service 2>/dev/null || true
+}

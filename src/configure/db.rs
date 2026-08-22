@@ -6,7 +6,7 @@
 //! 3. Base TOML file (settings/base.toml)
 //! 4. ZoneMinder zm.conf (/etc/zm/zm.conf + /etc/zm/conf.d/*.conf)
 //!
-//! This allows zm_api to work out of the box on ZoneMinder installations
+//! This allows zm-api to work out of the box on ZoneMinder installations
 //! without requiring duplicate database configuration.
 
 use serde::Deserialize;

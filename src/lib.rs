@@ -4,7 +4,7 @@
 // lists rather than returned to the OS, so RSS sits at its high-water mark for
 // the life of the process. jemalloc returns freed pages aggressively, keeping
 // RSS close to the live working set. Defined here in the library so every
-// binary that links it (the `zm_api` server and `fixture-doctor`) and the test
+// binary that links it (the `zm-api` server and `fixture-doctor`) and the test
 // harness all pick it up. Gated off MSVC, where jemalloc is unavailable.
 // Guarded by tests/jemalloc.rs.
 #[cfg(not(target_env = "msvc"))]

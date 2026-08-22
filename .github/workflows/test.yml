@@ -278,6 +278,38 @@ jobs:
       - name: Check advisories, licenses and sources
         run: cargo deny check
 
+  openapi-compat:
+    name: OpenAPI compatibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install FFmpeg/OpenSSL dev libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev \
+            libavutil-dev libavformat-dev libavfilter-dev \
+            libavdevice-dev libavcodec-dev libswscale-dev libswresample-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # `--openapi` needs no database and no configuration.
+      - name: Export the current spec
+        run: cargo run --bin zm-api -- --openapi > /tmp/openapi-current.json
+
+      # Fails only on changes that can break a deployed client — a removed
+      # endpoint, a replaced response shape, a response field that is no longer
+      # guaranteed, a dropped enum value, or a request that gained a required
+      # field. New endpoints and new optional fields pass with a notice.
+      #
+      # `GET /me` changed from UserResponse to MeResponse with no announcement
+      # and broke the dashboard's permission gating (GH #62); this is the guard
+      # that would have caught it in the pull request.
+      - name: Compare against the committed baseline
+        run: python3 scripts/check-openapi-compat.py openapi.json /tmp/openapi-current.json
+
   schema-parity:
     name: Baseline Schema Parity
     runs-on: ubuntu-latest

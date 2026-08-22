@@ -1,7 +1,9 @@
 # Install
 
-zm_api installs as a systemd service in **passive mode** — it serves the REST
-API and leaves ZoneMinder's daemons alone. It is safe to put on a live box.
+zm-api installs as a systemd service in **passive mode** — it serves the REST
+API and leaves ZoneMinder's daemons alone, so it is safe to put on a live box.
+That is the starting point; [takeover](../guide/takeover.md) is where it is
+meant to end up, whenever you choose to switch.
 
 ## Packages
 
@@ -16,12 +18,12 @@ with `makepkg`.
 
 Installing does three things beyond copying files: it creates the `zoneminder`
 service account if it does not exist, generates this install's JWT signing keys
-into `/var/lib/zm_api/keys`, and registers the systemd unit. It does **not**
+into `/var/lib/zm-api/keys`, and registers the systemd unit. It does **not**
 start touching your cameras.
 
 > **If the database already has ZoneMinder in it, do not start the service yet.**
 > Run the migration first — see [Upgrading an existing ZoneMinder](upgrading.md).
-> zm_api only *warns* when startup migrations fail, so a database left in the
+> zm-api only *warns* when startup migrations fail, so a database left in the
 > wrong state gives you a service that looks healthy with features silently
 > missing.
 
@@ -54,16 +56,16 @@ package install upgrades cleanly instead of colliding.
 
 | Path | What |
 | --- | --- |
-| `/usr/bin/zm_api` | The server |
-| `/usr/bin/zm_api-db` | Database migration tool |
-| `/usr/bin/zm_api-takeover` | Switches between passive and takeover mode |
-| `/etc/zm_api/base.toml` | Packaged defaults — replaced on upgrade, don't edit |
-| `/etc/zm_api/prod.toml` | Your configuration |
-| `/etc/zm_api/zm_api.env` | Environment overrides — wins over both TOML files |
-| `/var/lib/zm_api/keys/` | JWT signing keys, generated per install |
-| `/var/log/zm_api/` | Logs |
+| `/usr/bin/zm-api` | The server |
+| `/usr/bin/zm-api-db` | Database migration tool |
+| `/usr/bin/zm-api-takeover` | Hands daemon supervision to zm-api, or back |
+| `/etc/zm-api/base.toml` | Packaged defaults — replaced on upgrade, don't edit |
+| `/etc/zm-api/prod.toml` | Your configuration |
+| `/etc/zm-api/zm-api.env` | Environment overrides — wins over both TOML files |
+| `/var/lib/zm-api/keys/` | JWT signing keys, generated per install |
+| `/var/log/zm-api/` | Logs |
 
-Man pages: `zm_api(8)`, `zm_api.env(5)`, `zm_api-takeover(8)`, `zm_api-db(8)`.
+Man pages: `zm-api(8)`, `zm-api.env(5)`, `zm-api-takeover(8)`, `zm-api-db(8)`.
 
 ## Next
 

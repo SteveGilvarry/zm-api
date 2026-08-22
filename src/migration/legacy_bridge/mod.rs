@@ -29,6 +29,9 @@ use sea_orm_migration::MigratorTrait;
 
 pub use super::stamp::BASELINE_VERSION;
 const FLOOR_VERSION: &str = "1.34.0";
+// Deliberately keeps the pre-rename spelling: the key is shared state in the
+// database, so changing it would let an old and a new process each believe
+// they hold the migration lock.
 const ADVISORY_LOCK: &str = "zm_api_migration";
 
 /// Numeric dotted-version ordering ("1.36.9" < "1.36.12" < "1.37.0").

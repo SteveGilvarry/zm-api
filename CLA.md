@@ -1,8 +1,8 @@
 # Contributor License Agreement
 
-Thank you for contributing to **zm_api**.
+Thank you for contributing to **zm-api**.
 
-zm_api is **dual-licensed**: it is offered to the public under the
+zm-api is **dual-licensed**: it is offered to the public under the
 [GNU Affero General Public License v3.0](LICENSE), and may also be offered under
 separate **commercial license terms**. For the project to be distributed under both
 licenses, the project maintainer must hold sufficient rights in every contribution.
@@ -25,7 +25,7 @@ licence grant, not an assignment.
   configuration, or other material — that You intentionally submit to the Project for
   inclusion, in any form and through any medium (pull request, patch, issue attachment,
   etc.).
-- **"Project"** means the zm_api software project and its repository.
+- **"Project"** means the zm-api software project and its repository.
 
 ## 2. Copyright licence grant
 

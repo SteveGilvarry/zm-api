@@ -6,9 +6,9 @@ use zm_api::server::AppServer;
 use zm_api::{configure, util};
 
 const USAGE: &str = "\
-zm_api — REST API server for a ZoneMinder installation
+zm-api — REST API server for a ZoneMinder installation
 
-Usage: zm_api [OPTIONS]
+Usage: zm-api [OPTIONS]
 
 Options:
   -h, --help       Print this help and exit
@@ -28,8 +28,8 @@ underscore: APP_DB__HOST=10.0.0.5 sets db.host.
 
 Key variables:
   APP_PROFILE                  dev | test | test-db | prod   (default: dev)
-  APP_CONFIG_DIR               config directory              (packaged: /etc/zm_api)
-  APP_STATIC_DIR               static assets                 (packaged: /usr/share/zm_api/static)
+  APP_CONFIG_DIR               config directory              (packaged: /etc/zm-api)
+  APP_STATIC_DIR               static assets                 (packaged: /usr/share/zm-api/static)
   APP_SERVER__ALLOWED_ORIGINS  CORS origins for a browser dashboard
   APP_DAEMON__ENABLED          false = passive (REST only), true = supervise ZM daemons
   RUST_LOG                     log filter                    (e.g. info, zm_api=debug)
@@ -49,7 +49,7 @@ fn handle_cli_args() -> bool {
             true
         }
         Some("-V" | "--version") => {
-            println!("zm_api {}", env!("CARGO_PKG_VERSION"));
+            println!("zm-api {}", env!("CARGO_PKG_VERSION"));
             true
         }
         // Lets the spec be diffed between releases, attached to a release, and
@@ -59,14 +59,14 @@ fn handle_cli_args() -> bool {
             match zm_api::handlers::openapi::ApiDoc::openapi().to_pretty_json() {
                 Ok(json) => println!("{json}"),
                 Err(e) => {
-                    eprintln!("zm_api: could not serialise the OpenAPI spec: {e}");
+                    eprintln!("zm-api: could not serialise the OpenAPI spec: {e}");
                     std::process::exit(1);
                 }
             }
             true
         }
         Some(other) => {
-            eprintln!("zm_api: unrecognised argument '{other}'\n");
+            eprintln!("zm-api: unrecognised argument '{other}'\n");
             eprint!("{USAGE}");
             std::process::exit(2);
         }

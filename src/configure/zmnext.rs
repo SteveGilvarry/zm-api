@@ -111,8 +111,8 @@ impl Default for WorkerConfig {
 impl Default for PipelineConfig {
     fn default() -> Self {
         Self {
-            dir: PathBuf::from("/var/lib/zm_api/pipelines"),
-            model_path: PathBuf::from("/var/lib/zm_api/models/yolo26n.onnx"),
+            dir: PathBuf::from("/var/lib/zm-api/pipelines"),
+            model_path: PathBuf::from("/var/lib/zm-api/models/yolo26n.onnx"),
             detect_hw: "auto".to_string(),
             detect_input_size: 640,
             detect_conf_threshold: 0.35,

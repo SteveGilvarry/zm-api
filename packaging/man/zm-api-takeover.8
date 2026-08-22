@@ -1,45 +1,60 @@
-.TH ZM_API-TAKEOVER 8 "2026-08-22" "zm_api" "System Administration"
+.TH ZM-API-TAKEOVER 8 "2026-08-22" "zm-api" "System Administration"
 .SH NAME
-zm_api\-takeover \- switch zm_api between passive and active daemon control
+zm-api\-takeover \- switch zm-api between passive and active daemon control
 .SH SYNOPSIS
-.B zm_api-takeover
+.B zm-api-takeover
 .RI [ \-\-yes ]
 .br
-.B zm_api-takeover \-\-revert
+.B zm-api-takeover \-\-revert
 .RI [ \-\-yes ]
 .SH DESCRIPTION
 Moves a ZoneMinder host between two supervision arrangements, sequencing both
 services so they are never both in charge.
 .PP
 After installation
-.BR zm_api (8)
+.BR zm-api (8)
 is
 .BR passive :
 it serves the REST API and leaves ZoneMinder's daemons alone, so it coexists
 with a running
 .BR zoneminder.service .
+That is the on-ramp rather than the destination \(em passive exists so the
+switch happens when the operator chooses, not at install time.
 .PP
 In
 .B active
-(takeover) mode zm_api supervises
+(takeover) mode zm-api supervises
 .BR zmc ,
 .BR zmfilter ,
-and the rest itself. Exactly one supervisor may run: two would fight over the
-same processes and shared memory segments, producing daemons that restart in a
-loop and events that record erratically. This script therefore stops and
-disables
+and the rest itself, replacing both
+.BR zmdc.pl (8)
+and
+.BR zmwatch.pl (8)
+with one native supervisor: exponential restart backoff that resets once a
+daemon stays up, a reconciliation loop keeping running daemons in step with the
+.B Monitors
+table, daemon control over the REST API, and supervision events in the journal.
+The legacy
+.I zmdc.sock
+IPC shim stays bound, so tooling written against
+.BR zmdc.pl
+keeps working.
+.PP
+Exactly one supervisor may run: two would fight over the same processes and
+shared memory segments, producing daemons that restart in a loop and events
+that record erratically. This script therefore stops and disables
 .B zoneminder.service
-before it flips zm_api's mode, and reverses that order on the way back.
+before it flips zm-api's mode, and reverses that order on the way back.
 .PP
 Concretely, taking over: disable and stop
 .BR zoneminder.service ,
 set
 .B APP_DAEMON__ENABLED=true
 in the environment file, restart
-.BR zm_api.service .
+.BR zm-api.service .
 Reverting: set
 .B APP_DAEMON__ENABLED=false
-and restart zm_api first \(em releasing the daemons \(em then enable and start
+and restart zm-api first \(em releasing the daemons \(em then enable and start
 .BR zoneminder.service .
 .SH OPTIONS
 .TP
@@ -55,7 +70,7 @@ Print usage and exit.
 .IP \(bu 2
 Run as root.
 .IP \(bu 2
-zm_api must already be working in passive mode. Takeover is not a way to fix a
+zm-api must already be working in passive mode. Takeover is not a way to fix a
 broken install: if the API cannot reach the database, taking over ZoneMinder's
 daemons as well means nothing records.
 .IP \(bu 2
@@ -68,16 +83,16 @@ Nothing else may be starting the ZoneMinder daemons \(em no cron entry, no
 .BR zmpkg.pl
 invocation, no second host sharing the database with the same server ID.
 .SH VERIFYING
-After takeover, confirm that the daemons are running and that zm_api owns
+After takeover, confirm that the daemons are running and that zm-api owns
 them:
 .PP
 .RS 4
 .EX
-systemctl is-active zm_api          # expect: active
+systemctl is-active zm-api          # expect: active
 systemctl is-enabled zoneminder     # expect: disabled (or "not-found")
 ps -o ppid=,cmd= -C zmc             # expect: one zmc per enabled monitor,
-                                    #         parented by the zm_api process
-journalctl -u zm_api -n 50
+                                    #         parented by the zm-api process
+journalctl -u zm-api -n 50
 .EE
 .RE
 .PP
@@ -89,7 +104,7 @@ proves the supervisor started, not that video is being captured.
 .PP
 .RS 4
 .EX
-sudo zm_api-takeover --revert
+sudo zm-api-takeover --revert
 .EE
 .RE
 .PP
@@ -99,15 +114,15 @@ throughout because passive mode is its normal state. If the script cannot run,
 the manual equivalent is to set
 .B APP_DAEMON__ENABLED=false
 in
-.IR /etc/zm_api/zm_api.env ,
-.BR "systemctl restart zm_api" ,
+.IR /etc/zm-api/zm-api.env ,
+.BR "systemctl restart zm-api" ,
 then
 .BR "systemctl enable --now zoneminder" .
 .SH ENVIRONMENT
 .TP
 .B ZM_API_ENV_FILE
 Path to the environment file to edit. Default
-.IR /etc/zm_api/zm_api.env .
+.IR /etc/zm-api/zm-api.env .
 .SH EXIT STATUS
 .TP
 .B 0
@@ -120,11 +135,11 @@ Not run as root, or the environment file does not exist.
 Unrecognised argument.
 .SH FILES
 .TP
-.I /etc/zm_api/zm_api.env
+.I /etc/zm-api/zm-api.env
 Edited in place to set
 .BR APP_DAEMON__ENABLED .
 .SH SEE ALSO
-.BR zm_api (8),
-.BR zm_api.env (5),
+.BR zm-api (8),
+.BR zm-api.env (5),
 .BR zmdc.pl (8),
 .BR zmpkg.pl (8)

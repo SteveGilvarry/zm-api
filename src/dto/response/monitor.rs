@@ -352,23 +352,45 @@ mod tests {
         }
     }
 
-    /// GH #18: `enum_str` emits the request-accepted variant name (not the
-    /// SCREAMING DB value), and that string deserializes straight back into the
-    /// request enum — so a GET → POST round trip does not 422 on casing.
+    /// GH #18 then GH #59: whatever `enum_str` emits must deserialize straight
+    /// back into the request enum, so a GET → POST round trip never 422s on
+    /// spelling.
+    ///
+    /// #18 established the round-trip property. #59 changed *which* spelling
+    /// satisfies it: the emitted value is now the one ZoneMinder stores
+    /// (`ROTATE_90`, not `Rotate90`), because the old output matched nothing
+    /// outside this API. The property is unchanged and still the point — these
+    /// assertions exist so a future rename cannot satisfy one direction alone.
     #[test]
     fn enum_str_round_trips_into_request_enums() {
         use crate::entity::sea_orm_active_enums::{
             DefaultCodec, EventCloseMode, Orientation, Rtsp2WebType,
         };
 
-        assert_eq!(enum_str(&Orientation::Rotate90), "Rotate90");
-        assert_eq!(enum_str(&EventCloseMode::System), "System");
-        assert_eq!(enum_str(&DefaultCodec::Auto), "Auto");
-        assert_eq!(enum_str(&Rtsp2WebType::WebRtc), "WebRtc");
+        assert_eq!(enum_str(&Orientation::Rotate90), "ROTATE_90");
+        assert_eq!(enum_str(&EventCloseMode::System), "system");
+        assert_eq!(enum_str(&DefaultCodec::Auto), "auto");
+        assert_eq!(enum_str(&Rtsp2WebType::WebRtc), "WebRTC");
 
-        // The emitted string parses back into the same request enum.
-        let s = enum_str(&Orientation::Rotate90);
-        let back: Orientation = serde_json::from_value(serde_json::Value::String(s)).unwrap();
-        assert_eq!(back, Orientation::Rotate90);
+        // Every emitted value parses back into the same request enum.
+        fn round_trip<T>(value: T)
+        where
+            T: serde::Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,
+        {
+            let emitted = enum_str(&value);
+            let back: T = serde_json::from_value(serde_json::Value::String(emitted.clone()))
+                .unwrap_or_else(|e| panic!("{emitted:?} did not parse back: {e}"));
+            assert_eq!(back, value, "round trip changed the value");
+        }
+        round_trip(Orientation::Rotate90);
+        round_trip(EventCloseMode::System);
+        round_trip(DefaultCodec::Auto);
+        round_trip(Rtsp2WebType::WebRtc);
+
+        // The pre-#59 spelling is still accepted, so a client mid-migration
+        // can keep sending what this API used to hand it.
+        let legacy: Orientation =
+            serde_json::from_value(serde_json::Value::String("Rotate90".into())).unwrap();
+        assert_eq!(legacy, Orientation::Rotate90);
     }
 }

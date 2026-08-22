@@ -9,7 +9,7 @@ use crate::util::dir::get_project_root;
 use self::{
     daemon::DaemonConfig, db::DatabaseConfig, http::HttpClientConfig, retention::RetentionConfig,
     search::SearchConfig, secret::SecretConfig, sentry::SentryConfig, server::ServerConfig,
-    streaming::StreamingConfig, synopsis::SynopsisConfig, zmnext::ZmNextConfig,
+    streaming::StreamingConfig, synopsis::SynopsisConfig, web::WebConfig, zmnext::ZmNextConfig,
 };
 
 pub mod daemon;
@@ -24,6 +24,7 @@ pub mod server;
 pub mod streaming;
 pub mod synopsis;
 pub mod tracing;
+pub mod web;
 pub mod zmconf;
 pub mod zmnext;
 
@@ -53,6 +54,9 @@ pub struct AppConfig {
     /// usage by free-space floor / age / quota.
     #[serde(default)]
     pub retention: RetentionConfig,
+    /// Serving the zm-web browser UI from this binary. Off by default.
+    #[serde(default)]
+    pub web: WebConfig,
 }
 
 impl AppConfig {
@@ -64,7 +68,7 @@ impl AppConfig {
     /// 3. Base TOML file (settings/base.toml)
     /// 4. ZoneMinder zm.conf (/etc/zm/zm.conf + /etc/zm/conf.d/*.conf)
     ///
-    /// This allows zm_api to work out of the box on ZoneMinder installations.
+    /// This allows zm-api to work out of the box on ZoneMinder installations.
     pub fn read(env_src: Environment) -> Result<Self, config::ConfigError> {
         let config_dir = get_settings_dir()?;
         let profile = std::env::var("APP_PROFILE")
