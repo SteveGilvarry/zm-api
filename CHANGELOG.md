@@ -10,6 +10,39 @@ recognisable path forward.
 
 ### Added
 
+- **Native replacements for three Perl maintenance daemons** — `zmstats.pl`,
+  `zmaudit.pl` (database side) and `zmtelemetry.pl` — each independently
+  switchable under `[maintenance]` and all off by default, so an existing
+  install keeps running the Perl until the operator moves over. Enable the Rust
+  job and disable the matching daemon together; running both has them competing
+  over the same rows.
+  <br>**Stats** samples CPU and memory into `Server_Stats`, evicts stale
+  `Monitor_Status` heartbeats, ages events out of the `Events_Hour/Day/Week/Month`
+  windows and resyncs the counters they feed, and prunes `Logs` and `Sessions`
+  under ZoneMinder's own retention settings.
+  <br>**Audit** removes `Frames`/`Stats` rows whose event is gone, deletes events
+  that never recorded a frame, closes events left open by a capture daemon that
+  died, and recomputes `Event_Summaries` and `Storage.DiskSpace` from the rows
+  they summarise.
+  <br>**Telemetry** posts the same anonymous report on the same schedule.
+  <br>Three deliberate differences from the Perl, each because the original is
+  wrong rather than because this is simpler: archived events are genuinely
+  skipped when deleting frameless events (zmaudit tests a column it never
+  selects, so its guard never fires); `dry_run` writes nothing at all (zmaudit's
+  `--report` still performs updates, log pruning and counter resyncs); and
+  telemetry performs **no geolocation lookup** — zmtelemetry calls `ipinfo.io` on
+  every collection, disclosing the server's public IP to a third party under the
+  heading of anonymous statistics. Those fields are still sent, always
+  `"Unknown"`.
+  <br>Retention limits and the telemetry interval are read from ZoneMinder's
+  `Config` table but **parsed** rather than interpolated: the Perl splices
+  `ZM_LOG_DATABASE_LIMIT` straight into SQL and `eval`s `ZM_TELEMETRY_INTERVAL`
+  as code, so a `Config` row is an injection surface in both.
+  <br>The filesystem half of `zmaudit` — reconciling event directories against
+  rows — is not included. It derives its `rm -rf` target from `StartDateTime` in
+  local time, so a timezone mismatch aims it at the wrong directory; that wants
+  doing carefully rather than quickly.
+
 - **zm-api can serve the zm-web browser UI itself** (`[web] enabled = true`,
   `APP_WEB__ENABLED`). One process instead of a reverse proxy in front of two:
   the UI and the API share an origin by construction, so CORS stops applying,

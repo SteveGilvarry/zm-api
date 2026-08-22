@@ -16,6 +16,7 @@
 - [TLS and certificates](guide/tls.md)
 - [Passive and takeover mode](guide/takeover.md)
 - [Recording retention](guide/retention.md)
+- [Replacing the Perl daemons](guide/maintenance.md)
 
 # Using the API
 

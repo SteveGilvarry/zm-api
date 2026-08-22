@@ -232,6 +232,57 @@ stats_update_interval_seconds = 60
 enable_socket_ipc = true
 enable_rest_api = true
 
+# Native replacements for ZoneMinder's Perl maintenance daemons. Each is
+# independently switchable and all default off, so an existing install keeps
+# running the Perl until you move over deliberately.
+#
+# IMPORTANT: enable the Rust job and disable the matching Perl daemon together.
+# Running both has them competing over the same rows.
+
+# Replaces zmstats.pl. Samples CPU/memory into Server_Stats, evicts stale
+# Monitor_Status heartbeats, ages events out of the Events_Hour/Day/Week/Month
+# windows and resyncs the counters those feed, and prunes expired Sessions.
+# Nothing here touches event media or Events rows.
+[maintenance.stats]
+enabled = false
+interval_seconds = 300
+
+# Replaces zmaudit.pl (database side). Removes Frames/Stats rows whose event is
+# gone, deletes events that never recorded a frame, closes events left open by a
+# capture daemon that died, and recomputes Event_Summaries and
+# Storage.DiskSpace from the rows they summarise.
+#
+# The filesystem half — reconciling event directories against Events rows — is
+# not implemented yet. zmaudit derives its rm -rf target from StartDateTime in
+# local time, so a timezone mismatch aims it at the wrong directory; that wants
+# doing carefully rather than quickly.
+[maintenance.audit]
+enabled = false
+interval_seconds = 3600
+# Report what would be removed without removing it. Leave this on for a pass or
+# two and read the log before turning it off.
+dry_run = true
+# Ignore anything younger than this. An event has a row before it has frames, so
+# without a grace period the sweep races the capture daemon.
+min_age_seconds = 3600
+remove_orphaned_frames = true
+remove_empty_events = true
+close_unclosed_events = true
+resync_counters = true
+# Cap per pass: a misconfigured storage path can make a great many rows look
+# orphaned at once, and this keeps the blast radius recoverable.
+max_deletes_per_pass = 1000
+
+# Replaces zmtelemetry.pl. Anonymous usage report on a long interval.
+#
+# Unlike the Perl, this performs NO geolocation lookup. zmtelemetry.pl calls
+# ipinfo.io on every collection and reports city/region/country/lat/long; those
+# fields are still sent for compatibility but are always "Unknown".
+[maintenance.telemetry]
+enabled = false
+interval_seconds = 1209600  # 14 days
+endpoint = "https://telemetry.zoneminder.com/index.php"
+
 [retention]
 # Automatic recording-disk cleanup. Deletes whole events (media + DB rows)
 # oldest-first, per Storage, when any limit below is breached. Off by default;

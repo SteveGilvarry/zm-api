@@ -24,6 +24,7 @@ pub mod groups_monitors;
 pub mod groups_permissions;
 pub mod image_orientation;
 pub mod logs;
+pub mod maintenance;
 pub mod manufacturers;
 pub mod models;
 pub mod monitor;
