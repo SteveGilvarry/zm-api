@@ -145,6 +145,18 @@ pub struct MonitorResponse {
     pub analysing: String,
     pub analysis_source: String,
     pub analysis_image: String,
+    /// Alpha applied when compositing the analysis image over the frame (0-255).
+    pub analysis_image_opacity: u8,
+    /// Per-monitor object detection: the detector in use (`none` when off).
+    pub object_detection: String,
+    /// Name of the AI model used for object detection.
+    pub object_detection_model: String,
+    /// Object confidence threshold (0.0-1.0).
+    pub object_detection_object_threshold: f32,
+    /// Non-maximum-suppression threshold (0.0-1.0).
+    pub object_detection_nms_threshold: f32,
+    /// What the live view renders: video, audio visualization, or both.
+    pub what_display: String,
     pub recording: String,
 }
 
@@ -294,6 +306,12 @@ impl From<monitors::Model> for MonitorResponse {
             analysing: enum_str(&model.analysing),
             analysis_source: enum_str(&model.analysis_source),
             analysis_image: enum_str(&model.analysis_image),
+            analysis_image_opacity: model.analysis_image_opacity,
+            object_detection: model.object_detection,
+            object_detection_model: model.object_detection_model,
+            object_detection_object_threshold: model.object_detection_object_threshold,
+            object_detection_nms_threshold: model.object_detection_nms_threshold,
+            what_display: enum_str(&model.what_display),
             recording: enum_str(&model.recording),
         }
     }
@@ -313,6 +331,25 @@ mod tests {
         let obj = json.as_object().unwrap();
         assert!(!obj.contains_key("pass"));
         assert!(!obj.contains_key("onvif_password"));
+    }
+
+    /// GH #47: the 1.39.17 object-detection columns are exposed, so the
+    /// dashboard can read per-monitor detection config.
+    #[test]
+    fn monitor_response_exposes_object_detection_config() {
+        let resp: MonitorResponse = Faker.fake();
+        let json = serde_json::to_value(&resp).unwrap();
+        let obj = json.as_object().unwrap();
+        for key in [
+            "object_detection",
+            "object_detection_model",
+            "object_detection_object_threshold",
+            "object_detection_nms_threshold",
+            "analysis_image_opacity",
+            "what_display",
+        ] {
+            assert!(obj.contains_key(key), "missing {key} in MonitorResponse");
+        }
     }
 
     /// GH #18: `enum_str` emits the request-accepted variant name (not the

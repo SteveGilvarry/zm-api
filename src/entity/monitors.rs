@@ -16,9 +16,12 @@ use super::sea_orm_active_enums::Recording;
 use super::sea_orm_active_enums::RecordingSource;
 use super::sea_orm_active_enums::Rtsp2WebType;
 use super::sea_orm_active_enums::StreamChannel;
+use super::sea_orm_active_enums::WhatDisplay;
 use sea_orm::entity::prelude::*;
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
+// `Eq` is deliberately absent: the ObjectDetection*Threshold columns are FLOAT
+// (f32), which is not `Eq`. sea-orm-cli generates this model the same way.
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "Monitors")]
 pub struct Model {
     #[sea_orm(column_name = "Id", primary_key)]
@@ -49,6 +52,16 @@ pub struct Model {
     pub analysis_source: AnalysisSource,
     #[sea_orm(column_name = "AnalysisImage")]
     pub analysis_image: AnalysisImage,
+    #[sea_orm(column_name = "AnalysisImageOpacity")]
+    pub analysis_image_opacity: u8,
+    #[sea_orm(column_name = "ObjectDetection")]
+    pub object_detection: String,
+    #[sea_orm(column_name = "ObjectDetectionModel")]
+    pub object_detection_model: String,
+    #[sea_orm(column_name = "ObjectDetectionObjectThreshold", column_type = "Float")]
+    pub object_detection_object_threshold: f32,
+    #[sea_orm(column_name = "ObjectDetectionNMSThreshold", column_type = "Float")]
+    pub object_detection_nms_threshold: f32,
     #[sea_orm(column_name = "Recording")]
     pub recording: Recording,
     #[sea_orm(column_name = "Enabled")]
@@ -57,6 +70,8 @@ pub struct Model {
     pub decoding_enabled: u8,
     #[sea_orm(column_name = "Decoding")]
     pub decoding: Decoding,
+    #[sea_orm(column_name = "WhatDisplay")]
+    pub what_display: WhatDisplay,
     #[sea_orm(column_name = "RTSP2WebEnabled")]
     pub rtsp2_web_enabled: i8,
     #[sea_orm(column_name = "RTSP2WebType")]

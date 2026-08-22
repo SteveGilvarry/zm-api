@@ -227,6 +227,15 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         analysing: Set(analysing),
         analysis_source: Set(analysis_source),
         analysis_image: Set(analysis_image),
+        // Object-detection config and WhatDisplay have DB defaults; leave them
+        // NotSet on create so ZoneMinder's defaults apply. They are settable
+        // through update once exposed on the request DTO.
+        analysis_image_opacity: NotSet,
+        object_detection: NotSet,
+        object_detection_model: NotSet,
+        object_detection_object_threshold: NotSet,
+        object_detection_nms_threshold: NotSet,
+        what_display: NotSet,
         recording: Set(recording),
         // New schema columns not exposed by the request DTO — let the DB defaults apply.
         default_player: NotSet,
@@ -275,6 +284,21 @@ pub async fn update(
     }
     if let Some(enabled) = req.enabled {
         monitor.enabled = Set(enabled);
+    }
+    if let Some(v) = req.analysis_image_opacity {
+        monitor.analysis_image_opacity = Set(v);
+    }
+    if let Some(v) = req.object_detection {
+        monitor.object_detection = Set(v);
+    }
+    if let Some(v) = req.object_detection_model {
+        monitor.object_detection_model = Set(v);
+    }
+    if let Some(v) = req.object_detection_object_threshold {
+        monitor.object_detection_object_threshold = Set(v);
+    }
+    if let Some(v) = req.object_detection_nms_threshold {
+        monitor.object_detection_nms_threshold = Set(v);
     }
     if req.notes.is_some() {
         monitor.notes = Set(req.notes);

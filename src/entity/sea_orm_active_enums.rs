@@ -609,3 +609,24 @@ pub enum SynopsisStatus {
     #[sea_orm(string_value = "failed")]
     Failed,
 }
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "WhatDisplay")]
+pub enum WhatDisplay {
+    #[sea_orm(string_value = "OnlyVideo")]
+    OnlyVideo,
+    #[sea_orm(string_value = "OnlyAudioVisualization")]
+    OnlyAudioVisualization,
+    #[sea_orm(string_value = "VideoAudioVisualization")]
+    VideoAudioVisualization,
+}
