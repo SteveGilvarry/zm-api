@@ -16,6 +16,26 @@ port = 8080
 # Override per-host with: APP_SERVER__ALLOWED_ORIGINS=https://zm.example.com
 allowed_origins = []
 
+# Serving the zm-web browser UI from this binary, instead of putting nginx in
+# front of both. One process, no CORS (the UI and the API share an origin by
+# construction), and TLS is already handled by [server.tls] / [server.acme].
+#
+# Off by default: a deployment fronted by a reverse proxy or CDN should keep
+# serving the files there. Enabling it changes what `/` returns.
+#
+# API paths (/api/, /swagger-ui, /api-docs) keep their JSON 404 envelope — the
+# SPA fallback never swallows them, so a mistyped endpoint still fails loudly.
+[web]
+enabled = false
+# Where zm-web's built dist/ lives — the directory containing index.html.
+root = "/usr/share/zm-web"
+# Asset filenames are content-hashed, so a year is safe. index.html is always
+# sent no-cache: it names the current hashes, and caching it pins a browser to
+# a stale build.
+asset_max_age_secs = 31536000
+# Sent on UI responses only, never on API responses. Empty disables it.
+content_security_policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; font-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'"
+
 [server.tls]
 enabled = false
 cert_path = "/etc/letsencrypt/live/example.com/fullchain.pem"

@@ -72,8 +72,10 @@ the flag by hand. See `man 8 zm-api-takeover`.
 
 ## Serving a dashboard
 
-zm-api serves no static files, so a dashboard is always served by something
-else. See [Serving a dashboard](dashboard.md).
+zm-api can serve zm-web's built `dist/` itself (`[web] enabled = true`), which
+removes the reverse proxy entirely — one process, one port, one certificate, and
+no CORS because the UI and API share an origin. It is off by default. A proxy or
+CDN in front works too. See [Serving a dashboard](dashboard.md).
 
 ## Ports
 

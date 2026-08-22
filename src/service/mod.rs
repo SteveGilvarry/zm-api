@@ -22,6 +22,7 @@ pub mod group_acl;
 pub mod groups;
 pub mod groups_monitors;
 pub mod groups_permissions;
+pub mod image_orientation;
 pub mod logs;
 pub mod manufacturers;
 pub mod models;

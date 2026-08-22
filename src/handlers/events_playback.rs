@@ -194,6 +194,26 @@ async fn get_event_video_path(
 /// streaming, downloading, or thumbnailing events belonging to monitors outside
 /// their allowlist. Out-of-scope events return the same `NotFound` as a missing
 /// event so the API doesn't leak which event ids exist (REVIEW_FIXES_PLAN §1.3).
+/// The monitor's configured `Orientation`, or `ROTATE_0` if it cannot be read.
+///
+/// Defaulting rather than failing is deliberate: a still that is served
+/// unrotated is a cosmetic problem, whereas failing the request over a lookup
+/// would take the thumbnail away entirely.
+pub(crate) async fn monitor_orientation(
+    state: &AppState,
+    monitor_id: u32,
+) -> crate::entity::sea_orm_active_enums::Orientation {
+    use crate::entity::sea_orm_active_enums::Orientation;
+    match repo::monitors::find_by_id(state.db(), monitor_id).await {
+        Ok(Some(monitor)) => monitor.orientation,
+        Ok(None) => Orientation::Rotate0,
+        Err(e) => {
+            warn!("could not read orientation for monitor {monitor_id}: {e}");
+            Orientation::Rotate0
+        }
+    }
+}
+
 pub(crate) async fn get_event_entity(
     state: &AppState,
     event_id: u64,
@@ -761,6 +781,12 @@ pub async fn get_event_thumbnail(
 
     let storage_path = resolve_event_storage_path(&state, &event).await?;
 
+    // ZoneMinder's own web UI serves an already-rotated still, and clients size
+    // their thumbnails on that assumption, so apply the monitor's orientation
+    // here rather than leaving each client to do it (GH #61). One lookup, and
+    // the common ROTATE_0 case still serves the bytes straight off disk.
+    let orientation = monitor_orientation(&state, event.monitor_id).await;
+
     // Build event directory path based on scheme
     let event_dir = build_event_directory_path(
         &storage_path,
@@ -784,6 +810,7 @@ pub async fn get_event_thumbnail(
         let thumb_path = event_dir.join(filename);
         if let Ok(data) = tokio::fs::read(&thumb_path).await {
             debug!("Found thumbnail at: {:?}", thumb_path);
+            let data = crate::service::image_orientation::orient_jpeg(data, orientation).await;
             return Ok(Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "image/jpeg")
@@ -813,6 +840,8 @@ pub async fn get_event_thumbnail(
         debug!("Extracting thumbnail from MP4: {:?}", video_path);
         match crate::streaming::snapshot::extract_mp4_thumbnail(video_path.clone(), 320).await {
             Ok(jpeg) => {
+                let jpeg =
+                    crate::service::image_orientation::orient_jpeg(jpeg, orientation.clone()).await;
                 return Ok(Response::builder()
                     .status(StatusCode::OK)
                     .header(header::CONTENT_TYPE, "image/jpeg")

@@ -9,6 +9,25 @@ recognisable path forward.
 ## [Unreleased]
 
 ### Added
+
+- **zm-api can serve the zm-web browser UI itself** (`[web] enabled = true`,
+  `APP_WEB__ENABLED`). One process instead of a reverse proxy in front of two:
+  the UI and the API share an origin by construction, so CORS stops applying,
+  and TLS is already handled by `[server.tls]` / `[server.acme]`. Includes the
+  SPA fallback so a refresh on `/events/123` works, `immutable` caching for
+  hashed assets with `no-cache` on `index.html`, and a configurable
+  Content-Security-Policy applied to UI responses only.
+  <br>API paths keep their JSON 404 envelope — the SPA fallback never shadows
+  `/api/`, `/swagger-ui`, `/api-docs` or `/.well-known/`, so a mistyped endpoint
+  still fails loudly instead of returning an HTML page with status 200.
+  <br>Off by default; enabling it with no `index.html` present logs a warning
+  and serves the API anyway rather than refusing to start.
+- **Still images are rotated to match the monitor's `Orientation`.**
+  `/events/{id}/thumbnail` and `/monitors/{id}/snapshot` now return an upright
+  JPEG, as ZoneMinder's own image view does — previously a `ROTATE_90` camera
+  produced sideways thumbnails, and the failure was silent because nothing
+  errored. Stills only: rotating live video would mean re-encoding, and a client
+  can do it in CSS for free. `ROTATE_0` keeps the existing zero-copy path.
 - Man pages: `zm-api(8)`, `zm-api.env(5)`, `zm-api-takeover(8)`, `zm-api-db(8)`.
 - `zm-api --help`, `--version`, and `--openapi` (writes the OpenAPI spec to
   stdout, so the API surface can be diffed or fed to a client generator without

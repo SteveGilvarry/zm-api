@@ -1306,6 +1306,14 @@ pub async fn get_monitor_snapshot(
         }
     })?;
 
+    // Match what ZoneMinder's own image view serves: the still comes back
+    // already rotated, so a client can size and render it directly (GH #61).
+    // Live video is deliberately left alone — rotating that would mean
+    // re-encoding, and a client can do it in CSS for free.
+    let orientation =
+        crate::handlers::events_playback::monitor_orientation(&state, monitor_id).await;
+    let jpeg = crate::service::image_orientation::orient_jpeg(jpeg, orientation).await;
+
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "image/jpeg")

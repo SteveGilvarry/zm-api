@@ -58,6 +58,19 @@ GET    /api/v3/monitors/{monitor_id}/snapshot
 
 The snapshot route accepts `?token=<JWT>` because `<img>` cannot set headers.
 
+## Still images are rotated for you
+
+`/events/{id}/thumbnail` and `/monitors/{id}/snapshot` apply the monitor's
+`Orientation` before returning the JPEG, matching what ZoneMinder's own image
+view serves. A client can size and render the result directly.
+
+This is deliberately **stills only**. Rotating live video would mean
+re-encoding the stream; a client can do it in CSS for nothing, so WebRTC and HLS
+hand back the camera's own frames.
+
+`ROTATE_0` — almost every camera — still streams the bytes straight off disk
+with no decode.
+
 ## Recorded playback
 
 ```
