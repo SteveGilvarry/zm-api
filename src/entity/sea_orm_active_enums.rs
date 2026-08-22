@@ -630,3 +630,36 @@ pub enum WhatDisplay {
     #[sea_orm(string_value = "VideoAudioVisualization")]
     VideoAudioVisualization,
 }
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "Framework")]
+// serde renames mirror the DB spelling so a value a GET returns is a value a
+// POST/PATCH accepts (the GET->POST round-trip problem fixed for monitors in
+// GH #18). Without these, the API would emit "ONNX" but only accept "Onnx".
+pub enum Framework {
+    #[sea_orm(string_value = "TensorFlow")]
+    TensorFlow,
+    #[sea_orm(string_value = "PyTorch")]
+    PyTorch,
+    #[sea_orm(string_value = "ONNX")]
+    #[serde(rename = "ONNX")]
+    Onnx,
+    #[sea_orm(string_value = "OpenVINO")]
+    #[serde(rename = "OpenVINO")]
+    OpenVino,
+    #[sea_orm(string_value = "TensorRT")]
+    #[serde(rename = "TensorRT")]
+    TensorRt,
+    #[sea_orm(string_value = "Other")]
+    Other,
+}

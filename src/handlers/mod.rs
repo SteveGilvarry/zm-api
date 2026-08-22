@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod configs;
 pub mod control_presets;
 pub mod controls;

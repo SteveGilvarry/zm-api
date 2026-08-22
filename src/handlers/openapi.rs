@@ -29,6 +29,23 @@ use crate::util::claim::UserClaims;
         crate::handlers::auth::me,
         crate::handlers::auth::change_password,
 
+        // AI object-detection registry
+        crate::handlers::ai::list_datasets,
+        crate::handlers::ai::get_dataset,
+        crate::handlers::ai::create_dataset,
+        crate::handlers::ai::update_dataset,
+        crate::handlers::ai::delete_dataset,
+        crate::handlers::ai::list_models,
+        crate::handlers::ai::get_model,
+        crate::handlers::ai::create_model,
+        crate::handlers::ai::update_model,
+        crate::handlers::ai::delete_model,
+        crate::handlers::ai::list_classes,
+        crate::handlers::ai::get_class,
+        crate::handlers::ai::create_class,
+        crate::handlers::ai::update_class,
+        crate::handlers::ai::delete_class,
+
         // config
         crate::handlers::configs::get_config,
         crate::handlers::configs::list_categories,
@@ -564,6 +581,20 @@ use crate::util::claim::UserClaims;
             crate::dto::request::reports::UpdateReportRequest,
             crate::dto::response::reports::ReportResponse,
 
+            // AI object-detection registry
+            crate::dto::response::ai::AiDatasetResponse,
+            crate::dto::response::ai::AiModelResponse,
+            crate::dto::response::ai::AiObjectClassResponse,
+            crate::dto::response::ai::PaginatedAiDatasetsResponse,
+            crate::dto::response::ai::PaginatedAiModelsResponse,
+            crate::dto::response::ai::PaginatedAiObjectClassesResponse,
+            crate::dto::request::ai::CreateAiDatasetRequest,
+            crate::dto::request::ai::UpdateAiDatasetRequest,
+            crate::dto::request::ai::CreateAiModelRequest,
+            crate::dto::request::ai::UpdateAiModelRequest,
+            crate::dto::request::ai::CreateAiObjectClassRequest,
+            crate::dto::request::ai::UpdateAiObjectClassRequest,
+            crate::entity::sea_orm_active_enums::Framework,
             // server
             ServiceStatusResponse,
             VersionResponse,

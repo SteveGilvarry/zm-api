@@ -3,6 +3,7 @@ use sea_orm::{
     IntoActiveModel, PrimaryKeyTrait, QueryFilter, Value,
 };
 
+pub mod ai;
 pub mod config;
 pub mod control_presets;
 pub mod controls;

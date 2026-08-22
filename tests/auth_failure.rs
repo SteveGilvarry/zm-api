@@ -73,6 +73,11 @@ fn protected_routes() -> Vec<ProtectedRoute> {
         route(Method::GET, "/api/v3/control_presets"),
         route(Method::GET, "/api/v3/triggers_x10"),
         route(Method::GET, "/api/v3/ptz/protocols"),
+        // --- AI object-detection registry (System-gated, like ZM's UI) ---
+        route(Method::GET, "/api/v3/ai/datasets"),
+        route(Method::GET, "/api/v3/ai/models"),
+        route(Method::GET, "/api/v3/ai/object-classes"),
+        route(Method::POST, "/api/v3/ai/models"),
         // Iris and camera-power control (GH #37) — same Control gate as the
         // rest of PTZ.
         route(Method::POST, "/api/v3/ptz/monitors/1/iris/open"),
