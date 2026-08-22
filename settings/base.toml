@@ -1,6 +1,20 @@
 [server]
 addr = "0.0.0.0"
 port = 8080
+# Browser origins allowed to call the API (CORS). Set this whenever a dashboard
+# (zm-dash) is served from anything other than localhost — browsers block the
+# requests otherwise, and the only symptom is in the browser console.
+#
+# Each entry is an exact origin ("https://zm.example.com") or a host with a ":*"
+# port wildcard ("http://localhost:*") matching that host on any port. A bare
+# "*" is not accepted: credentials are enabled and the CORS spec forbids that
+# pairing. Empty means localhost only.
+#
+# Same-origin deployments (zm-dash behind the same hostname via a reverse proxy)
+# make no CORS request and need nothing here.
+#
+# Override per-host with: APP_SERVER__ALLOWED_ORIGINS=https://zm.example.com
+allowed_origins = []
 
 [server.tls]
 enabled = false
@@ -112,6 +126,13 @@ mode = "go2rtc"
 max_connections = 100
 connection_timeout_seconds = 30
 stun_servers = ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]
+# A TURN server is needed for viewers behind symmetric NAT, where STUN alone
+# cannot establish a path. Media is relayed through it, so size accordingly.
+# [streaming.webrtc.turn]
+# enabled = true
+# server = "turn:turn.example.com:3478"
+# username = "zm"
+# password = "change-me"
 
 [streaming.hls]
 enabled = true

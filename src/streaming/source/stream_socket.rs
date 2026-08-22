@@ -51,6 +51,15 @@ pub enum SourceError {
     #[error("stream socket not found: {path}")]
     NotFound { path: PathBuf },
 
+    /// The socket exists but this process may not open it. zmc creates it mode
+    /// 0660 owned by `ZM_STREAM_SOCKET_GROUP`, so the bare OS message ("permission
+    /// denied") names nothing the operator can act on.
+    #[error(
+        "permission denied opening stream socket {path}: the zm_api service user must be a \
+         member of ZoneMinder's ZM_STREAM_SOCKET_GROUP (the socket is mode 0660)"
+    )]
+    PermissionDenied { path: PathBuf },
+
     #[error("stream socket I/O error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -83,6 +92,18 @@ pub enum SocketEvent {
     /// media; routed to DB ingest rather than the media sinks. EVENTs use their
     /// own per-monitor sequence counter, independent of the media streams.
     MonitorEvent(MonitorEvent),
+}
+
+/// Turn a connect failure into the most actionable variant we can. EACCES is
+/// the one worth naming: it means group membership, not a missing camera, and
+/// it is otherwise indistinguishable from any other I/O error in the log.
+fn classify_connect_error(e: std::io::Error, path: &Path) -> SourceError {
+    match e.kind() {
+        std::io::ErrorKind::PermissionDenied => SourceError::PermissionDenied {
+            path: path.to_path_buf(),
+        },
+        _ => SourceError::Io(e),
+    }
 }
 
 /// The documented-convention socket path for a monitor:
@@ -193,7 +214,9 @@ impl StreamSocketReader {
             self.path.display()
         );
 
-        let stream = UnixStream::connect(&self.path).await?;
+        let stream = UnixStream::connect(&self.path)
+            .await
+            .map_err(|e| classify_connect_error(e, &self.path))?;
         let (read, write) = stream.into_split();
         self.read = Some(read);
         self.write = Some(write);
@@ -1111,5 +1134,29 @@ mod tests {
 
         server.abort();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn eacces_on_connect_names_the_stream_socket_group() {
+        // zmc creates the socket 0660; if zm_api's user isn't in
+        // ZM_STREAM_SOCKET_GROUP every stream fails with a bare "permission
+        // denied" that points at nothing. The error must name the fix.
+        let err = classify_connect_error(
+            std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+            Path::new("/run/zm/stream_1.sock"),
+        );
+        assert!(matches!(err, SourceError::PermissionDenied { .. }));
+        let msg = err.to_string();
+        assert!(msg.contains("ZM_STREAM_SOCKET_GROUP"), "got: {msg}");
+        assert!(msg.contains("/run/zm/stream_1.sock"), "got: {msg}");
+    }
+
+    #[test]
+    fn other_connect_errors_stay_generic_io() {
+        let err = classify_connect_error(
+            std::io::Error::from(std::io::ErrorKind::ConnectionRefused),
+            Path::new("/run/zm/stream_1.sock"),
+        );
+        assert!(matches!(err, SourceError::Io(_)));
     }
 }

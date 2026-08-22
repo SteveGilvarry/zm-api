@@ -8,7 +8,7 @@
 with live streaming, fine-grained access control, and OpenAPI docs baked in.*
 
 [![Tests](https://github.com/SteveGilvarry/zm-api/actions/workflows/test.yml/badge.svg)](https://github.com/SteveGilvarry/zm-api/actions/workflows/test.yml)
-![Coverage](https://img.shields.io/badge/coverage-59%25-green)
+![Coverage](https://img.shields.io/badge/coverage-62%25-green)
 ![Rust](https://img.shields.io/badge/Rust-2021-orange?logo=rust&logoColor=white)
 ![Axum](https://img.shields.io/badge/Axum-0.8-blue)
 ![SeaORM](https://img.shields.io/badge/SeaORM-1.1-9cf)
@@ -29,8 +29,15 @@ sudo dpkg -i zm-api_*.deb        # Debian / Ubuntu / Raspberry Pi OS
 sudo dnf install zm-api-*.rpm    # Fedora / RHEL / Rocky / Alma  (zypper on openSUSE)
 ```
 
+**Already running ZoneMinder?** Migrate its database before the first start —
+`zm_api-db bridge -u mysql://zmuser:zmpass@localhost/zm`. Only a fresh, empty database
+should use `zm_api-db up`. See `man 8 zm_api-db`.
+
 Want to build from source or run a local dev setup instead? See **[Quick Start](#-quick-start)**.
+How the pieces fit together (ZoneMinder + zm_api + a dashboard, ports, serving the
+frontend): **[`docs/architecture.md`](docs/architecture.md)**.
 Full distro matrix, config & TLS: **[`docs/deployment.md`](docs/deployment.md)**.
+What changed: **[`CHANGELOG.md`](CHANGELOG.md)**.
 
 ---
 
@@ -43,7 +50,7 @@ PHP, and CGI over two decades. **zm_api** replaces that surface with one cohesiv
 - ⚡ **Fast & async** — built on Axum + Tokio; streaming endpoints don't block the API.
 - 🔒 **Secure by default** — JWT auth, per-feature RBAC, *and* row-level monitor ACLs.
 - 📖 **Self-documenting** — every endpoint is in an auto-generated OpenAPI spec + Swagger UI.
-- 🧪 **Actually tested** — ~600 unit + integration tests, with a coverage gate in CI.
+- 🧪 **Actually tested** — 1,100+ unit + integration tests, with a coverage gate in CI.
 - 🗄️ **Drop-in schema** — talks directly to an existing ZoneMinder MySQL/MariaDB database.
 
 ---
@@ -174,7 +181,7 @@ For development or platforms without a prebuilt package.
 git clone https://github.com/SteveGilvarry/zm-api.git
 cd zm-api
 
-# 2. Spin up a local test database (Docker / Apple Container)
+# 2. Spin up a local test database (Docker)
 ./scripts/db-manager.sh start
 ./scripts/db-manager.sh mysql      # load the ZoneMinder schema
 
@@ -230,7 +237,8 @@ cargo llvm-cov --all-features --ignore-filename-regex '/(entity|migration)/' \
 ```
 
 CI runs the suite on every push and **gates line coverage** — it can't regress below the
-floor. Currently **~59%** and climbing, ~600 tests across unit + per-domain integration files.
+floor. Currently **~62%** and climbing (the CI floor is 60%), across 1,100+ unit and per-domain
+integration tests — roughly 850 run without a database, the rest need one.
 
 ---
 

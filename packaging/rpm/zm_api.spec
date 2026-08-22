@@ -60,12 +60,18 @@ cargo build --release --locked
 
 %install
 install -D -m 0755 target/release/%{appname}          %{buildroot}%{_bindir}/%{appname}
+# Built as `migrator`; installed prefixed, that name is too generic for /usr/bin.
+install -D -m 0755 target/release/migrator             %{buildroot}%{_bindir}/%{appname}-db
 install -D -m 0755 packaging/zm_api-takeover.sh        %{buildroot}%{_bindir}/%{appname}-takeover
 install -D -m 0755 packaging/setup-instance.sh         %{buildroot}%{_datadir}/%{appname}/setup-instance.sh
 install -D -m 0644 settings/base.toml                  %{buildroot}%{_sysconfdir}/%{appname}/base.toml
 install -D -m 0644 settings/prod.toml                  %{buildroot}%{_sysconfdir}/%{appname}/prod.toml
 install -D -m 0644 packaging/systemd/zm_api.env        %{buildroot}%{_sysconfdir}/%{appname}/zm_api.env
 install -D -m 0644 packaging/systemd/zm_api.service    %{buildroot}%{_unitdir}/%{appname}.service
+install -D -m 0644 packaging/man/zm_api.8              %{buildroot}%{_mandir}/man8/%{appname}.8
+install -D -m 0644 packaging/man/zm_api-takeover.8     %{buildroot}%{_mandir}/man8/%{appname}-takeover.8
+install -D -m 0644 packaging/man/zm_api-db.8           %{buildroot}%{_mandir}/man8/%{appname}-db.8
+install -D -m 0644 packaging/man/zm_api.env.5          %{buildroot}%{_mandir}/man5/zm_api.env.5
 # NOTE: static/ is not packaged — it holds dev JWT keys. Per-install keys are
 # generated into /var/lib/zm_api/keys by setup-instance.sh.
 
@@ -87,7 +93,12 @@ fi
 %files
 %license LICENSE
 %{_bindir}/%{appname}
+%{_bindir}/%{appname}-db
 %{_bindir}/%{appname}-takeover
+%{_mandir}/man8/%{appname}.8*
+%{_mandir}/man8/%{appname}-takeover.8*
+%{_mandir}/man8/%{appname}-db.8*
+%{_mandir}/man5/zm_api.env.5*
 %dir %{_datadir}/%{appname}
 %{_datadir}/%{appname}/setup-instance.sh
 %{_unitdir}/%{appname}.service

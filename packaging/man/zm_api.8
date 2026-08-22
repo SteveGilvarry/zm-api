@@ -1,0 +1,157 @@
+.TH ZM_API 8 "2026-08-22" "zm_api" "System Administration"
+.SH NAME
+zm_api \- REST API server for a ZoneMinder installation
+.SH SYNOPSIS
+.B zm_api
+.RI [ OPTIONS ]
+.SH DESCRIPTION
+.B zm_api
+serves a versioned HTTP REST API over an existing ZoneMinder installation:
+monitors, events, zones, users, live streaming (WebRTC and HLS), PTZ control,
+and recording retention. It is a single native binary with no PHP, CGI, or Perl
+runtime of its own.
+.PP
+It runs in one of two modes.
+.TP
+.B Passive
+.RB ( daemon.enabled " = " false ,
+the default) \(em
+.B zm_api
+serves the REST API only. It does not create the daemon manager, bind
+.IR /run/zm/zmdc.sock ,
+or reap orphaned daemons, so it is safe to install alongside a running stock
+ZoneMinder:
+.B zoneminder.service
+keeps supervising
+.BR zmdc.pl ,
+.BR zmc ,
+and
+.BR zmfilter .
+.TP
+.B Active (takeover)
+.RB ( daemon.enabled " = " true )
+\(em
+.B zm_api
+supervises the ZoneMinder daemons itself.
+.B zoneminder.service
+must be stopped and disabled first, or the two supervisors fight over the same
+processes and shared memory. Use
+.BR zm_api-takeover (8)
+to switch modes; it performs both halves in the right order.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Print a usage summary and exit.
+.TP
+.BR \-V ", " \-\-version
+Print the version and exit.
+.TP
+.B \-\-openapi
+Write the OpenAPI 3 specification to standard output and exit. The same
+document served at
+.IR /api-docs/openapi.json ,
+without needing a running server \(em useful for diffing the API surface
+between releases or feeding a client generator.
+.PP
+There are no other arguments. All configuration comes from files and
+environment variables, and these options are handled before any of it is
+loaded, so they still work when the configuration is broken.
+.SH CONFIGURATION
+Sources are applied in order, each overriding the previous:
+.IP 1. 4
+ZoneMinder's
+.I /etc/zm/zm.conf
+and
+.IR /etc/zm/conf.d/*.conf ,
+used as a fallback for database settings only. This is what lets a packaged
+install work against an existing ZoneMinder without being told anything.
+.IP 2. 4
+.IR "<config dir>" /base.toml
+\(em the packaged defaults layer. Do not edit; it is replaced on upgrade.
+.IP 3. 4
+.IR "<config dir>" /{APP_PROFILE}.toml
+\(em for example
+.IR prod.toml .
+.IP 4. 4
+.B APP_*
+environment variables, from
+.I /etc/zm_api/zm_api.env
+in a packaged install.
+.PP
+The config directory is
+.B $APP_CONFIG_DIR
+if set, otherwise
+.I ./settings
+relative to the working directory. Nested keys use a double underscore:
+.B APP_DB__HOST=10.0.0.5
+sets
+.IR db.host .
+See
+.BR zm_api.env (5)
+for the variables.
+.SH ENDPOINTS
+.TP
+.I /api/v3/...
+The REST API.
+.TP
+.I /api-docs/openapi.json
+The OpenAPI 3 specification for every route the running binary serves.
+.TP
+.I /swagger-ui
+Interactive API browser. Useful as a first smoke test after install.
+.PP
+Authentication is a bearer JWT: obtain access and refresh tokens from the login
+endpoint and send
+.BR "Authorization: Bearer <token>" .
+Access and refresh tokens are signed with separate RSA key pairs and are not
+interchangeable.
+.SH FILES
+.TP
+.I /etc/zm_api/base.toml
+Packaged defaults. Replaced on upgrade.
+.TP
+.I /etc/zm_api/prod.toml
+Profile configuration. Safe to edit.
+.TP
+.I /etc/zm_api/zm_api.env
+Environment overrides read by the systemd unit. Safe to edit; see
+.BR zm_api.env (5).
+.TP
+.I /var/lib/zm_api/keys/
+JWT signing keys, generated per install and never packaged.
+.TP
+.I /var/log/zm_api/
+Log files.
+.TP
+.I /run/zm/zmdc.sock
+Daemon-control socket. Bound only in takeover mode.
+.TP
+.I /usr/share/zm_api/static/
+Static assets.
+.SH DIAGNOSTICS
+.TP
+.B "CORS allowed origins not configured"
+A browser dashboard served from any origin other than localhost will be
+blocked, and the browser reports it only in its own console. Set
+.B APP_SERVER__ALLOWED_ORIGINS
+to the dashboard's origin.
+.TP
+.B "permission denied opening stream socket"
+The service user is not a member of ZoneMinder's
+.BR ZM_STREAM_SOCKET_GROUP .
+The per-monitor stream sockets are mode 0660; add the group with
+.B systemctl edit zm_api
+and a
+.B SupplementaryGroups=
+line.
+.SH SEE ALSO
+.BR zm_api.env (5),
+.BR zm_api-takeover (8),
+.BR zmpkg.pl (8),
+.BR zmdc.pl (8)
+.PP
+.UR https://github.com/SteveGilvarry/zm-api
+Project documentation
+.UE
+.SH AUTHOR
+Steve Gilvarry and contributors.
