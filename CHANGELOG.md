@@ -19,8 +19,11 @@ recognisable path forward.
   ZoneMinder database.
 - `server.allowed_origins` (`APP_SERVER__ALLOWED_ORIGINS`) as a documented,
   `APP_`-prefixed setting, accepting a TOML array or a comma-separated string.
-- `docs/architecture.md`: how ZoneMinder, zm_api, and a dashboard fit together —
-  what must share a host, serving the frontend, ports, and the auth surface.
+- A documentation site (mdBook) published to GitHub Pages, covering install,
+  configuration, deployment architecture, TLS, passive/takeover mode, and
+  permissions — plus a browsable API reference rendered from the OpenAPI spec,
+  which CI exports from the freshly built binary so it cannot drift from the
+  code. `docs/` is now the contributor-facing plan tree only.
 - The OpenAPI spec is exported in CI and attached to each release, alongside a
   `SHA256SUMS` file covering every artifact.
 - Release notes are taken from this file's entry for the tag, falling back to

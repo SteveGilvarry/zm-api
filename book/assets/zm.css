@@ -1,0 +1,403 @@
+/* zm_api documentation theme.
+ *
+ * mdBook ships a deliberately plain look. This layers a dark, product-styled
+ * theme over it: a real landing hero, feature cards, callouts, and a tighter
+ * type scale — without replacing index.hbs, so mdBook upgrades stay painless.
+ *
+ * Registered as the "zm" theme via `default-theme` in book.toml. */
+
+:root {
+    --zm-bg: #0f1419;
+    --zm-bg-raised: #161d26;
+    --zm-bg-sunken: #0a0e12;
+    --zm-border: #232d3a;
+    --zm-border-bright: #33465c;
+    --zm-fg: #d7e0ea;
+    --zm-fg-muted: #8b9bad;
+    --zm-fg-dim: #5f7085;
+    --zm-accent: #35b6ff;
+    --zm-accent-dim: #1f7fb8;
+    --zm-warn: #ffb454;
+    --zm-danger: #ff6b6b;
+    --zm-ok: #4ec9a5;
+    --zm-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --zm-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+}
+
+/* mdBook keys every colour off a theme class on <html>. */
+.zm {
+    --bg: var(--zm-bg);
+    --fg: var(--zm-fg);
+    --sidebar-bg: var(--zm-bg-sunken);
+    --sidebar-fg: var(--zm-fg-muted);
+    --sidebar-non-existant: var(--zm-fg-dim);
+    --sidebar-active: var(--zm-accent);
+    --sidebar-spacer: var(--zm-border);
+    --scrollbar: var(--zm-border-bright);
+    --icons: var(--zm-fg-dim);
+    --icons-hover: var(--zm-accent);
+    --links: var(--zm-accent);
+    --inline-code-color: #ffb454;
+    --theme-popup-bg: var(--zm-bg-raised);
+    --theme-popup-border: var(--zm-border);
+    --theme-hover: var(--zm-border);
+    --quote-bg: var(--zm-bg-raised);
+    --quote-border: var(--zm-accent-dim);
+    --table-border-color: var(--zm-border);
+    --table-header-bg: var(--zm-bg-raised);
+    --table-alternate-bg: #131a22;
+    --searchbar-border-color: var(--zm-border-bright);
+    --searchbar-bg: var(--zm-bg-raised);
+    --searchbar-fg: var(--zm-fg);
+    --searchbar-shadow-color: transparent;
+    --searchresults-header-fg: var(--zm-fg-muted);
+    --searchresults-border-color: var(--zm-border);
+    --searchresults-li-bg: var(--zm-bg-raised);
+    --search-mark-bg: var(--zm-accent-dim);
+    --color-scheme: dark;
+}
+
+html {
+    font-family: var(--zm-sans);
+}
+
+.content {
+    font-size: 1rem;
+    line-height: 1.7;
+}
+
+.content main {
+    max-width: 54rem;
+}
+
+/* --- Typography -------------------------------------------------------- */
+
+.content h1,
+.content h2,
+.content h3,
+.content h4 {
+    font-weight: 650;
+    letter-spacing: -0.015em;
+    color: #f2f6fa;
+}
+
+.content h1 {
+    font-size: 2.1rem;
+    margin-bottom: 1.2rem;
+}
+
+.content h2 {
+    font-size: 1.5rem;
+    margin-top: 2.75rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--zm-border);
+}
+
+.content h3 {
+    font-size: 1.17rem;
+    margin-top: 2rem;
+}
+
+/* Prose links get a subtle underline. Heading anchors and the hero CTA are
+ * links too, so they have to be excluded or every heading grows a rule. */
+.content a:not(.header):not(.zm-cta a) {
+    text-decoration: none;
+    border-bottom: 1px solid rgba(53, 182, 255, 0.35);
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.content a:not(.header):hover {
+    border-bottom-color: var(--zm-accent);
+}
+
+.content a.header {
+    border-bottom: 0;
+    text-decoration: none;
+}
+
+.content code {
+    font-family: var(--zm-mono);
+    font-size: 0.875em;
+}
+
+.content :not(pre) > code {
+    background: rgba(53, 182, 255, 0.09);
+    border: 1px solid rgba(53, 182, 255, 0.16);
+    border-radius: 4px;
+    padding: 0.1em 0.36em;
+}
+
+.content pre {
+    border: 1px solid var(--zm-border);
+    border-radius: 8px;
+    background: var(--zm-bg-sunken) !important;
+}
+
+.content pre > .buttons button {
+    color: var(--zm-fg-dim);
+}
+
+/* --- Tables ------------------------------------------------------------ */
+
+.content table {
+    width: 100%;
+    border-collapse: collapse;
+    border-radius: 8px;
+    overflow: hidden;
+    display: block;
+    overflow-x: auto;
+}
+
+.content table th {
+    font-weight: 600;
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--zm-fg-muted);
+}
+
+.content table td,
+.content table th {
+    padding: 0.6rem 0.85rem;
+}
+
+/* --- Blockquote as a callout ------------------------------------------- */
+
+.content blockquote {
+    border-left: 3px solid var(--zm-accent);
+    border-top: 0;
+    border-right: 0;
+    border-bottom: 0;
+    border-radius: 0 6px 6px 0;
+    padding: 0.85rem 1.1rem;
+    margin: 1.5rem 0;
+    color: var(--zm-fg);
+}
+
+/* --- Landing hero ------------------------------------------------------ */
+
+.zm-hero {
+    margin: -1rem 0 3rem;
+    padding: 3rem 0 2.5rem;
+    border-bottom: 1px solid var(--zm-border);
+    text-align: center;
+}
+
+.zm-hero h1 {
+    font-size: 3.2rem;
+    line-height: 1.05;
+    margin: 0 0 0.75rem;
+    letter-spacing: -0.04em;
+    background: linear-gradient(135deg, #ffffff 20%, var(--zm-accent) 130%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    border: 0;
+}
+
+.zm-hero p {
+    font-size: 1.15rem;
+    color: var(--zm-fg-muted);
+    max-width: 38rem;
+    margin: 0 auto 1.75rem;
+    line-height: 1.6;
+}
+
+.zm-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-bottom: 2rem;
+}
+
+.zm-badge {
+    font-family: var(--zm-mono);
+    font-size: 0.75rem;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    border: 1px solid var(--zm-border-bright);
+    color: var(--zm-fg-muted);
+    background: var(--zm-bg-raised);
+}
+
+.zm-cta {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.zm-cta a {
+    display: inline-block;
+    padding: 0.6rem 1.4rem;
+    border-radius: 7px;
+    font-weight: 600;
+    font-size: 0.95rem;
+    border: 1px solid var(--zm-border-bright) !important;
+    color: var(--zm-fg);
+    transition: transform 0.12s ease, border-color 0.15s ease;
+}
+
+.zm-cta a:hover {
+    transform: translateY(-1px);
+    border-color: var(--zm-accent) !important;
+}
+
+.zm-cta a.primary {
+    background: var(--zm-accent);
+    border-color: var(--zm-accent) !important;
+    color: #07121b;
+}
+
+/* --- Feature cards ----------------------------------------------------- */
+
+.zm-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+    gap: 1rem;
+    margin: 2rem 0;
+}
+
+.zm-card {
+    border: 1px solid var(--zm-border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    background: var(--zm-bg-raised);
+    transition: border-color 0.15s ease, transform 0.12s ease;
+}
+
+.zm-card:hover {
+    border-color: var(--zm-border-bright);
+    transform: translateY(-2px);
+}
+
+.zm-card h3 {
+    margin: 0 0 0.4rem;
+    font-size: 1rem;
+    border: 0;
+}
+
+.zm-card p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--zm-fg-muted);
+    line-height: 1.55;
+}
+
+/* --- Inline status pills ----------------------------------------------- */
+
+.zm-pill {
+    display: inline-block;
+    font-family: var(--zm-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.1rem 0.45rem;
+    border-radius: 4px;
+    vertical-align: middle;
+}
+
+.zm-pill.get { background: rgba(78, 201, 165, 0.16); color: var(--zm-ok); }
+.zm-pill.post { background: rgba(53, 182, 255, 0.16); color: var(--zm-accent); }
+.zm-pill.delete { background: rgba(255, 107, 107, 0.16); color: var(--zm-danger); }
+.zm-pill.patch { background: rgba(255, 180, 84, 0.16); color: var(--zm-warn); }
+
+/* --- Sidebar ----------------------------------------------------------- */
+
+.chapter li.chapter-item {
+    line-height: 1.5;
+    margin-top: 0.35rem;
+}
+
+.chapter li.part-title {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--zm-fg-dim);
+    margin-top: 1.6rem;
+}
+
+#menu-bar {
+    border-bottom: 1px solid var(--zm-border);
+}
+
+/* --- Full-bleed embedded API reference --------------------------------- */
+
+.zm-api-frame {
+    width: 100%;
+    height: calc(100vh - 8rem);
+    border: 1px solid var(--zm-border);
+    border-radius: 10px;
+    background: var(--zm-bg-sunken);
+}
+
+@media (max-width: 700px) {
+    .zm-hero h1 { font-size: 2.3rem; }
+    .zm-hero { padding-top: 1.5rem; }
+}
+
+/* --- Syntax highlighting ------------------------------------------------
+ *
+ * mdBook only swaps in its dark highlight stylesheet for the built-in coal,
+ * navy, and ayu themes; a custom theme name falls through to the light one, so
+ * code blocks render dark-on-white inside an otherwise dark page. This is a
+ * dark palette scoped to `.zm`. It loads after mdBook's own sheets, so plain
+ * specificity is enough — no !important needed. */
+
+.zm .hljs {
+    background: transparent;
+    color: var(--zm-fg);
+}
+
+.zm .hljs-comment,
+.zm .hljs-quote {
+    color: #6b7d91;
+    font-style: italic;
+}
+
+.zm .hljs-variable,
+.zm .hljs-template-variable,
+.zm .hljs-attribute,
+.zm .hljs-tag,
+.zm .hljs-regexp,
+.zm .hljs-deletion,
+.zm .hljs-name {
+    color: #ff7b72;
+}
+
+.zm .hljs-number,
+.zm .hljs-built_in,
+.zm .hljs-literal,
+.zm .hljs-type,
+.zm .hljs-params,
+.zm .hljs-meta,
+.zm .hljs-link {
+    color: #ffb454;
+}
+
+.zm .hljs-attr,
+.zm .hljs-property {
+    color: #7ee0c0;
+}
+
+.zm .hljs-string,
+.zm .hljs-symbol,
+.zm .hljs-bullet,
+.zm .hljs-addition {
+    color: #a5e075;
+}
+
+.zm .hljs-title,
+.zm .hljs-section,
+.zm .hljs-function .hljs-title {
+    color: #d2a8ff;
+}
+
+.zm .hljs-keyword,
+.zm .hljs-selector-tag {
+    color: #35b6ff;
+}
+
+.zm .hljs-emphasis { font-style: italic; }
+.zm .hljs-strong { font-weight: 700; }

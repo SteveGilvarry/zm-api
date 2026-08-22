@@ -33,10 +33,12 @@ sudo dnf install zm-api-*.rpm    # Fedora / RHEL / Rocky / Alma  (zypper on open
 `zm_api-db bridge -u mysql://zmuser:zmpass@localhost/zm`. Only a fresh, empty database
 should use `zm_api-db up`. See `man 8 zm_api-db`.
 
+📖 **[Full documentation](https://stevegilvarry.github.io/zm-api/)** — install, configuration,
+deployment architecture, and a browsable
+**[API reference](https://stevegilvarry.github.io/zm-api/api/)** generated from the OpenAPI spec.
+
 Want to build from source or run a local dev setup instead? See **[Quick Start](#-quick-start)**.
-How the pieces fit together (ZoneMinder + zm_api + a dashboard, ports, serving the
-frontend): **[`docs/architecture.md`](docs/architecture.md)**.
-Full distro matrix, config & TLS: **[`docs/deployment.md`](docs/deployment.md)**.
+Packaging internals and the release process: **[`docs/deployment.md`](docs/deployment.md)**.
 What changed: **[`CHANGELOG.md`](CHANGELOG.md)**.
 
 ---

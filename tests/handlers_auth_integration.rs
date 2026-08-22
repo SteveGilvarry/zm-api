@@ -347,3 +347,111 @@ async fn test_change_password_flow() {
         .await
         .expect("cleanup");
 }
+
+/// Create a user with an explicit permission set. `System: None` with a real
+/// `Monitors` grant is a legal ZoneMinder account, and the one the /me
+/// regression below turns on.
+async fn create_user_with_perms(
+    db: &sea_orm::DatabaseConnection,
+    username: &str,
+    password: &str,
+    system: zm_api::entity::sea_orm_active_enums::System,
+    monitors: zm_api::entity::sea_orm_active_enums::Monitors,
+) -> Result<(), sea_orm::DbErr> {
+    use zm_api::entity::users::ActiveModel;
+
+    let hashed = zm_api::util::password::hash(password.to_string())
+        .await
+        .expect("hash password");
+    ActiveModel {
+        username: Set(username.to_string()),
+        password: Set(hashed),
+        enabled: Set(1),
+        system: Set(system),
+        monitors: Set(monitors),
+        ..Default::default()
+    }
+    .insert(db)
+    .await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
+async fn me_is_readable_by_a_user_with_no_system_permission() {
+    // GH #56. `/me` must sit on `authenticated_middleware`, not
+    // `protect(Feature::System)`. Folding auth_routes into the System-gated
+    // group looks like tidying and would 403 exactly the accounts that most
+    // need to read their own permissions — reinstating the CakePHP flaw where
+    // an operator cannot discover what it may do. Nothing else fails if that
+    // happens, so this test is the guard.
+    use zm_api::entity::sea_orm_active_enums::{Monitors, System};
+
+    let username = format!("{}nosys", test_prefix());
+    let password = "NoSysPass123!";
+
+    let setup_db = get_test_db().await.expect("connect test db");
+    create_user_with_perms(&setup_db, &username, password, System::None, Monitors::Edit)
+        .await
+        .expect("create permission-poor user");
+    let state = zm_api::server::state::AppState::for_test_with_db(setup_db);
+    let app = zm_api::routes::create_router_app(state);
+
+    let tokens = login(&app, &username, password).await;
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::get("/api/v3/me")
+                .header(
+                    header::AUTHORIZATION,
+                    format!("Bearer {}", tokens.access_token),
+                )
+                .extension(ci())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "/me must stay readable at System: None"
+    );
+
+    let bytes = body::to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+    let me: MeResponse = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(me.user.username, username);
+    assert_eq!(me.user.system, "None");
+    // The whole point: the other five columns are legible, so a client can
+    // gate its UI on them rather than inferring from a 401.
+    assert_eq!(
+        me.user.monitors, "Edit",
+        "a System:None account must still be able to read its own Monitors grant"
+    );
+
+    // Sanity: this really is a permission-poor account — a System-gated route
+    // must refuse it, proving the /me success above is not a superuser token.
+    let resp = app
+        .oneshot(
+            Request::get("/api/v3/logs")
+                .header(
+                    header::AUTHORIZATION,
+                    format!("Bearer {}", tokens.access_token),
+                )
+                .extension(ci())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "System-gated routes must still refuse a System:None account"
+    );
+
+    let cleanup_db = get_test_db().await.expect("cleanup conn");
+    delete_user_by_username(&cleanup_db, &username)
+        .await
+        .expect("cleanup");
+}

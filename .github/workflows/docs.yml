@@ -1,0 +1,123 @@
+name: Docs
+
+# Builds the mdBook guide and publishes it to GitHub Pages. The API reference
+# page renders the OpenAPI document, which is exported from the freshly built
+# binary rather than committed — so the published reference can never drift
+# from the code it documents.
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'book/**'
+      - 'src/**'
+      - 'CHANGELOG.md'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'book/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a run finish rather than cancelling it; a half-published site is worse
+# than a slightly stale one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  MDBOOK_VERSION: '0.5.4'
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install FFmpeg/OpenSSL dev libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev \
+            libavutil-dev libavformat-dev libavfilter-dev \
+            libavdevice-dev libavcodec-dev libswscale-dev libswresample-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install mdBook
+        run: cargo install mdbook --version ${{ env.MDBOOK_VERSION }} --locked
+
+      # `--openapi` needs no database and no configuration, so this is just a
+      # build-and-run — no services to stand up.
+      - name: Export the OpenAPI spec
+        run: |
+          cargo run --release --bin zm_api -- --openapi > book/src/openapi.json
+          python3 -c "
+          import json, sys
+          spec = json.load(open('book/src/openapi.json'))
+          paths = len(spec.get('paths', {}))
+          print(f'openapi {spec[\"openapi\"]}, {paths} paths')
+          sys.exit(0 if paths > 50 else 'suspiciously few paths — spec export is broken')
+          "
+
+      # The changelog page is `{{#include ../../CHANGELOG.md}}`, so it stays in
+      # step by construction — no copy step, and it works locally too.
+
+      - name: Build the book
+        run: mdbook build book
+
+      - name: Check for broken internal links
+        run: |
+          # mdBook resolves SUMMARY.md itself, but hand-written relative links
+          # in page bodies are not checked. A 404 in published docs is cheap to
+          # prevent and annoying to discover.
+          python3 - <<'PY'
+          import os, re, sys, urllib.parse
+          root = "target/book"
+          missing = []
+          for dirpath, _, files in os.walk(root):
+              for name in files:
+                  if not name.endswith(".html"):
+                      continue
+                  page = os.path.join(dirpath, name)
+                  html = open(page, encoding="utf-8", errors="ignore").read()
+                  for href in re.findall(r'href="([^"#?]+)', html):
+                      if href.startswith(("http://", "https://", "mailto:", "//", "data:")):
+                          continue
+                      target = os.path.normpath(
+                          os.path.join(dirpath, urllib.parse.unquote(href))
+                      )
+                      if not os.path.exists(target):
+                          missing.append(f"{os.path.relpath(page, root)} -> {href}")
+          if missing:
+              print("Broken internal links:")
+              for m in sorted(set(missing)):
+                  print("  " + m)
+              sys.exit(1)
+          print("No broken internal links.")
+          PY
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/book
+
+  deploy:
+    name: Deploy
+    # Only master publishes; pull requests build to prove the docs still
+    # compile and the links still resolve.
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
