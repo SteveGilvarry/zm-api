@@ -126,3 +126,32 @@ async fn clear_logs_deletes_matching_rows() {
         "clear should remove all matching rows"
     );
 }
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn zero_and_oversized_page_size_are_rejected_not_panics() {
+    // LogQueryParams declared range(min = 1, max = 1000) but the handler never
+    // called validate(), so the bounds were inert. page_size=0 reached
+    // `total.div_ceil(0)` and SeaORM's `paginate(0)` — both panic on zero.
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+
+    for qs in ["page_size=0", "page_size=100000", "page=0"] {
+        let resp = app.get(&format!("/api/v3/logs?{qs}"), &token).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "{qs} must be a 400, not a panic or an unbounded query; body: {}",
+            resp.text()
+        );
+    }
+
+    // A value inside the declared range still works.
+    let resp = app.get("/api/v3/logs?page_size=10&page=1", &token).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "an in-range page_size must still succeed; body: {}",
+        resp.text()
+    );
+}

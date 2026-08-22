@@ -128,3 +128,45 @@ async fn create_report_with_invalid_body_is_rejected() {
         resp.text()
     );
 }
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn over_long_name_is_a_400_not_a_500() {
+    // GH #52: `Reports.Name` is varchar(30); a longer name used to reach the
+    // database and surface the truncation as a 500 with nothing the caller
+    // could act on. 30 characters must still be accepted — the boundary is
+    // exactly the column width.
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+
+    let resp = app
+        .post_json(
+            "/api/v3/reports",
+            &token,
+            &json!({ "name": "a".repeat(31) }),
+        )
+        .await;
+    assert_error(&resp, StatusCode::BAD_REQUEST, "INVALID_INPUT_ERROR");
+    assert!(
+        resp.text().contains("name"),
+        "the error must name the offending field; body: {}",
+        resp.text()
+    );
+
+    // The accepted boundary still works end to end.
+    let resp = app
+        .post_json(
+            "/api/v3/reports",
+            &token,
+            &json!({ "name": "b".repeat(30) }),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::CREATED,
+        "30 characters must still be accepted; body: {}",
+        resp.text()
+    );
+    let created: ReportResponse = resp.json();
+    let _guard = RowGuard::report(created.id);
+}

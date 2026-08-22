@@ -221,6 +221,7 @@ pub async fn update_state(
     Json(req): Json<UpdateStateRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
     info!("Updating state of monitor with ID: {id} and request: {req:?}.");
+    req.validate().map_err(AppError::InvalidInputError)?;
     match service::monitor::update_state(&state, id, req, &scope).await {
         Ok(monitor) => Ok(Json(monitor)),
         Err(e) => {
@@ -256,6 +257,10 @@ pub async fn alarm_control(
     Json(req): Json<AlarmControlRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
     info!("Controlling alarm of monitor with ID: {id} and request: {req:?}.");
+    // The cause/text bounds mirror the shared-memory buffers; enforcing them
+    // here turns an over-long value into a 400 naming the field rather than an
+    // error raised deep in the shm write.
+    req.validate().map_err(AppError::InvalidInputError)?;
     match service::monitor::control_alarm(&state, id, req, &scope).await {
         Ok(monitor) => Ok(Json(monitor)),
         Err(e) => {

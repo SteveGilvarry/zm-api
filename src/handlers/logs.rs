@@ -1,11 +1,12 @@
 use crate::dto::request::logs::LogQueryParams;
 use crate::dto::response::logs::{LogResponse, PaginatedLogsResponse};
-use crate::error::{AppResponseError, AppResult};
+use crate::error::{AppError, AppResponseError, AppResult};
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 use tracing::{info, instrument};
 
 /// List log entries with pagination and filtering.
@@ -44,6 +45,9 @@ pub async fn list_logs(
     Query(params): Query<LogQueryParams>,
 ) -> AppResult<Json<PaginatedLogsResponse>> {
     info!("Listing logs with params: {:?}", params);
+    // Without this the declared bounds are inert: page_size=0 reaches
+    // `div_ceil` and SeaORM's `paginate`, both of which panic on zero.
+    params.validate().map_err(AppError::InvalidInputError)?;
 
     let result = crate::service::logs::list(&state, &params).await?;
     Ok(Json(result))
@@ -79,6 +83,7 @@ pub async fn clear_logs(
     State(state): State<AppState>,
     Query(params): Query<LogQueryParams>,
 ) -> AppResult<Json<crate::dto::response::MessageResponse>> {
+    params.validate().map_err(AppError::InvalidInputError)?;
     let deleted = crate::service::logs::delete(&state, &params).await?;
     info!("Cleared {deleted} log rows");
     Ok(Json(crate::dto::response::MessageResponse::new(&format!(
