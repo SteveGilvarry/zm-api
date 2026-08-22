@@ -665,6 +665,23 @@ pub struct UpdateMonitorRequest {
     #[garde(range(min = 0, max = 1))]
     pub enabled: Option<u8>,
 
+    // --- Object detection (ZoneMinder 1.39.17 AI data model) ---
+    /// Alpha applied when compositing the analysis image over the frame.
+    #[garde(range(min = 0, max = 255))]
+    pub analysis_image_opacity: Option<u8>,
+    /// Detector to use, or `none` to disable object detection.
+    #[garde(length(max = 16))]
+    pub object_detection: Option<String>,
+    /// Name of the AI model used for object detection.
+    #[garde(length(max = 255))]
+    pub object_detection_model: Option<String>,
+    /// Object confidence threshold (0.0-1.0).
+    #[garde(range(min = 0.0, max = 1.0))]
+    pub object_detection_object_threshold: Option<f32>,
+    /// Non-maximum-suppression threshold (0.0-1.0).
+    #[garde(range(min = 0.0, max = 1.0))]
+    pub object_detection_nms_threshold: Option<f32>,
+
     #[garde(skip)]
     pub notes: Option<String>,
 

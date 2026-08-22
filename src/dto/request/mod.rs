@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod config;
 pub mod control_presets;
 pub mod controls;
@@ -44,6 +45,7 @@ pub mod users;
 pub mod zone_presets;
 pub mod zones;
 
+pub use ai::*;
 pub use config::*;
 pub use filters::*;
 pub use groups::*;

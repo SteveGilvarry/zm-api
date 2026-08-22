@@ -1,3 +1,4 @@
+pub mod ai;
 mod auth;
 pub mod config;
 pub mod control_presets;
@@ -47,6 +48,7 @@ pub mod zone_presets;
 pub mod zones;
 
 pub use crate::error::AppResponseError;
+pub use ai::*;
 pub use auth::*;
 pub use config::*;
 pub use control_presets::*;

@@ -7,6 +7,9 @@ use crate::{
     constant::CONFIG,
     error::ResourceType,
 };
+pub mod ai_datasets;
+pub mod ai_models;
+pub mod ai_object_classes;
 pub mod app_entity_impl;
 pub mod config;
 pub mod control_presets;

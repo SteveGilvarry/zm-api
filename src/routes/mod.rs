@@ -18,6 +18,7 @@ use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
+pub mod ai; // AI object-detection registry
 pub mod auth;
 pub mod configs; // Config management
 pub mod control_presets; // Control Presets
@@ -420,6 +421,9 @@ pub fn create_router_app(state: AppState) -> Router {
 
     let config_routes = protect(configs::add_config_routes(Router::new()), Feature::System);
     let log_routes = protect(logs::add_log_routes(Router::new()), Feature::System);
+    // AI object-detection registry: admin-tier, matching ZoneMinder's own
+    // System-gated Options UI for these tables.
+    let ai_routes = protect(ai::add_ai_routes(Router::new()), Feature::System);
     let storage_routes = protect(storage::add_storage_routes(Router::new()), Feature::System);
     let server_info_routes = protect(
         servers::add_server_info_routes(Router::new()),
@@ -476,6 +480,7 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(group_routes)
         .merge(server_info_routes)
         .merge(log_routes)
+        .merge(ai_routes)
         .merge(storage_routes)
         .merge(manufacturer_routes)
         .merge(model_routes)
