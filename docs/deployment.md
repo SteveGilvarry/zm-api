@@ -1,9 +1,11 @@
 # Deployment and Packaging Guide
 
-For how ZoneMinder, zm_api, and a dashboard fit together as a system — what has
-to share a host, how to serve the frontend, ports, and the auth surface — see
-[architecture.md](architecture.md). This document covers installing and
-packaging.
+This document covers **packaging internals and the release process**.
+
+For installing, configuring, and deploying zm_api, see the documentation site:
+<https://stevegilvarry.github.io/zm-api/> — in particular
+[Architecture](https://stevegilvarry.github.io/zm-api/guide/architecture.html)
+for how ZoneMinder, zm_api, and a dashboard fit together.
 
 ## Environments
 - dev: local developer runs with `APP_PROFILE=dev`, uses local `settings/`.
@@ -74,7 +76,7 @@ Equivalent manual steps: `systemctl disable --now zoneminder`, set
    `APP_SERVER__ALLOWED_ORIGINS` to that origin. Skipping this is the most
    common day-one failure: the dashboard loads and every request is
    CORS-blocked, visible only in the browser console. Not needed when both sit
-   behind one hostname — see [architecture.md](architecture.md).
+   behind one hostname — see the docs site.
 5. Add the service user to ZoneMinder's `ZM_STREAM_SOCKET_GROUP` if it is not
    `zoneminder`, or live streaming fails on socket permissions:
    `systemctl edit zm_api` → `[Service]` → `SupplementaryGroups=<group>`.

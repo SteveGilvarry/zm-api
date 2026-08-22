@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zm_api — API reference</title>
+<!-- Inline so it survives mdBook hashing the copied favicon filename. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230f1419'/%3E%3Ccircle cx='8' cy='8' r='3.2' fill='%2335b6ff'/%3E%3C/svg%3E">
+<style>
+  html, body { margin: 0; padding: 0; background: #0f1419; color: #d7e0ea; }
+  #fallback {
+    display: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    padding: 3rem; max-width: 40rem; margin: 0 auto; line-height: 1.6;
+  }
+  #fallback a { color: #35b6ff; }
+</style>
+</head>
+<body>
+
+<div id="fallback">
+  <h1>API reference</h1>
+  <p>The interactive reference did not load — it needs JavaScript and network
+     access to the Scalar bundle.</p>
+  <p>Use <a href="../openapi.json">openapi.json</a> directly, or open
+     <code>/swagger-ui</code> on a running zm_api instance.</p>
+</div>
+
+<!-- data-url only: adding type="application/json" makes Scalar parse the
+     (empty) tag body instead of fetching the spec. -->
+<script id="api-reference" data-url="../openapi.json"></script>
+<script>
+  var configuration = {
+    theme: "deepSpace",
+    darkMode: true,
+    documentDownloadType: "direct",
+    hideModels: false,
+    metaData: { title: "zm_api — API reference" }
+  };
+  document.getElementById("api-reference")
+          .setAttribute("data-configuration", JSON.stringify(configuration));
+
+  function showFallback() { document.getElementById("fallback").style.display = "block"; }
+  setTimeout(function () {
+    if (!document.querySelector(".scalar-app, [class*='scalar']")) showFallback();
+  }, 8000);
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference" onerror="showFallback()"></script>
+
+</body>
+</html>

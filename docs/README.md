@@ -1,5 +1,13 @@
 # zm-api Plans & Docs Index
 
+> **Looking for user documentation?** It lives at
+> **<https://stevegilvarry.github.io/zm-api/>** — install, configuration,
+> deployment architecture, TLS, passive/takeover mode, and a browsable API
+> reference. Source in [`book/`](../book/).
+>
+> This directory is the **contributor-facing** tree: design notes,
+> implementation plans, and packaging internals.
+
 The single entry point for all design notes, implementation plans, and operator
 guides. Every plan doc gets a status line so a reader can tell at a glance
 whether it's active, mostly-done with follow-ups, or superseded.
@@ -40,9 +48,8 @@ before relying on any specific phase verdict.
 
 | Doc | Scope |
 |---|---|
-| [architecture.md](architecture.md) | How ZoneMinder + zm_api + a dashboard fit together: what must share a host, serving the frontend (reverse proxy vs separate origins), ports, and the auth surface a frontend needs. |
 | [deployment.md](deployment.md) | Packaging, profiles, upgrading an existing ZM database, passive/active mode, distro matrix, release flow. |
-| [tls.md](tls.md) | Built-in TLS + ACMEv2 config and external certbot/lego flows. |
+| [tls.md](tls.md) | Pointer — the page now lives in [`book/src/guide/tls.md`](../book/src/guide/tls.md) and is published on the docs site. |
 
 ## Archive (kept for history)
 

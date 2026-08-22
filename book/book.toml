@@ -1,0 +1,33 @@
+[book]
+title = "zm_api"
+description = "A modern, fast, type-safe REST API for ZoneMinder"
+authors = ["Steve Gilvarry and contributors"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "../target/book"
+# Docs shouldn't fail the build on a Rust snippet; nothing here is a doctest.
+create-missing = false
+
+[output.html]
+default-theme = "zm"
+preferred-dark-theme = "zm"
+git-repository-url = "https://github.com/SteveGilvarry/zm-api"
+edit-url-template = "https://github.com/SteveGilvarry/zm-api/edit/master/book/{path}"
+additional-css = ["assets/zm.css"]
+no-section-label = true
+# The API reference is a self-contained page that renders openapi.json; mdBook
+# must copy it (and the spec) through untouched.
+additional-js = []
+
+[output.html.playground]
+runnable = false
+
+[output.html.search]
+limit-results = 20
+use-boolean-and = true
+
+[output.html.fold]
+enable = true
+level = 1
