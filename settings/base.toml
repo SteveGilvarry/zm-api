@@ -252,10 +252,6 @@ interval_seconds = 300
 # capture daemon that died, and recomputes Event_Summaries and
 # Storage.DiskSpace from the rows they summarise.
 #
-# The filesystem half — reconciling event directories against Events rows — is
-# not implemented yet. zmaudit derives its rm -rf target from StartDateTime in
-# local time, so a timezone mismatch aims it at the wrong directory; that wants
-# doing carefully rather than quickly.
 [maintenance.audit]
 enabled = false
 interval_seconds = 3600
@@ -272,6 +268,35 @@ resync_counters = true
 # Cap per pass: a misconfigured storage path can make a great many rows look
 # orphaned at once, and this keeps the blast radius recoverable.
 max_deletes_per_pass = 1000
+
+# Reconciling event directories on disk against Events rows. Off even when the
+# audit above is on, because it is the only part that touches the filesystem.
+#
+# Unlike zmaudit.pl, nothing destructive here acts on a computed path. zmaudit
+# derives a directory from StartDateTime and rm -rf's it, which removes an
+# unrelated directory whenever the derivation is wrong (timezone difference,
+# corrupted timestamp, Scheme changed after recording, wrong StorageId).
+# Directories are discovered by walking, identified from evidence inside them,
+# and only an enumerated path is ever moved.
+[maintenance.audit.filesystem]
+enabled = false
+# Move directories with no Events row into quarantine — a rename within the
+# storage, so it is atomic and reversible.
+quarantine_orphaned_dirs = true
+# Delete Events rows whose directory was not found. Off by default: the evidence
+# is an absence, and a storage that failed to mount looks like every event being
+# gone. The preconditions guard that, but leave this off unless broken-playback
+# rows are actually a problem.
+remove_rows_without_media = false
+quarantine_dir = ".zm-api-quarantine"
+# Remove quarantined directories after this many days. 0 keeps them forever,
+# which fills the disk — the thing the audit exists to prevent.
+quarantine_retention_days = 7
+# Consecutive passes an orphan must be seen in before anything happens, so a row
+# committed after a walk began is never mistaken for one.
+confirmations_required = 2
+# Deep needs six (yy/mm/dd/HH/MM/SS); deeper is not a layout ZoneMinder writes.
+max_depth = 6
 
 # Replaces zmtelemetry.pl. Anonymous usage report on a long interval.
 #

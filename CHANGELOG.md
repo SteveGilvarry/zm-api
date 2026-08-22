@@ -38,10 +38,22 @@ recognisable path forward.
   `Config` table but **parsed** rather than interpolated: the Perl splices
   `ZM_LOG_DATABASE_LIMIT` straight into SQL and `eval`s `ZM_TELEMETRY_INTERVAL`
   as code, so a `Config` row is an injection surface in both.
-  <br>The filesystem half of `zmaudit` — reconciling event directories against
-  rows — is not included. It derives its `rm -rf` target from `StartDateTime` in
-  local time, so a timezone mismatch aims it at the wrong directory; that wants
-  doing carefully rather than quickly.
+  <br>**The filesystem half** reconciles event directories against `Events`
+  rows, and is off even when the audit is on. It deliberately does not work the
+  way `zmaudit.pl` does: zmaudit computes a directory from `StartDateTime` and
+  `rm -rf`s the result, so a timezone difference, corrupted timestamp, changed
+  `Scheme` or wrong `StorageId` makes it remove an unrelated directory with no
+  error. Here nothing destructive acts on a computed path — directories are
+  found by walking, identified from evidence inside them, and only an enumerated
+  path is ever moved. A directory nothing identifies is reported and left alone.
+  <br>Orphans are moved to a quarantine directory rather than deleted (an atomic
+  rename within the storage, swept after `quarantine_retention_days`); a pass
+  refuses if the storage is missing or has no monitor directories, so an
+  unmounted volume cannot orphan the whole database; an orphan must be seen in
+  two consecutive passes before anything happens; and a derivation canary
+  compares computed against actual paths for events found by both routes,
+  disabling the filesystem half on sustained disagreement. That last one turns
+  the timezone class of bug from silent data loss into an alarm.
 
 - **zm-api can serve the zm-web browser UI itself** (`[web] enabled = true`,
   `APP_WEB__ENABLED`). One process instead of a reverse proxy in front of two:

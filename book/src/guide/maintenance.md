@@ -34,7 +34,7 @@ values straight into its SQL, whereas here they are parsed first — a limit tha
 is neither a row count nor a recognised interval disables that pruning and logs
 why, rather than producing a broken statement.
 
-## Audit — replaces `zmaudit.pl` (database side)
+## Audit — replaces `zmaudit.pl`
 
 ```toml
 [maintenance.audit]
@@ -68,17 +68,54 @@ performs row updates, empty-directory removal, stray-image unlinking, log
 pruning and counter resyncs — so "just report" is not what it does. Here
 nothing is written at all.
 
-### Not implemented yet: the filesystem half
+### The filesystem half
 
-zmaudit also reconciles event *directories* against `Events` rows in both
-directions. That is not here yet, and it is the part worth being careful with:
-zmaudit derives its `rm -rf` target from `StartDateTime` formatted in the
-process's **local timezone**, so a timezone mismatch between the recording
-daemon and the auditor points it at a directory that was never the event's.
+```toml
+[maintenance.audit.filesystem]
+enabled = true
+```
 
-Keep running `zmaudit.pl` if you rely on orphaned-directory cleanup. The
-[retention reaper](retention.md) already bounds disk usage for events the
-database knows about, which is the more common need.
+Reconciles event *directories* against `Events` rows. Off even when the audit is
+on, because it is the only part that touches the filesystem.
+
+**It does not work the way `zmaudit.pl` does, deliberately.** zmaudit computes an
+event's directory from its `StartDateTime` and `rm -rf`s the result. That
+computation can be wrong — from a timezone difference between the recording
+daemon and the auditor, a corrupted timestamp, a `Scheme` changed after the
+event was recorded, or a wrong `StorageId` — and when it is wrong, the thing
+removed is an unrelated directory. Nothing reports an error.
+
+Here **no destructive action ever acts on a computed path.** Directories are
+found by walking, identified from evidence inside them (a `{id}-video.mp4`, a
+`.{id}` marker, frame stills, or a numeric leaf name where the scheme allows
+it), and only a path that was actually enumerated is ever moved. A directory
+nothing identifies is reported and left alone — zmaudit reconstructs a timestamp
+from the path and deletes it.
+
+Four further safeguards:
+
+**Orphans are moved, not deleted.** They go to `.zm-api-quarantine/{stamp}/` in
+the same storage, which is an atomic rename within one filesystem. You have
+`quarantine_retention_days` (7 by default) to look at what was taken before a
+later sweep removes it.
+
+**Preconditions.** The storage path must exist, be a directory, and contain at
+least one monitor directory. A volume that failed to mount presents an empty
+directory, which otherwise looks exactly like every event being orphaned — that
+pass refuses and says so.
+
+**Two passes.** An orphan must be seen in `confirmations_required` consecutive
+passes before anything happens, so a row committed after a walk began is never
+mistaken for one.
+
+**A derivation canary.** For events found by *both* routes, the computed path is
+compared against the real one. Sustained disagreement disables the filesystem
+half and reports why — this is what turns the timezone class of bug from an
+invisible data-loss event into an alarm.
+
+Deleting `Events` rows whose media is missing is separate and off by default
+(`remove_rows_without_media`), because the evidence there is an absence rather
+than a presence.
 
 ## Telemetry — replaces `zmtelemetry.pl`
 

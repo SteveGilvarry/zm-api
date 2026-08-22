@@ -83,6 +83,93 @@ pub struct AuditConfig {
     /// something recoverable while the log makes the cause obvious.
     #[serde(default = "default_max_deletes")]
     pub max_deletes_per_pass: usize,
+
+    /// Reconcile event directories on disk against `Events` rows.
+    ///
+    /// Off even when the audit is on, because it is the only part that touches
+    /// the filesystem. Orphans are moved to a quarantine directory rather than
+    /// deleted, so enabling it is recoverable.
+    #[serde(default)]
+    pub filesystem: FilesystemAuditConfig,
+}
+
+/// The filesystem half of the audit.
+///
+/// Deliberately does **not** work the way `zmaudit.pl` does. zmaudit computes an
+/// event's directory from its `StartDateTime` and `rm -rf`s the result; that
+/// path can be wrong from a timezone mismatch, a corrupted timestamp, a `Scheme`
+/// changed after recording, or a wrong `StorageId`, and when it is wrong the
+/// thing removed is an unrelated directory.
+///
+/// Here nothing destructive ever acts on a computed path. Directories are
+/// discovered by walking, identified from evidence inside them, and only a path
+/// that was actually enumerated is ever moved.
+#[derive(Debug, Deserialize, Clone)]
+pub struct FilesystemAuditConfig {
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Move directories with no `Events` row into quarantine.
+    #[serde(default = "default_true")]
+    pub quarantine_orphaned_dirs: bool,
+
+    /// Delete `Events` rows whose directory was not found on disk.
+    ///
+    /// Independent of the above and more dangerous, because the evidence is an
+    /// absence: a storage that failed to mount looks exactly like every event
+    /// being gone. The preconditions guard that, but leave this off unless the
+    /// broken-playback rows are actually a problem.
+    #[serde(default)]
+    pub remove_rows_without_media: bool,
+
+    /// Where quarantined directories are moved, relative to each storage root.
+    /// A rename within one filesystem, so it is atomic and costs nothing.
+    #[serde(default = "default_quarantine_dir")]
+    pub quarantine_dir: String,
+
+    /// Delete quarantined directories after this many days. `0` keeps them
+    /// forever, which fills the disk — the thing the audit exists to prevent.
+    #[serde(default = "default_quarantine_days")]
+    pub quarantine_retention_days: u64,
+
+    /// Require an orphan to be seen in this many consecutive passes before
+    /// acting. Two means a row committed after the walk started, or a directory
+    /// created just before its row, is never mistaken for an orphan.
+    #[serde(default = "default_confirmations")]
+    pub confirmations_required: u32,
+
+    /// Maximum directory depth to descend below a monitor directory. The Deep
+    /// scheme needs six (`yy/mm/dd/HH/MM/SS`); anything deeper is not a layout
+    /// ZoneMinder produces.
+    #[serde(default = "default_max_depth")]
+    pub max_depth: usize,
+}
+
+fn default_quarantine_dir() -> String {
+    ".zm-api-quarantine".to_string()
+}
+fn default_quarantine_days() -> u64 {
+    7
+}
+fn default_confirmations() -> u32 {
+    2
+}
+fn default_max_depth() -> usize {
+    6
+}
+
+impl Default for FilesystemAuditConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            quarantine_orphaned_dirs: default_true(),
+            remove_rows_without_media: false,
+            quarantine_dir: default_quarantine_dir(),
+            quarantine_retention_days: default_quarantine_days(),
+            confirmations_required: default_confirmations(),
+            max_depth: default_max_depth(),
+        }
+    }
 }
 
 /// Rolling-window rollup maintenance — the `zmstats.pl` job.
@@ -150,6 +237,7 @@ impl Default for AuditConfig {
             remove_empty_events: default_true(),
             close_unclosed_events: default_true(),
             resync_counters: default_true(),
+            filesystem: FilesystemAuditConfig::default(),
             max_deletes_per_pass: default_max_deletes(),
         }
     }
