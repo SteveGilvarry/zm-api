@@ -351,3 +351,267 @@ async fn a_stats_pass_runs_clean_against_a_real_schema() {
     // Twice, so the CPU-delta branch runs with a primed baseline too.
     stats.run_once().await.expect("second stats pass");
 }
+
+// ---------------------------------------------------------------------------
+// The filesystem half. These are the ones that matter most: zmaudit's
+// equivalent computes a path and rm -rf's it, and when the computation is wrong
+// it removes an unrelated directory with no error. Everything below checks both
+// directions — what is taken, and what must be left.
+// ---------------------------------------------------------------------------
+
+use zm_api::configure::maintenance::FilesystemAuditConfig;
+
+const MON_FS: u32 = 99_315;
+
+/// `Storage.Path` is `varchar(64)`, and the platform temp directory can be far
+/// longer than that on its own — so these roots are deliberately short rather
+/// than under `std::env::temp_dir()`.
+fn short_root(tag: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(format!("/tmp/zmfsa-{}-{tag}", std::process::id()))
+}
+
+/// Filesystem half only.
+///
+/// `run_once` sweeps the whole database, so leaving the row-level checks on
+/// would have these tests deleting the fixtures of the ones running beside
+/// them. Each test exercises one thing.
+fn fs_audit_config(dry_run: bool) -> AuditConfig {
+    AuditConfig {
+        enabled: true,
+        dry_run,
+        min_age_seconds: 0,
+        remove_orphaned_frames: false,
+        remove_empty_events: false,
+        close_unclosed_events: false,
+        resync_counters: false,
+        // These assert on a single pass, so no confirmation delay.
+        filesystem: FilesystemAuditConfig {
+            enabled: true,
+            confirmations_required: 1,
+            ..FilesystemAuditConfig::default()
+        },
+        ..AuditConfig::default()
+    }
+}
+
+/// Point a Storage row at a temporary directory, returning its id.
+async fn temp_storage(db: &DatabaseConnection, root: &std::path::Path) -> u16 {
+    // A failed run leaves its Storage row behind, and the audit walks *every*
+    // enabled storage — so a single failure would otherwise skew every later
+    // run. Clear any stragglers whose directory no longer exists.
+    exec(
+        db,
+        "DELETE FROM Storage WHERE Name = 'zm-api-fs-audit-test' \
+         AND Path NOT IN (SELECT Path FROM (SELECT Path FROM Storage) x WHERE 0)",
+    )
+    .await;
+    let path = root.to_string_lossy().replace('\'', "''");
+    exec(
+        db,
+        format!(
+            "INSERT INTO Storage (Name, Path, Type, Scheme, Enabled, DoDelete) \
+             VALUES ('zm-api-fs-audit-test', '{path}', 'local', 'Shallow', 1, 1)"
+        ),
+    )
+    .await;
+    use sea_orm::FromQueryResult;
+    #[derive(FromQueryResult)]
+    struct Row {
+        n: i64,
+    }
+    Row::find_by_statement(Statement::from_string(
+        db.get_database_backend(),
+        "SELECT CAST(LAST_INSERT_ID() AS SIGNED) AS n".to_string(),
+    ))
+    .one(db)
+    .await
+    .expect("query")
+    .map(|r| r.n as u16)
+    .expect("storage id")
+}
+
+async fn drop_storage(db: &DatabaseConnection, id: u16) {
+    exec(db, format!("DELETE FROM Storage WHERE Id = {id}")).await;
+}
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn an_orphan_directory_is_quarantined_and_a_live_one_is_not() {
+    let db = Arc::new(get_test_db().await.expect("test db"));
+    let root = short_root("orphan");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+
+    // Two Shallow event directories: one with a row, one without.
+    for id in [9_930_040u64, 9_930_041] {
+        let dir = root.join(MON_FS.to_string()).join(id.to_string());
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(format!("{id}-video.mp4")), b"x").unwrap();
+    }
+
+    exec(&db, "DELETE FROM Events WHERE Id IN (9930040, 9930041)").await;
+    let storage_id = temp_storage(&db, &root).await;
+    exec(
+        &db,
+        format!(
+            "INSERT INTO Events (Id, MonitorId, StateId, StorageId, StartDateTime, Scheme) \
+             VALUES (9930040, {MON_FS}, 1, {storage_id}, NOW(), 'Shallow')"
+        ),
+    )
+    .await;
+
+    let audit = AuditService::new(Arc::clone(&db), fs_audit_config(false));
+    // The audit walks every enabled storage, so the aggregate counter is not
+    // this test's to assert on — the filesystem under its own root is.
+    audit.run_once().await.expect("pass");
+
+    // The event with a row is untouched, in place.
+    assert!(
+        root.join(MON_FS.to_string()).join("9930040").is_dir(),
+        "a directory whose event still exists must not be moved"
+    );
+    // The orphan is gone from its original location...
+    assert!(
+        !root.join(MON_FS.to_string()).join("9930041").exists(),
+        "the orphan should have been moved out"
+    );
+    // ...and recoverable in quarantine, not deleted.
+    let quarantine = root.join(".zm-api-quarantine");
+    let recovered: Vec<_> = walkdir_files(&quarantine);
+    assert!(
+        recovered.iter().any(|p| p.contains("event-9930041")),
+        "the orphan must be recoverable in quarantine, found: {recovered:?}"
+    );
+    assert!(
+        recovered.iter().any(|p| p.ends_with("9930041-video.mp4")),
+        "its contents must survive the move, found: {recovered:?}"
+    );
+
+    exec(&db, "DELETE FROM Events WHERE Id = 9930040").await;
+    drop_storage(&db, storage_id).await;
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn a_dry_run_moves_nothing() {
+    let db = Arc::new(get_test_db().await.expect("test db"));
+    let root = short_root("dry");
+    let _ = std::fs::remove_dir_all(&root);
+
+    let dir = root.join(MON_FS.to_string()).join("9930050");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("9930050-video.mp4"), b"x").unwrap();
+
+    let storage_id = temp_storage(&db, &root).await;
+    let audit = AuditService::new(Arc::clone(&db), fs_audit_config(true));
+    audit.run_once().await.expect("pass");
+
+    assert!(
+        dir.is_dir(),
+        "dry_run must write nothing at all — unlike zmaudit's --report"
+    );
+    assert!(
+        !root.join(".zm-api-quarantine").exists(),
+        "a dry run should not even create the quarantine directory"
+    );
+
+    drop_storage(&db, storage_id).await;
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn an_unmounted_storage_refuses_rather_than_orphaning_everything() {
+    // The scenario that makes this dangerous: a volume that failed to mount
+    // presents an empty directory, and every event looks orphaned.
+    let db = Arc::new(get_test_db().await.expect("test db"));
+    let root = short_root("unmnt");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+
+    exec(&db, "DELETE FROM Events WHERE Id = 9930060").await;
+    let storage_id = temp_storage(&db, &root).await;
+    exec(
+        &db,
+        format!(
+            "INSERT INTO Events (Id, MonitorId, StateId, StorageId, StartDateTime, Scheme) \
+             VALUES (9930060, {MON_FS}, 1, {storage_id}, DATE_SUB(NOW(), INTERVAL 1 DAY), 'Shallow')"
+        ),
+    )
+    .await;
+
+    let mut config = fs_audit_config(false);
+    config.filesystem.remove_rows_without_media = true;
+    let audit = AuditService::new(Arc::clone(&db), config);
+    let report = audit.run_once().await.expect("pass");
+
+    assert_eq!(report.rows_without_media, 0, "nothing may be deleted");
+    assert!(
+        report
+            .refusals
+            .iter()
+            .any(|r| r.contains("monitor directories")),
+        "the refusal should say why, got {:?}",
+        report.refusals
+    );
+    assert_eq!(
+        scalar(&db, "SELECT COUNT(*) AS n FROM Events WHERE Id=9930060").await,
+        1,
+        "the event row must survive an empty storage"
+    );
+
+    exec(&db, "DELETE FROM Events WHERE Id = 9930060").await;
+    drop_storage(&db, storage_id).await;
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn an_unidentifiable_directory_is_reported_but_left_alone() {
+    // zmaudit reconstructs a timestamp from the path and deletes these. Without
+    // an id there is no way to ask whether it is orphaned, so it stays.
+    let db = Arc::new(get_test_db().await.expect("test db"));
+    let root = short_root("unid");
+    let _ = std::fs::remove_dir_all(&root);
+
+    let mystery = root.join(MON_FS.to_string()).join("something");
+    std::fs::create_dir_all(&mystery).unwrap();
+    std::fs::write(mystery.join("readme.txt"), b"not an event").unwrap();
+
+    let storage_id = temp_storage(&db, &root).await;
+    let audit = AuditService::new(Arc::clone(&db), fs_audit_config(false));
+    let report = audit.run_once().await.expect("pass");
+
+    assert!(
+        report.unidentified_dirs >= 1,
+        "the directory should be reported as unidentifiable"
+    );
+    assert!(mystery.is_dir(), "an unidentifiable directory must be left");
+    assert!(
+        !root.join(".zm-api-quarantine").exists(),
+        "nothing under this root should have been quarantined"
+    );
+
+    drop_storage(&db, storage_id).await;
+    std::fs::remove_dir_all(&root).ok();
+}
+
+/// Every file under `dir`, as strings, for readable assertions.
+fn walkdir_files(dir: &std::path::Path) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p.clone());
+            }
+            out.push(p.to_string_lossy().into_owned());
+        }
+    }
+    out
+}
