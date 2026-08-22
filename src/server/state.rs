@@ -180,6 +180,55 @@ impl AppState {
             }
         }
 
+        // Native replacements for the Perl maintenance daemons. Each is
+        // independently switchable and all default off, so an existing install
+        // keeps running zmstats/zmaudit/zmtelemetry until the operator moves
+        // over deliberately — running both at once would have them competing
+        // over the same rows.
+        {
+            let m = &config.maintenance;
+            if m.stats.enabled {
+                Arc::new(crate::service::maintenance::stats::StatsService::new(
+                    db.clone(),
+                    m.stats.clone(),
+                ))
+                .spawn();
+                tracing::info!(
+                    "stats maintenance enabled (every {}s) — disable zmstats.pl",
+                    m.stats.interval_seconds
+                );
+            }
+            if m.audit.enabled {
+                Arc::new(crate::service::maintenance::audit::AuditService::new(
+                    db.clone(),
+                    m.audit.clone(),
+                ))
+                .spawn();
+                tracing::info!(
+                    "audit maintenance enabled (every {}s, min_age {}s, dry_run {}) \
+                     — disable zmaudit.pl",
+                    m.audit.interval_seconds,
+                    m.audit.min_age_seconds,
+                    m.audit.dry_run,
+                );
+            }
+            if m.telemetry.enabled {
+                Arc::new(
+                    crate::service::maintenance::telemetry::TelemetryService::new(
+                        db.clone(),
+                        m.telemetry.clone(),
+                        http.clone(),
+                    ),
+                )
+                .spawn();
+                tracing::info!(
+                    "telemetry enabled (every {}s to {}) — disable zmtelemetry.pl",
+                    m.telemetry.interval_seconds,
+                    m.telemetry.endpoint,
+                );
+            }
+        }
+
         // Automatic recording-disk cleanup. Bounds per-storage usage by
         // free-space floor / age / quota so the disk can't silently fill. Off
         // by default; never stored on AppState (no handlers need it).

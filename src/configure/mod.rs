@@ -7,15 +7,17 @@ use serde::Deserialize;
 use crate::util::dir::get_project_root;
 
 use self::{
-    daemon::DaemonConfig, db::DatabaseConfig, http::HttpClientConfig, retention::RetentionConfig,
-    search::SearchConfig, secret::SecretConfig, sentry::SentryConfig, server::ServerConfig,
-    streaming::StreamingConfig, synopsis::SynopsisConfig, web::WebConfig, zmnext::ZmNextConfig,
+    daemon::DaemonConfig, db::DatabaseConfig, http::HttpClientConfig,
+    maintenance::MaintenanceConfig, retention::RetentionConfig, search::SearchConfig,
+    secret::SecretConfig, sentry::SentryConfig, server::ServerConfig, streaming::StreamingConfig,
+    synopsis::SynopsisConfig, web::WebConfig, zmnext::ZmNextConfig,
 };
 
 pub mod daemon;
 pub mod db;
 pub mod env;
 pub mod http;
+pub mod maintenance;
 pub mod retention;
 pub mod search;
 pub mod secret;
@@ -57,6 +59,10 @@ pub struct AppConfig {
     /// Serving the zm-web browser UI from this binary. Off by default.
     #[serde(default)]
     pub web: WebConfig,
+    /// Native replacements for the Perl maintenance daemons (zmaudit, zmstats,
+    /// zmtelemetry). Each independently switchable; all off by default.
+    #[serde(default)]
+    pub maintenance: MaintenanceConfig,
 }
 
 impl AppConfig {
