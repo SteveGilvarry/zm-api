@@ -631,6 +631,7 @@ pub enum WebRtcSignalingMessage {
 /// 6. **Keepalive**: either side may send `{"type":"ping"}`; the peer replies
 ///    `{"type":"pong"}`.
 #[utoipa::path(
+    security(("jwt" = [])),
     get,
     path = "/api/v3/live/{monitor_id}/webrtc/ws",
     operation_id = "webrtcSignalingStream",

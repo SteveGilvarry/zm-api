@@ -202,7 +202,7 @@
           "AI"
         ],
         "summary": "List AI models, each with its dataset name resolved.",
-        "operationId": "list_models",
+        "operationId": "list_ai_models",
         "responses": {
           "200": {
             "description": "Paginated models",
@@ -226,7 +226,7 @@
           "AI"
         ],
         "summary": "Register an AI model.",
-        "operationId": "create_model",
+        "operationId": "create_ai_model",
         "requestBody": {
           "content": {
             "application/json": {
@@ -272,7 +272,7 @@
           "AI"
         ],
         "summary": "Get one AI model.",
-        "operationId": "get_model",
+        "operationId": "get_ai_model",
         "parameters": [
           {
             "name": "id",
@@ -319,7 +319,7 @@
           "AI"
         ],
         "summary": "Delete an AI model.",
-        "operationId": "delete_model",
+        "operationId": "delete_ai_model",
         "parameters": [
           {
             "name": "id",
@@ -349,7 +349,7 @@
           "AI"
         ],
         "summary": "Update an AI model (partial).",
-        "operationId": "update_model",
+        "operationId": "update_ai_model",
         "parameters": [
           {
             "name": "id",
@@ -1501,7 +1501,12 @@
           "503": {
             "description": "Daemon manager not available"
           }
-        }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
       }
     },
     "/api/v3/daemons/{id}": {
@@ -1539,7 +1544,12 @@
           "503": {
             "description": "Daemon manager not available"
           }
-        }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
       }
     },
     "/api/v3/daemons/{id}/reload": {
@@ -5201,7 +5211,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
       }
     },
     "/api/v3/logs": {
@@ -7279,7 +7294,7 @@
         "tags": [
           "Monitors"
         ],
-        "operationId": "update_state",
+        "operationId": "update_monitor_state",
         "parameters": [
           {
             "name": "id",
@@ -11270,7 +11285,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Paginated list of sessions",
+            "description": "Paginated list of PHP web-UI sessions (not API tokens)",
             "content": {
               "application/json": {
                 "schema": {
@@ -11961,7 +11976,7 @@
         ],
         "summary": "Update a state entry.",
         "description": "- Partial update.\n- Requires a valid JWT.",
-        "operationId": "update_state",
+        "operationId": "update_state_preset",
         "parameters": [
           {
             "name": "id",
@@ -12642,7 +12657,12 @@
           "503": {
             "description": "Daemon manager not available"
           }
-        }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
       }
     },
     "/api/v3/tags": {
@@ -21505,7 +21525,7 @@
       },
       "NaiveDateTimeWrapper": {
         "type": "string",
-        "format": "date-time",
+        "description": "Local wall-clock time with no offset, as stored by ZoneMinder",
         "example": "2025-04-24T12:34:56"
       },
       "ObjectTypeResponse": {
@@ -23718,6 +23738,15 @@
           "id"
         ],
         "properties": {
+          "created_by": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "User who created the report. Set by the server from the authenticated\ncaller, never accepted from the request.",
+            "minimum": 0
+          },
           "end_date_time": {
             "type": [
               "string",
@@ -28756,7 +28785,7 @@
     },
     {
       "name": "Sessions",
-      "description": "User sessions"
+      "description": "ZoneMinder PHP web-UI login sessions — **not** API tokens. This API authenticates with JWTs from /auth/login; nothing here mints or revokes an API credential. Rows expire automatically under ZM_COOKIE_LIFETIME."
     },
     {
       "name": "Snapshots",

@@ -196,6 +196,7 @@ pub async fn delete_monitor(
 }
 
 #[utoipa::path(
+    operation_id = "update_monitor_state",
     patch,
     path = "/api/v3/monitors/{id}/state",
     params(

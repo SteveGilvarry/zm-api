@@ -711,7 +711,10 @@ use crate::util::claim::UserClaims;
         (name = "Server", description = "Server information endpoints"),
         (name = "Server Stats", description = "Server performance statistics"),
         (name = "Servers", description = "Server info endpoints"),
-        (name = "Sessions", description = "User sessions"),
+        (name = "Sessions", description = "ZoneMinder PHP web-UI login sessions — \
+            **not** API tokens. This API authenticates with JWTs from \
+            /auth/login; nothing here mints or revokes an API credential. \
+            Rows expire automatically under ZM_COOKIE_LIFETIME."),
         (name = "Snapshots", description = "System snapshots"),
         (name = "Snapshots Events", description = "Snapshot-event associations"),
         (name = "States", description = "Monitor states"),

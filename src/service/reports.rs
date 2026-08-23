@@ -30,8 +30,12 @@ pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<ReportResponse> {
     Ok(ReportResponse::from(&item))
 }
 
-pub async fn create(state: &AppState, req: CreateReportRequest) -> AppResult<ReportResponse> {
-    let model = repo::reports::create(state.db(), &req).await?;
+pub async fn create(
+    state: &AppState,
+    req: CreateReportRequest,
+    created_by: Option<u32>,
+) -> AppResult<ReportResponse> {
+    let model = repo::reports::create(state.db(), &req, created_by).await?;
     Ok(ReportResponse::from(&model))
 }
 

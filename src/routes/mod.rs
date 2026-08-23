@@ -283,9 +283,18 @@ fn apply_common_middleware(router: Router<AppState>, cors: CorsLayer) -> Router<
     // disables it). The key is the peer IP by default; forwarding headers are
     // trusted only when `trust_proxy_headers` is set (see `IpKeyExtractor`).
     let rate_limit_layer = if mw.rate_limiting_enabled() {
+        let (burst, was_defaulted) = mw.effective_rate_limit_burst();
+        if was_defaulted {
+            tracing::error!(
+                "server.middleware.rate_limit_burst is 0 while the limiter is \
+                 enabled. A burst of 0 would allow one request and refuse every \
+                 one after it, so no client could load a page. Using {burst} \
+                 instead — set it explicitly to something a page load fits in."
+            );
+        }
         match GovernorConfigBuilder::default()
-            .per_second(mw.rate_limit_per_second)
-            .burst_size(mw.rate_limit_burst.max(1))
+            .per_second(mw.rate_limit_period_secs)
+            .burst_size(burst)
             .key_extractor(IpKeyExtractor {
                 trust_proxy: mw.trust_proxy_headers,
             })
@@ -294,8 +303,8 @@ fn apply_common_middleware(router: Router<AppState>, cors: CorsLayer) -> Router<
             Some(conf) => {
                 tracing::info!(
                     "Global rate limiting enabled: 1 token/{}s per IP, burst {} (trust_proxy={})",
-                    mw.rate_limit_per_second,
-                    mw.rate_limit_burst.max(1),
+                    mw.rate_limit_period_secs,
+                    burst,
                     mw.trust_proxy_headers,
                 );
                 Some(GovernorLayer::new(conf))

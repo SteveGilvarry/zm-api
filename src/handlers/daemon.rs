@@ -14,6 +14,7 @@ use crate::service;
 
 /// List all daemons.
 #[utoipa::path(
+    security(("jwt" = [])),
     get,
     path = "/api/v3/daemons",
     responses(
@@ -30,6 +31,7 @@ pub async fn list_daemons(State(state): State<AppState>) -> AppResult<Json<Daemo
 
 /// Get a specific daemon's status.
 #[utoipa::path(
+    security(("jwt" = [])),
     get,
     path = "/api/v3/daemons/{id}",
     params(
@@ -148,6 +150,7 @@ pub async fn reload_daemon(
 
 /// Get system status.
 #[utoipa::path(
+    security(("jwt" = [])),
     get,
     path = "/api/v3/system/status",
     responses(

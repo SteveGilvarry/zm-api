@@ -17,6 +17,10 @@ pub struct Model {
     pub end_date_time: Option<DateTime>,
     #[sea_orm(column_name = "Interval")]
     pub interval: Option<u32>,
+    /// The user who created the report. Present in the table since 1.37 but
+    /// never modelled here, so it was neither read nor written (GH #29).
+    #[sea_orm(column_name = "CreatedBy")]
+    pub created_by: Option<u32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

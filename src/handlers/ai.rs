@@ -103,6 +103,7 @@ pub async fn delete_dataset(
 
 /// List AI models, each with its dataset name resolved.
 #[utoipa::path(
+    operation_id = "list_ai_models",
     get, path = "/api/v3/ai/models", tag = "AI",
     responses((status = 200, description = "Paginated models", body = PaginatedAiModelsResponse)),
     security(("jwt" = []))
@@ -117,6 +118,7 @@ pub async fn list_models(
 
 /// Get one AI model.
 #[utoipa::path(
+    operation_id = "get_ai_model",
     get, path = "/api/v3/ai/models/{id}", tag = "AI",
     params(("id" = u32, Path, description = "Model ID")),
     responses(
@@ -134,6 +136,7 @@ pub async fn get_model(
 
 /// Register an AI model.
 #[utoipa::path(
+    operation_id = "create_ai_model",
     post, path = "/api/v3/ai/models", tag = "AI",
     request_body = CreateAiModelRequest,
     responses(
@@ -153,6 +156,7 @@ pub async fn create_model(
 
 /// Update an AI model (partial).
 #[utoipa::path(
+    operation_id = "update_ai_model",
     patch, path = "/api/v3/ai/models/{id}", tag = "AI",
     params(("id" = u32, Path, description = "Model ID")),
     request_body = UpdateAiModelRequest,
@@ -170,6 +174,7 @@ pub async fn update_model(
 
 /// Delete an AI model.
 #[utoipa::path(
+    operation_id = "delete_ai_model",
     delete, path = "/api/v3/ai/models/{id}", tag = "AI",
     params(("id" = u32, Path, description = "Model ID")),
     responses((status = 204, description = "Deleted")),

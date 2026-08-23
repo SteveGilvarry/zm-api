@@ -75,6 +75,7 @@ pub async fn create_state(
 /// - Partial update.
 /// - Requires a valid JWT.
 #[utoipa::path(
+    operation_id = "update_state_preset",
     patch,
     path = "/api/v3/states/{id}",
     params(("id" = u32, Path, description = "State ID")),

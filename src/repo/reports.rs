@@ -25,7 +25,11 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<Re
     Ok(Reports::find_by_id(id).one(db).await?)
 }
 
-pub async fn create(db: &DatabaseConnection, req: &CreateReportRequest) -> AppResult<ReportModel> {
+pub async fn create(
+    db: &DatabaseConnection,
+    req: &CreateReportRequest,
+    created_by: Option<u32>,
+) -> AppResult<ReportModel> {
     let start_date_time = req
         .start_date_time
         .as_ref()
@@ -53,6 +57,9 @@ pub async fn create(db: &DatabaseConnection, req: &CreateReportRequest) -> AppRe
         start_date_time: Set(start_date_time),
         end_date_time: Set(end_date_time),
         interval: Set(req.interval),
+        // Attribution comes from the token, never the body: letting a client
+        // name the creator is forging authorship.
+        created_by: Set(created_by),
     };
     Ok(am.insert(db).await?)
 }

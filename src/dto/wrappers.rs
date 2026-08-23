@@ -9,8 +9,20 @@ use utoipa::ToSchema;
 #[schema(value_type = String, format = "date-time", example = "2025-04-24T12:34:56Z")]
 pub struct DateTimeWrapper(pub DateTime<Utc>);
 
+/// A ZoneMinder `DATETIME` — wall-clock local time on the recording host, with
+/// no timezone offset. The value is exactly the digits the column holds.
+///
+/// Deliberately **not** declared `format: date-time` (GH #32). That format
+/// means RFC 3339, which requires an offset, so generators build an
+/// offset-aware parser that then rejects every value this API actually sends.
+/// A plain string is the honest description; interpret it in the server's
+/// timezone, which `GET /api/v3/system/locale` reports.
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone)]
-#[schema(value_type = String, format = "date-time", example = "2025-04-24T12:34:56")]
+#[schema(
+    value_type = String,
+    example = "2025-04-24T12:34:56",
+    description = "Local wall-clock time with no offset, as stored by ZoneMinder"
+)]
 pub struct NaiveDateTimeWrapper(pub NaiveDateTime);
 
 // Add conversion implementations for NaiveDateTimeWrapper
