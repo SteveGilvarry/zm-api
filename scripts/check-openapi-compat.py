@@ -132,6 +132,19 @@ def compare(old: dict, new: dict) -> tuple[list[str], list[str]]:
         additive.append(f"new operation: {key[1].upper()} {key[0]}")
 
     for key in sorted(old_ops.keys() & new_ops.keys()):
+        # operationId is what every generator names its method after, so
+        # changing one renames a method in every generated client. Additive in
+        # the spec's own terms, breaking for anyone consuming it.
+        before_id = old_ops[key].get("operationId")
+        after_id = new_ops[key].get("operationId")
+        if before_id != after_id:
+            breaking.append(
+                f"operationId changed: {key[1].upper()} {key[0]}\n"
+                f"      was: {before_id}\n"
+                f"      now: {after_id}\n"
+                f"      (renames the generated client method)"
+            )
+
         before, after = success_schema(old_ops[key]), success_schema(new_ops[key])
         if before != after:
             breaking.append(

@@ -177,6 +177,23 @@ recognisable path forward.
 
 ### Changed
 
+- **BREAKING: six `operationId`s renamed** (#32). They were duplicated, which
+  meant a generated client silently got one method and lost the other, so this
+  had to change — but it renames methods for anyone already generating against
+  the spec.
+  <br>`list_models` → `list_ai_models`, `create_model` → `create_ai_model`,
+  `get_model` → `get_ai_model`, `update_model` → `update_ai_model`,
+  `delete_model` → `delete_ai_model` (the AI registry; the camera-model routes
+  keep the plain names). `update_state` on `/monitors/{id}/state` →
+  `update_monitor_state`, and on `/states/{id}` → `update_state_preset`.
+  <br>The compatibility gate did not catch this on its first run — it compared
+  paths, response shapes and schemas but not operation ids. It does now, which
+  is how the list above was produced.
+- **BREAKING: `rate_limit_per_second` renamed to `rate_limit_period_secs`**
+  (#70). The old name read as a rate and meant a period. It is still accepted
+  as an alias, so no configuration needs changing, but the old spelling is
+  misleading enough that it should not be used in new files.
+
 - **BREAKING: `GET /api/v3/me` returns a wrapper, not a bare user.** As of
   `5ce04e5` the response is `MeResponse` — `{ user, issued_at, expires_at,
   token_type }` — where it was previously `UserResponse` with the eight
