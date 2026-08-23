@@ -137,6 +137,51 @@ recognisable path forward.
   Generators built an offset-aware parser that rejected every value the API
   sends. It is now described as what it is — local wall-clock time as
   ZoneMinder stores it.
+- **Zone `Area` was never computed** (#43). Every zone created through the API
+  had `Area = 0` hardcoded, and changing a zone's coordinates never recomputed
+  it. That is not cosmetic: when a zone's units are `Percent`, the alarm
+  thresholds are stored *relative to* `Area`, so those zones had thresholds that
+  silently did not mean what they said. Area is now derived from `Coords` on
+  both create and update, matching ZoneMinder's own `getPolyArea` (plain
+  shoelace — upstream keeps an inclusive-pixel variant but no longer calls it).
+  Coordinates that do not describe a polygon are rejected with a 400 rather than
+  stored with a zero.
+- **`SaveJPEGs` rejected its own default** (#39). It is a two-bit mask whose
+  column default is 3, but the bound was `-1..=1`, so the API refused the value
+  ZoneMinder ships with — the same class of bug as #19. The two neighbouring
+  fields had the same copy-pasted bound and were also wrong: `VideoWriter` is
+  0–2 (disabled / encode / camera passthrough) and `RecordAudio` is 0–1. All
+  three confirmed against the upstream monitor form rather than inferred.
+- **Storage created through the API could never be reclaimed** (#44).
+  `DoDelete` was hardcoded to 0 while the column defaults to 1, so neither the
+  retention reaper nor `DELETE /events/{id}` could remove media from a storage
+  the API created — the disk fills and nothing says why. Now defaults to 1,
+  matching the column, and is settable on create.
+- **Over-long values return 400 instead of 500** (#55). Roughly forty request
+  fields write to fixed-width columns with no length rule of their own, and each
+  turned an over-long value into `DATABASE_ERROR` with no indication of what was
+  wrong. A "data too long" error is now mapped to `VALUE_TOO_LONG` / 400 naming
+  the offending column. Only the column name is surfaced — the driver's message
+  can carry the rejected value and surrounding SQL, and that redaction is
+  tested. Per-DTO rules remain better where they exist, since they reject before
+  the round trip; this is the net under everything else.
+- **Bridged installs kept a legacy collation** (#40), failing upgrade-parity on
+  every pull request since #14. The bridge normalised `EncoderTemplates` *to*
+  `utf8mb4_unicode_ci`, which is the value the legacy chain creates it with —
+  converting toward the old collation guaranteed the mismatch against a fresh
+  baseline instead of removing it. It now converges on the database's own
+  default, and any other table that drifts is logged by name.
+
+### Removed
+
+- **Config blocks nothing implemented** (#53). `[streaming.rtsp_proxy]` declared
+  a port and an RTP range that nothing bound, and `[streaming.go2rtc]` a base
+  URL that nothing called — an operator could configure either, restart, and get
+  no behaviour change and no warning. Both are gone, along with an unused
+  request DTO. `Monitors.Go2RTCEnabled` stays: that is ZoneMinder's own column
+  and the response passes it through. Removing them is upgrade-safe — no config
+  struct denies unknown fields, so a stale block in an existing file is ignored
+  rather than refusing to start, and there is a test for that.
 
 - **Enums emitted Rust variant names instead of the values ZoneMinder stores.**
   `#[sea_orm(string_value = …)]` governs only the database mapping, so serde

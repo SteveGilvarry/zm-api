@@ -143,13 +143,6 @@ socks_path = "/run/zm"
 read_timeout_ms = 10000
 reconnect_delay_ms = 1000
 
-[streaming.go2rtc]
-enabled = false
-base_url = "http://localhost:1984"
-timeout_seconds = 10
-auto_register = true
-health_check_interval_seconds = 30
-retry_attempts = 3
 
 [streaming.webrtc]
 enabled = true
@@ -176,18 +169,7 @@ partial_segment_ms = 200
 path = "/tmp/hls"
 retention_minutes = 10
 
-[streaming.rtsp_proxy]
-enabled = false
-port = 8554
-rtp_port_range_start = 20000
-rtp_port_range_end = 30000
-max_sessions = 100
-transport = "auto"
 
-# Motion-synopsis optimiser + renderer + serving.
-# Disabled by default: ingest still records review_assets manifests, but nothing
-# renders until enabled. The encoder is always in-process ffmpeg-next (libav*);
-# zm-api never shells out to the ffmpeg binary.
 [synopsis]
 enabled = false
 encoder_backend = "native"

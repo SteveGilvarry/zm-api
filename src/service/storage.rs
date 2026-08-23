@@ -221,6 +221,7 @@ mod tests {
             .into_connection();
         let state = AppState::for_test_with_db(db);
         let req = CreateStorageRequest {
+            do_delete: None,
             path: "/tmp".into(),
             name: "new".into(),
             r#type: "local".into(),
