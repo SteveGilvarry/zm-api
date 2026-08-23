@@ -104,7 +104,8 @@ and point `secret.*_key` (or `APP_SECRET__*`) at that directory.
 | Family | Definition | Build / publish |
 | --- | --- | --- |
 | Debian/Ubuntu (`.deb`) | `Cargo.toml [package.metadata.deb]` + `packaging/debian/{postinst,prerm,postrm}` | `cargo deb` / `./scripts/package.sh deb` |
-| Fedora/RHEL/Rocky/Alma (`.rpm`) | `packaging/rpm/zm-api.spec` | `rpmbuild` / COPR / `./scripts/package.sh rpm` |
+| Fedora (`.rpm`) — **CI-tested on 41** | `packaging/rpm/zm-api.spec` | `rpmbuild` / COPR / `./scripts/package.sh rpm` |
+| RHEL/Rocky/Alma (`.rpm`) — spec supports, **not CI-tested** | same spec | `rpmbuild` on the target |
 | openSUSE (`.rpm`) | same spec (has `%if 0%{?suse_version}` branches) | OBS / `rpmbuild` |
 | Arch (`PKGBUILD`) | `packaging/arch/PKGBUILD` + `zm-api.install` | `makepkg` / AUR |
 

@@ -99,6 +99,7 @@ async fn test_api_storage_create_get_delete() {
 
     let name = format!("{}storage", test_prefix());
     let create_body = serde_json::to_vec(&CreateStorageRequest {
+        do_delete: None,
         name: name.clone(),
         path: "/tmp".to_string(),
         r#type: "local".to_string(),

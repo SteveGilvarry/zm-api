@@ -48,6 +48,17 @@ pub async fn update_coords(
             active.name = Set(n);
         }
         if let Some(c) = coords {
+            // Area must move with the coordinates. When Units are Percent the
+            // alarm thresholds are stored relative to it, so leaving a stale
+            // Area behind makes those thresholds quietly mean something else
+            // (GH #43).
+            let area = crate::service::polygon::area_from_coords(&c).ok_or_else(|| {
+                crate::error::AppError::BadRequestError(format!(
+                    "coords {c:?} is not a polygon: expected at least three \
+                     space-separated x,y pairs"
+                ))
+            })?;
+            active.area = Set(area);
             active.coords = Set(c);
         }
         let updated = active.update(db).await?;
@@ -98,6 +109,14 @@ pub async fn create_for_monitor(
             _ => AlarmedPixels,
         }
     }
+    let area = crate::service::polygon::area_from_coords(&req.coords).ok_or_else(|| {
+        crate::error::AppError::BadRequestError(format!(
+            "coords {:?} is not a polygon: expected at least three \
+             space-separated x,y pairs",
+            req.coords
+        ))
+    })?;
+
     let model = AM {
         id: Default::default(),
         monitor_id: Set(monitor_id),
@@ -106,7 +125,10 @@ pub async fn create_for_monitor(
         units: Set(parse_units(&req.units)),
         num_coords: Set(req.num_coords),
         coords: Set(req.coords.clone()),
-        area: Set(0),
+        // Computed, not zero. Every zone created through this API used to
+        // start at Area = 0, which made percent-based thresholds meaningless
+        // from the moment the zone existed (GH #43).
+        area: Set(area),
         alarm_rgb: Set(None),
         check_method: Set(req
             .check_method
@@ -168,8 +190,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_coords_happy_path() {
-        let initial = mk(11, "old", "0,0 1,1");
-        let after = mk(11, "new", "2,2 3,3");
+        let initial = mk(11, "old", "0,0 10,0 10,10");
+        let after = mk(11, "new", "0,0 10,0 10,10");
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<ZoneModel, _, _>(vec![vec![initial]])
             .append_exec_results(vec![MockExecResult {
@@ -179,12 +201,12 @@ mod tests {
             .append_query_results::<ZoneModel, _, _>(vec![vec![after.clone()]])
             .into_connection();
 
-        let updated = update_coords(&db, 11, Some("new".into()), Some("2,2 3,3".into()))
+        let updated = update_coords(&db, 11, Some("new".into()), Some("0,0 10,0 10,10".into()))
             .await
             .unwrap()
             .unwrap();
         assert_eq!(updated.name, "new");
-        assert_eq!(updated.coords, "2,2 3,3");
+        assert_eq!(updated.coords, "0,0 10,0 10,10");
     }
 
     #[tokio::test]

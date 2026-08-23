@@ -143,8 +143,8 @@ mod tests {
     async fn test_list_by_monitor_and_get() {
         let db_list = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<ZoneModel, _, _>(vec![vec![
-                mk(1, "z1", "0,0 1,1"),
-                mk(2, "z2", "2,2 3,3"),
+                mk(1, "z1", "0,0 10,0 10,10"),
+                mk(2, "z2", "0,0 10,0 10,10"),
             ]])
             .into_connection();
         let state_list = AppState::for_test_with_db(db_list);
@@ -157,7 +157,7 @@ mod tests {
         );
 
         let db_get = MockDatabase::new(DatabaseBackend::MySql)
-            .append_query_results::<ZoneModel, _, _>(vec![vec![mk(9, "z", "0,0 1,1")]])
+            .append_query_results::<ZoneModel, _, _>(vec![vec![mk(9, "z", "0,0 10,0 10,10")]])
             .into_connection();
         let state_get = AppState::for_test_with_db(db_get);
         assert_eq!(
@@ -172,11 +172,11 @@ mod tests {
     #[tokio::test]
     async fn test_update_create_delete_paths() {
         use crate::dto::request::zones::CreateZoneRequest;
-        let initial = mk(5, "old", "0,0 1,1");
-        let after = mk(5, "new", "2,2 3,3");
+        let initial = mk(5, "old", "0,0 10,0 10,10");
+        let after = mk(5, "new", "0,0 10,0 10,10");
         let db_upd = MockDatabase::new(DatabaseBackend::MySql)
             // Service ACL pre-fetch, then update_coords' own find.
-            .append_query_results::<ZoneModel, _, _>(vec![vec![mk(5, "old", "0,0 1,1")]])
+            .append_query_results::<ZoneModel, _, _>(vec![vec![mk(5, "old", "0,0 10,0 10,10")]])
             .append_query_results::<ZoneModel, _, _>(vec![vec![initial]])
             .append_exec_results(vec![MockExecResult {
                 last_insert_id: 0,
@@ -189,27 +189,27 @@ mod tests {
             &state_upd,
             5,
             Some("new".into()),
-            Some("2,2 3,3".into()),
+            Some("0,0 10,0 10,10".into()),
             &MonitorScope::All,
         )
         .await
         .unwrap();
         assert_eq!(out.name, "new");
-        assert_eq!(out.coords, "2,2 3,3");
+        assert_eq!(out.coords, "0,0 10,0 10,10");
 
         let db_create = MockDatabase::new(DatabaseBackend::MySql)
             .append_exec_results(vec![MockExecResult {
                 last_insert_id: 33,
                 rows_affected: 1,
             }])
-            .append_query_results::<ZoneModel, _, _>(vec![vec![mk(33, "nz", "0,0 1,1")]])
+            .append_query_results::<ZoneModel, _, _>(vec![vec![mk(33, "nz", "0,0 10,0 10,10")]])
             .into_connection();
         let state_create = AppState::for_test_with_db(db_create);
         let req = CreateZoneRequest {
             name: "nz".into(),
             r#type: "active".into(),
             units: "pixels".into(),
-            coords: "0,0 1,1".into(),
+            coords: "0,0 10,0 10,10".into(),
             num_coords: 4,
             check_method: None,
         };
@@ -223,7 +223,7 @@ mod tests {
 
         let db_del_ok = MockDatabase::new(DatabaseBackend::MySql)
             // Service ACL pre-fetch of the zone, then the delete exec.
-            .append_query_results::<ZoneModel, _, _>(vec![vec![mk(1, "z", "0,0 1,1")]])
+            .append_query_results::<ZoneModel, _, _>(vec![vec![mk(1, "z", "0,0 10,0 10,10")]])
             .append_exec_results(vec![MockExecResult {
                 last_insert_id: 0,
                 rows_affected: 1,

@@ -130,6 +130,47 @@ impl From<bcrypt::BcryptError> for AppError {
     }
 }
 
+/// SQLSTATE for "string data, right truncated" — MySQL error 1406,
+/// `Data too long for column 'X' at row N`.
+const SQLSTATE_STRING_DATA_TRUNCATED: &str = "22001";
+
+/// The column named by a "data too long" database error, if that is what this
+/// is.
+///
+/// Exists because roughly forty request fields write to fixed-width columns
+/// with no length validation of their own, and every one of them turns an
+/// over-long value into a 500 that tells the caller nothing. Per-DTO rules are
+/// still better — they reject before the round trip and can say what the limit
+/// is — but this catches the ones nobody has got to yet, including columns
+/// nobody has enumerated.
+///
+/// Only the column name is extracted. The driver's message can contain the
+/// value and surrounding SQL, which is exactly what the redaction above exists
+/// to keep out of a response.
+fn value_too_long_column(err: &sea_orm::DbErr) -> Option<String> {
+    let (sea_orm::DbErr::Query(sea_orm::RuntimeErr::SqlxError(sqlx_err))
+    | sea_orm::DbErr::Exec(sea_orm::RuntimeErr::SqlxError(sqlx_err))) = err
+    else {
+        return None;
+    };
+    let db_err = sqlx_err.as_database_error()?;
+    if db_err.code().as_deref() != Some(SQLSTATE_STRING_DATA_TRUNCATED) {
+        return None;
+    }
+    parse_too_long_column(db_err.message())
+}
+
+/// Pull the column out of `Data too long for column 'Name' at row 1`.
+///
+/// Returns `None` rather than guessing if the message is not in that shape —
+/// a wrong column name in an error is worse than none.
+fn parse_too_long_column(message: &str) -> Option<String> {
+    let rest = message.split("for column ").nth(1)?;
+    let quoted = rest.strip_prefix('\'')?;
+    let (column, _) = quoted.split_once('\'')?;
+    (!column.is_empty()).then(|| column.to_string())
+}
+
 impl AppError {
     pub fn response(self) -> (StatusCode, AppResponseError) {
         use AppError::*;
@@ -137,9 +178,18 @@ impl AppError {
         // Raw SeaORM/sqlx error text can leak SQL fragments, table and column
         // names, and connection details. Log the detail server-side but return
         // a generic message to the client.
+        // A value too long for its column is bad input, not a server fault, and
+        // the driver names the offending column. Classify before the redaction
+        // below blanks the text, and surface only the column name — never the
+        // statement (GH #55).
+        let mut too_long_column: Option<String> = None;
         if let DatabaseError(err) = &self {
             tracing::error!("database error: {err}");
-            message = "A database error occurred".to_string();
+            too_long_column = value_too_long_column(err);
+            message = match &too_long_column {
+                Some(column) => format!("value too long for '{column}'"),
+                None => "A database error occurred".to_string(),
+            };
         }
         let (kind, code, details, status_code) = match self {
             InvalidPayloadError(_err) => (
@@ -334,12 +384,20 @@ impl AppError {
                     .collect(),
                 StatusCode::BAD_REQUEST,
             ),
-            DatabaseError(_err) => (
-                "DATABASE_ERROR".to_string(),
-                None,
-                vec![],
-                StatusCode::INTERNAL_SERVER_ERROR,
-            ),
+            DatabaseError(_err) => match too_long_column {
+                Some(column) => (
+                    "VALUE_TOO_LONG".to_string(),
+                    None,
+                    vec![(column, "value is longer than the column allows".to_string())],
+                    StatusCode::BAD_REQUEST,
+                ),
+                None => (
+                    "DATABASE_ERROR".to_string(),
+                    None,
+                    vec![],
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                ),
+            },
             Infallible(_err) => (
                 "INFALLIBLE".to_string(),
                 None,
@@ -523,5 +581,46 @@ mod tests {
         assert_eq!(body.error_message, "A database error occurred");
         assert!(!body.error_message.contains("Password"));
         assert!(!body.error_message.contains("column"));
+    }
+
+    /// GH #55: the message parser behind the "data too long" → 400 mapping.
+    ///
+    /// The driver's text is the only place the column name appears, so this
+    /// runs on a string. It must extract the column and nothing else — the
+    /// same message can carry the offending value, which is what the
+    /// redaction in `response()` exists to keep out of a reply.
+    #[test]
+    fn the_offending_column_is_extracted() {
+        assert_eq!(
+            parse_too_long_column("Data too long for column 'Name' at row 1"),
+            Some("Name".to_string())
+        );
+        assert_eq!(
+            parse_too_long_column("Data too long for column 'MaxBandwidth' at row 3"),
+            Some("MaxBandwidth".to_string())
+        );
+    }
+
+    #[test]
+    fn an_unrecognised_message_yields_nothing_rather_than_a_guess() {
+        // A wrong column name in an error is worse than no column name.
+        for other in [
+            "Duplicate entry 'x' for key 'PRIMARY'",
+            "Data too long",
+            "Data too long for column Name at row 1", // unquoted
+            "Data too long for column '' at row 1",   // empty
+            "",
+        ] {
+            assert_eq!(parse_too_long_column(other), None, "{other:?}");
+        }
+    }
+
+    #[test]
+    fn the_extracted_column_carries_no_value_or_sql() {
+        // Guards the leak the redaction is there to prevent: whatever else the
+        // driver put in the message, only the column comes out.
+        let noisy = "Data too long for column 'Name' at row 1 \
+                     (INSERT INTO Reports VALUES ('secret-value'))";
+        assert_eq!(parse_too_long_column(noisy), Some("Name".to_string()));
     }
 }

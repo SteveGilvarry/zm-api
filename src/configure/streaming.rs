@@ -7,10 +7,8 @@ pub struct StreamingConfig {
     pub default_protocol: StreamingProtocol,
     pub source: SourceConfig,
     pub zoneminder: ZoneMinderConfig,
-    pub go2rtc: Go2RtcConfig,
     pub webrtc: WebRtcConfig,
     pub hls: HlsConfig,
-    pub rtsp_proxy: RtspProxyConfig,
 }
 
 impl Default for StreamingConfig {
@@ -20,10 +18,8 @@ impl Default for StreamingConfig {
             default_protocol: StreamingProtocol::default(),
             source: SourceConfig::default(),
             zoneminder: ZoneMinderConfig::default(),
-            go2rtc: Go2RtcConfig::default(),
             webrtc: WebRtcConfig::default(),
             hls: HlsConfig::default(),
-            rtsp_proxy: RtspProxyConfig::default(),
         }
     }
 }
@@ -94,30 +90,6 @@ impl Default for ZoneMinderConfig {
             read_timeout_ms: 10_000,
             reconnect_delay_ms: 1000,
             events_dir: "/var/lib/zoneminder/events".to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct Go2RtcConfig {
-    pub enabled: bool,
-    pub base_url: String,
-    pub timeout_seconds: u64,
-    pub auto_register: bool,
-    pub health_check_interval_seconds: u64,
-    pub retry_attempts: u32,
-}
-
-impl Default for Go2RtcConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            base_url: "http://localhost:1984".to_string(),
-            timeout_seconds: 10,
-            auto_register: true,
-            health_check_interval_seconds: 30,
-            retry_attempts: 3,
         }
     }
 }
@@ -219,30 +191,6 @@ impl Default for HlsStorageConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct RtspProxyConfig {
-    pub enabled: bool,
-    pub port: u16,
-    pub rtp_port_range_start: u16,
-    pub rtp_port_range_end: u16,
-    pub max_sessions: u32,
-    pub transport: String, // "udp" | "tcp" | "auto"
-}
-
-impl Default for RtspProxyConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            port: 8554,
-            rtp_port_range_start: 20000,
-            rtp_port_range_end: 30000,
-            max_sessions: 100,
-            transport: "auto".to_string(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,27 +229,37 @@ mod tests {
     }
 
     #[test]
-    fn test_go2rtc_config_default() {
-        let config = Go2RtcConfig::default();
-        assert!(!config.enabled); // Disabled by default
-        assert_eq!(config.base_url, "http://localhost:1984");
-        assert!(config.auto_register);
-    }
-
-    #[test]
     fn test_hls_config_default() {
         let config = HlsConfig::default();
         assert!(config.enabled);
         assert_eq!(config.segment_duration_seconds, 2);
         assert!(!config.ll_hls_enabled);
     }
+}
 
+#[cfg(test)]
+mod removed_block_tests {
+    use super::StreamingConfig;
+
+    /// GH #53: `[streaming.go2rtc]` and `[streaming.rtsp_proxy]` were removed
+    /// because nothing read them. An operator who copied the old `base.toml`
+    /// still has those blocks, so deserialization must ignore them rather than
+    /// refuse to start — no struct here sets `deny_unknown_fields`, and this
+    /// pins that.
     #[test]
-    fn test_rtsp_proxy_config_default() {
-        let config = RtspProxyConfig::default();
-        assert!(!config.enabled); // Disabled by default
-        assert_eq!(config.port, 8554);
-        assert_eq!(config.rtp_port_range_start, 20000);
-        assert_eq!(config.rtp_port_range_end, 30000);
+    fn a_config_still_carrying_the_removed_blocks_loads() {
+        let legacy = r#"
+            {
+              "go2rtc":     { "enabled": true, "base_url": "http://localhost:1984" },
+              "rtsp_proxy": { "enabled": true, "port": 8554 },
+              "zoneminder": { "socks_path": "/run/zm" }
+            }
+        "#;
+        let parsed: Result<StreamingConfig, _> = serde_json::from_str(legacy);
+        assert!(
+            parsed.is_ok(),
+            "an upgrade must not fail on config blocks that no longer exist: {:?}",
+            parsed.err()
+        );
     }
 }
