@@ -284,10 +284,14 @@ pub struct CreateMonitorRequest {
     #[garde(skip)] // Option<String> can be None
     pub decoder_hw_accel_device: Option<String>,
 
-    #[garde(range(min = -1, max = 1))]
+    /// `Monitors.SaveJPEGs` is a two-bit mask, not a flag: bit 0 saves
+    /// captured frames and bit 1 saves analysis images, so 3 means both — and
+    /// 3 is the column default, which the old `max = 1` rejected (GH #39).
+    #[garde(range(min = 0, max = 3))]
     pub save_jpe_gs: i8,
 
-    #[garde(range(min = -1, max = 1))]
+    /// 0 disabled, 1 encode, 2 camera passthrough.
+    #[garde(range(min = 0, max = 2))]
     pub video_writer: i8,
 
     #[garde(skip)] // Option<u32> can be None
@@ -305,7 +309,8 @@ pub struct CreateMonitorRequest {
     #[garde(skip)] // Option<String> can be None
     pub encoder_parameters: Option<String>,
 
-    #[garde(range(min = -1, max = 1))]
+    /// Boolean. The old `min = -1` accepted a value the column has no meaning for.
+    #[garde(range(min = 0, max = 1))]
     pub record_audio: i8,
 
     #[serde(rename = "recording_source")]
@@ -859,10 +864,14 @@ pub struct UpdateMonitorRequest {
     #[garde(skip)]
     pub decoder_hw_accel_device: Option<String>,
 
-    #[garde(range(min = -1, max = 1))]
+    /// `Monitors.SaveJPEGs` is a two-bit mask, not a flag: bit 0 saves
+    /// captured frames and bit 1 saves analysis images, so 3 means both — and
+    /// 3 is the column default, which the old `max = 1` rejected (GH #39).
+    #[garde(range(min = 0, max = 3))]
     pub save_jpe_gs: Option<i8>,
 
-    #[garde(range(min = -1, max = 1))]
+    /// 0 disabled, 1 encode, 2 camera passthrough.
+    #[garde(range(min = 0, max = 2))]
     pub video_writer: Option<i8>,
 
     #[garde(skip)]
@@ -878,7 +887,8 @@ pub struct UpdateMonitorRequest {
     #[garde(skip)]
     pub encoder_parameters: Option<String>,
 
-    #[garde(range(min = -1, max = 1))]
+    /// Boolean. The old `min = -1` accepted a value the column has no meaning for.
+    #[garde(range(min = 0, max = 1))]
     pub record_audio: Option<i8>,
 
     #[serde(rename = "recording_source")]
@@ -1210,5 +1220,61 @@ mod parity_tests {
             assert!(is_valid_alarm_action(a, &()).is_ok(), "{a} should be valid");
         }
         assert!(is_valid_alarm_action("explode", &()).is_err());
+    }
+
+    /// GH #39: the three tinyint columns whose bounds were copy-pasted as
+    /// `-1..=1`, none of which was right.
+    ///
+    /// `SaveJPEGs` matters most: it is a two-bit mask whose column default is
+    /// **3**, so the old bound rejected ZoneMinder's own default — the same
+    /// class of bug as #19. Values confirmed against the upstream monitor form,
+    /// not inferred.
+    ///
+    /// Driven through JSON rather than a struct literal, so it exercises the
+    /// path a request actually takes.
+    #[test]
+    fn monitor_bitmask_and_enum_bounds_match_the_columns() {
+        use crate::dto::request::monitor::UpdateMonitorRequest;
+        use garde::Validate;
+
+        fn accepts(field: &str, value: i8) -> bool {
+            let json = format!(r#"{{"{field}": {value}}}"#);
+            let req: UpdateMonitorRequest = serde_json::from_str(&json).expect("deserialize");
+            req.validate().is_ok()
+        }
+
+        // SaveJPEGs: 0 disabled, 1 frames, 2 analysis, 3 both — 3 is the
+        // column default, which the old max = 1 rejected outright.
+        for v in [0, 1, 2, 3] {
+            assert!(accepts("save_jpe_gs", v), "SaveJPEGs {v} is a real value");
+        }
+        for v in [-1, 4] {
+            assert!(!accepts("save_jpe_gs", v), "SaveJPEGs {v} is out of range");
+        }
+
+        // VideoWriter: 0 disabled, 1 encode, 2 camera passthrough.
+        for v in [0, 1, 2] {
+            assert!(
+                accepts("video_writer", v),
+                "VideoWriter {v} is a real value"
+            );
+        }
+        for v in [-1, 3] {
+            assert!(
+                !accepts("video_writer", v),
+                "VideoWriter {v} is out of range"
+            );
+        }
+
+        // RecordAudio is a checkbox.
+        for v in [0, 1] {
+            assert!(accepts("record_audio", v));
+        }
+        for v in [-1, 2] {
+            assert!(
+                !accepts("record_audio", v),
+                "RecordAudio {v} is out of range"
+            );
+        }
     }
 }

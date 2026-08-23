@@ -64,7 +64,7 @@ pub mod triggers_x10; // X10 Triggers
 pub mod user_preferences; // User Preferences
 pub mod users; // Users
 pub mod zone_presets; // Zone Presets
-pub mod zones; // Zones // go2rtc WebSocket proxy
+pub mod zones; // Zones
 
 /// Router fallback for unmatched paths. Returns a 404 with the standard error
 /// envelope so clients can feature-detect optional endpoints instead of seeing

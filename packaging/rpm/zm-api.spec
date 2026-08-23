@@ -1,4 +1,8 @@
-# RPM spec for zm-api — covers Fedora / RHEL / Rocky / AlmaLinux and openSUSE.
+# RPM spec for zm-api.
+#
+# CI builds and tests this on Fedora 41 and openSUSE Tumbleweed only. The spec
+# has %if branches for the RHEL family and it is expected to work there, but
+# that is unverified — build it yourself before relying on it.
 # Build locally with:  rpmbuild -bb packaging/rpm/zm-api.spec  (after placing a
 # source tarball in ~/rpmbuild/SOURCES), or submit to COPR / openSUSE OBS.
 

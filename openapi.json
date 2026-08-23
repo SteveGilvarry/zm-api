@@ -17505,7 +17505,8 @@
           },
           "record_audio": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "description": "Boolean. The old `min = -1` accepted a value the column has no meaning for."
           },
           "recording": {
             "$ref": "#/components/schemas/Recording"
@@ -17573,7 +17574,8 @@
           },
           "save_jpe_gs": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "description": "`Monitors.SaveJPEGs` is a two-bit mask, not a flag: bit 0 saves\ncaptured frames and bit 1 saves analysis images, so 3 means both — and\n3 is the column default, which the old `max = 1` rejected (GH #39)."
           },
           "second_path": {
             "type": [
@@ -17682,7 +17684,8 @@
           },
           "video_writer": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "description": "0 disabled, 1 encode, 2 camera passthrough."
           },
           "warmup_count": {
             "type": "integer",
@@ -18112,6 +18115,14 @@
           "enabled"
         ],
         "properties": {
+          "do_delete": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Whether deleting an event may remove its media from this storage.\nDefaults to `1`, matching the column and ZoneMinder's own UI — a\nstorage created with `0` cannot be reclaimed by retention."
+          },
           "enabled": {
             "type": "integer",
             "format": "int32"
@@ -27021,7 +27032,8 @@
               "integer",
               "null"
             ],
-            "format": "int32"
+            "format": "int32",
+            "description": "Boolean. The old `min = -1` accepted a value the column has no meaning for."
           },
           "recording": {
             "oneOf": [
@@ -27131,7 +27143,8 @@
               "integer",
               "null"
             ],
-            "format": "int32"
+            "format": "int32",
+            "description": "`Monitors.SaveJPEGs` is a two-bit mask, not a flag: bit 0 saves\ncaptured frames and bit 1 saves analysis images, so 3 means both — and\n3 is the column default, which the old `max = 1` rejected (GH #39)."
           },
           "second_path": {
             "type": [
@@ -27286,7 +27299,8 @@
               "integer",
               "null"
             ],
-            "format": "int32"
+            "format": "int32",
+            "description": "0 disabled, 1 encode, 2 camera passthrough."
           },
           "warmup_count": {
             "type": [

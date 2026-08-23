@@ -69,7 +69,11 @@ pub async fn create(
             .map(parse_scheme)
             .unwrap_or(crate::entity::sea_orm_active_enums::Scheme::Deep)),
         server_id: Set(req.server_id),
-        do_delete: Set(0),
+        // The column defaults to 1 and ZoneMinder's own UI creates it that way.
+        // Hardcoding 0 here left every API-created storage with deletion
+        // disabled, so neither the retention reaper nor DELETE /events could
+        // reclaim its media — the disk fills and nothing reports why (GH #44).
+        do_delete: Set(req.do_delete.unwrap_or(1)),
         enabled: Set(req.enabled),
     };
     Ok(am.insert(db).await?)

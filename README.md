@@ -25,9 +25,14 @@ Install the prebuilt package — it starts in **passive mode** (REST API only), 
 to drop onto a live ZoneMinder box without changing how anything records:
 
 ```bash
-sudo dpkg -i zm-api_*.deb        # Debian / Ubuntu / Raspberry Pi OS
-sudo dnf install zm-api-*.rpm    # Fedora / RHEL / Rocky / Alma  (zypper on openSUSE)
+sudo dpkg -i zm-api_*.deb        # Ubuntu 24.04 family (amd64, arm64)
+sudo dnf install zm-api-*.rpm    # Fedora 41  (zypper on openSUSE Tumbleweed)
 ```
+
+Those are the targets built and tested by CI. The packages may work on nearby
+releases — Debian bookworm, Ubuntu 22.04, RHEL-family — but nothing verifies it,
+so the dependency versions cargo-deb pins are not guaranteed to resolve. Build
+from source there, or ask for a target to be added.
 
 **Already running ZoneMinder?** Migrate its database before the first start —
 `zm-api-db bridge -u mysql://zmuser:zmpass@localhost/zm`. Only a fresh, empty database
@@ -154,8 +159,8 @@ the REST API alongside a running ZoneMinder without touching its daemons, so it'
 existing box. That's the on-ramp, not the end state.
 
 ```bash
-sudo dpkg -i zm-api_*.deb        # Debian / Ubuntu / Raspberry Pi OS
-sudo dnf install zm-api-*.rpm    # Fedora / RHEL / Rocky / Alma  (zypper on openSUSE)
+sudo dpkg -i zm-api_*.deb        # Ubuntu 24.04 family (amd64, arm64)
+sudo dnf install zm-api-*.rpm    # Fedora 41  (zypper on openSUSE Tumbleweed)
 ```
 
 When you're ready, hand daemon supervision to zm-api — one native supervisor replacing
