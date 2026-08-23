@@ -12,6 +12,9 @@ pub struct ReportResponse {
     pub end_date_time: Option<String>,
     /// Report interval in seconds (e.g. 604800 = 7 days).
     pub interval: Option<u32>,
+    /// User who created the report. Set by the server from the authenticated
+    /// caller, never accepted from the request.
+    pub created_by: Option<u32>,
 }
 
 impl From<&ReportModel> for ReportResponse {
@@ -23,6 +26,7 @@ impl From<&ReportModel> for ReportResponse {
             start_date_time: model.start_date_time.map(|dt| dt.and_utc().to_rfc3339()),
             end_date_time: model.end_date_time.map(|dt| dt.and_utc().to_rfc3339()),
             interval: model.interval,
+            created_by: model.created_by,
         }
     }
 }

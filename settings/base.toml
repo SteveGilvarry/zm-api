@@ -54,10 +54,21 @@ http_port = 80
 [server.middleware]
 # Maximum accepted request body size, in bytes (2 MiB).
 body_limit_bytes = 2097152
-# Global per-client-IP rate limit. The value is the Governor replenish period
-# in seconds (one unit of quota restored per interval), NOT requests/second.
-# 0 disables the global limiter; enable in prod.toml.
-rate_limit_per_second = 0
+# Global per-client-IP rate limit. `rate_limit_period_secs` is a *period*: one
+# request's worth of budget is restored every this many seconds. 0 disables the
+# limiter entirely; prod.toml enables it.
+#
+# `rate_limit_burst` is how many requests a client may make before the refill
+# rate binds, and it is the number that decides whether a browser page load
+# works — a single-page app renders one screen from a dozen or so requests, so
+# a burst below that means no page ever loads. Leaving it at 0 with the limiter
+# enabled is a misconfiguration; the server substitutes a usable value and logs
+# an error rather than serving one request and refusing the rest.
+#
+# The old name `rate_limit_per_second` is still accepted. It read as a rate and
+# meant the opposite, so setting it to 4 expecting four requests a second gave
+# one request every four seconds.
+rate_limit_period_secs = 0
 rate_limit_burst = 0
 # Trust X-Forwarded-For / X-Real-IP for rate-limit keying. Keep false unless a
 # trusted reverse proxy sets these headers: when the service is exposed

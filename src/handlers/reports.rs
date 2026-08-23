@@ -63,10 +63,12 @@ pub async fn get_report(
 )]
 pub async fn create_report(
     State(state): State<AppState>,
+    claims: crate::util::claim::UserClaims,
     Json(req): Json<CreateReportRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<ReportResponse>)> {
     req.validate().map_err(AppError::InvalidInputError)?;
-    let item = crate::service::reports::create(&state, req).await?;
+    // Attribution from the token, not the body.
+    let item = crate::service::reports::create(&state, req, Some(claims.uid)).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 

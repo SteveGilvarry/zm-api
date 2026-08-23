@@ -10,6 +10,12 @@ recognisable path forward.
 
 ### Added
 
+- `Reports.CreatedBy` is read and written (#29). The column has existed since
+  1.37 but was never modelled, so it was neither stored nor returned.
+  Attribution comes from the authenticated token rather than the request body —
+  letting a client name the creator is forging authorship. (`description`,
+  the other half of that issue, is not possible: there is no such column.)
+
 - **Native replacements for three Perl maintenance daemons** — `zmstats.pl`,
   `zmaudit.pl` (database side) and `zmtelemetry.pl` — each independently
   switchable under `[maintenance]` and all off by default, so an existing
@@ -102,6 +108,35 @@ recognisable path forward.
   the `/me` change above in the pull request that made it.
 
 ### Fixed
+
+- **The rate limiter made the API unusable for any browser client** (#70). A
+  burst of `0` with the limiter enabled was clamped silently to `1`, so one
+  request succeeded and everything after it returned 429 — no page in any
+  single-page app could load, and nothing said why. A burst that small is never
+  intentional, so it is now treated as the misconfiguration it is: the server
+  substitutes a usable value and logs an error naming the setting.
+  <br>The setting is renamed `rate_limit_period_secs`, because
+  `rate_limit_per_second` read as a rate while meaning a *period* — setting it
+  to `4` expecting four requests a second gave one request every four seconds.
+  The old name is still accepted, so existing configuration keeps working.
+  <br>The production defaults are retuned from one token per 25 seconds with a
+  burst of 50 to one per second with a burst of 120. The old values let the
+  first screen through and then throttled everything after it to one request
+  every 25 seconds. Credential brute-forcing is handled separately and far more
+  tightly by the auth limiter, which is why the global one can afford to be
+  generous.
+- **Six duplicate `operationId`s** (#32) — the five AI-model routes collided
+  with the camera-model routes, and two unrelated `update_state` handlers with
+  each other. A generator silently emits one method and drops the other.
+- **Four routes that enforce authentication did not say so in the spec** (#32):
+  `/daemons`, `/daemons/{id}`, `/system/status` and the WebRTC signalling
+  socket. A generated client reads a missing `security` key as "no token
+  needed".
+- **`NaiveDateTimeWrapper` claimed `format: date-time`** (#32) while emitting
+  `2025-04-24T12:34:56`, which has no offset and is therefore not RFC 3339.
+  Generators built an offset-aware parser that rejected every value the API
+  sends. It is now described as what it is — local wall-clock time as
+  ZoneMinder stores it.
 
 - **Enums emitted Rust variant names instead of the values ZoneMinder stores.**
   `#[sea_orm(string_value = …)]` governs only the database mapping, so serde

@@ -63,13 +63,23 @@ pub struct MiddlewareConfig {
     /// Maximum accepted request body size, in bytes.
     #[serde(default = "default_body_limit_bytes")]
     pub body_limit_bytes: usize,
-    /// Governor replenish interval for the global limiter, in seconds (one
-    /// unit of quota is restored per interval). `0` disables the global
-    /// limiter entirely.
-    #[serde(default)]
-    pub rate_limit_per_second: u64,
-    /// Burst allowance for the global limiter. Ignored when the global limiter
-    /// is disabled (`rate_limit_per_second = 0`).
+    /// Seconds between quota replenishments for the global limiter — one
+    /// request's worth of budget is restored every this many seconds. `0`
+    /// disables the global limiter entirely.
+    ///
+    /// The old name for this was `rate_limit_per_second`, which read as a rate
+    /// and is the opposite of what it means: setting it to `4` expecting four
+    /// requests a second gives one request every four seconds. It is still
+    /// accepted so existing configs keep working (GH #70).
+    #[serde(default, alias = "rate_limit_per_second")]
+    pub rate_limit_period_secs: u64,
+
+    /// How many requests a client may make before the replenish rate binds.
+    ///
+    /// This is the number that decides whether an ordinary page load works: a
+    /// single-page app renders one screen from a dozen or so requests, and a
+    /// burst below that means no page ever loads. Ignored when the limiter is
+    /// disabled.
     #[serde(default)]
     pub rate_limit_burst: u32,
     /// Trust proxy forwarding headers (`X-Forwarded-For` / `X-Real-IP`) for
@@ -106,7 +116,7 @@ impl Default for MiddlewareConfig {
     fn default() -> Self {
         Self {
             body_limit_bytes: default_body_limit_bytes(),
-            rate_limit_per_second: 0,
+            rate_limit_period_secs: 0,
             rate_limit_burst: 0,
             trust_proxy_headers: false,
             auth_rate_limit_period_secs: default_auth_rate_limit_period_secs(),
@@ -116,9 +126,27 @@ impl Default for MiddlewareConfig {
 }
 
 impl MiddlewareConfig {
+    /// Burst the global limiter should actually use.
+    ///
+    /// A burst of 0 with the limiter enabled used to be clamped silently to 1,
+    /// which is the most hostile value there is: one request succeeds and
+    /// everything after it is refused, so no page in any client ever loads and
+    /// nothing says why (GH #70). A burst that small is never intentional, so
+    /// treat it as the misconfiguration it is — the caller substitutes a
+    /// usable default and logs it, rather than bricking the API silently or
+    /// refusing to start over a tuning value.
+    pub fn effective_rate_limit_burst(&self) -> (u32, bool) {
+        const USABLE_DEFAULT: u32 = 60;
+        if self.rate_limit_burst == 0 {
+            (USABLE_DEFAULT, true)
+        } else {
+            (self.rate_limit_burst, false)
+        }
+    }
+
     /// Whether the global per-IP rate limiter should be installed.
     pub fn rate_limiting_enabled(&self) -> bool {
-        self.rate_limit_per_second > 0
+        self.rate_limit_period_secs > 0
     }
 
     /// Whether the dedicated auth-endpoint rate limiter should be installed.
@@ -290,5 +318,88 @@ pub mod tests {
         assert!(parse_origins("{}").is_empty());
         assert!(parse_origins(r#"{"allowed_origins": "  ,, "}"#).is_empty());
         assert!(parse_origins(r#"{"allowed_origins": []}"#).is_empty());
+    }
+
+    /// GH #70: a burst of 0 with the limiter on used to be clamped silently to
+    /// 1, so one request succeeded and every one after it was refused — no
+    /// client could load a page, and nothing explained why.
+    #[test]
+    fn a_zero_burst_is_treated_as_misconfiguration_not_as_one() {
+        let mw = MiddlewareConfig {
+            rate_limit_period_secs: 1,
+            rate_limit_burst: 0,
+            ..Default::default()
+        };
+        let (burst, defaulted) = mw.effective_rate_limit_burst();
+        assert!(
+            defaulted,
+            "the caller must be able to log that it substituted"
+        );
+        assert!(
+            burst >= 30,
+            "the substituted burst has to fit a page load, got {burst}"
+        );
+    }
+
+    #[test]
+    fn an_explicit_burst_is_left_alone() {
+        let mw = MiddlewareConfig {
+            rate_limit_period_secs: 1,
+            rate_limit_burst: 5,
+            ..Default::default()
+        };
+        // Deliberately small, but deliberate. Don't second-guess it.
+        assert_eq!(mw.effective_rate_limit_burst(), (5, false));
+    }
+
+    /// The old name meant the opposite of what it read as, so it has to keep
+    /// working rather than silently reverting an operator to "disabled".
+    #[test]
+    fn the_old_setting_name_is_still_accepted() {
+        let by_old_name: MiddlewareConfig =
+            serde_json::from_str(r#"{"rate_limit_per_second": 25}"#).expect("parse");
+        assert_eq!(by_old_name.rate_limit_period_secs, 25);
+        assert!(by_old_name.rate_limiting_enabled());
+
+        let by_new_name: MiddlewareConfig =
+            serde_json::from_str(r#"{"rate_limit_period_secs": 25}"#).expect("parse");
+        assert_eq!(by_new_name.rate_limit_period_secs, 25);
+    }
+
+    /// The shipped production values must let an ordinary page load through.
+    /// This is the property the issue is about, so assert it on the real file
+    /// rather than on a hand-written config.
+    #[test]
+    fn the_shipped_production_burst_fits_a_page_load() {
+        // zm-web's events page needs about eleven requests for one screen.
+        const REQUESTS_PER_PAGE: u32 = 11;
+
+        let prod = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("settings/prod.toml"),
+        )
+        .expect("read settings/prod.toml");
+
+        let value_of = |key: &str| -> u64 {
+            prod.lines()
+                .find_map(|l| l.trim().strip_prefix(key)?.trim().strip_prefix('='))
+                .unwrap_or_else(|| panic!("{key} not found in prod.toml"))
+                .trim()
+                .parse()
+                .expect("numeric")
+        };
+
+        let burst = value_of("rate_limit_burst") as u32;
+        let period = value_of("rate_limit_period_secs");
+
+        assert!(
+            burst >= REQUESTS_PER_PAGE * 2,
+            "a burst of {burst} leaves no headroom for a {REQUESTS_PER_PAGE}-request \
+             page load plus a second navigation"
+        );
+        assert!(
+            period > 0 && period <= 2,
+            "a refill of one request every {period}s throttles a browsing user to \
+             a crawl once the burst is spent"
+        );
     }
 }

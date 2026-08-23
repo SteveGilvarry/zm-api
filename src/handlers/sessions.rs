@@ -1,3 +1,18 @@
+//! CRUD over ZoneMinder's `Sessions` table.
+//!
+//! **These are the PHP web UI's login sessions, not API tokens.** ZoneMinder's
+//! web interface stores its own session rows here; this API authenticates with
+//! JWTs issued by `/api/v3/auth/login` and does not read or write them for its
+//! own requests. Nothing here mints, inspects, or revokes an API credential.
+//!
+//! The endpoints exist so an administrator can see and clear web sessions —
+//! the same thing the PHP UI's session list does. A client looking for API
+//! token management will not find it here; that is tracked separately
+//! (GH #27).
+//!
+//! `Sessions` rows are expired automatically by the maintenance service under
+//! `ZM_COOKIE_LIFETIME`, matching what `zmstats.pl` did.
+
 use crate::dto::request::sessions::{CreateSessionRequest, UpdateSessionRequest};
 use crate::dto::response::sessions::PaginatedSessionsResponse;
 use crate::dto::response::SessionResponse;
@@ -19,7 +34,7 @@ use axum::{
         ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
         ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
     ),
-    responses((status = 200, description = "Paginated list of sessions", body = PaginatedSessionsResponse)),
+    responses((status = 200, description = "Paginated list of PHP web-UI sessions (not API tokens)", body = PaginatedSessionsResponse)),
     tag = "Sessions",
     security(("jwt" = []))
 )]

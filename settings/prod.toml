@@ -4,8 +4,19 @@ profile = "prod"
 addr = "0.0.0.0"
 port = 8_080
 
-# Per-client-IP rate limiting, enabled for production. `rate_limit_per_second`
-# is the Governor replenish period in seconds, not requests/second.
+# Per-client-IP rate limiting, enabled for production.
+#
+# Tuned so an ordinary page load is invisible to it. A single-page app renders
+# one screen from a dozen or so requests — the events page needs about eleven —
+# so a burst smaller than that means no page ever loads (GH #70). The previous
+# values here (one token per 25 seconds, burst 50) let the first screen through
+# and then throttled everything after it to one request every 25 seconds.
+#
+# `rate_limit_period_secs` is a *period*: one request's worth of budget is
+# restored every this many seconds. 1 gives roughly 60 requests a minute
+# sustained, with 120 available in a burst. Credential brute-forcing is handled
+# separately and much more tightly by the auth limiter below, which is why this
+# one can afford to be generous.
 #
 # `trust_proxy_headers` is true here because the typical ZoneMinder deployment
 # runs zm-api behind a reverse proxy that sets X-Forwarded-For. If you expose
@@ -13,8 +24,8 @@ port = 8_080
 # headers can't be spoofed to bypass the limiter.
 [server.middleware]
 body_limit_bytes = 2097152
-rate_limit_per_second = 25
-rate_limit_burst = 50
+rate_limit_period_secs = 1
+rate_limit_burst = 120
 trust_proxy_headers = true
 auth_rate_limit_period_secs = 2
 auth_rate_limit_burst = 10
