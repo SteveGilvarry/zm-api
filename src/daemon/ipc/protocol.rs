@@ -13,10 +13,11 @@ pub enum DaemonCommand {
     Startup,
     /// Stop all daemons and shut down
     Shutdown,
-    /// Get status of all daemons
-    Status,
-    /// Simple health check
-    Check,
+    /// Status of every daemon, or of one (`zmdc.pl status zmc -m 1`).
+    Status { target: Option<String> },
+    /// running / pending / stopped / unknown for one daemon, or whether the
+    /// controller itself is up when no target is given.
+    Check { target: Option<String> },
     /// Rotate log files
     LogRot,
     /// Get version info
@@ -26,11 +27,11 @@ pub enum DaemonCommand {
     /// Start a specific daemon
     Start { daemon: String, args: Vec<String> },
     /// Stop a specific daemon
-    Stop { daemon: String },
+    Stop { daemon: String, args: Vec<String> },
     /// Restart a specific daemon
     Restart { daemon: String, args: Vec<String> },
     /// Send SIGHUP to reload configuration
-    Reload { daemon: String },
+    Reload { daemon: String, args: Vec<String> },
 
     // Package-level commands (zmpkg.pl compatibility)
     /// Full system startup (verify folders, start zmdc, start all daemons)
@@ -41,6 +42,31 @@ pub enum DaemonCommand {
     PackageRestart,
     /// Apply a named system state
     ApplyState { state_name: String },
+}
+
+/// The one key a daemon is tracked under: `"<command> <args>"`, the same
+/// string zmdc.pl builds with `join(' ', $daemon, @args)`. `zmdc.pl stop zmc
+/// -m 1` arrives as daemon "zmc" + args ["-m", "1"] and has to find the entry
+/// `start_all_daemons` created as "zmc -m 1", not a second one under "zmc"
+/// (#84).
+pub fn canonical_daemon_id<S: AsRef<str>>(daemon: &str, args: &[S]) -> String {
+    let mut id = daemon.trim().to_string();
+    for a in args {
+        let a = a.as_ref().trim();
+        if !a.is_empty() {
+            id.push(' ');
+            id.push_str(a);
+        }
+    }
+    id
+}
+
+/// `status;zmc;-m;1` → `Some("zmc -m 1")`; bare `status` → `None`.
+fn legacy_target(parts: &[&str]) -> Option<String> {
+    match parts.get(1) {
+        Some(daemon) if !daemon.trim().is_empty() => Some(canonical_daemon_id(daemon, &parts[2..])),
+        _ => None,
+    }
 }
 
 impl DaemonCommand {
@@ -57,8 +83,12 @@ impl DaemonCommand {
         match cmd.as_str() {
             "startup" => Ok(DaemonCommand::Startup),
             "shutdown" => Ok(DaemonCommand::Shutdown),
-            "status" => Ok(DaemonCommand::Status),
-            "check" => Ok(DaemonCommand::Check),
+            "status" => Ok(DaemonCommand::Status {
+                target: legacy_target(&parts),
+            }),
+            "check" => Ok(DaemonCommand::Check {
+                target: legacy_target(&parts),
+            }),
             "logrot" => Ok(DaemonCommand::LogRot),
             "version" => Ok(DaemonCommand::Version),
             "start" => {
@@ -76,6 +106,7 @@ impl DaemonCommand {
                 }
                 Ok(DaemonCommand::Stop {
                     daemon: parts[1].to_string(),
+                    args: parts[2..].iter().map(|s| s.to_string()).collect(),
                 })
             }
             "restart" => {
@@ -93,6 +124,7 @@ impl DaemonCommand {
                 }
                 Ok(DaemonCommand::Reload {
                     daemon: parts[1].to_string(),
+                    args: parts[2..].iter().map(|s| s.to_string()).collect(),
                 })
             }
             "pkg_start" => Ok(DaemonCommand::PackageStart),
@@ -115,8 +147,8 @@ impl DaemonCommand {
         match self {
             DaemonCommand::Startup => "startup".to_string(),
             DaemonCommand::Shutdown => "shutdown".to_string(),
-            DaemonCommand::Status => "status".to_string(),
-            DaemonCommand::Check => "check".to_string(),
+            DaemonCommand::Status { target } => with_target("status", target.as_deref()),
+            DaemonCommand::Check { target } => with_target("check", target.as_deref()),
             DaemonCommand::LogRot => "logrot".to_string(),
             DaemonCommand::Version => "version".to_string(),
             DaemonCommand::Start { daemon, args } => {
@@ -126,7 +158,13 @@ impl DaemonCommand {
                     format!("start;{};{}", daemon, args.join(";"))
                 }
             }
-            DaemonCommand::Stop { daemon } => format!("stop;{}", daemon),
+            DaemonCommand::Stop { daemon, args } => {
+                if args.is_empty() {
+                    format!("stop;{}", daemon)
+                } else {
+                    format!("stop;{};{}", daemon, args.join(";"))
+                }
+            }
             DaemonCommand::Restart { daemon, args } => {
                 if args.is_empty() {
                     format!("restart;{}", daemon)
@@ -134,12 +172,28 @@ impl DaemonCommand {
                     format!("restart;{};{}", daemon, args.join(";"))
                 }
             }
-            DaemonCommand::Reload { daemon } => format!("reload;{}", daemon),
+            DaemonCommand::Reload { daemon, args } => {
+                if args.is_empty() {
+                    format!("reload;{}", daemon)
+                } else {
+                    format!("reload;{};{}", daemon, args.join(";"))
+                }
+            }
             DaemonCommand::PackageStart => "pkg_start".to_string(),
             DaemonCommand::PackageStop => "pkg_stop".to_string(),
             DaemonCommand::PackageRestart => "pkg_restart".to_string(),
             DaemonCommand::ApplyState { state_name } => format!("state;{}", state_name),
         }
+    }
+}
+
+fn with_target(verb: &str, target: Option<&str>) -> String {
+    match target {
+        Some(t) => format!(
+            "{verb};{}",
+            t.split_whitespace().collect::<Vec<_>>().join(";")
+        ),
+        None => verb.to_string(),
     }
 }
 
@@ -153,6 +207,12 @@ pub struct DaemonResponse {
     /// Optional additional data (JSON)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
+    /// What a text-protocol client is sent instead of `OK;<message>`. zmdc.pl
+    /// clients — ZoneMinder's web console included — parse `check` and
+    /// `status` output by its exact words and line shape (#83).
+    #[serde(skip)]
+    #[schema(ignore)]
+    pub legacy_text: Option<String>,
 }
 
 impl DaemonResponse {
@@ -162,7 +222,14 @@ impl DaemonResponse {
             success: true,
             message: message.into(),
             data: None,
+            legacy_text: None,
         }
+    }
+
+    /// What text-protocol clients receive verbatim (JSON clients are unaffected).
+    pub fn with_legacy_text(mut self, text: impl Into<String>) -> Self {
+        self.legacy_text = Some(text.into());
+        self
     }
 
     /// Create a success response with data.
@@ -171,6 +238,7 @@ impl DaemonResponse {
             success: true,
             message: message.into(),
             data: serde_json::to_value(data).ok(),
+            legacy_text: None,
         }
     }
 
@@ -180,11 +248,15 @@ impl DaemonResponse {
             success: false,
             message: message.into(),
             data: None,
+            legacy_text: None,
         }
     }
 
     /// Format for legacy text protocol.
     pub fn to_legacy(&self) -> String {
+        if let Some(text) = &self.legacy_text {
+            return text.clone();
+        }
         if self.success {
             format!("OK;{}", self.message)
         } else {
@@ -206,6 +278,7 @@ impl DaemonResponse {
             success,
             message,
             data: None,
+            legacy_text: None,
         }
     }
 }
@@ -293,12 +366,56 @@ mod tests {
         );
         assert_eq!(
             DaemonCommand::parse_legacy("status").unwrap(),
-            DaemonCommand::Status
+            DaemonCommand::Status { target: None }
         );
         assert_eq!(
             DaemonCommand::parse_legacy("check").unwrap(),
-            DaemonCommand::Check
+            DaemonCommand::Check { target: None }
         );
+    }
+
+    /// zmdc.pl sends `check;zmc;-m;1` and `status;zmc;-m;1` for one daemon;
+    /// the target must be the daemon's map key (#83).
+    #[test]
+    fn status_and_check_take_a_daemon_target() {
+        assert_eq!(
+            DaemonCommand::parse_legacy("check;zmc;-m;1").unwrap(),
+            DaemonCommand::Check {
+                target: Some("zmc -m 1".to_string())
+            }
+        );
+        assert_eq!(
+            DaemonCommand::parse_legacy("status;zmfilter.pl").unwrap(),
+            DaemonCommand::Status {
+                target: Some("zmfilter.pl".to_string())
+            }
+        );
+    }
+
+    /// `zmdc.pl stop zmc -m 1` carries the args; dropping them left the
+    /// daemon name alone, which matched no tracked entry (#84).
+    #[test]
+    fn stop_and_reload_keep_their_args() {
+        assert_eq!(
+            DaemonCommand::parse_legacy("stop;zmc;-m;1").unwrap(),
+            DaemonCommand::Stop {
+                daemon: "zmc".to_string(),
+                args: vec!["-m".to_string(), "1".to_string()],
+            }
+        );
+        assert_eq!(canonical_daemon_id("zmc", &["-m", "1"]), "zmc -m 1");
+        assert_eq!(
+            canonical_daemon_id("zmfilter.pl", &[] as &[&str]),
+            "zmfilter.pl"
+        );
+        assert_eq!(canonical_daemon_id(" zma ", &["-m", " 7 "]), "zma -m 7");
+    }
+
+    #[test]
+    fn legacy_text_overrides_the_ok_prefix() {
+        let resp = DaemonResponse::ok("running").with_legacy_text("running");
+        assert_eq!(resp.to_legacy(), "running");
+        assert_eq!(DaemonResponse::ok("running").to_legacy(), "OK;running");
     }
 
     #[test]
@@ -320,6 +437,7 @@ mod tests {
             cmd,
             DaemonCommand::Stop {
                 daemon: "zmfilter.pl".to_string(),
+                args: vec![],
             }
         );
     }
@@ -346,13 +464,24 @@ mod tests {
     fn test_command_roundtrip() {
         let commands = vec![
             DaemonCommand::Startup,
-            DaemonCommand::Status,
+            DaemonCommand::Status { target: None },
+            DaemonCommand::Status {
+                target: Some("zmc -m 5".to_string()),
+            },
+            DaemonCommand::Check {
+                target: Some("zma -m 5".to_string()),
+            },
             DaemonCommand::Start {
                 daemon: "zmc".to_string(),
                 args: vec!["-m".to_string(), "5".to_string()],
             },
             DaemonCommand::Stop {
                 daemon: "zmfilter.pl".to_string(),
+                args: vec![],
+            },
+            DaemonCommand::Stop {
+                daemon: "zmc".to_string(),
+                args: vec!["-m".to_string(), "5".to_string()],
             },
             DaemonCommand::ApplyState {
                 state_name: "default".to_string(),

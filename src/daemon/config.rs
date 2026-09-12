@@ -25,6 +25,12 @@ pub struct DaemonConfig {
     #[serde(default = "default_socket_name")]
     pub socket_name: String,
 
+    /// Group the socket is chgrp'd to, so ZoneMinder's web user (who runs
+    /// the console's zmdc.pl calls) can connect. Default: `ZM_WEB_GROUP`
+    /// from zm.conf. The zm-api service user must be a member.
+    #[serde(default)]
+    pub socket_group: Option<String>,
+
     /// Path to ZM binaries (default: /usr/bin)
     #[serde(default = "default_bin_path")]
     pub bin_path: PathBuf,
@@ -79,6 +85,7 @@ impl Default for DaemonConfig {
             enabled: default_enabled(),
             socket_path: default_socket_path(),
             socket_name: default_socket_name(),
+            socket_group: None,
             bin_path: default_bin_path(),
             script_path: default_script_path(),
             min_backoff_seconds: default_min_backoff_seconds(),

@@ -6,5 +6,7 @@
 pub mod protocol;
 pub mod socket;
 
-pub use protocol::{DaemonCommand, DaemonResponse, ProcessStatus, SystemStats, SystemStatus};
+pub use protocol::{
+    canonical_daemon_id, DaemonCommand, DaemonResponse, ProcessStatus, SystemStats, SystemStatus,
+};
 pub use socket::DaemonSocketServer;

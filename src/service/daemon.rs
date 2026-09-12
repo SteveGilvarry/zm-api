@@ -193,10 +193,12 @@ pub async fn system_logrot(state: &AppState) -> AppResult<DaemonActionResponse> 
     let mut failed = 0;
 
     for id in daemon_ids {
-        match manager.reload_daemon(&id).await {
+        // SIGWINCH (reopen logs), not SIGHUP (reload, which restarts
+        // capture) — see DaemonManager::logrot_daemon (#86).
+        match manager.logrot_daemon(&id).await {
             Ok(resp) if resp.success => {
                 reloaded += 1;
-                debug!("Sent SIGHUP to {}", id);
+                debug!("Sent SIGWINCH to {}", id);
             }
             Ok(resp) => {
                 // Daemon might not be running
@@ -439,11 +441,21 @@ pub async fn apply_state(state: &AppState, state_name: &str) -> AppResult<Daemon
             "State '{}' applied to {} monitors, restarting supervised daemons",
             state_name, updated_monitors
         );
-        let restart_result = system_restart(state).await?;
-        Ok(DaemonActionResponse::success(format!(
-            "State '{}' applied: {} monitors updated. {}",
-            state_name, updated_monitors, restart_result.message
-        )))
+        // The state is committed either way; a failed restart is reported,
+        // not turned into a 500 that reads as "nothing happened" (#117).
+        match system_restart(state).await {
+            Ok(restart) => Ok(DaemonActionResponse::success(format!(
+                "State '{}' applied: {} monitors updated. {}",
+                state_name, updated_monitors, restart.message
+            ))),
+            Err(e) => {
+                warn!("state '{state_name}' applied but the daemon restart failed: {e}");
+                Ok(DaemonActionResponse::error(format!(
+                    "State '{}' applied: {} monitors updated, but the daemon restart failed: {e}",
+                    state_name, updated_monitors
+                )))
+            }
+        }
     } else {
         info!(
             "State '{}' applied to {} monitors (passive mode; daemon reconciliation left to zoneminder.service)",
@@ -592,6 +604,7 @@ mod tests {
             success: true,
             message: "OK".to_string(),
             data: None,
+            legacy_text: None,
         };
         let action = response_to_action(resp);
         assert!(action.success);
@@ -604,6 +617,7 @@ mod tests {
             success: false,
             message: "Failed".to_string(),
             data: None,
+            legacy_text: None,
         };
         let action = response_to_action(resp);
         assert!(!action.success);

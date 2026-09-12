@@ -389,7 +389,8 @@ impl AppState {
 
         let mut spawned = 0usize;
         for m in monitors {
-            if m.onvif_event_listener == 0 || m.onvif_url.trim().is_empty() {
+            // A deleted monitor must not get a listener inserting events (#120).
+            if m.deleted != 0 || m.onvif_event_listener == 0 || m.onvif_url.trim().is_empty() {
                 continue;
             }
             // Events service endpoint = onvif_url joined with onvif_events_path.

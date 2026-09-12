@@ -1,6 +1,6 @@
 //! Command parsing and handling for the daemon controller.
 
-use crate::daemon::ipc::{DaemonCommand, DaemonResponse};
+use crate::daemon::ipc::{canonical_daemon_id, DaemonCommand, DaemonResponse};
 
 /// Parse a command from raw input (auto-detects format).
 ///
@@ -35,8 +35,18 @@ fn parse_json_command(input: &str) -> Result<DaemonCommand, String> {
     match json.command.to_lowercase().as_str() {
         "startup" => Ok(DaemonCommand::Startup),
         "shutdown" => Ok(DaemonCommand::Shutdown),
-        "status" => Ok(DaemonCommand::Status),
-        "check" => Ok(DaemonCommand::Check),
+        "status" => Ok(DaemonCommand::Status {
+            target: json
+                .daemon
+                .as_deref()
+                .map(|d| canonical_daemon_id(d, &json.args)),
+        }),
+        "check" => Ok(DaemonCommand::Check {
+            target: json
+                .daemon
+                .as_deref()
+                .map(|d| canonical_daemon_id(d, &json.args)),
+        }),
         "logrot" => Ok(DaemonCommand::LogRot),
         "version" => Ok(DaemonCommand::Version),
         "start" => {
@@ -48,7 +58,10 @@ fn parse_json_command(input: &str) -> Result<DaemonCommand, String> {
         }
         "stop" => {
             let daemon = json.daemon.ok_or("stop requires daemon field")?;
-            Ok(DaemonCommand::Stop { daemon })
+            Ok(DaemonCommand::Stop {
+                daemon,
+                args: json.args,
+            })
         }
         "restart" => {
             let daemon = json.daemon.ok_or("restart requires daemon field")?;
@@ -59,7 +72,10 @@ fn parse_json_command(input: &str) -> Result<DaemonCommand, String> {
         }
         "reload" => {
             let daemon = json.daemon.ok_or("reload requires daemon field")?;
-            Ok(DaemonCommand::Reload { daemon })
+            Ok(DaemonCommand::Reload {
+                daemon,
+                args: json.args,
+            })
         }
         "pkg_start" | "package_start" => Ok(DaemonCommand::PackageStart),
         "pkg_stop" | "package_stop" => Ok(DaemonCommand::PackageStop),
@@ -114,7 +130,7 @@ mod tests {
     fn test_parse_json_simple() {
         let json = r#"{"command": "status"}"#;
         let cmd = parse_command(json).unwrap();
-        assert_eq!(cmd, DaemonCommand::Status);
+        assert_eq!(cmd, DaemonCommand::Status { target: None });
     }
 
     #[test]

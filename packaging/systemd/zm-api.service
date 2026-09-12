@@ -48,9 +48,12 @@ ExecStartPre=+/bin/sh -c 'test -d /run/zm || install -d -m 0775 -o zoneminder -g
 ExecStart=/usr/bin/zm-api
 ExecReload=/bin/kill -HUP $MAINPID
 
-# Graceful shutdown - match our 30s SIGTERM timeout
+# Graceful shutdown. The HTTP drain and the daemon SIGTERM wave run
+# concurrently, each bounded by shutdown_timeout_seconds (30s), with the
+# SIGKILL escalation after it; leave margin so systemd never SIGKILLs a zmc
+# that was mid-SIGTERM.
 KillSignal=SIGTERM
-TimeoutStopSec=35
+TimeoutStopSec=50
 KillMode=mixed
 
 # Restart policy

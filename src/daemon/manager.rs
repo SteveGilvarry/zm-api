@@ -1,7 +1,7 @@
 //! Daemon manager - core process control and lifecycle management.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,7 +20,9 @@ use tracing::{debug, error, info, warn};
 use crate::configure::zmnext::ZmNextConfig;
 use crate::daemon::config::DaemonConfig;
 use crate::daemon::daemons::DaemonDefinition;
-use crate::daemon::ipc::{DaemonResponse, ProcessStatus, SystemStats, SystemStatus};
+use crate::daemon::ipc::{
+    canonical_daemon_id, DaemonResponse, ProcessStatus, SystemStats, SystemStatus,
+};
 use crate::daemon::process::{ManagedProcess, ProcessState};
 use crate::daemon::stats;
 use crate::entity::sea_orm_active_enums::{Capturing, Function, MonitorType, Status};
@@ -72,6 +74,16 @@ pub struct DaemonManager {
     /// Latched shutdown flag checked by start/reconcile paths (the `Notify`
     /// signal alone is lost on a task that is mid-tick).
     shutting_down: Arc<AtomicBool>,
+    /// Bumped by every `startup()`. Each background loop captures the value
+    /// it was spawned under and exits when it changes, so a loop that missed
+    /// the shutdown wake-up mid-tick cannot outlive a restart and run beside
+    /// its replacement (#80).
+    loop_generation: Arc<AtomicU64>,
+    /// The whole process is exiting — distinct from `shutting_down`, which
+    /// also fires for a daemon *restart* (apply_state, system restart). Long-
+    /// lived tasks that must survive a restart, like the ONVIF event
+    /// listeners, watch this one (#79).
+    process_exiting: Arc<AtomicBool>,
     /// Server ID for ZoneMinder distributed mode
     server_id: Option<u32>,
     /// Set once the orphan sweep has run for this manager. The sweep is for
@@ -101,6 +113,8 @@ impl DaemonManager {
             config: Arc::new(config),
             shutdown: Arc::new(Notify::new()),
             shutting_down: Arc::new(AtomicBool::new(false)),
+            loop_generation: Arc::new(AtomicU64::new(0)),
+            process_exiting: Arc::new(AtomicBool::new(false)),
             server_id,
             orphans_swept: Arc::new(AtomicBool::new(false)),
             native_jobs: NativeJobs::default(),
@@ -158,6 +172,8 @@ impl DaemonManager {
             config: Arc::new(config),
             shutdown: Arc::new(Notify::new()),
             shutting_down: Arc::new(AtomicBool::new(false)),
+            loop_generation: Arc::new(AtomicU64::new(0)),
+            process_exiting: Arc::new(AtomicBool::new(false)),
             server_id,
             orphans_swept: Arc::new(AtomicBool::new(false)),
             native_jobs: NativeJobs::default(),
@@ -195,6 +211,27 @@ impl DaemonManager {
         self.shutting_down.load(Ordering::SeqCst)
     }
 
+    /// The process is going away, not just restarting its daemons.
+    pub fn mark_process_exiting(&self) {
+        self.process_exiting.store(true, Ordering::SeqCst);
+    }
+
+    /// Whether the process is exiting (never reset, unlike `is_shutting_down`).
+    pub fn is_process_exiting(&self) -> bool {
+        self.process_exiting.load(Ordering::SeqCst)
+    }
+
+    /// How many times the background loops have been (re)started.
+    pub fn loop_generation(&self) -> u64 {
+        self.loop_generation.load(Ordering::SeqCst)
+    }
+
+    /// A loop spawned under `generation` must stop when a newer startup has
+    /// replaced it or shutdown was signalled.
+    fn loop_is_stale(&self, generation: u64) -> bool {
+        self.is_shutting_down() || self.loop_generation() != generation
+    }
+
     /// Start a daemon process.
     pub async fn start_daemon(&self, id: &str, args: &[String]) -> AppResult<DaemonResponse> {
         self.start_daemon_with_stdin(id, args, None).await
@@ -222,6 +259,14 @@ impl DaemonManager {
             )));
         }
 
+        // One map key per process, `"<command> <args>"`, whatever form the
+        // caller used: the legacy socket sends daemon "zmc" + args ["-m","1"],
+        // which must address the entry start_all_daemons created as
+        // "zmc -m 1", not spawn a second zmc under "zmc" (#84).
+        let canonical = canonical_daemon_id(id, args);
+        let id = canonical.as_str();
+        let args: &[String] = &[];
+
         // Check if already running, and capture any stored stdin payload so a
         // restart (which passes None) re-delivers the same config.
         let existing_payload = {
@@ -230,6 +275,15 @@ impl DaemonManager {
                 Some(process) if process.is_running() => {
                     return Ok(DaemonResponse::error(format!(
                         "Daemon {} is already running",
+                        id
+                    )));
+                }
+                // SIGTERM sent, exit not yet observed. Spawning now would
+                // overwrite this entry's child handle while the old process
+                // keeps running, orphaning it (#77). Callers wait_for_stop.
+                Some(process) if process.state == ProcessState::Stopping => {
+                    return Ok(DaemonResponse::error(format!(
+                        "Daemon {} is still stopping",
                         id
                     )));
                 }
@@ -833,6 +887,8 @@ impl DaemonManager {
 
         *running = true;
         self.shutting_down.store(false, Ordering::SeqCst);
+        // Retire any loop from a previous startup that is still mid-tick.
+        let generation = self.loop_generation.fetch_add(1, Ordering::SeqCst) + 1;
         drop(running); // Release lock before spawning
 
         // Start background health check task
@@ -842,7 +898,7 @@ impl DaemonManager {
 
         tokio::spawn(async move {
             manager
-                .run_health_check_loop(check_interval, max_delay)
+                .run_health_check_loop(check_interval, max_delay, generation)
                 .await;
         });
 
@@ -855,7 +911,9 @@ impl DaemonManager {
                 server_id
             );
             tokio::spawn(async move {
-                manager.run_server_status_loop(db, server_id).await;
+                manager
+                    .run_server_status_loop(db, server_id, generation)
+                    .await;
             });
         }
 
@@ -864,7 +922,7 @@ impl DaemonManager {
             let manager = Arc::clone(self);
             info!("Starting monitor reconciliation loop");
             tokio::spawn(async move {
-                manager.run_reconciliation_loop().await;
+                manager.run_reconciliation_loop(generation).await;
             });
         }
 
@@ -939,8 +997,22 @@ impl DaemonManager {
 
         // Kill daemons left behind by a previous zm-api, once. Later startup
         // calls arrive with our own children running and must leave them be.
-        if self.orphan_sweep_due() {
-            kill_orphan_daemons().await;
+        // Never over a live zmdc.pl: that is ZoneMinder still supervising, and
+        // the sweep would kill its children out from under it (#118).
+        if !self.orphans_swept.load(Ordering::SeqCst) {
+            let socket = self.config.socket_file();
+            if crate::daemon::ipc::socket::legacy_socket_is_live(&socket).await {
+                let msg = format!(
+                    "{} is being served (zmdc.pl, or another zm-api); refusing to take over \
+                     daemon control while it runs",
+                    socket.display()
+                );
+                error!("{msg}");
+                return Ok(DaemonResponse::error(msg));
+            }
+            if self.orphan_sweep_due() {
+                kill_orphan_daemons().await;
+            }
         }
 
         // Ensure state table sanity (matches zmpkg.pl behavior)
@@ -1361,6 +1433,7 @@ impl DaemonManager {
         &self,
         check_interval: std::time::Duration,
         max_delay: std::time::Duration,
+        generation: u64,
     ) {
         // Initial delay before first check (like zmwatch.pl's 30 second delay)
         let startup_delay = std::time::Duration::from_secs(30);
@@ -1384,6 +1457,10 @@ impl DaemonManager {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
+                    if self.loop_is_stale(generation) {
+                        info!("Health monitor retired (generation {generation})");
+                        break;
+                    }
                     self.perform_health_check(max_delay).await;
                 }
                 _ = self.shutdown.notified() => {
@@ -1401,7 +1478,12 @@ impl DaemonManager {
     ///
     /// This matches the behavior of zmdc.pl which updates the Server record
     /// with CPU load, memory usage, and other statistics.
-    async fn run_server_status_loop(&self, db: Arc<DatabaseConnection>, server_id: u32) {
+    async fn run_server_status_loop(
+        &self,
+        db: Arc<DatabaseConnection>,
+        server_id: u32,
+        generation: u64,
+    ) {
         let update_interval = self.config.stats_update_interval();
 
         info!(
@@ -1421,6 +1503,10 @@ impl DaemonManager {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
+                    if self.loop_is_stale(generation) {
+                        info!("Server status loop retired (generation {generation})");
+                        break;
+                    }
                     if let Err(e) = self.update_server_status(&db, server_id).await {
                         error!("Failed to update server status: {}", e);
                     }
@@ -1509,7 +1595,7 @@ impl DaemonManager {
     /// - The API crashes between DB update and daemon control
     /// - Daemons are started/stopped externally
     /// - System restarts
-    async fn run_reconciliation_loop(&self) {
+    async fn run_reconciliation_loop(&self, generation: u64) {
         // Reconciliation interval (check every 60 seconds)
         let interval = Duration::from_secs(60);
         // Initial delay before first reconciliation (allow startup to complete)
@@ -1534,6 +1620,10 @@ impl DaemonManager {
         loop {
             tokio::select! {
                 _ = ticker.tick() => {
+                    if self.loop_is_stale(generation) {
+                        info!("Reconciliation loop retired (generation {generation})");
+                        break;
+                    }
                     if let Err(e) = self.reconcile_monitors().await {
                         error!("Monitor reconciliation failed: {}", e);
                     }
@@ -1570,29 +1660,47 @@ impl DaemonManager {
             .all(db.as_ref())
             .await?;
 
+        // What each monitor wants, folded per capture daemon: Local monitors
+        // on one device share a single `zmc -d <device>`, which must run while
+        // any of them captures — not be stopped and restarted every tick
+        // because one of them is set to None (#113).
+        let wants: Vec<(u32, String, bool)> = monitor_list
+            .iter()
+            .map(|m| {
+                let should_run = !matches!(m.capturing, Capturing::None)
+                    && !matches!(m.r#type, MonitorType::WebSite)
+                    && self
+                        .server_id
+                        .is_none_or(|ours| m.server_id.is_none_or(|sid| sid == ours));
+                (m.id, zmc_daemon_id(&m.r#type, &m.device, m.id), should_run)
+            })
+            .collect();
+        let per_daemon = fold_should_run(&wants);
+
         let mut started = 0;
         let mut stopped = 0;
 
-        for monitor in &monitor_list {
-            let monitor_id = monitor.id;
-            let should_run = !matches!(monitor.capturing, Capturing::None)
-                && !matches!(monitor.r#type, MonitorType::WebSite);
+        for (monitor_id, zmc_id, _) in &wants {
+            let monitor_id = *monitor_id;
+            let should_run = per_daemon.get(zmc_id).copied().unwrap_or(false);
 
-            // Check server_id filtering if configured
-            let should_run = should_run && {
-                if let Some(our_server_id) = self.server_id {
-                    monitor
-                        .server_id
-                        .map(|sid| sid == our_server_id)
-                        .unwrap_or(true)
-                } else {
-                    true
-                }
-            };
+            // Only an absent or Stopped/Failed daemon is ours to start, and
+            // only a Running/Starting one is ours to stop. Stopping and
+            // Restarting entries belong to whoever put them there: starting
+            // over a Stopping one orphans the old process (#77), and
+            // respawning a Restarting one every tick caps the documented
+            // backoff at this loop's interval (#115).
+            let state = self.monitor_daemon_state(monitor_id).await;
+            let idle = matches!(
+                state,
+                None | Some(ProcessState::Stopped) | Some(ProcessState::Failed)
+            );
+            let active = matches!(
+                state,
+                Some(ProcessState::Running) | Some(ProcessState::Starting)
+            );
 
-            let is_running = self.is_monitor_running(monitor_id).await;
-
-            if should_run && !is_running {
+            if should_run && idle {
                 // Monitor should be running but isn't - start it
                 debug!(
                     "Reconciliation: starting monitor {} (capturing but not running)",
@@ -1616,7 +1724,7 @@ impl DaemonManager {
                         );
                     }
                 }
-            } else if !should_run && is_running {
+            } else if !should_run && active {
                 // Monitor shouldn't be running but is - stop it
                 debug!(
                     "Reconciliation: stopping monitor {} (not capturing but running)",
@@ -1642,6 +1750,12 @@ impl DaemonManager {
                 }
             }
         }
+
+        // Daemons for monitors that no longer exist. Nothing stopped them
+        // before: a soft-deleted monitor kept capturing, and a hard-deleted
+        // one left a zmc crash-looping on a missing row forever (#76).
+        let live: std::collections::HashSet<u32> = monitor_list.iter().map(|m| m.id).collect();
+        stopped += self.stop_daemons_for_absent_monitors(&live).await;
 
         if started > 0 || stopped > 0 {
             info!(
@@ -1752,6 +1866,9 @@ impl DaemonManager {
                         if let Some(pid) = process.pid {
                             pids_to_remove.push(pid);
                         }
+                        // The pid is dead and may be reused; a later stop/kill
+                        // of this Restarting entry must not signal it (#81).
+                        process.pid = None;
 
                         // Clear term_sent_at since process has exited
                         process.term_sent_at = None;
@@ -2113,6 +2230,7 @@ impl DaemonManager {
                 .stop_daemon(&zmc_daemon_id(&monitor.r#type, &monitor.device, monitor_id))
                 .await;
             let _ = self.stop_daemon(&format!("zma -m {}", monitor_id)).await;
+            self.wait_for_monitor_stop(monitor_id).await;
             return self.start_zmnext_worker(&monitor).await;
         }
 
@@ -2123,6 +2241,7 @@ impl DaemonManager {
         // legacy daemons (handles flipping the flag back off).
         if self.zmnext.is_some() {
             let _ = self.stop_daemon(&zmnext_daemon_id(monitor_id)).await;
+            self.wait_for_stop(&zmnext_daemon_id(monitor_id)).await;
         }
 
         // Start zmc (capture daemon). Use the shared id derivation so Local
@@ -2279,11 +2398,25 @@ impl DaemonManager {
             );
         }
 
-        // Brief delay to allow cleanup
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        // Wait for what was SIGTERM'd to actually exit. A fixed sleep let the
+        // new spawn overwrite the entry while the old process was still
+        // running, leaking it as an orphan (#77).
+        self.wait_for_monitor_stop(monitor_id).await;
 
         // Start
         self.start_monitor(monitor_id).await
+    }
+
+    /// Wait for every daemon a monitor can own to leave `Stopping`.
+    async fn wait_for_monitor_stop(&self, monitor_id: u32) {
+        let zmc_id = self.zmc_id_for_monitor(monitor_id).await;
+        for id in [
+            zmc_id,
+            format!("zma -m {}", monitor_id),
+            zmnext_daemon_id(monitor_id),
+        ] {
+            self.wait_for_stop(&id).await;
+        }
     }
 
     /// Check if a specific monitor's daemons are running.
@@ -2294,16 +2427,100 @@ impl DaemonManager {
     /// flips: the now-correct daemon reads as "not running", so `start_monitor`
     /// fires and tears down the other.
     pub async fn is_monitor_running(&self, monitor_id: u32) -> bool {
+        self.monitor_daemon_state(monitor_id).await == Some(ProcessState::Running)
+    }
+
+    /// State of one tracked daemon by its id, `None` if untracked.
+    pub async fn daemon_state(&self, id: &str) -> Option<ProcessState> {
+        self.processes.read().await.get(id).map(|p| p.state)
+    }
+
+    /// Ask one daemon to reopen its log files: SIGWINCH, as zmdc.pl sends.
+    /// SIGHUP is "reload" — zmc drops its camera and the Perl daemons exit for
+    /// a restart — which is not what nightly logrotate means (#86). zm-next
+    /// workers have no log-rotation signal and are left alone.
+    pub async fn logrot_daemon(&self, id: &str) -> AppResult<DaemonResponse> {
+        if zmnext_monitor_id_from_id(id).is_some() {
+            return Ok(DaemonResponse::error(format!(
+                "{id} is a zm-next worker; log rotation does not apply"
+            )));
+        }
+        let pid = {
+            let processes = self.processes.read().await;
+            match processes.get(id) {
+                Some(p) if p.is_running() => p.pid,
+                Some(_) => return Ok(DaemonResponse::error(format!("Daemon {id} is not running"))),
+                None => return Ok(DaemonResponse::error(format!("Daemon {id} not found"))),
+            }
+        };
+        let Some(pid) = pid else {
+            return Ok(DaemonResponse::error(format!("Daemon {id} has no PID")));
+        };
+        #[cfg(unix)]
+        {
+            use nix::sys::signal::{kill, Signal};
+            use nix::unistd::Pid;
+            match kill(Pid::from_raw(pid as i32), Signal::SIGWINCH) {
+                Ok(()) => Ok(DaemonResponse::ok(format!(
+                    "Sent SIGWINCH to {id} (PID {pid})"
+                ))),
+                Err(e) => Ok(DaemonResponse::error(format!(
+                    "Failed to send SIGWINCH to {id}: {e}"
+                ))),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            Ok(DaemonResponse::error("log rotation signals are unix-only"))
+        }
+    }
+
+    /// `logrot_daemon` for every tracked daemon; how many were signalled.
+    pub async fn logrot_all(&self) -> usize {
+        let mut count = 0;
+        for id in self.list_daemon_ids().await {
+            if let Ok(resp) = self.logrot_daemon(&id).await {
+                if resp.success {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    /// State of the monitor's primary capture daemon, `None` if untracked.
+    async fn monitor_daemon_state(&self, monitor_id: u32) -> Option<ProcessState> {
         let id = if self.use_zmnext(monitor_id).await {
             zmnext_daemon_id(monitor_id)
         } else {
             self.zmc_id_for_monitor(monitor_id).await
         };
         let processes = self.processes.read().await;
-        processes
-            .get(&id)
-            .map(|process| process.is_running())
-            .unwrap_or(false)
+        processes.get(&id).map(|process| process.state)
+    }
+
+    /// Stop every tracked per-monitor daemon whose monitor is not in `live`.
+    /// Returns how many were told to stop.
+    pub async fn stop_daemons_for_absent_monitors(
+        &self,
+        live: &std::collections::HashSet<u32>,
+    ) -> usize {
+        let stale: Vec<String> = {
+            let processes = self.processes.read().await;
+            processes
+                .iter()
+                .filter(|(_, p)| p.monitor_id.is_some_and(|m| !live.contains(&m)))
+                .filter(|(_, p)| p.can_stop())
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
+        for id in &stale {
+            info!("Stopping {id}: its monitor no longer exists");
+            if let Err(e) = self.stop_daemon(id).await {
+                warn!("Could not stop {id} for a removed monitor: {e}");
+            }
+        }
+        stale.len()
     }
 
     /// Get status of a specific monitor's daemons.
@@ -2496,6 +2713,18 @@ fn parse_daemon_command(id: &str, extra_args: &[String]) -> (String, Vec<String>
 /// A device containing whitespace falls back to the `-m` form: the id is later
 /// re-split on whitespace by [`parse_daemon_command`], so a spaced path would
 /// fan out into bogus args and be rejected by `validate_daemon_spec` anyway.
+/// Whether each capture daemon should run, given what every monitor wants.
+/// A daemon shared by several monitors (`zmc -d <device>`) runs if any of
+/// them wants it.
+fn fold_should_run(wants: &[(u32, String, bool)]) -> std::collections::HashMap<String, bool> {
+    let mut per_daemon = std::collections::HashMap::new();
+    for (_, daemon_id, should_run) in wants {
+        let entry = per_daemon.entry(daemon_id.clone()).or_insert(false);
+        *entry |= *should_run;
+    }
+    per_daemon
+}
+
 fn zmc_daemon_id(monitor_type: &MonitorType, device: &str, monitor_id: u32) -> String {
     if matches!(monitor_type, MonitorType::Local) && !device.is_empty() {
         if device.chars().any(char::is_whitespace) {
@@ -2723,21 +2952,21 @@ fn spawn_daemon(
 /// a clean slate. Orphaned processes can cause shared memory conflicts
 /// and resource contention.
 pub async fn kill_orphan_daemons() {
-    let daemon_names = [
-        "zmc",
-        "zma",
-        "zmfilter.pl",
-        "zmstats.pl",
-        "zmtrack.pl",
-        "zmcontrol.pl",
-        "zm-infer",
-    ];
+    // Everything this supervisor spawns (#118): the ZoneMinder daemons it
+    // knows plus the zm-next workers. Derived, so it cannot drift from the
+    // spawn list the way a hand-written copy did.
+    let daemon_names: Vec<&str> = DaemonDefinition::commands()
+        .chain(["zm-core", "zm-infer"])
+        .collect();
 
     for daemon in &daemon_names {
-        // `-x` anchors the match to the whole process name; the default is an
-        // unanchored regex, so "zma" also matched zmaudit.pl and "zmc" zmcontrol.pl.
+        // Match the program name as a whole word of the full command line:
+        // `(^|/)name( |$)`. The default pkill pattern is an unanchored regex on
+        // the 15-char comm, so "zma" matched zmaudit.pl and "zmc" matched
+        // zmcontrol.pl, and names longer than 15 chars could never match.
+        let pattern = format!("(^|/){}( |$)", regex::escape(daemon));
         match Command::new("pkill")
-            .args(["-9", "-x", daemon])
+            .args(["-9", "-f", "--", &pattern])
             .output()
             .await
         {
@@ -2750,7 +2979,11 @@ pub async fn kill_orphan_daemons() {
             Err(e) => {
                 // pkill might not be available, try killall as fallback
                 debug!("pkill failed for {}: {}, trying killall", daemon, e);
-                if let Err(e2) = Command::new("killall").args(["-9", daemon]).output().await {
+                if let Err(e2) = Command::new("killall")
+                    .args(["-9", "--", daemon])
+                    .output()
+                    .await
+                {
                     debug!("killall also failed for {}: {}", daemon, e2);
                 }
             }
@@ -3176,6 +3409,82 @@ mod tests {
             !process.has_child(),
             "dead child handle must be cleared so try_wait() cannot re-fire"
         );
+        assert!(
+            process.pid.is_none(),
+            "a dead pid may be reused; it must be forgotten so stop/kill never signal it (#81)"
+        );
+    }
+
+    /// Regression for #77: an entry that has been sent SIGTERM but whose exit
+    /// has not been observed must refuse a start; spawning over it overwrote
+    /// the child handle and leaked the old process.
+    #[tokio::test]
+    async fn start_is_refused_while_the_old_process_is_still_stopping() {
+        let manager = DaemonManager::new(DaemonConfig::default(), None);
+        let mut process = ManagedProcess::for_monitor(1, None);
+        process.set_state(ProcessState::Stopping);
+        manager.register_daemon(process).await;
+
+        let resp = manager
+            .start_daemon("zmc", &["-m".to_string(), "1".to_string()])
+            .await
+            .unwrap();
+        assert!(!resp.success);
+        assert!(resp.message.contains("still stopping"), "{}", resp.message);
+    }
+
+    /// Regression for #76: reconcile only ever diffed the database against the
+    /// process map in one direction, so a deleted monitor's daemons ran on.
+    #[tokio::test]
+    async fn daemons_of_absent_monitors_are_stopped() {
+        let manager = DaemonManager::new(DaemonConfig::default(), None);
+        for m in [7, 9] {
+            let mut p = ManagedProcess::for_monitor(m, None);
+            p.set_state(ProcessState::Running);
+            manager.register_daemon(p).await;
+        }
+
+        let live: std::collections::HashSet<u32> = [7].into_iter().collect();
+        assert_eq!(manager.stop_daemons_for_absent_monitors(&live).await, 1);
+
+        let processes = manager.processes.read().await;
+        assert_eq!(processes["zmc -m 9"].state, ProcessState::Stopped);
+        assert!(!processes["zmc -m 9"].auto_restart);
+        assert_eq!(processes["zmc -m 7"].state, ProcessState::Running);
+    }
+
+    /// Regression for #113: two Local monitors share one `zmc -d /dev/video0`;
+    /// the device must run while either wants it.
+    #[test]
+    fn a_shared_capture_daemon_runs_while_any_monitor_wants_it() {
+        let wants = vec![
+            (1, "zmc -d /dev/video0".to_string(), true),
+            (2, "zmc -d /dev/video0".to_string(), false),
+            (3, "zmc -m 3".to_string(), false),
+        ];
+        let folded = fold_should_run(&wants);
+        assert!(folded["zmc -d /dev/video0"]);
+        assert!(!folded["zmc -m 3"]);
+    }
+
+    /// Regression for #80: every startup retires the loops of the previous
+    /// one, so a loop that missed the shutdown wake-up mid-tick exits at its
+    /// next tick instead of running beside its replacement forever.
+    #[tokio::test]
+    async fn each_startup_retires_the_previous_loops() {
+        let manager = Arc::new(DaemonManager::new(DaemonConfig::default(), None));
+        manager.startup().await.unwrap();
+        assert_eq!(manager.loop_generation(), 1);
+        assert!(!manager.loop_is_stale(1));
+
+        manager.signal_shutdown();
+        assert!(manager.loop_is_stale(1));
+        *manager.running.write().await = false;
+        manager.startup().await.unwrap();
+        assert_eq!(manager.loop_generation(), 2);
+        assert!(manager.loop_is_stale(1), "generation-1 loops must exit");
+        assert!(!manager.loop_is_stale(2));
+        manager.signal_shutdown();
     }
 
     /// Regression for #88: `[daemon].enable_watchdog` was parsed, documented

@@ -72,6 +72,15 @@ pub async fn enable_zmnext(
     monitor_id: u32,
     scope: &MonitorScope,
 ) -> AppResult<MonitorPipelineResponse> {
+    // Setting the flag with no runtime to honour it returned 200 and
+    // restarted the legacy zmc for nothing (#121).
+    if !state.config.zmnext.enabled || state.daemon_manager.is_none() {
+        return Err(AppError::ServiceUnavailableError(
+            "zm-next is not available on this server: [zmnext].enabled is off, \
+             or daemon control is passive"
+                .to_string(),
+        ));
+    }
     crate::service::monitor::get_by_id(state, monitor_id, scope).await?;
     crate::repo::monitors::set_use_zmnext(state.db(), monitor_id, true)
         .await
@@ -126,11 +135,17 @@ pub async fn disable_zmnext(
 /// next (re)start regardless.
 async fn reload_worker(state: &AppState, monitor_id: u32) {
     if let Some(mgr) = &state.daemon_manager {
-        if let Err(e) = mgr.restart_monitor(monitor_id).await {
-            tracing::warn!(
+        match mgr.restart_monitor(monitor_id).await {
+            Ok(resp) if !resp.success => tracing::warn!(
+                "monitor {monitor_id} pipeline graph saved; worker restart refused \
+                 (applies on next start): {}",
+                resp.message
+            ),
+            Ok(_) => {}
+            Err(e) => tracing::warn!(
                 "monitor {monitor_id} pipeline graph saved; worker restart failed \
                  (applies on next start): {e}"
-            );
+            ),
         }
     }
 }

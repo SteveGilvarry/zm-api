@@ -696,6 +696,13 @@ pub async fn delete(state: &AppState, id: u32, scope: &MonitorScope) -> AppResul
                 resource_type: ResourceType::File,
             })
         })?;
+    // Its daemons first, while the row still exists: a zmc whose monitor row
+    // vanished crash-looped forever (#76). Reconcile also catches this.
+    if let Some(dm) = &state.daemon_manager {
+        if let Err(e) = dm.stop_monitor(id).await {
+            tracing::warn!("Could not stop daemons for monitor {id} before delete: {e}");
+        }
+    }
     repo::monitors::delete(state.db(), monitor).await
 }
 
