@@ -19,9 +19,10 @@ recognisable path forward.
 - **Native replacements for three Perl maintenance daemons** — `zmstats.pl`,
   `zmaudit.pl` (database side) and `zmtelemetry.pl` — each independently
   switchable under `[maintenance]` and all off by default, so an existing
-  install keeps running the Perl until the operator moves over. Enable the Rust
-  job and disable the matching daemon together; running both has them competing
-  over the same rows.
+  install keeps running the Perl until the operator moves over. Only one of a
+  pair may run: in takeover mode an enabled native job stops the supervisor
+  starting its Perl counterpart; in passive mode disable the Perl daemon in
+  ZoneMinder yourself.
   <br>**Stats** samples CPU and memory into `Server_Stats`, evicts stale
   `Monitor_Status` heartbeats, ages events out of the `Events_Hour/Day/Week/Month`
   windows and resyncs the counters they feed, and prunes `Logs` and `Sessions`
@@ -108,6 +109,68 @@ recognisable path forward.
   the `/me` change above in the pull request that made it.
 
 ### Fixed
+
+- **The hung-daemon watchdog could never fire** (#73). `check_activity` stamped
+  a timestamp on every sample and `appears_hung` then asked whether that stamp
+  was older than `watch_max_delay_seconds` — microseconds later it never was.
+  A `zmc` blocked on a stalled RTSP read stayed dead until an operator noticed,
+  while the docs said `zmwatch.pl` was replaced. The stamp now moves only when
+  CPU time advances, so its age is the stall.
+
+- **A second `startup` on a running supervisor SIGKILLed every daemon** (#74).
+  The `pkill -9` orphan sweep ran inside `start_all_daemons`, which the legacy
+  socket `startup`/`pkg_start` commands and `POST /system/startup` also call.
+  Because the entries still read Running nothing respawned them until the
+  health tick and first backoff — a 10–20s capture gap on every monitor. The
+  sweep now runs once per manager. It also uses `pkill -x`: the unanchored
+  default matched `zmaudit.pl` for "zma" and `zmcontrol.pl` for "zmc".
+
+- **A daemon stopped and started again was never crash-supervised** (#78).
+  `stop_daemon` clears `auto_restart` so the health loop does not resurrect a
+  deliberate stop, but nothing re-armed it on the next spawn (monitor restart,
+  reconcile). Supervision is re-armed on every spawn.
+
+- **`zm-api.service` deleted ZoneMinder's `/run/zm` on every stop/restart**
+  (#82). It was declared as the unit's `RuntimeDirectory`, so systemd chowned
+  it on start and removed it on stop — in passive mode, from under a running
+  `zmdc.pl` and every `zmc` stream socket. The unit now only creates the
+  directory when it is missing and never touches an existing one.
+
+- **Takeover started the Perl maintenance daemon alongside its native
+  replacement** (#87). `base.toml` said to enable the Rust job and disable the
+  Perl daemon together, but nothing in zm-api did the second half: the
+  singleton gates read only ZoneMinder's `Config`/`Servers` rows. With
+  `[maintenance.stats]` on, `zmstats.pl` still ran and both wrote the same
+  rows. Each enabled native job now suppresses its Perl counterpart's automatic
+  start (an explicit `start` over the socket or REST is still honoured).
+
+- **The daemon manager never knew which server it was** (#75) and the stats
+  job read `ZM_SERVER_ID` from an environment variable nothing sets (#100).
+  On a multi-server install every host started every monitor's `zmc`, the
+  per-server `Servers.zm*` gates were dead, and `Server_Stats` rows landed
+  under `ServerId = 0`. The id is now resolved the way ZoneMinder's own daemons
+  do it — `ZM_SERVER_ID` from `zm.conf`, else `ZM_SERVER_HOST` against
+  `Servers`, else the machine hostname — and shared by both.
+
+- **Three documented `[daemon]` keys were never read** (#88).
+  `enable_watchdog` now gates the hung-process check (exit detection and crash
+  restarts are never optional), `stats_update_interval_seconds` drives the
+  `Servers` status loop instead of a hard-coded 60s, and
+  `enable_rest_api = false` leaves the daemon/system routes unregistered.
+
+- **The retention reaper could empty a storage in one pass** (#105). With
+  `Events.DiskSpace` NULL — the normal state of a freshly recorded event until
+  something backfills it — each deletion credited zero bytes, the free-space
+  model never moved, and the loop ran to the end of the table. NULL sizes are
+  now measured on disk, free space is re-read from the filesystem every 25
+  deletions, and a new `max_deletes_per_pass` (default 500, `0` = unlimited)
+  bounds one pass. Alongside it: an unmounted storage (missing or empty
+  directory) is skipped rather than reaped against the parent filesystem's
+  free space, and the first pass waits 60s after start (#104); a failed media
+  removal stops the pass instead of deleting row after row while the disk
+  stays full (#106); an event archived after the candidate list was taken is
+  left alone (#109); and event deletion now removes the event's `Stats` rows,
+  which have no foreign key and were left behind (#110).
 
 - **The rate limiter made the API unusable for any browser client** (#70). A
   burst of `0` with the limiter enabled was clamped silently to `1`, so one

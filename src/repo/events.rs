@@ -235,12 +235,17 @@ where
     C: ConnectionTrait + TransactionTrait,
 {
     use crate::entity::{
-        events_archived, events_day, events_hour, events_month, events_week, frames,
+        events_archived, events_day, events_hour, events_month, events_week, frames, stats,
     };
 
     let txn = conn.begin().await?;
     frames::Entity::delete_many()
         .filter(frames::Column::EventId.eq(id))
+        .exec(&txn)
+        .await?;
+    // Per-frame zone scores; no FK, so they were left behind (#110).
+    stats::Entity::delete_many()
+        .filter(stats::Column::EventId.eq(id))
         .exec(&txn)
         .await?;
     events_hour::Entity::delete_many()
@@ -439,9 +444,10 @@ mod tests {
     use super::*;
     use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
 
-    /// `delete_with_children` runs one transaction that removes the six child
-    /// tables plus the event itself — seven exec statements in total. The mock
-    /// supplies exactly seven results, so a missing or extra delete would leave
+    /// `delete_with_children` runs one transaction that removes the seven
+    /// child tables (Frames, Stats, Events_Hour/Day/Week/Month, Events_Archived)
+    /// plus the event itself — eight exec statements in total. The mock
+    /// supplies exactly eight results, so a missing or extra delete would leave
     /// the queue mismatched and fail.
     #[tokio::test]
     async fn delete_with_children_removes_all_child_rows_and_event() {
@@ -451,7 +457,7 @@ mod tests {
                     last_insert_id: 0,
                     rows_affected: 1,
                 };
-                7
+                8
             ])
             .into_connection();
 

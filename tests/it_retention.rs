@@ -81,6 +81,7 @@ fn quota_config(max_bytes: u64, dry_run: bool) -> RetentionConfig {
         max_age_days: 0,
         max_bytes,
         dry_run,
+        max_deletes_per_pass: 0,
     }
 }
 

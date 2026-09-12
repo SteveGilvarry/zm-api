@@ -511,9 +511,9 @@ mod tests {
             do_delete: 1,
             enabled: 1,
         };
-        // delete_with_children runs a transaction: 6 child-table deletes
-        // (frames + Events_Hour/Day/Week/Month + Events_Archived) then the event
-        // delete — 7 exec results.
+        // delete_with_children runs a transaction: 7 child-table deletes
+        // (Frames + Stats + Events_Hour/Day/Week/Month + Events_Archived) then
+        // the event delete — 8 exec results.
         let db_del = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<EventModel, _, _>(vec![vec![mk_event(7, "old")]])
             .append_exec_results(vec![
@@ -521,7 +521,7 @@ mod tests {
                     last_insert_id: 0,
                     rows_affected: 1,
                 };
-                7
+                8
             ])
             .append_query_results::<crate::entity::storage::Model, _, _>(vec![vec![storage]])
             .into_connection();
