@@ -69,8 +69,10 @@ pub struct ManagedProcess {
     pub term_sent_at: Option<Instant>,
     /// Last recorded CPU time (utime + stime from /proc/[pid]/stat) for hang detection
     pub last_cpu_time: Option<u64>,
-    /// When we last checked process activity
-    pub last_activity_check: Option<Instant>,
+    /// When CPU time was last seen to advance. `appears_hung` measures the age
+    /// of this stamp, so it must only move when the process did work — not on
+    /// every sample (that is what made the watchdog dead code, #73).
+    pub last_active_at: Option<Instant>,
     /// Optional payload written to the child's stdin at (every) spawn. Used to
     /// deliver the zm-next worker's pipeline config (camera credentials included)
     /// in memory, so it never lands on disk. Persisted on the process entry so a
@@ -105,7 +107,7 @@ impl ManagedProcess {
             monitor_id,
             term_sent_at: None,
             last_cpu_time: None,
-            last_activity_check: None,
+            last_active_at: None,
             stdin_payload: None,
         }
     }
@@ -146,6 +148,11 @@ impl ManagedProcess {
         self.child = Some(child);
         self.set_state(ProcessState::Running);
         self.started_at = Some(Instant::now());
+        // A spawn is always intentional, so supervision is re-armed here.
+        // `stop_daemon` clears the flag to keep the health loop from
+        // resurrecting a deliberate stop; without this a later start
+        // (monitor restart, reconcile) stayed unsupervised (#78).
+        self.auto_restart = true;
     }
 
     /// Take ownership of the child process handle.
@@ -300,61 +307,46 @@ impl ManagedProcess {
     /// Check process activity and update tracking.
     ///
     /// Returns true if the process appears to be active (CPU time changed).
-    /// Returns None if we can't determine activity (first check or non-Linux).
+    /// Returns None if we can't determine activity (non-Linux).
     pub fn check_activity(&mut self) -> Option<bool> {
         let current_cpu_time = self.read_cpu_time()?;
-        let now = Instant::now();
-
-        let is_active = if let Some(last_cpu) = self.last_cpu_time {
-            current_cpu_time > last_cpu
-        } else {
-            // First check - assume active
-            true
-        };
-
-        self.last_cpu_time = Some(current_cpu_time);
-        self.last_activity_check = Some(now);
-
-        Some(is_active)
+        Some(self.record_cpu_sample(current_cpu_time))
     }
 
-    /// Check if the process appears to be hung (no CPU activity for too long).
-    ///
-    /// Returns true if:
-    /// - Process is running
-    /// - We've been checking activity
-    /// - CPU time hasn't changed since last check
-    /// - Enough time has passed since last activity
+    /// Record one CPU-time sample. Returns true if the process did work since
+    /// the previous sample (or this is the first one). `last_active_at` moves
+    /// only on activity, so its age is how long the process has been stalled.
+    pub fn record_cpu_sample(&mut self, cpu_time: u64) -> bool {
+        let is_active = match self.last_cpu_time {
+            Some(last) => cpu_time > last,
+            // First sample: nothing to compare against, treat as active.
+            None => true,
+        };
+        if is_active {
+            self.last_active_at = Some(Instant::now());
+        }
+        self.last_cpu_time = Some(cpu_time);
+        is_active
+    }
+
+    /// Whether the process has shown no CPU activity for at least
+    /// `max_inactive`. Only a Running process with at least one sample can be
+    /// hung; on platforms with no CPU-time source no sample is ever recorded
+    /// and this is always false.
     pub fn appears_hung(&self, max_inactive: Duration) -> bool {
         if self.state != ProcessState::Running {
             return false;
         }
-
-        // If we haven't done activity checks, can't determine if hung
-        let Some(last_check) = self.last_activity_check else {
-            return false;
-        };
-
-        // If last check was recent, wait for more data
-        if last_check.elapsed() < max_inactive {
-            return false;
+        match self.last_active_at {
+            Some(last_active) => last_active.elapsed() >= max_inactive,
+            None => false,
         }
-
-        // On non-Linux or if we can't read CPU time, don't report as hung
-        let Some(current_cpu) = self.read_cpu_time() else {
-            return false;
-        };
-
-        // If CPU time matches last recorded (hasn't changed), process may be hung
-        self.last_cpu_time
-            .map(|last| current_cpu == last)
-            .unwrap_or(false)
     }
 
     /// Reset activity tracking (call after restart).
     pub fn reset_activity(&mut self) {
         self.last_cpu_time = None;
-        self.last_activity_check = None;
+        self.last_active_at = None;
     }
 }
 
@@ -417,6 +409,63 @@ mod tests {
         process.set_state(ProcessState::Stopped);
         assert!(process.can_start());
         assert!(!process.is_running());
+    }
+
+    /// Regression for #73: `check_activity` used to stamp `last_activity_check`
+    /// on every call, and `appears_hung` then asked whether that stamp was
+    /// older than `max_inactive` — microseconds later, it never was. The
+    /// watchdog that replaces zmwatch.pl could not fire. The timestamp must
+    /// mean "when CPU time last advanced", so a stalled process ages out.
+    #[test]
+    fn hung_detection_fires_when_cpu_time_stops_advancing() {
+        let max = Duration::from_secs(30);
+        let mut process = ManagedProcess::new("zmc -m 1", "zmc[1]", "zmc", vec![], true, None);
+        process.set_state(ProcessState::Running);
+
+        // First sample: nothing to compare against, treated as active.
+        assert!(process.record_cpu_sample(100));
+        assert!(!process.appears_hung(max));
+
+        // CPU time stalls and enough wall time passes since it last advanced.
+        process.last_active_at = Some(Instant::now() - max - Duration::from_secs(1));
+        assert!(!process.record_cpu_sample(100));
+        assert!(
+            process.appears_hung(max),
+            "stalled CPU time past max_inactive must read as hung"
+        );
+
+        // Activity resumes: the stamp refreshes and the process is healthy again.
+        assert!(process.record_cpu_sample(101));
+        assert!(!process.appears_hung(max));
+
+        // A stalled process that is not Running is never reported.
+        process.last_active_at = Some(Instant::now() - max - Duration::from_secs(1));
+        process.set_state(ProcessState::Stopping);
+        assert!(!process.appears_hung(max));
+    }
+
+    /// Regression for #78: `stop_daemon` clears `auto_restart` so the health
+    /// loop does not resurrect an intentional stop, but nothing re-armed it on
+    /// the next spawn. A daemon stopped and started again (monitor restart,
+    /// reconcile) was then never crash-supervised. Every spawn goes through
+    /// `set_child`, so that is where supervision is re-armed.
+    #[tokio::test]
+    async fn set_child_rearms_auto_restart() {
+        let mut process = ManagedProcess::new("zma -m 1", "zma[1]", "zma", vec![], true, None);
+        process.auto_restart = false;
+
+        let child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("exit 0")
+            .spawn()
+            .expect("spawn test child");
+        process.set_child(child);
+
+        assert!(
+            process.auto_restart,
+            "a freshly spawned child must be supervised"
+        );
+        assert_eq!(process.state, ProcessState::Running);
     }
 
     #[test]

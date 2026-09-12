@@ -74,6 +74,11 @@ pub struct DaemonManager {
     shutting_down: Arc<AtomicBool>,
     /// Server ID for ZoneMinder distributed mode
     server_id: Option<u32>,
+    /// Set once the orphan sweep has run for this manager. The sweep is for
+    /// processes left by a *previous* zm-api, so it must not run again on the
+    /// socket `startup`/`pkg_start` or REST startup paths of a live supervisor,
+    /// where it SIGKILLed every healthy child (#74).
+    orphans_swept: Arc<AtomicBool>,
     /// Whether the manager is running
     running: Arc<RwLock<bool>>,
     /// Database connection for querying monitors
@@ -93,10 +98,16 @@ impl DaemonManager {
             shutdown: Arc::new(Notify::new()),
             shutting_down: Arc::new(AtomicBool::new(false)),
             server_id,
+            orphans_swept: Arc::new(AtomicBool::new(false)),
             running: Arc::new(RwLock::new(false)),
             db: None,
             zmnext: None,
         }
+    }
+
+    /// True exactly once per manager: the first caller owns the orphan sweep.
+    pub fn orphan_sweep_due(&self) -> bool {
+        !self.orphans_swept.swap(true, Ordering::SeqCst)
     }
 
     /// Set the database connection for querying monitors.
@@ -136,6 +147,7 @@ impl DaemonManager {
             shutdown: Arc::new(Notify::new()),
             shutting_down: Arc::new(AtomicBool::new(false)),
             server_id,
+            orphans_swept: Arc::new(AtomicBool::new(false)),
             running: Arc::new(RwLock::new(false)),
             db: Some(db),
             zmnext: None,
@@ -912,8 +924,11 @@ impl DaemonManager {
             self.startup().await?;
         }
 
-        // Kill any orphaned daemons from previous crashes before starting fresh
-        kill_orphan_daemons().await;
+        // Kill daemons left behind by a previous zm-api, once. Later startup
+        // calls arrive with our own children running and must leave them be.
+        if self.orphan_sweep_due() {
+            kill_orphan_daemons().await;
+        }
 
         // Ensure state table sanity (matches zmpkg.pl behavior)
         if let Err(e) = crate::service::daemon::ensure_state_sanity(db.as_ref()).await {
@@ -2652,7 +2667,13 @@ pub async fn kill_orphan_daemons() {
     ];
 
     for daemon in &daemon_names {
-        match Command::new("pkill").args(["-9", daemon]).output().await {
+        // `-x` anchors the match to the whole process name; the default is an
+        // unanchored regex, so "zma" also matched zmaudit.pl and "zmc" zmcontrol.pl.
+        match Command::new("pkill")
+            .args(["-9", "-x", daemon])
+            .output()
+            .await
+        {
             Ok(output) => {
                 if output.status.success() {
                     info!("Killed orphaned {} processes", daemon);
@@ -3088,6 +3109,20 @@ mod tests {
             !process.has_child(),
             "dead child handle must be cleared so try_wait() cannot re-fire"
         );
+    }
+
+    /// Regression for #74: the `pkill -9` orphan sweep ran inside
+    /// `start_all_daemons`, which is also what the legacy socket `startup` /
+    /// `pkg_start` commands and `POST /system/startup` call. On a running
+    /// supervisor that SIGKILLed every healthy child. The sweep is for
+    /// leftovers from a previous *process*, so it runs once per manager.
+    #[tokio::test]
+    async fn orphan_sweep_is_due_once_per_manager_lifetime() {
+        let manager = DaemonManager::new(DaemonConfig::default(), None);
+
+        assert!(manager.orphan_sweep_due(), "first start must sweep");
+        assert!(!manager.orphan_sweep_due(), "second start must not sweep");
+        assert!(!manager.orphan_sweep_due());
     }
 
     /// Regression: once shutdown is signaled, `start_daemon` must refuse so a
