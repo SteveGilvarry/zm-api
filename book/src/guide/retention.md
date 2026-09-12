@@ -43,9 +43,10 @@ and Shallow layout schemes.
 ## Watching it
 
 ```bash
-journalctl -u zm-api -f | grep -i reap
+journalctl -u zm-api -f | grep -i retention
 ```
 
-Every deletion is logged with the event id and the limit that triggered it.
+Every deletion is logged as `retention: deleted event <id> (monitor <n>, <MiB>): <limit>`,
+naming which of the free-space floor, byte quota or age limit triggered it.
 Start with generous limits and read the log for a cycle or two before tightening
 them — deletion is not reversible.

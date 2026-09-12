@@ -194,6 +194,10 @@ async fn reap_never_touches_archived_or_in_progress_events() {
     let monitor = insert_monitor(&db, "ReapSafeMon").await.expect("monitor");
     let _mg = RowGuard::monitor(monitor.id);
     let (storage, _sg) = dedicated_storage(&db, &tmp, "ReapSafeStore").await;
+    // A storage with rows and an empty directory is what an unmounted volume
+    // looks like, and the reaper refuses it (#104); give it the monitor
+    // directory a real storage has.
+    std::fs::create_dir_all(tmp.path().join(monitor.id.to_string())).unwrap();
 
     let base = chrono::Utc::now().naive_utc();
     // Archived + in-progress are old and large but must be immune to the reaper.
@@ -249,9 +253,10 @@ async fn reap_never_touches_archived_or_in_progress_events() {
         guard_event(newest),
     );
 
-    // Candidate bytes (archived + in-progress are excluded from the query, so
-    // used = normal_old + newest = 200 MiB) exceed the 150 MiB quota: normal_old
-    // is deleted, newest is protected.
+    // The storage holds 400 MiB (the quota counts everything, archived and
+    // in-progress included — #110) against a 150 MiB quota: normal_old is
+    // deleted; newest is protected and the other two are immune, so the pass
+    // ends with the quota still exceeded rather than touching them.
     let deleted = service(quota_config(150 * MIB, false))
         .await
         .reap_storage_once(&storage, false)

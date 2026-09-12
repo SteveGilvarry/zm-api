@@ -33,7 +33,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use sea_orm::{
-    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, QueryFilter, QueryOrder,
+    ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait,
+    FromQueryResult, QueryFilter, QueryOrder,
 };
 use tracing::{debug, info, warn};
 
@@ -83,8 +84,9 @@ pub(crate) trait ReapIo: Send + Sync {
     fn storage_present(&self, path: &str) -> bool;
     /// Bytes the event's directory occupies on disk.
     async fn event_bytes(&self, storage_path: &str, ev: &events::Model) -> u64;
-    /// Delete the event's rows, then its media.
-    async fn delete(&self, storage_path: &str, ev: &events::Model) -> Result<Reaped, DbErr>;
+    /// Delete the event's rows, then its media (unless the storage's
+    /// `DoDelete` is off, in which case ZoneMinder keeps the files — #108).
+    async fn delete(&self, st: &storage::Model, ev: &events::Model) -> Result<Reaped, DbErr>;
 }
 
 impl RetentionService {
@@ -119,6 +121,13 @@ impl RetentionService {
         let default_id = storages.first().map(|s| s.id);
 
         for st in &storages {
+            if st.enabled == 0 {
+                debug!(
+                    "retention: storage {} ({}) is disabled; skipping",
+                    st.id, st.path
+                );
+                continue;
+            }
             let is_default = Some(st.id) == default_id;
             match self.reap_storage(st, is_default).await {
                 Ok(stats) if stats.deleted > 0 => info!(
@@ -175,10 +184,33 @@ impl RetentionService {
             .all(self.db.as_ref())
             .await?;
 
+        // The quota is on everything the storage holds, archived and open
+        // events included — not just what is deletable (#110).
+        #[derive(FromQueryResult)]
+        struct Used {
+            bytes: i64,
+        }
+        let sql = if is_default {
+            "SELECT CAST(COALESCE(SUM(DiskSpace),0) AS SIGNED) AS bytes FROM Events \
+             WHERE StorageId = ? OR StorageId IS NULL OR StorageId = 0"
+        } else {
+            "SELECT CAST(COALESCE(SUM(DiskSpace),0) AS SIGNED) AS bytes FROM Events \
+             WHERE StorageId = ?"
+        };
+        let used_total = Used::find_by_statement(sea_orm::Statement::from_sql_and_values(
+            self.db.get_database_backend(),
+            sql,
+            [st.id.into()],
+        ))
+        .one(self.db.as_ref())
+        .await?
+        .map(|u| u.bytes.max(0) as u64)
+        .unwrap_or(0);
+
         let io = RealIo {
             db: Arc::clone(&self.db),
         };
-        reap_candidates(&self.config, &io, st, all).await
+        reap_candidates(&self.config, &io, st, all, used_total).await
     }
 }
 
@@ -188,6 +220,7 @@ pub(crate) async fn reap_candidates(
     io: &dyn ReapIo,
     st: &storage::Model,
     all: Vec<events::Model>,
+    used_total: u64,
 ) -> Result<ReapStats, DbErr> {
     if all.is_empty() {
         return Ok(ReapStats::default());
@@ -210,8 +243,8 @@ pub(crate) async fn reap_candidates(
         return Ok(ReapStats::default());
     };
 
-    // Total bytes held by this storage (incl. protected events) for the quota.
-    let mut used: u64 = all.iter().filter_map(|e| e.disk_space).sum();
+    // Total bytes held by this storage (every event, not just candidates).
+    let mut used: u64 = used_total;
 
     // Protect the newest event per monitor: since `all` is oldest-first, the
     // last id seen per monitor is its newest.
@@ -221,8 +254,9 @@ pub(crate) async fn reap_candidates(
     }
     let protected: HashSet<u64> = newest.into_values().collect();
 
-    let age_cutoff = (cfg.max_age_days > 0)
-        .then(|| chrono::Utc::now().naive_utc() - chrono::Duration::days(cfg.max_age_days as i64));
+    let age_cutoff = (cfg.max_age_days > 0).then(|| {
+        chrono::Local::now().naive_local() - chrono::Duration::days(cfg.max_age_days as i64)
+    });
 
     let mut stats = ReapStats::default();
     let mut since_resync = 0usize;
@@ -270,8 +304,27 @@ pub(crate) async fn reap_candidates(
                 ev.start_date_time
             );
         } else {
-            match io.delete(&st.path, &ev).await? {
-                Reaped::Done => {}
+            match io.delete(st, &ev).await? {
+                Reaped::Done => {
+                    // One line per real deletion, with what triggered it — the
+                    // retention guide tells operators to read these (#112).
+                    let why = [
+                        (over_free, "free space below floor"),
+                        (over_bytes, "over byte quota"),
+                        (too_old, "older than max_age_days"),
+                    ]
+                    .iter()
+                    .filter(|(fired, _)| *fired)
+                    .map(|(_, w)| *w)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                    info!(
+                        "retention: deleted event {} (monitor {}, {:.1} MiB): {why}",
+                        ev.id,
+                        ev.monitor_id,
+                        bytes as f64 / MIB
+                    );
+                }
                 Reaped::Skipped => {
                     debug!(
                         "retention: event {} archived or re-opened since listing; left alone",
@@ -337,7 +390,7 @@ impl ReapIo for RealIo {
             .unwrap_or(0)
     }
 
-    async fn delete(&self, storage_path: &str, ev: &events::Model) -> Result<Reaped, DbErr> {
+    async fn delete(&self, st: &storage::Model, ev: &events::Model) -> Result<Reaped, DbErr> {
         // Re-check the safety rules on the live row: the candidate list may be
         // minutes old, and an operator archiving an event in that window must
         // win (#109).
@@ -354,7 +407,14 @@ impl ReapIo for RealIo {
         // Both the delete and the media removal are shared with the interactive
         // `DELETE /events/{id}` path so the two can never diverge.
         crate::repo::events::delete_with_children(self.db.as_ref(), ev.id).await?;
-        if crate::service::event_storage::remove_event_dir(storage_path, ev).await {
+        if st.do_delete == 0 {
+            debug!(
+                "retention: event {} rows removed; media kept (Storage.DoDelete off)",
+                ev.id
+            );
+            return Ok(Reaped::Done);
+        }
+        if crate::service::event_storage::remove_event_dir(&st.path, ev).await {
             Ok(Reaped::Done)
         } else {
             Ok(Reaped::MediaFailed)
@@ -504,7 +564,7 @@ mod tests {
         async fn event_bytes(&self, _: &str, _: &events::Model) -> u64 {
             self.bytes_per_event
         }
-        async fn delete(&self, _: &str, ev: &events::Model) -> Result<Reaped, DbErr> {
+        async fn delete(&self, _: &storage::Model, ev: &events::Model) -> Result<Reaped, DbErr> {
             self.deleted.lock().unwrap().push(ev.id);
             *self.avail.lock().unwrap() += self.bytes_per_event;
             Ok(if self.media_fails_for == Some(ev.id) {
@@ -526,7 +586,7 @@ mod tests {
     async fn null_disk_space_is_measured_so_the_pass_stops_at_the_floor() {
         // 9% free with a 10% floor: one measured deletion is enough.
         let io = Fake::new(100, 9);
-        let stats = reap_candidates(&cfg(10.0), &io, &storage(), fifty_events_no_disk_space())
+        let stats = reap_candidates(&cfg(10.0), &io, &storage(), fifty_events_no_disk_space(), 0)
             .await
             .unwrap();
         assert_eq!(
@@ -545,7 +605,7 @@ mod tests {
     async fn absent_storage_directory_is_skipped() {
         let mut io = Fake::new(100, 1);
         io.present = false;
-        let stats = reap_candidates(&cfg(10.0), &io, &storage(), fifty_events_no_disk_space())
+        let stats = reap_candidates(&cfg(10.0), &io, &storage(), fifty_events_no_disk_space(), 0)
             .await
             .unwrap();
         assert!(io.deleted().is_empty());
@@ -558,7 +618,7 @@ mod tests {
     async fn media_removal_failure_stops_the_pass() {
         let mut io = Fake::new(100, 0);
         io.media_fails_for = Some(3);
-        let stats = reap_candidates(&cfg(50.0), &io, &storage(), fifty_events_no_disk_space())
+        let stats = reap_candidates(&cfg(50.0), &io, &storage(), fifty_events_no_disk_space(), 0)
             .await
             .unwrap();
         assert_eq!(io.deleted(), vec![1, 2, 3]);
@@ -570,10 +630,52 @@ mod tests {
         let io = Fake::new(100, 0);
         let mut c = cfg(50.0);
         c.max_deletes_per_pass = 4;
-        let stats = reap_candidates(&c, &io, &storage(), fifty_events_no_disk_space())
+        let stats = reap_candidates(&c, &io, &storage(), fifty_events_no_disk_space(), 0)
             .await
             .unwrap();
         assert_eq!(stats.deleted, 4);
+    }
+
+    /// Nothing breached, nothing deleted — and the byte quota counts the
+    /// storage's whole footprint, passed in, not just the candidates (#110).
+    #[tokio::test]
+    async fn quota_counts_the_whole_storage_and_stops_when_satisfied() {
+        let io = Fake::new(100, 90);
+        let mut c = cfg(0.0);
+        c.max_bytes = 50;
+        let events: Vec<events::Model> = (1..=10).map(|i| event(i, 1, Some(10))).collect();
+        // 100 bytes used storage-wide, quota 50: five 10-byte deletions.
+        let stats = reap_candidates(&c, &io, &storage(), events.clone(), 100)
+            .await
+            .unwrap();
+        assert_eq!(stats.deleted, 5);
+
+        let io = Fake::new(100, 90);
+        let stats = reap_candidates(&c, &io, &storage(), events, 40)
+            .await
+            .unwrap();
+        assert_eq!(stats.deleted, 0, "under quota: nothing to do");
+    }
+
+    /// max_age_days on its own: everything older than the cutoff goes, the
+    /// newest per monitor stays (#111).
+    #[tokio::test]
+    async fn age_cutoff_reaps_old_events_only() {
+        let io = Fake::new(100, 90);
+        let mut c = cfg(0.0);
+        c.max_age_days = 1;
+        let mut events = fifty_events_no_disk_space(); // all dated January 2026
+        let mut fresh = event(99, 1, Some(1));
+        fresh.start_date_time = Some(chrono::Local::now().naive_local());
+        events.push(fresh);
+        let stats = reap_candidates(&c, &io, &storage(), events, 0)
+            .await
+            .unwrap();
+        assert_eq!(
+            stats.deleted, 50,
+            "every January event; the fresh one is newest and kept"
+        );
+        assert!(!io.deleted().contains(&99));
     }
 
     /// The safety rules from the module docs, on the loop itself: the newest
@@ -593,11 +695,11 @@ mod tests {
             async fn event_bytes(&self, p: &str, e: &events::Model) -> u64 {
                 self.0.event_bytes(p, e).await
             }
-            async fn delete(&self, p: &str, e: &events::Model) -> Result<Reaped, DbErr> {
+            async fn delete(&self, s: &storage::Model, e: &events::Model) -> Result<Reaped, DbErr> {
                 if e.id == 2 {
                     return Ok(Reaped::Skipped);
                 }
-                self.0.delete(p, e).await
+                self.0.delete(s, e).await
             }
         }
         let io = SkipTwo(Fake::new(100, 0));
@@ -607,7 +709,7 @@ mod tests {
             event(3, 1, Some(1)),
             event(4, 2, Some(1)),
         ];
-        let stats = reap_candidates(&cfg(50.0), &io, &storage(), events)
+        let stats = reap_candidates(&cfg(50.0), &io, &storage(), events, 0)
             .await
             .unwrap();
         // 3 and 4 are the newest for monitors 1 and 2; 2 was skipped.

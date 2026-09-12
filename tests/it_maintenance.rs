@@ -307,7 +307,10 @@ async fn counter_resync_corrects_drift() {
     .await;
 
     let audit = AuditService::new(Arc::clone(&db), audit_config(false));
-    audit.run_once().await.expect("pass");
+    let report = audit.run_once().await.expect("pass");
+    // The Storage.DiskSpace resync failed silently for its whole life (#90);
+    // a job error is now a test failure.
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
 
     let total = scalar(
         &db,
@@ -347,9 +350,11 @@ async fn a_stats_pass_runs_clean_against_a_real_schema() {
             interval_seconds: 300,
         },
     );
-    stats.run_once().await.expect("a stats pass must not error");
+    let report = stats.run_once().await.expect("a stats pass must not error");
+    assert!(report.failures.is_empty(), "{:?}", report.failures);
     // Twice, so the CPU-delta branch runs with a primed baseline too.
-    stats.run_once().await.expect("second stats pass");
+    let report = stats.run_once().await.expect("second stats pass");
+    assert!(report.failures.is_empty(), "{:?}", report.failures);
 }
 
 // ---------------------------------------------------------------------------

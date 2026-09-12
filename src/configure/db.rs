@@ -181,7 +181,11 @@ impl DatabaseConfig {
     ) -> String {
         let user = urlencoding::encode(username);
         let pass = urlencoding::encode(password);
-        format!("mysql://{user}:{pass}@{host}:{port}/{database_name}")
+        // sqlx sets every session to time_zone='+00:00' by default. ZoneMinder
+        // writes DATETIME columns in the server's local time, so a UTC NOW()
+        // makes every "older than N" comparison off by the UTC offset (#98).
+        // SYSTEM follows the server, the same clock zmc and the Perl use.
+        format!("mysql://{user}:{pass}@{host}:{port}/{database_name}?timezone=SYSTEM")
     }
 }
 
@@ -208,7 +212,7 @@ mod tests {
 
         assert_eq!(
             config.get_url(),
-            "mysql://testuser:testpass@dbhost:3307/testdb"
+            "mysql://testuser:testpass@dbhost:3307/testdb?timezone=SYSTEM"
         );
     }
 
@@ -217,7 +221,10 @@ mod tests {
         // A password with `@` and `/` must be encoded, and the result must parse
         // back to the original host/password (REVIEW_FIXES_PLAN §5.3).
         let url = DatabaseConfig::create_url("zm@user", "p@ss/w0rd#x", "10.0.0.5", 3306, "zm");
-        assert_eq!(url, "mysql://zm%40user:p%40ss%2Fw0rd%23x@10.0.0.5:3306/zm");
+        assert_eq!(
+            url,
+            "mysql://zm%40user:p%40ss%2Fw0rd%23x@10.0.0.5:3306/zm?timezone=SYSTEM"
+        );
         let parsed = url::Url::parse(&url).expect("URL must parse");
         assert_eq!(parsed.host_str(), Some("10.0.0.5"));
         assert_eq!(parsed.port(), Some(3306));

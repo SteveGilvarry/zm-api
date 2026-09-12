@@ -9,7 +9,7 @@
 //! deleting the wrong directory.
 
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::{Datelike, Timelike};
 use tracing::{debug, info, warn};
@@ -33,18 +33,25 @@ pub(crate) async fn resolve_event_storage_path(
     state: &AppState,
     event: &EventModel,
 ) -> AppResult<String> {
-    let storage_path = if is_default_storage(event.storage_id) {
-        default_storage_path(state).await?
+    Ok(resolve_event_storage(state, event).await?.0)
+}
+
+/// The event's storage root and whether that storage's `DoDelete` allows its
+/// media to be removed (#108). One lookup serves both, so the delete path
+/// makes no more queries than it did before.
+async fn resolve_event_storage(state: &AppState, event: &EventModel) -> AppResult<(String, bool)> {
+    let (storage_path, do_delete) = if is_default_storage(event.storage_id) {
+        default_storage(state).await?
     } else {
         let sid = event.storage_id.expect("non-default storage_id is Some");
         match repo::storage::find_by_id(state.db(), sid).await? {
-            Some(s) => s.path,
+            Some(s) => (s.path, s.do_delete != 0),
             None => {
                 warn!(
                     "Storage {} not found in database, using default storage",
                     sid
                 );
-                default_storage_path(state).await?
+                default_storage(state).await?
             }
         }
     };
@@ -59,7 +66,7 @@ pub(crate) async fn resolve_event_storage_path(
         ));
     }
 
-    Ok(storage_path)
+    Ok((storage_path, do_delete))
 }
 
 /// True iff `storage_id` denotes ZoneMinder's primary/default storage rather
@@ -72,11 +79,13 @@ pub(crate) fn is_default_storage(storage_id: Option<u16>) -> bool {
 
 /// Resolve the default events directory: ZoneMinder's primary storage row when
 /// the `Storage` table is populated, otherwise the configured `events_dir`.
-pub(crate) async fn default_storage_path(state: &AppState) -> AppResult<String> {
+/// Default storage root and its `DoDelete`; the configured events dir (with
+/// deletion allowed) when the `Storage` table has no default row.
+async fn default_storage(state: &AppState) -> AppResult<(String, bool)> {
     if let Some(s) = repo::storage::find_default(state.db()).await? {
-        return Ok(s.path);
+        return Ok((s.path, s.do_delete != 0));
     }
-    Ok(state.config.streaming.zoneminder.events_dir.clone())
+    Ok((state.config.streaming.zoneminder.events_dir.clone(), true))
 }
 
 /// Build the event directory path based on ZoneMinder's storage scheme.
@@ -140,11 +149,36 @@ pub(crate) fn build_event_directory_path(
 /// rare orphaned directory is preferable to a delete that reports failure
 /// after the row is already gone. An already-absent directory is not an error.
 pub(crate) async fn delete_event_media(state: &AppState, event: &EventModel) -> AppResult<()> {
-    let storage_path = resolve_event_storage_path(state, event).await?;
+    let (storage_path, do_delete) = resolve_event_storage(state, event).await?;
+    // ZoneMinder keeps the files on a storage whose DoDelete is off (#108).
+    if !do_delete {
+        debug!(
+            "Event {} rows removed; media kept (Storage.DoDelete is off)",
+            event.id
+        );
+        return Ok(());
+    }
     // Best-effort for the interactive path: the rows are gone either way and
     // the filesystem audit reclaims a leftover directory.
     let _ = remove_event_dir(&storage_path, event).await;
     Ok(())
+}
+
+/// Whether `dir` holds this event's own media (or nothing at all). A Deep
+/// directory is reached by a path derived from `StartDateTime`, and a clock
+/// or timezone difference between zmc and the database makes that path a
+/// neighbouring event's (#107). Removing it must be refused.
+fn directory_names_event(dir: &Path, event_id: u64) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return true; // absent: nothing to protect, nothing to remove
+    };
+    let names: Vec<String> = entries
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.is_empty()
+        || crate::service::maintenance::audit::filesystem::identify_from_entries(&names)
+            == Some(event_id)
 }
 
 /// Remove an event's on-disk media given an already-resolved `storage_path`
@@ -159,13 +193,28 @@ pub(crate) async fn delete_event_media(state: &AppState, event: &EventModel) -> 
 /// stops its pass on `false` so it cannot keep deleting rows while the disk
 /// stays full (#106).
 pub(crate) async fn remove_event_dir(storage_path: &str, event: &EventModel) -> bool {
-    let dir = build_event_directory_path(
+    let derived = build_event_directory_path(
         storage_path,
         event.monitor_id,
         event.id,
         event.start_date_time,
         &event.scheme,
     );
+
+    // Deep: ZoneMinder leaves `{monitor}/yy/mm/dd/.{id} -> HH/MM/SS`. That
+    // link is the event's own claim to a directory; the timestamp-derived
+    // path is only a guess, and a wrong guess is another event (#107).
+    let mut dir = derived.clone();
+    let mut deep_marker: Option<PathBuf> = None;
+    if matches!(event.scheme, Scheme::Deep) {
+        if let Some(day) = derived.ancestors().nth(3) {
+            let link = day.join(format!(".{}", event.id));
+            if let Ok(target) = std::fs::read_link(&link) {
+                dir = day.join(target);
+            }
+            deep_marker = Some(link);
+        }
+    }
 
     // Defence in depth: never remove the storage root or a bare monitor
     // directory. The path is built from typed integers/dates and a
@@ -176,6 +225,13 @@ pub(crate) async fn remove_event_dir(storage_path: &str, event: &EventModel) -> 
         warn!(
             "Refusing to remove suspicious event directory {:?} (monitor root {:?})",
             dir, monitor_root
+        );
+        return false;
+    }
+    if matches!(event.scheme, Scheme::Deep) && !directory_names_event(&dir, event.id) {
+        warn!(
+            "Refusing to remove {:?}: it does not hold event {}'s media",
+            dir, event.id
         );
         return false;
     }
@@ -201,10 +257,10 @@ pub(crate) async fn remove_event_dir(storage_path: &str, event: &EventModel) -> 
         }
     };
 
-    // The Deep scheme also creates a `{storage}/{monitor}/.{id}` symlink that
-    // points at the timestamped directory; remove it so it isn't left dangling.
-    if matches!(event.scheme, Scheme::Deep) {
-        let link = monitor_root.join(format!(".{}", event.id));
+    // The Deep scheme's `.{id}` marker lives in the yy/mm/dd directory (it
+    // used to be unlinked from the monitor root, leaving the real one
+    // dangling — #107); remove it so it isn't left pointing at nothing.
+    if let Some(link) = deep_marker {
         if let Err(e) = tokio::fs::remove_file(&link).await {
             if e.kind() != ErrorKind::NotFound {
                 debug!("Could not remove Deep-scheme symlink {:?}: {e}", link);
@@ -313,6 +369,63 @@ mod tests {
             latitude: None,
             longitude: None,
         }
+    }
+
+    fn deep_event(id: u64, monitor_id: u32, start: &str) -> EventModel {
+        let mut e = mk_event(id, monitor_id, Some(1), Scheme::Deep);
+        e.start_date_time =
+            Some(chrono::NaiveDateTime::parse_from_str(start, "%Y-%m-%d %H:%M:%S").unwrap());
+        e
+    }
+
+    /// Deep scheme, #107: the derived timestamp path belongs to a neighbour
+    /// (the row's StartDateTime is an hour off the directory zmc wrote);
+    /// the `.{id}` marker says where the event really is. The real directory
+    /// goes, the neighbour stays, and the marker is unlinked from the day
+    /// directory where it actually lives.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn deep_delete_follows_the_marker_not_the_derived_timestamp() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().to_string_lossy().into_owned();
+        let day = tmp.path().join("3/26/01/15");
+        let real = day.join("11/15/00");
+        let neighbour = day.join("10/15/00");
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::create_dir_all(&neighbour).unwrap();
+        std::fs::write(real.join("500-video.mp4"), b"").unwrap();
+        std::fs::write(neighbour.join("501-video.mp4"), b"").unwrap();
+        std::os::unix::fs::symlink("11/15/00", day.join(".500")).unwrap();
+
+        // Derived path for 10:15:00 is the neighbour's directory.
+        let removed = remove_event_dir(&root, &deep_event(500, 3, "2026-01-15 10:15:00")).await;
+
+        assert!(removed);
+        assert!(!real.exists(), "the event's real directory is removed");
+        assert!(
+            neighbour.join("501-video.mp4").exists(),
+            "the neighbour is untouched"
+        );
+        assert!(
+            !day.join(".500").exists(),
+            "the marker in the day directory is unlinked"
+        );
+    }
+
+    /// Deep scheme with no marker: the derived directory holds another
+    /// event's recording, so removal is refused (#107).
+    #[tokio::test]
+    async fn deep_delete_refuses_a_directory_naming_another_event() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().to_string_lossy().into_owned();
+        let derived = tmp.path().join("3/26/01/15/10/15/00");
+        std::fs::create_dir_all(&derived).unwrap();
+        std::fs::write(derived.join("501-video.mp4"), b"").unwrap();
+
+        let removed = remove_event_dir(&root, &deep_event(500, 3, "2026-01-15 10:15:00")).await;
+
+        assert!(!removed);
+        assert!(derived.join("501-video.mp4").exists());
     }
 
     fn mk_storage(id: u16, path: String) -> crate::entity::storage::Model {

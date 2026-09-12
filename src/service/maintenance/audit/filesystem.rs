@@ -231,10 +231,12 @@ fn walk_below_monitor(
         // Evidence inside the directory is the strongest signal and works for
         // every scheme.
         if let Some(event_id) = identify_from_entries(&file_names) {
-            result.events.push(FoundEvent {
-                path: child,
-                event_id,
-            });
+            // In the Deep scheme the day directory holds `.{id} -> HH/MM/SS`
+            // pointing at the event. A day with one event is then identified
+            // by that marker alone; the event is the link's target, not the
+            // day directory (#92). This is what zmaudit's readlink does.
+            let path = deep_marker_target(&child, event_id).unwrap_or(child);
+            result.events.push(FoundEvent { path, event_id });
             continue;
         }
 
@@ -271,6 +273,27 @@ fn walk_below_monitor(
         // A directory with neither files nor subdirectories is just empty;
         // removing empties is a separate, much safer job.
     }
+}
+
+/// If `dir/.{id}` is a symlink to a directory, that directory.
+fn deep_marker_target(dir: &Path, event_id: u64) -> Option<PathBuf> {
+    let marker = dir.join(format!(".{event_id}"));
+    if !marker.is_symlink() {
+        return None;
+    }
+    let target = dir.join(std::fs::read_link(&marker).ok()?);
+    target.is_dir().then_some(target)
+}
+
+/// Whether `path` was modified less than `min_age_seconds` ago. Unreadable
+/// metadata counts as young: better to wait a pass than to act on a guess.
+pub fn is_younger_than(path: &Path, min_age_seconds: u64) -> bool {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .map(|age| age.as_secs() < min_age_seconds)
+        .unwrap_or(true)
 }
 
 fn list_file_names(dir: &Path) -> Vec<String> {
@@ -464,6 +487,38 @@ mod tests {
     #[test]
     fn a_dot_marker_names_its_event() {
         assert_eq!(identify_from_entries(&names(&[".987"])), Some(987));
+    }
+
+    /// Deep scheme: `{monitor}/yy/mm/dd/.{id} -> HH/MM/SS`. A day directory
+    /// with a single event used to be recorded as the event itself, so the
+    /// derivation canary saw every such event as misplaced and the real leaf
+    /// was never enumerated (#92).
+    #[cfg(unix)]
+    #[test]
+    fn a_deep_marker_symlink_resolves_to_the_event_leaf() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let day = root.join("1/26/01/15");
+        let leaf = day.join("10/15/00");
+        std::fs::create_dir_all(&leaf).unwrap();
+        std::fs::write(leaf.join("4711-video.mp4"), b"").unwrap();
+        std::os::unix::fs::symlink("10/15/00", day.join(".4711")).unwrap();
+
+        let walk = walk_storage(root, 6, ".zm-api-quarantine");
+        let found: Vec<(u64, PathBuf)> = walk
+            .events
+            .iter()
+            .map(|e| (e.event_id, e.path.clone()))
+            .collect();
+        assert_eq!(found, vec![(4711, leaf)]);
+    }
+
+    #[test]
+    fn a_fresh_directory_is_younger_than_min_age() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(is_younger_than(tmp.path(), 3600));
+        assert!(!is_younger_than(tmp.path(), 0));
+        assert!(is_younger_than(Path::new("/nonexistent/zm-api-test"), 1));
     }
 
     #[test]
