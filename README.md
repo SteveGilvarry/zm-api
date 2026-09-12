@@ -89,9 +89,10 @@ vendor protocols, presets, and continuous control.
   compatible).
 
 ### 🛠️ Operations
-Daemon supervision (zmc/zma) with a Unix-socket IPC shim for legacy `zmdc.pl` compatibility,
-storage & server management, configs, logs, montage layouts, and system control —
-all behind graceful SIGTERM/SIGINT shutdown.
+Optional daemon supervision (zmc/zma) with a Unix-socket IPC shim for legacy `zmdc.pl`
+compatibility, storage & server management, configs, logs, montage layouts, and system
+control — all behind graceful SIGTERM/SIGINT shutdown.
+See **[Daemon Control](#️-daemon-control)** for how supervision runs and how to turn it on.
 
 ### 🧱 Production hardening
 TLS with optional ACME/Let's Encrypt, security headers, gzip/brotli compression
@@ -135,6 +136,125 @@ flowchart TD
 
 ---
 
+## 🛠️ Daemon Control
+
+zm-api can supervise ZoneMinder's daemons itself, replacing `zmdc.pl` and `zmwatch.pl`.
+It is **off by default** — a starting point, not the destination. Takeover is where a zm-api
+host is meant to end up; passive exists so you pick the moment, with a one-command way back.
+
+### Passive vs. active
+
+| | **Passive** (default) | **Active** (takeover) |
+|---|---|---|
+| `daemon.enabled` | `false` | `true` |
+| Supervises `zmc`/`zma` | No — ZoneMinder does | Yes |
+| Binds `zmdc.sock` | No | Yes |
+| `zoneminder.service` | Keeps running | Must be stopped & disabled |
+
+In passive mode no manager is constructed at all: nothing binds the socket, no orphan sweep
+runs, no process is spawned. zm-api is purely a REST layer over the database ZoneMinder is
+already using — which is why the packages are safe to drop onto a live box. The daemon-control
+endpoints stay registered but return **503** until you switch.
+
+> ⚠️ **Exactly one supervisor may run.** Starting in takeover mode `pkill -9`s any `zmc`,
+> `zma` and `zmfilter.pl` left behind before starting its own. Leaving `zoneminder.service`
+> enabled means two supervisors killing and restarting each other's processes — daemons
+> restarting in a loop, events recording erratically.
+
+Switching is scripted, and sequences both services in the right order either way. Prefer it
+over editing `APP_DAEMON__ENABLED` by hand:
+
+```bash
+sudo zm-api-takeover              # hand supervision to zm-api
+sudo zm-api-takeover --revert     # hand it back to ZoneMinder
+```
+
+### What it supervises
+
+Per-monitor capture and analysis, plus ZoneMinder's Perl singletons, started in priority
+order:
+
+| Priority | Daemon | Scope |
+|---|---|---|
+| 5 / 6 | `zmc` / `zma` | one per monitor |
+| 10 | `zmfilter.pl --daemon` | singleton |
+| 20 | `zmaudit.pl --continuous` | singleton |
+| 30 | `zmtrigger.pl` | singleton |
+| 40 / 50 | `zmcontrol.pl` / `zmtrack.pl` | one per controllable / tracking monitor |
+| 70 – 90 | `zmstats.pl`, `zmtelemetry.pl`, `zmeventnotification.pl` | singleton |
+
+`zmwatch.pl` has no entry — watching capture daemons and restarting them is the supervisor's
+own health-check loop.
+
+### How supervision behaves
+
+- **Health checks** — every 10s; a daemon whose heartbeat is more than 30s stale is restarted
+  (defaults match `ZM_WATCH_CHECK_INTERVAL` / `ZM_WATCH_MAX_DELAY`).
+- **Restart backoff** — exponential: `min_backoff × 2^attempt`, capped at `max_backoff`
+  (5s → 15min by default). A process that stayed up longer than the cap resets its counter.
+- **Reconciliation** — every 60s, after a 45s startup delay, the monitors in the database are
+  diffed against what is actually running and the difference is corrected. That is what
+  self-heals an external `kill`, a crash between a DB write and the daemon call, or a reboot.
+- **Graceful shutdown** — SIGTERM, then SIGKILL after `shutdown_timeout_seconds`. Supervised
+  daemons are drained whether the server exited cleanly or not.
+- **Orphan sweep** — daemons left behind by a previous run are killed at startup, before
+  anything new is spawned.
+
+### Three ways to drive it
+
+1. **REST** — `/api/v3/daemons` for per-daemon list/start/stop/restart/reload, and
+   `/api/v3/system/*` for status, startup, shutdown, restart, logrot, and run state. The whole
+   group is JWT-gated.
+2. **Legacy socket** — `/run/zm/zmdc.sock` speaks the `zmdc.pl` wire protocol, so existing
+   scripts and tooling keep working unchanged.
+3. **Run states** — `POST /api/v3/system/state` applies a named row from the `States` table.
+   The monitor changes and the state activation commit as one transaction; the daemon restart
+   deliberately happens outside it.
+
+### Configuration
+
+```toml
+[daemon]
+enabled = false            # passive; true = takeover
+socket_path = "/run/zm"
+socket_name = "zmdc.sock"
+bin_path = "/usr/bin"      # zmc, zma
+script_path = "/usr/bin"   # Perl daemons — searched per-distro if no match here
+min_backoff_seconds = 5
+max_backoff_seconds = 900
+shutdown_timeout_seconds = 30
+stats_update_interval_seconds = 60
+enable_socket_ipc = true   # bind zmdc.sock
+enable_rest_api = true     # expose the daemon routes
+```
+
+Every key takes an env override — `APP_DAEMON__ENABLED=true` is the one the takeover script
+writes.
+
+### Native replacements for the Perl maintenance daemons
+
+Separately from supervision, several Perl daemons have Rust equivalents that run *inside*
+zm-api rather than as supervised processes. Each is independently switchable and **all
+default off**, so an existing install keeps running the Perl until you move over deliberately.
+
+| Config | Replaces | What it does |
+|---|---|---|
+| `[maintenance.stats]` | `zmstats.pl` | CPU/memory into `Server_Stats`, stale `Monitor_Status` eviction, event-window counters, expired session pruning |
+| `[maintenance.audit]` | `zmaudit.pl` (database side) | orphaned `Frames`/`Stats` rows, events that never recorded a frame, events left open by a dead capture daemon, counter resync |
+| `[maintenance.audit.filesystem]` | `zmaudit.pl` (disk side) | quarantines orphaned event directories — discovered by walking and identified from evidence inside them, never by deriving a path from a timestamp |
+| `[maintenance.telemetry]` | `zmtelemetry.pl` | anonymous usage report, with no geolocation lookup |
+
+> ⚠️ Enable a Rust job and disable its Perl counterpart **together** — running both has them
+> competing over the same rows. The audit ships with `dry_run = true`; read a pass or two in
+> the log before turning that off.
+
+Going deeper: **[the takeover guide](book/src/guide/takeover.md)** covers prerequisites,
+verification and rollback; **[the maintenance guide](book/src/guide/maintenance.md)** covers
+each Perl replacement in detail; and systemd units, permissions and the distro matrix are in
+[`docs/deployment.md`](docs/deployment.md).
+
+---
+
 ## 🧰 Tech Stack
 
 | | |
@@ -170,6 +290,9 @@ over REST (this stops & disables `zoneminder.service`):
 ```bash
 sudo zm-api-takeover             # --revert hands control back to ZoneMinder
 ```
+
+What that changes, and everything the supervisor does once it is on:
+**[Daemon Control](#️-daemon-control)**.
 
 Build packages yourself with `./scripts/package.sh [deb|rpm|arch|all]`. Full distro matrix,
 config, and TLS setup: [`docs/deployment.md`](docs/deployment.md).
