@@ -246,8 +246,9 @@ default off**, so an existing install keeps running the Perl until you move over
 | `[maintenance.audit.filesystem]` | `zmaudit.pl` (disk side) | quarantines orphaned event directories — discovered by walking and identified from evidence inside them, never by deriving a path from a timestamp |
 | `[maintenance.telemetry]` | `zmtelemetry.pl` | anonymous usage report, with no geolocation lookup |
 
-> ⚠️ Enable a Rust job and disable its Perl counterpart **together** — running both has them
-> competing over the same rows. The audit ships with `dry_run = true`; read a pass or two in
+> ⚠️ Only one of a pair may run. In takeover mode the supervisor will not start the Perl
+> counterpart of an enabled job; in passive mode ZoneMinder is still the supervisor, so disable
+> the Perl daemon there yourself. The audit ships with `dry_run = true`; read a pass or two in
 > the log before turning that off.
 
 Going deeper: **[the takeover guide](book/src/guide/takeover.md)** covers prerequisites,

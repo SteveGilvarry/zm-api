@@ -31,6 +31,9 @@ use crate::configure::maintenance::StatsConfig;
 pub struct StatsService {
     db: Arc<DatabaseConnection>,
     config: StatsConfig,
+    /// This host's `Servers.Id`, or 0 on a single-server install — matching
+    /// what ZoneMinder writes. See `daemon::server_id`.
+    server_id: u32,
     /// Previous `/proc/stat` sample, for computing CPU percentages as a delta.
     /// The first pass has nothing to compare against and reports no percentages.
     last_cpu: tokio::sync::Mutex<Option<CpuSample>>,
@@ -162,8 +165,17 @@ impl StatsService {
         Self {
             db,
             config,
+            server_id: 0,
             last_cpu: tokio::sync::Mutex::new(None),
         }
+    }
+
+    /// Record which `Servers` row is ours (`None` = single-server, written as
+    /// 0). Without this the stats used to come from a `ZM_SERVER_ID`
+    /// environment variable nothing sets (#100).
+    pub fn with_server_id(mut self, server_id: Option<u32>) -> Self {
+        self.server_id = server_id.unwrap_or(0);
+        self
     }
 
     /// Spawn the periodic loop. Returns immediately.
@@ -233,7 +245,7 @@ impl StatsService {
                   CpuSystemPercent, CpuIdlePercent, CpuUsagePercent) \
                  VALUES (?, NOW(), ?, ?, ?, ?, ?)",
                 [
-                    server_id().into(),
+                    self.server_id.into(),
                     cpu.user.into(),
                     cpu.nice.into(),
                     cpu.system.into(),
@@ -368,11 +380,11 @@ impl StatsService {
 
     /// Mirror the current load onto this host's own `Servers` row.
     ///
-    /// Only meaningful on a multi-server install, where `ZM_SERVER_ID`
-    /// identifies which row is ours; a single-server install has no row to
+    /// Only meaningful on a multi-server install, where the resolved server
+    /// id says which row is ours; a single-server install has no row to
     /// update and this is skipped.
     async fn update_server_row(&self, cpu: &CpuPercentages) -> Result<(), DbErr> {
-        let id = server_id();
+        let id = self.server_id;
         if id == 0 {
             return Ok(());
         }
@@ -518,15 +530,6 @@ impl StatsService {
             .await
             .unwrap_or(3600)
     }
-}
-
-/// This host's `Servers.Id`, or 0 on a single-server install — matching what
-/// ZoneMinder writes.
-fn server_id() -> u32 {
-    std::env::var("ZM_SERVER_ID")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0)
 }
 
 /// Read a raw string out of ZoneMinder's `Config` table.

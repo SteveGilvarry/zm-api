@@ -229,8 +229,10 @@ enable_rest_api = true
 # independently switchable and all default off, so an existing install keeps
 # running the Perl until you move over deliberately.
 #
-# IMPORTANT: enable the Rust job and disable the matching Perl daemon together.
-# Running both has them competing over the same rows.
+# Only one of a pair may run — both writing the same rows has them competing.
+# In takeover mode zm-api will not start the Perl counterpart of an enabled
+# job. In passive mode ZoneMinder is still the supervisor, so disable the Perl
+# daemon there (Servers.zmstats, ZM_RUN_AUDIT, ZM_TELEMETRY_DATA) yourself.
 
 # Replaces zmstats.pl. Samples CPU/memory into Server_Stats, evicts stale
 # Monitor_Status heartbeats, ages events out of the Events_Hour/Day/Week/Month

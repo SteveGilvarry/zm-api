@@ -152,7 +152,7 @@ ffmpeg-next = "8"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 
 # Unix signal handling and filesystem utilities
-nix = { version = "0.31", features = ["signal", "fs"] }
+nix = { version = "0.31", features = ["signal", "fs", "hostname"] }
 
 # Low-level libc bindings for PR_SET_PDEATHSIG
 libc = "0.2"

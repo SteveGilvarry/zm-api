@@ -13,6 +13,7 @@ pub mod manager;
 #[cfg(feature = "onvif-events")]
 pub mod onvif_event_listener;
 pub mod process;
+pub mod server_id;
 pub mod stats;
 
 pub use config::DaemonConfig;

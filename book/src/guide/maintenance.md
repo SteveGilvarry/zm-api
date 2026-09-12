@@ -5,10 +5,12 @@ ZoneMinder runs three periodic housekeeping daemons that zm-api can take over:
 switchable and **all three default to off**, so an existing install keeps
 running the Perl until you move over deliberately.
 
-> **Enable the Rust job and disable the matching Perl daemon together.** Running
-> both has them competing over the same rows. In takeover mode zm-api supervises
-> the Perl daemons, so removing one from ZoneMinder's set is the other half of
-> the switch.
+> **Only one of the pair may run.** Both writing the same rows has them
+> competing. In takeover mode zm-api handles this: an enabled native job stops
+> the supervisor from starting its Perl counterpart. In passive mode ZoneMinder
+> is still the supervisor, so disable the Perl daemon there yourself
+> (`Servers.zmstats`, `ZM_RUN_AUDIT`, `ZM_TELEMETRY_DATA`) when you enable the
+> Rust job.
 
 ## Stats — replaces `zmstats.pl`
 

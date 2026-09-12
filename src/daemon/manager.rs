@@ -79,6 +79,10 @@ pub struct DaemonManager {
     /// socket `startup`/`pkg_start` or REST startup paths of a live supervisor,
     /// where it SIGKILLed every healthy child (#74).
     orphans_swept: Arc<AtomicBool>,
+    /// Which Perl maintenance daemons zm-api's own jobs replace. Set from
+    /// `[maintenance.*].enabled`; the automatic singleton start skips the Perl
+    /// counterpart so the two never compete over the same rows (#87).
+    native_jobs: NativeJobs,
     /// Whether the manager is running
     running: Arc<RwLock<bool>>,
     /// Database connection for querying monitors
@@ -99,6 +103,7 @@ impl DaemonManager {
             shutting_down: Arc::new(AtomicBool::new(false)),
             server_id,
             orphans_swept: Arc::new(AtomicBool::new(false)),
+            native_jobs: NativeJobs::default(),
             running: Arc::new(RwLock::new(false)),
             db: None,
             zmnext: None,
@@ -113,6 +118,13 @@ impl DaemonManager {
     /// Set the database connection for querying monitors.
     pub fn set_database(&mut self, db: Arc<DatabaseConnection>) {
         self.db = Some(db);
+    }
+
+    /// Declare which Perl maintenance daemons are replaced by zm-api's native
+    /// jobs, so `start_all_daemons` leaves them unstarted. Call before
+    /// `startup()`.
+    pub fn set_native_maintenance(&mut self, jobs: NativeJobs) {
+        self.native_jobs = jobs;
     }
 
     /// Enable zm-next worker control. Call before `startup()` when
@@ -148,6 +160,7 @@ impl DaemonManager {
             shutting_down: Arc::new(AtomicBool::new(false)),
             server_id,
             orphans_swept: Arc::new(AtomicBool::new(false)),
+            native_jobs: NativeJobs::default(),
             running: Arc::new(RwLock::new(false)),
             db: Some(db),
             zmnext: None,
@@ -1183,6 +1196,19 @@ impl DaemonManager {
         singletons.sort_by_key(|d| d.priority);
 
         for daemon in singletons {
+            // A Perl daemon whose job zm-api now does natively is not started,
+            // whatever ZoneMinder's own Config/Servers flags say: running both
+            // has them competing over the same rows. An explicit `start` over
+            // the socket or REST is still honoured — this gates the automatic
+            // start only.
+            if let Some(table) = native_replacement_for(daemon.name, self.native_jobs) {
+                info!(
+                    "Not starting {}: {} is enabled and replaces it",
+                    daemon.command, table
+                );
+                continue;
+            }
+
             // Per-daemon gating that mirrors zmpkg.pl. Each `continue` includes
             // a debug log so operators can see why a daemon was skipped.
             match daemon.name {
@@ -1370,12 +1396,13 @@ impl DaemonManager {
         info!("Health monitor stopped");
     }
 
-    /// Run periodic server status updates (every 60 seconds).
+    /// Run periodic server status updates (every
+    /// `[daemon].stats_update_interval_seconds`).
     ///
     /// This matches the behavior of zmdc.pl which updates the Server record
     /// with CPU load, memory usage, and other statistics.
     async fn run_server_status_loop(&self, db: Arc<DatabaseConnection>, server_id: u32) {
-        let update_interval = Duration::from_secs(60);
+        let update_interval = self.config.stats_update_interval();
 
         info!(
             "Server status loop starting (server_id={}, interval={:?})",
@@ -1639,8 +1666,9 @@ impl DaemonManager {
         // (like zmdc.pl's check_for_processes_to_kill)
         self.check_terminating_processes().await;
 
-        // Check for hung processes
-        let hung_processes = self.check_for_hung_processes(max_delay).await;
+        // Check for hung processes (the zmwatch.pl half of this loop; exit
+        // detection and crash restarts above are never optional).
+        let hung_processes = self.hung_candidates(max_delay).await;
 
         for id in hung_processes {
             warn!(
@@ -1652,6 +1680,15 @@ impl DaemonManager {
                 error!("Failed to restart hung daemon {}: {}", id, e);
             }
         }
+    }
+
+    /// Hung processes to restart this tick — none when the watchdog is
+    /// switched off (`[daemon].enable_watchdog`, #88).
+    async fn hung_candidates(&self, max_delay: std::time::Duration) -> Vec<String> {
+        if !self.config.enable_watchdog {
+            return Vec::new();
+        }
+        self.check_for_hung_processes(max_delay).await
     }
 
     /// Check for processes that appear to be hung (no CPU activity).
@@ -2500,6 +2537,36 @@ async fn read_bool_config(db: &DatabaseConnection, key: &str) -> bool {
     }
 }
 
+/// Which of ZoneMinder's Perl maintenance daemons are superseded by zm-api's
+/// own `[maintenance.*]` jobs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NativeJobs {
+    pub stats: bool,
+    pub audit: bool,
+    pub telemetry: bool,
+}
+
+impl From<&crate::configure::maintenance::MaintenanceConfig> for NativeJobs {
+    fn from(m: &crate::configure::maintenance::MaintenanceConfig) -> Self {
+        Self {
+            stats: m.stats.enabled,
+            audit: m.audit.enabled,
+            telemetry: m.telemetry.enabled,
+        }
+    }
+}
+
+/// The config table whose native job replaces `daemon_name`, if that job is
+/// enabled — the reason the supervisor must not start the Perl daemon.
+fn native_replacement_for(daemon_name: &str, jobs: NativeJobs) -> Option<&'static str> {
+    match daemon_name {
+        "zmstats" if jobs.stats => Some("[maintenance.stats]"),
+        "zmaudit" if jobs.audit => Some("[maintenance.audit]"),
+        "zmtelemetry" if jobs.telemetry => Some("[maintenance.telemetry]"),
+        _ => None,
+    }
+}
+
 /// Snapshot of upstream-equivalent startup gates pulled from `Config` and
 /// (when multi-server) the current `Servers` row.
 ///
@@ -3109,6 +3176,80 @@ mod tests {
             !process.has_child(),
             "dead child handle must be cleared so try_wait() cannot re-fire"
         );
+    }
+
+    /// Regression for #88: `[daemon].enable_watchdog` was parsed, documented
+    /// and shipped in zm-api.env but never read. It gates only the hung-process
+    /// check; exit detection and crash restarts stay on regardless.
+    #[tokio::test]
+    async fn enable_watchdog_false_disables_only_the_hung_check() {
+        let max = Duration::from_secs(30);
+        let stale = || {
+            let mut p = ManagedProcess::new("zmc -m 7", "zmc[7]", "zmc", vec![], true, Some(7));
+            p.set_state(ProcessState::Running);
+            p.last_active_at = Some(std::time::Instant::now() - max - Duration::from_secs(1));
+            p
+        };
+
+        let on = DaemonManager::new(DaemonConfig::default(), None);
+        on.register_daemon(stale()).await;
+        assert_eq!(on.hung_candidates(max).await, vec!["zmc -m 7".to_string()]);
+
+        let off = DaemonManager::new(
+            DaemonConfig {
+                enable_watchdog: false,
+                ..DaemonConfig::default()
+            },
+            None,
+        );
+        off.register_daemon(stale()).await;
+        assert!(off.hung_candidates(max).await.is_empty());
+    }
+
+    /// Regression for #87: base.toml told operators to "enable the Rust job
+    /// and disable the matching Perl daemon together", but nothing in zm-api
+    /// did the second half — takeover started zmstats.pl/zmaudit.pl/
+    /// zmtelemetry.pl regardless of `[maintenance.*].enabled`, and both then
+    /// wrote the same rows. The native job must suppress its Perl counterpart,
+    /// and only its counterpart.
+    #[test]
+    fn native_job_suppresses_only_its_perl_counterpart() {
+        let none = NativeJobs::default();
+        for d in ["zmstats", "zmaudit", "zmtelemetry", "zmtrigger", "zmfilter"] {
+            assert_eq!(
+                native_replacement_for(d, none),
+                None,
+                "{d} with no native jobs"
+            );
+        }
+
+        let stats_only = NativeJobs {
+            stats: true,
+            ..NativeJobs::default()
+        };
+        assert_eq!(
+            native_replacement_for("zmstats", stats_only),
+            Some("[maintenance.stats]")
+        );
+        assert_eq!(native_replacement_for("zmaudit", stats_only), None);
+        assert_eq!(native_replacement_for("zmtelemetry", stats_only), None);
+
+        let all = NativeJobs {
+            stats: true,
+            audit: true,
+            telemetry: true,
+        };
+        assert_eq!(
+            native_replacement_for("zmaudit", all),
+            Some("[maintenance.audit]")
+        );
+        assert_eq!(
+            native_replacement_for("zmtelemetry", all),
+            Some("[maintenance.telemetry]")
+        );
+        // Daemons with no native replacement are never touched by this gate.
+        assert_eq!(native_replacement_for("zmtrigger", all), None);
+        assert_eq!(native_replacement_for("zmeventnotification", all), None);
     }
 
     /// Regression for #74: the `pkill -9` orphan sweep ran inside
