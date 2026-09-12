@@ -41,6 +41,62 @@ Restart the service after editing.
 
 `man 5 zm-api.env` documents every variable.
 
+## Daemon control
+
+The `[daemon]` table configures the supervisor that replaces `zmdc.pl` and
+`zmwatch.pl`. The whole table is inert while `enabled = false` — in passive mode
+no manager is constructed, so none of these values are read. See
+[Passive and takeover mode](takeover.md).
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `enabled` | `false` | Passive vs. takeover. Prefer `zm-api-takeover` over setting it by hand |
+| `socket_path` | `/run/zm` | Directory holding the legacy IPC socket |
+| `socket_name` | `zmdc.sock` | Speaks the `zmdc.pl` wire protocol |
+| `enable_socket_ipc` | `true` | Bind that socket at all |
+| `enable_rest_api` | `true` | Expose `/api/v3/daemons*` and `/api/v3/system/*` |
+| `bin_path` | `/usr/bin` | Where `zmc` and `zma` live |
+| `script_path` | `/usr/bin` | Where the Perl daemons live |
+| `min_backoff_seconds` | `5` | First restart delay after a crash |
+| `max_backoff_seconds` | `900` | Backoff ceiling, and the stability threshold |
+| `shutdown_timeout_seconds` | `30` | SIGTERM, then SIGKILL after this |
+| `stats_update_interval_seconds` | `60` | How often process stats are written to the database |
+
+`bin_path` and `script_path` are hints, not requirements. If the command is not
+found where you point, the standard per-distribution locations are searched:
+`/usr/bin`, `/usr/share/zoneminder/scripts` (Fedora, openSUSE, RHEL) and
+`/usr/local/bin` for Perl scripts; `/usr/bin` and `/usr/local/bin` for `zmc` and
+`zma`. Set them only when ZoneMinder is installed somewhere unusual.
+
+Restart backoff is `min_backoff_seconds × 2^attempt`, capped at
+`max_backoff_seconds` — so 5s, 10s, 20s, up to 15 minutes by default. A daemon
+that stays up longer than the cap is considered stable and its counter resets,
+which is what stops a camera that was briefly unreachable from being stuck at a
+15-minute retry forever.
+
+### Watchdog
+
+Three further keys have no entry in `base.toml` and exist only as built-in
+defaults, so you will not find them by reading the shipped config. Add them to
+your own TOML to change them:
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `enable_watchdog` | `true` | Health-check loop; this is the part that replaces `zmwatch.pl` |
+| `watch_check_interval_seconds` | `10` | Matches ZoneMinder's `ZM_WATCH_CHECK_INTERVAL` |
+| `watch_max_delay_seconds` | `30` | Heartbeat staleness before restart; matches `ZM_WATCH_MAX_DELAY` |
+
+Separately from the watchdog, a reconciliation loop runs every 60 seconds (after
+a 45-second startup delay) and brings running daemons back in line with the
+`Monitors` table. Neither interval is configurable.
+
+### Maintenance jobs
+
+The `[maintenance.*]` tables are a different thing: native replacements for
+ZoneMinder's Perl *maintenance* daemons, which run inside zm-api rather than as
+supervised processes, and are independently switchable from `[daemon]`. They are
+documented in [Replacing the Perl maintenance daemons](maintenance.md).
+
 ## Profiles
 
 `APP_PROFILE` selects which TOML loads alongside `base.toml`: `dev`, `test`,
