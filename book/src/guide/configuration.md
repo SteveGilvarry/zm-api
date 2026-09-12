@@ -69,7 +69,8 @@ found where you point, the standard per-distribution locations are searched:
 `zma`. Set them only when ZoneMinder is installed somewhere unusual.
 
 Restart backoff is `min_backoff_seconds × 2^attempt`, capped at
-`max_backoff_seconds` — so 5s, 10s, 20s, up to 15 minutes by default. A daemon
+`max_backoff_seconds` — the first retry waits 10s, then 20s, 40s, up to 15
+minutes by default. A daemon
 that stays up longer than the cap is considered stable and its counter resets,
 which is what stops a camera that was briefly unreachable from being stuck at a
 15-minute retry forever.
@@ -84,7 +85,7 @@ your own TOML to change them:
 | --- | --- | --- |
 | `enable_watchdog` | `true` | Health-check loop; this is the part that replaces `zmwatch.pl` |
 | `watch_check_interval_seconds` | `10` | Matches ZoneMinder's `ZM_WATCH_CHECK_INTERVAL` |
-| `watch_max_delay_seconds` | `30` | Heartbeat staleness before restart; matches `ZM_WATCH_MAX_DELAY` |
+| `watch_max_delay_seconds` | `30` | Seconds of unchanged CPU time before a restart. ZoneMinder's `ZM_WATCH_MAX_DELAY` default is 45 |
 
 Separately from the watchdog, a reconciliation loop runs every 60 seconds (after
 a 45-second startup delay) and brings running daemons back in line with the

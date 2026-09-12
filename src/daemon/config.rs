@@ -67,7 +67,8 @@ pub struct DaemonConfig {
     #[serde(default = "default_watch_check_interval_seconds")]
     pub watch_check_interval_seconds: u64,
 
-    /// Maximum heartbeat delay before restart in seconds (default: 30, matches ZM_WATCH_MAX_DELAY)
+    /// Seconds of unchanged CPU time before a restart (default: 30; ZoneMinder's
+    /// ZM_WATCH_MAX_DELAY defaults to 45)
     #[serde(default = "default_watch_max_delay_seconds")]
     pub watch_max_delay_seconds: u64,
 }
@@ -229,7 +230,7 @@ fn default_watch_check_interval_seconds() -> u64 {
 }
 
 fn default_watch_max_delay_seconds() -> u64 {
-    30 // ZM_WATCH_MAX_DELAY default
+    30 // ZoneMinder's ZM_WATCH_MAX_DELAY defaults to 45; deliberately tighter here
 }
 
 #[cfg(test)]
