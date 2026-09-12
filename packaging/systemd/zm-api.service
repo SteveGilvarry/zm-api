@@ -34,9 +34,15 @@ EnvironmentFile=-/etc/zm-api/zm-api.env
 
 # Paths
 WorkingDirectory=/usr/share/zoneminder
-RuntimeDirectory=zm
-RuntimeDirectoryMode=0755
 StateDirectory=zm-api
+
+# /run/zm is ZoneMinder's socket directory (zmdc.sock, zm.pid, the per-monitor
+# stream sockets) and its package provisions it. It must NOT be declared as
+# RuntimeDirectory here: systemd would chown it to this unit's user on start
+# and delete it on every stop/restart, which in passive mode unlinks zmdc.pl's
+# listening socket and zmc's stream sockets from under a running ZoneMinder
+# (#82). Create it only when it is missing, and never touch an existing one.
+ExecStartPre=+/bin/sh -c 'test -d /run/zm || install -d -m 0775 -o zoneminder -g zoneminder /run/zm'
 
 # Execution
 ExecStart=/usr/bin/zm-api
