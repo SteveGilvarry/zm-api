@@ -645,11 +645,14 @@ impl AuditService {
         Ok(removed)
     }
 
-    /// Events that recorded no frames and are past the grace period.
+    /// Events that recorded no frames, are past the grace period, and whose
+    /// capture daemon is demonstrably done with them.
     ///
     /// An event has a row before it has frames, so without the age guard this
-    /// races the capture daemon and deletes recordings in progress. Archived
-    /// events are excluded — see the module note.
+    /// races the capture daemon and deletes recordings in progress; a
+    /// video-only event never gets frames, so the age guard alone still
+    /// deleted live recordings (#124). Archived events are excluded — see the
+    /// module note.
     async fn remove_empty_events(&self) -> Result<u64, DbErr> {
         let predicate = empty_event_predicate(self.config.min_age_seconds);
         self.delete_where("Events", &predicate).await
@@ -661,21 +664,10 @@ impl AuditService {
     /// recomputed from the frames that did land, and the event is marked
     /// recovered so the repair is visible rather than silent.
     async fn close_unclosed_events(&self) -> Result<u64, DbErr> {
-        let min_age = self.config.min_age_seconds;
+        let predicate = unclosed_event_predicate(self.config.min_age_seconds);
         let backend = self.db.get_database_backend();
-
-        // An open event that is still receiving frames is live, however old
-        // its start is (a long continuous section). Only close one whose
-        // frames stopped min_age ago too (#96).
         let find = format!(
-            "SELECT Id AS id FROM Events \
-             WHERE EndDateTime IS NULL \
-               AND StartDateTime IS NOT NULL \
-               AND StartDateTime < DATE_SUB(NOW(), INTERVAL {min_age} SECOND) \
-               AND NOT EXISTS (SELECT 1 FROM Frames \
-                   WHERE Frames.EventId = Events.Id \
-                     AND Frames.TimeStamp > DATE_SUB(NOW(), INTERVAL {min_age} SECOND)) \
-             LIMIT {}",
+            "SELECT Id AS id FROM Events WHERE {predicate} LIMIT {}",
             self.config.max_deletes_per_pass
         );
         let ids: Vec<u64> = IdRow::find_by_statement(Statement::from_string(backend, find))
@@ -858,6 +850,11 @@ impl AuditService {
     /// Bounded by `max_deletes_per_pass`: a misconfigured storage path can make
     /// a great many rows look orphaned at once, and the cap keeps the blast
     /// radius recoverable while the log makes the cause obvious.
+    /// Delete up to `max_deletes_per_pass` rows of `table` matching
+    /// `predicate`, selecting the ids first and deleting by id. The predicate
+    /// may reference `table` itself in a subquery (the empty-event rule looks
+    /// for a newer event on the same monitor), which MySQL refuses inside a
+    /// DELETE on that table (error 1093); a SELECT has no such limit.
     async fn delete_where(&self, table: &str, predicate: &str) -> Result<u64, DbErr> {
         let backend = self.db.get_database_backend();
 
@@ -887,31 +884,102 @@ impl AuditService {
             );
         }
 
-        let removed = self
-            .db
-            .execute(Statement::from_string(
-                backend,
-                format!("DELETE FROM {table} WHERE {predicate} LIMIT {limit}"),
-            ))
-            .await?
-            .rows_affected();
+        let ids: Vec<u64> = IdRow::find_by_statement(Statement::from_string(
+            backend,
+            format!("SELECT Id AS id FROM {table} WHERE {predicate} LIMIT {limit}"),
+        ))
+        .all(self.db.as_ref())
+        .await?
+        .into_iter()
+        .map(|r| r.id)
+        .collect();
+
+        let mut removed = 0u64;
+        for chunk in ids.chunks(100) {
+            let list = chunk
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            removed += self
+                .db
+                .execute(Statement::from_string(
+                    backend,
+                    format!("DELETE FROM {table} WHERE Id IN ({list})"),
+                ))
+                .await?
+                .rows_affected();
+        }
         info!("deleted {removed} orphaned rows from {table}");
         Ok(removed)
     }
 }
 
-/// Events that recorded no frames and are past the grace period. Archived
-/// events are excluded — see the module note. ONVIF event-listener rows are
-/// excluded by name: that listener records alarms straight into `Events`
-/// without frames (see `daemon::onvif_event_listener::open_event`), so to
-/// this rule every one of them looks empty (#97).
+/// Open events that are past the grace period and demonstrably not being
+/// written any more: their frames have stopped for `min_age` (#96) *and*
+/// [`not_being_written`] holds (#124).
+fn unclosed_event_predicate(min_age: u64) -> String {
+    format!(
+        "EndDateTime IS NULL \
+         AND StartDateTime IS NOT NULL \
+         AND StartDateTime < DATE_SUB(NOW(), INTERVAL {min_age} SECOND) \
+         AND NOT EXISTS (SELECT 1 FROM Frames \
+             WHERE Frames.EventId = Events.Id \
+               AND Frames.TimeStamp > DATE_SUB(NOW(), INTERVAL {min_age} SECOND)) \
+         AND {}",
+        not_being_written(min_age)
+    )
+}
+
+/// Events that recorded no frames, are past the grace period, and are not a
+/// recording in progress ([`not_being_written`], #124). Archived events are
+/// excluded — see the module note. ONVIF event-listener rows are excluded by
+/// name: that listener records alarms straight into `Events` without frames
+/// (see `daemon::onvif_event_listener::open_event`), so to this rule every
+/// one of them looks empty (#97).
 fn empty_event_predicate(min_age: u64) -> String {
     format!(
         "Archived = 0 \
          AND StartDateTime IS NOT NULL \
          AND StartDateTime < DATE_SUB(NOW(), INTERVAL {min_age} SECOND) \
          AND Name NOT LIKE 'ONVIF-%' \
-         AND NOT EXISTS (SELECT 1 FROM Frames WHERE Frames.EventId = Events.Id)"
+         AND NOT EXISTS (SELECT 1 FROM Frames WHERE Frames.EventId = Events.Id) \
+         AND {}",
+        not_being_written(min_age)
+    )
+}
+
+/// Evidence that zmc is no longer writing the event, for use in a predicate
+/// over `Events`.
+///
+/// Frame freshness alone is not enough: a video-only event has no `Frames`
+/// rows at all, so it looked abandoned from birth while zmc was still writing
+/// it — and was deleted as empty, or closed as unclosed, after `min_age`
+/// (#124). One of these must hold instead:
+///
+/// * a newer event exists on the same monitor — zmc records one event at a
+///   time, so this one is finished whatever else is true;
+/// * the capture daemon is not live — no `Monitor_Status` row marked
+///   Connected and refreshed within `min_age`. zmc writes that row every
+///   `fps_report_interval` frames in either supervision mode, which is what
+///   lets the audit judge liveness without asking the supervisor;
+/// * the event is older than the monitor's `SectionLength` plus the grace
+///   period — zmc ends a section at `SectionLength` in every recording mode,
+///   so a live daemon cannot still be inside it. A monitor with no section
+///   length (0) gets no cap.
+fn not_being_written(min_age: u64) -> String {
+    format!(
+        "(EXISTS (SELECT 1 FROM Events later \
+              WHERE later.MonitorId = Events.MonitorId AND later.Id > Events.Id) \
+          OR NOT EXISTS (SELECT 1 FROM Monitor_Status ms \
+              WHERE ms.MonitorId = Events.MonitorId \
+                AND ms.Status = 'Connected' \
+                AND ms.UpdatedOn > DATE_SUB(NOW(), INTERVAL {min_age} SECOND)) \
+          OR EXISTS (SELECT 1 FROM Monitors m \
+              WHERE m.Id = Events.MonitorId \
+                AND m.SectionLength > 0 \
+                AND Events.StartDateTime < DATE_SUB(NOW(), \
+                    INTERVAL (m.SectionLength + {min_age}) SECOND)))"
     )
 }
 

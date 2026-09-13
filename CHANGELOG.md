@@ -144,6 +144,13 @@ recognisable path forward.
   `ZM_PATH_MAP`) for each running `zmc` past its startup grace, and falls back
   to CPU time only when there is no segment to read — an unreadable segment is
   not treated as hung, so a wrong path cannot restart every camera each tick.
+- **The audit no longer closes or deletes a video-only event that zmc is still
+  writing** (#124). Frame freshness (#96) is blind to an event that has no
+  `Frames` rows at all, so such an event was deleted as empty, or closed as
+  unclosed, after `min_age_seconds`. Both sweeps now also require evidence the
+  daemon is done with it: a newer event on the same monitor, no live
+  `Monitor_Status` row, or an age past the monitor's `SectionLength` plus the
+  grace period.
 - **The hung-daemon watchdog could never fire** (#73). `check_activity` stamped
   a timestamp on every sample and `appears_hung` then asked whether that stamp
   was older than `watch_max_delay_seconds` — microseconds later it never was.
