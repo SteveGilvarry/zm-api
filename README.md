@@ -177,7 +177,7 @@ order:
 | Priority | Daemon | Scope |
 |---|---|---|
 | 5 / 6 | `zmc` / `zma` | one per monitor |
-| 10 | `zmfilter.pl --daemon` | singleton |
+| 10 | `zmfilter.pl --filter_id=N --daemon` | one per filter with *Run in background* set; none otherwise |
 | 20 | `zmaudit.pl --continuous` | singleton |
 | 30 | `zmtrigger.pl` | singleton |
 | 40 / 50 | `zmcontrol.pl` / `zmtrack.pl` | one per controllable / tracking monitor |
@@ -188,10 +188,12 @@ own health-check loop.
 
 ### How supervision behaves
 
-- **Health checks** — every 10s; a daemon whose heartbeat is more than 30s stale is restarted
-  (defaults match `ZM_WATCH_CHECK_INTERVAL` / `ZM_WATCH_MAX_DELAY`).
-- **Restart backoff** — exponential: `min_backoff × 2^attempt`, capped at `max_backoff`
-  (5s → 15min by default). A process that stayed up longer than the cap resets its counter.
+- **Health checks** — every 10s; a running daemon whose CPU time has not advanced for 30s is
+  restarted (`watch_check_interval_seconds` / `watch_max_delay_seconds`; ZoneMinder's own
+  `ZM_WATCH_MAX_DELAY` default is 45s).
+- **Restart backoff** — exponential: `min_backoff × 2^attempt`, so the first retry waits 10s,
+  then 20s, capped at `max_backoff` (15min by default). A process that stayed up longer than
+  the cap resets its counter.
 - **Reconciliation** — every 60s, after a 45s startup delay, the monitors in the database are
   diffed against what is actually running and the difference is corrected. That is what
   self-heals an external `kill`, a crash between a DB write and the daemon call, or a reboot.
@@ -244,8 +246,9 @@ default off**, so an existing install keeps running the Perl until you move over
 | `[maintenance.audit.filesystem]` | `zmaudit.pl` (disk side) | quarantines orphaned event directories — discovered by walking and identified from evidence inside them, never by deriving a path from a timestamp |
 | `[maintenance.telemetry]` | `zmtelemetry.pl` | anonymous usage report, with no geolocation lookup |
 
-> ⚠️ Enable a Rust job and disable its Perl counterpart **together** — running both has them
-> competing over the same rows. The audit ships with `dry_run = true`; read a pass or two in
+> ⚠️ Only one of a pair may run. In takeover mode the supervisor will not start the Perl
+> counterpart of an enabled job; in passive mode ZoneMinder is still the supervisor, so disable
+> the Perl daemon there yourself. The audit ships with `dry_run = true`; read a pass or two in
 > the log before turning that off.
 
 Going deeper: **[the takeover guide](book/src/guide/takeover.md)** covers prerequisites,

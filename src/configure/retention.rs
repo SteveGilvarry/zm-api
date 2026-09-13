@@ -37,6 +37,13 @@ pub struct RetentionConfig {
     /// Log what *would* be deleted each pass without deleting anything.
     #[serde(default)]
     pub dry_run: bool,
+
+    /// Most events one pass may delete from one storage. Bounds the damage a
+    /// bad free-space reading can do (an unmounted volume, a `DiskSpace`
+    /// column that was never backfilled) to one interval's worth. `0` removes
+    /// the cap.
+    #[serde(default = "default_max_deletes_per_pass")]
+    pub max_deletes_per_pass: u64,
 }
 
 impl Default for RetentionConfig {
@@ -48,6 +55,7 @@ impl Default for RetentionConfig {
             max_age_days: 0,
             max_bytes: 0,
             dry_run: false,
+            max_deletes_per_pass: default_max_deletes_per_pass(),
         }
     }
 }
@@ -68,4 +76,8 @@ fn default_interval_seconds() -> u64 {
 
 fn default_min_free_pct() -> f64 {
     10.0
+}
+
+fn default_max_deletes_per_pass() -> u64 {
+    500
 }

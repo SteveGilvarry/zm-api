@@ -15,6 +15,7 @@ resolve those directives by inlining these files when building the test schema.
 | `triggers.sql` | Event_Summaries / rollup maintenance triggers (13 MySQL triggers) |
 | `manufacturers.sql` | Camera manufacturer seed data |
 | `models.sql` | Camera model seed data |
+| `controls.sql` | `Controls` (PTZ/control capability) seed rows — moved out of `zm_create.sql.in` upstream at 1.39.3x |
 | `AI_Models.sql` | AI detection tables (`AI_Datasets`, `AI_Models`, `AI_Object_Classes`, `AI_Detection_Settings`, `AI_Detections`) |
 | `coco_dataset.sql` | COCO object-class seed data |
 

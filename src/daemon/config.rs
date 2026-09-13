@@ -25,6 +25,12 @@ pub struct DaemonConfig {
     #[serde(default = "default_socket_name")]
     pub socket_name: String,
 
+    /// Group the socket is chgrp'd to, so ZoneMinder's web user (who runs
+    /// the console's zmdc.pl calls) can connect. Default: `ZM_WEB_GROUP`
+    /// from zm.conf. The zm-api service user must be a member.
+    #[serde(default)]
+    pub socket_group: Option<String>,
+
     /// Path to ZM binaries (default: /usr/bin)
     #[serde(default = "default_bin_path")]
     pub bin_path: PathBuf,
@@ -67,7 +73,8 @@ pub struct DaemonConfig {
     #[serde(default = "default_watch_check_interval_seconds")]
     pub watch_check_interval_seconds: u64,
 
-    /// Maximum heartbeat delay before restart in seconds (default: 30, matches ZM_WATCH_MAX_DELAY)
+    /// Seconds of unchanged CPU time before a restart (default: 30; ZoneMinder's
+    /// ZM_WATCH_MAX_DELAY defaults to 45)
     #[serde(default = "default_watch_max_delay_seconds")]
     pub watch_max_delay_seconds: u64,
 }
@@ -78,6 +85,7 @@ impl Default for DaemonConfig {
             enabled: default_enabled(),
             socket_path: default_socket_path(),
             socket_name: default_socket_name(),
+            socket_group: None,
             bin_path: default_bin_path(),
             script_path: default_script_path(),
             min_backoff_seconds: default_min_backoff_seconds(),
@@ -229,7 +237,7 @@ fn default_watch_check_interval_seconds() -> u64 {
 }
 
 fn default_watch_max_delay_seconds() -> u64 {
-    30 // ZM_WATCH_MAX_DELAY default
+    30 // ZoneMinder's ZM_WATCH_MAX_DELAY defaults to 45; deliberately tighter here
 }
 
 #[cfg(test)]

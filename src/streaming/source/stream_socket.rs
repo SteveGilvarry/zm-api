@@ -92,6 +92,8 @@ pub enum SocketEvent {
     /// media; routed to DB ingest rather than the media sinks. EVENTs use their
     /// own per-monitor sequence counter, independent of the media streams.
     MonitorEvent(MonitorEvent),
+    /// A zm-next worker's `0x12 Response` to a command this connection sent.
+    CommandResponse(protocol::CommandResponse),
 }
 
 /// Turn a connect failure into the most actionable variant we can. EACCES is
@@ -279,6 +281,20 @@ impl StreamSocketReader {
 
     /// Decode one wire message into zero or more pending events.
     fn handle_message(&mut self, header: Header, payload: Vec<u8>) -> Result<(), SourceError> {
+        // Command replies are a zm-next control extension, not a media type, so
+        // they are matched on the raw byte. Malformed ones are skipped like a
+        // malformed EVENT.
+        if header.msg_type == protocol::MSG_TYPE_RESPONSE {
+            match protocol::parse_command_response(&payload) {
+                Some(resp) => self.pending.push_back(SocketEvent::CommandResponse(resp)),
+                None => debug!(
+                    "Monitor {}: skipping malformed command response",
+                    self.monitor_id
+                ),
+            }
+            return Ok(());
+        }
+
         let Some(msg_type) = MessageType::from_u8(header.msg_type) else {
             debug!(
                 "Monitor {}: skipping unknown message type {:#x}",
@@ -976,6 +992,41 @@ mod tests {
         let events = collect_events(&mut reader, 4).await;
         assert!(matches!(events[0], SocketEvent::VideoParams { .. }));
         assert!(matches!(events[3], SocketEvent::Video(_)));
+
+        server.abort();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn command_responses_are_surfaced_and_malformed_ones_skipped() {
+        let dir = test_sock_dir("responses");
+        let sock = dir.join("stream_12.sock");
+
+        let reply = br#"{"data":"","message":"dispatched","ok":true,"request_id":7}"#;
+        let mut script = Vec::new();
+        script.extend_from_slice(&encode_message(0x12, 2, 0, 0, 0, 0, b"garbage"));
+        script.extend_from_slice(&encode_message(0x12, 2, 0, 0, 0, 0, reply));
+        script.extend_from_slice(&encode_message(
+            0x01,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &hello_payload(h264_codec_id(), &extradata()),
+        ));
+
+        let server = spawn_fake_zmc(sock, script, false);
+        let mut reader = StreamSocketReader::new(12, test_config(&dir));
+        reader.connect().await.expect("connect");
+
+        let events = collect_events(&mut reader, 2).await;
+        let SocketEvent::CommandResponse(resp) = &events[0] else {
+            panic!("expected CommandResponse, got {:?}", events[0]);
+        };
+        assert_eq!(resp.request_id, 7);
+        assert!(resp.ok);
+        assert!(matches!(events[1], SocketEvent::VideoParams { .. }));
 
         server.abort();
         let _ = std::fs::remove_dir_all(&dir);

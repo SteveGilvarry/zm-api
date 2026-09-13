@@ -24,6 +24,27 @@ pub struct ZmNextConfig {
     pub pipeline: PipelineConfig,
     pub ingest: IngestConfig,
     pub share_inference: ShareInferenceConfig,
+    pub commands: CommandsConfig,
+}
+
+/// On-demand worker commands (`snapshot_now`, `describe_now`) sent over the
+/// stream socket. A command whose owning plugin is missing from the pipeline
+/// never gets a result, so each one waits at most this long.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct CommandsConfig {
+    pub snapshot_timeout_secs: u64,
+    /// Longer by default: a VLM on modest hardware takes several seconds a frame.
+    pub describe_timeout_secs: u64,
+}
+
+impl Default for CommandsConfig {
+    fn default() -> Self {
+        Self {
+            snapshot_timeout_secs: 10,
+            describe_timeout_secs: 60,
+        }
+    }
 }
 
 /// Shared GPU inference: route detection to a per-GPU `zm-infer` daemon instead

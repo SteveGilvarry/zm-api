@@ -17,7 +17,7 @@ use zm_api::dto::response::{PaginatedUserPreferencesResponse, UserPreferenceResp
 async fn insert_preference(db: &sea_orm::DatabaseConnection, user_id: u32, label: &str) -> u32 {
     zm_api::entity::user_preferences::ActiveModel {
         user_id: Set(user_id),
-        name: Set(Some(unique_name(label))),
+        name: Set(unique_name(label)),
         value: Set(Some("on".to_string())),
         ..Default::default()
     }

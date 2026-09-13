@@ -51,7 +51,7 @@ impl MigrationTrait for Migration {
             manager.create_table(table_fn(backend)).await?;
         }
 
-        for group in tables::all_indexes() {
+        for group in tables::all_indexes(backend) {
             for idx in group {
                 manager.create_index(idx).await?;
             }
@@ -59,7 +59,14 @@ impl MigrationTrait for Migration {
 
         let conn = manager.get_connection();
         for stmt in seeds::seed_statements() {
-            conn.execute(backend.build(&stmt)).await?;
+            let built = backend.build(&stmt);
+            let head: String = built.sql.chars().take(120).collect();
+            conn.execute(built).await.map_err(|e| {
+                DbErr::Custom(format!(
+                    "{e}
+  while seeding: {head}"
+                ))
+            })?;
         }
         for sql in seeds::raw_seed_sql() {
             conn.execute_unprepared(sql).await?;

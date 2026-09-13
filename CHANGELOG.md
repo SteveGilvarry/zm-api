@@ -10,6 +10,24 @@ recognisable path forward.
 
 ### Added
 
+- **Fresh databases start at ZoneMinder 1.39.1 and are upgraded by one portable
+  migration per upstream `zm_update-1.39.x`** (docs/DB_VERSIONING_PLAN.md).
+  `migrator up` on an empty MySQL/MariaDB *or* Postgres produces the 1.39.1
+  create script, then every upgrade upstream has shipped since (currently
+  through 1.39.33), the way `zmupdate.pl` does for MySQL alone. Stored
+  procedures in the upstream updates (zone-coordinate conversions) are Rust
+  loops; MySQL-only trigger rewrites are skipped on Postgres and logged. The
+  `schema-parity` CI job now proves the 32 migrations reproduce upstream's
+  create script exactly; a new `postgres-schema` job proves the Postgres
+  schema has every table and column MySQL has. Existing MySQL installs are
+  unchanged: `migrator bridge` walks the raw chain to the latest vendored
+  version and records the migrations that version embodies (#48).
+
+- `Monitors.DeviceClass`, `AudioDetection`, `AudioThreshold` and
+  `AudioAlarmScore` (upstream 1.39.30/31) on the monitor create/update
+  requests and response; `Controls` gains its light and audio capability
+  columns (#48).
+
 - `Reports.CreatedBy` is read and written (#29). The column has existed since
   1.37 but was never modelled, so it was neither stored nor returned.
   Attribution comes from the authenticated token rather than the request body —
@@ -19,9 +37,10 @@ recognisable path forward.
 - **Native replacements for three Perl maintenance daemons** — `zmstats.pl`,
   `zmaudit.pl` (database side) and `zmtelemetry.pl` — each independently
   switchable under `[maintenance]` and all off by default, so an existing
-  install keeps running the Perl until the operator moves over. Enable the Rust
-  job and disable the matching daemon together; running both has them competing
-  over the same rows.
+  install keeps running the Perl until the operator moves over. Only one of a
+  pair may run: in takeover mode an enabled native job stops the supervisor
+  starting its Perl counterpart; in passive mode disable the Perl daemon in
+  ZoneMinder yourself.
   <br>**Stats** samples CPU and memory into `Server_Stats`, evicts stale
   `Monitor_Status` heartbeats, ages events out of the `Events_Hour/Day/Week/Month`
   windows and resyncs the counters they feed, and prunes `Logs` and `Sessions`
@@ -109,6 +128,142 @@ recognisable path forward.
 
 ### Fixed
 
+- **The hung-daemon watchdog could never fire** (#73). `check_activity` stamped
+  a timestamp on every sample and `appears_hung` then asked whether that stamp
+  was older than `watch_max_delay_seconds` — microseconds later it never was.
+  A `zmc` blocked on a stalled RTSP read stayed dead until an operator noticed,
+  while the docs said `zmwatch.pl` was replaced. The stamp now moves only when
+  CPU time advances, so its age is the stall.
+
+- **A second `startup` on a running supervisor SIGKILLed every daemon** (#74).
+  The `pkill -9` orphan sweep ran inside `start_all_daemons`, which the legacy
+  socket `startup`/`pkg_start` commands and `POST /system/startup` also call.
+  Because the entries still read Running nothing respawned them until the
+  health tick and first backoff — a 10–20s capture gap on every monitor. The
+  sweep now runs once per manager. It also uses `pkill -x`: the unanchored
+  default matched `zmaudit.pl` for "zma" and `zmcontrol.pl` for "zmc".
+
+- **A daemon stopped and started again was never crash-supervised** (#78).
+  `stop_daemon` clears `auto_restart` so the health loop does not resurrect a
+  deliberate stop, but nothing re-armed it on the next spawn (monitor restart,
+  reconcile). Supervision is re-armed on every spawn.
+
+- **`zm-api.service` deleted ZoneMinder's `/run/zm` on every stop/restart**
+  (#82). It was declared as the unit's `RuntimeDirectory`, so systemd chowned
+  it on start and removed it on stop — in passive mode, from under a running
+  `zmdc.pl` and every `zmc` stream socket. The unit now only creates the
+  directory when it is missing and never touches an existing one.
+
+- **Takeover started the Perl maintenance daemon alongside its native
+  replacement** (#87). `base.toml` said to enable the Rust job and disable the
+  Perl daemon together, but nothing in zm-api did the second half: the
+  singleton gates read only ZoneMinder's `Config`/`Servers` rows. With
+  `[maintenance.stats]` on, `zmstats.pl` still ran and both wrote the same
+  rows. Each enabled native job now suppresses its Perl counterpart's automatic
+  start (an explicit `start` over the socket or REST is still honoured).
+
+- **The daemon manager never knew which server it was** (#75) and the stats
+  job read `ZM_SERVER_ID` from an environment variable nothing sets (#100).
+  On a multi-server install every host started every monitor's `zmc`, the
+  per-server `Servers.zm*` gates were dead, and `Server_Stats` rows landed
+  under `ServerId = 0`. The id is now resolved the way ZoneMinder's own daemons
+  do it — `ZM_SERVER_ID` from `zm.conf`, else `ZM_SERVER_HOST` against
+  `Servers`, else the machine hostname — and shared by both.
+
+- **Three documented `[daemon]` keys were never read** (#88).
+  `enable_watchdog` now gates the hung-process check (exit detection and crash
+  restarts are never optional), `stats_update_interval_seconds` drives the
+  `Servers` status loop instead of a hard-coded 60s, and
+  `enable_rest_api = false` leaves the daemon/system routes unregistered.
+
+- **The retention reaper could empty a storage in one pass** (#105). With
+  `Events.DiskSpace` NULL — the normal state of a freshly recorded event until
+  something backfills it — each deletion credited zero bytes, the free-space
+  model never moved, and the loop ran to the end of the table. NULL sizes are
+  now measured on disk, free space is re-read from the filesystem every 25
+  deletions, and a new `max_deletes_per_pass` (default 500, `0` = unlimited)
+  bounds one pass. Alongside it: an unmounted storage (missing or empty
+  directory) is skipped rather than reaped against the parent filesystem's
+  free space, and the first pass waits 60s after start (#104); a failed media
+  removal stops the pass instead of deleting row after row while the disk
+  stays full (#106); an event archived after the candidate list was taken is
+  left alone (#109); and event deletion now removes the event's `Stats` rows,
+  which have no foreign key and were left behind (#110).
+
+- **Audit and stats SQL** — a batch from the same review. The
+  `Storage.DiskSpace` resync never ran: its SELECT could not decode the
+  unsigned `Id` and the DECIMAL `SUM` into signed Rust integers, and the error
+  was swallowed (#90); the columns are cast and a failed job is now part of the
+  audit report, so a test asserting a clean pass fails (#101 for the stats
+  job likewise). Every "older than N" comparison used a session forced to UTC
+  against columns ZoneMinder writes in local time (#98); the connection now
+  sets `time_zone = SYSTEM`. The window-counter and total-counter resyncs took
+  locking reads inside an UPDATE in the reverse order of ZoneMinder's Events
+  triggers (#99); they read with a plain SELECT and write by primary key. The
+  orphan-frame sweep full-scanned `Frames` under next-key locks (#94); it
+  selects the orphan ids first and deletes by index in batches.
+  `max_deletes_per_pass` capped which rows were *looked at* rather than
+  deleted (#91). Two `Storage` rows on one path confirmed an orphan in a
+  single pass (#93). `min_age_seconds` never applied to directory quarantine
+  (#95). `close_unclosed_events` closed live events still receiving frames
+  (#96). A Deep-scheme day directory holding one `.{id}` symlink was recorded
+  as the event itself (#92); the link is followed to the leaf. A storage whose
+  mount dropped, then got a fresh monitor directory from zmc, passed the
+  preconditions and had every older row deleted as "no media" (#89); a pass
+  now refuses when more rows are missing than events were found. ONVIF
+  event-listener rows, which never have frames, were deleted as empty (#97).
+
+- **Supervisor lifecycle** — reconcile only diffed the database against the
+  process map in one direction, so a deleted monitor's daemons ran on, and a
+  hard-deleted one crash-looped forever (#76). `restart_monitor` slept 500ms
+  and spawned over a process still shutting down, orphaning it (#77); starts
+  are refused over a `Stopping` entry and restarts wait for the exit. A
+  daemon restart latched the process-wide shutdown flag, so the ONVIF event
+  listeners exited and never came back (#79); they now watch a separate
+  process-exit flag. Background loops that missed the shutdown wake-up
+  mid-tick ran on beside their replacements (#80); every startup retires the
+  previous generation. Stop/kill on a crashed entry signalled a dead, possibly
+  reused pid (#81). Two Local monitors on one device had their shared `zmc -d`
+  stopped and restarted every tick (#113). A database still coming up at boot
+  left the singleton daemons unstarted for the life of the process (#114); it
+  retries. Reconcile respawned a crash-looping daemon every 60s, capping the
+  documented backoff (#115). The HTTP drain ran unbounded and before the daemon
+  SIGTERM wave, so systemd could SIGKILL zmc mid-stop (#116); both run
+  concurrently and bounded, and `TimeoutStopSec` leaves margin. `POST
+  /system/state` returned a bare 500 after committing when the restart failed
+  (#117).
+
+- **zmdc.sock compatibility** — `status`/`check` ignored the daemon and
+  never emitted zmdc.pl's per-daemon lines or words, which the web console
+  string-matches (#83). Daemons were keyed by name alone, so `zmdc.pl stop zmc
+  -m 1` missed the tracked `zmc -m 1` and `start` spawned a duplicate (#84);
+  one canonical `"<command> <args>"` key everywhere. The socket was 0660 in
+  the service user's own group, so ZoneMinder's web user could not connect
+  (#85); it is chgrp'd to `ZM_WEB_GROUP` (or `daemon.socket_group`) and the
+  install script adds the service account to that group. `logrot` sent SIGHUP
+  — reload, which drops zmc's camera — to every daemon, so nightly logrotate
+  interrupted capture (#86); it sends SIGWINCH like zmdc.pl. The orphan sweep
+  missed four Perl daemons and `zm-core`, and never checked for a live
+  zmdc.pl before pkilling (#118); the list is derived from the spawn table,
+  anchored on the full command line, and takeover refuses while something
+  answers on the socket. Command reads had no size or time bound (#119).
+
+- **Smaller ones** — telemetry kept the query string, so `?user=&password=`
+  camera credentials were sent (#102); it ignored `ZM_TELEMETRY_DATA` and
+  silently minted a fresh uuid every pass on a database without the Config
+  row (#103). Deep-scheme deletion removed a timestamp-derived directory with
+  no check it held the event, and unlinked the `.{id}` marker from the wrong
+  directory (#107); it follows the marker and refuses a directory naming
+  another event. `Storage.DoDelete` was never read (#108). The byte quota
+  counted only deletable events (#110). The retention guide's grep matched
+  nothing and the promised per-deletion reason was never logged (#112). The
+  ONVIF listener's reconnect backoff never reset, its renew cancelled an
+  in-flight pull whose response the device had already dequeued, and
+  listeners were spawned for deleted monitors (#120). `POST
+  /monitors/{id}/zmnext` returned 200 with zm-next disabled (#121). Non-DB
+  unit tests now cover the reaper's free-space loop, NULL `DiskSpace`, age
+  cutoff, quota and cap (#111).
+
 - **The rate limiter made the API unusable for any browser client** (#70). A
   burst of `0` with the limiter enabled was clamped silently to `1`, so one
   request succeeded and everything after it returned 429 — no page in any
@@ -174,6 +329,11 @@ recognisable path forward.
 
 ### Removed
 
+- `frame_skip` from the monitor create/update requests and response:
+  upstream dropped `Monitors.FrameSkip` in 1.39.24. `motion_frame_skip`
+  remains. `User_Preferences.Name` is required on create (NOT NULL and unique
+  per user since 1.39.19) (#48).
+
 - **Config blocks nothing implemented** (#53). `[streaming.rtsp_proxy]` declared
   a port and an RTP range that nothing bound, and `[streaming.go2rtc]` a base
   URL that nothing called — an operator could configure either, restart, and get
@@ -222,6 +382,10 @@ recognisable path forward.
 
 ### Changed
 
+- **BREAKING: `frame_skip` is gone from monitor requests and responses.**
+  ZoneMinder 1.39.24 drops `Monitors.FrameSkip`, and zm-api now mirrors that
+  update, so `MonitorResponse` no longer carries the field and create/update
+  ignore it. `motion_frame_skip` is unchanged.
 - **BREAKING: six `operationId`s renamed** (#32). They were duplicated, which
   meant a generated client silently got one method and lost the other, so this
   had to change — but it renames methods for anyone already generating against

@@ -80,14 +80,34 @@ impl AppServer {
 
                 // Start all ZoneMinder daemons (zmc, zma, singletons, etc.)
                 if let Err(e) = daemon_manager.start_all_daemons().await {
-                    tracing::error!("Failed to start ZoneMinder daemons: {}", e);
+                    // A database still coming up at boot must not leave the
+                    // singletons and per-filter daemons unstarted for the
+                    // life of the process (#114): keep trying.
+                    tracing::error!("Failed to start ZoneMinder daemons: {e}; retrying every 30s");
+                    let manager = Arc::clone(daemon_manager);
+                    tokio::spawn(async move {
+                        loop {
+                            tokio::time::sleep(Duration::from_secs(30)).await;
+                            if manager.is_process_exiting() {
+                                break;
+                            }
+                            match manager.start_all_daemons().await {
+                                Ok(_) => {
+                                    tracing::info!("ZoneMinder daemons started after retry");
+                                    break;
+                                }
+                                Err(e) => tracing::error!("Retrying daemon start: {e}"),
+                            }
+                        }
+                    });
                 }
 
                 // Start the Unix socket server for legacy zmdc.pl compatibility
                 if config.daemon.enable_socket_ipc {
                     let socket_path = config.daemon.socket_file();
                     let manager = Arc::clone(daemon_manager);
-                    let socket_server = DaemonSocketServer::new(socket_path.clone(), manager);
+                    let socket_server = DaemonSocketServer::new(socket_path.clone(), manager)
+                        .with_socket_group(config.daemon.socket_group.clone());
 
                     tracing::info!("Starting daemon socket server at {:?}", socket_path);
 
@@ -110,6 +130,33 @@ impl AppServer {
         // router, so managed daemons can be drained after the server exits.
         let daemon_manager = self.state.daemon_manager.clone();
         let router = create_router_app(self.state);
+
+        // One shutdown signal, observed by the HTTP drain and by the daemon
+        // stop wave — which starts at once rather than after the drain (#116).
+        // systemd's TimeoutStopSec bounds the whole stop, so a slow in-flight
+        // response used to eat the time zmc/zma needed to be SIGTERM'd.
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        let daemon_stop = {
+            let dm = daemon_manager.clone();
+            tokio::spawn(async move {
+                shutdown_signal().await;
+                let _ = shutdown_tx.send(true);
+                if let Some(dm) = dm {
+                    dm.mark_process_exiting();
+                    tracing::info!("Shutting down managed daemons...");
+                    match dm.shutdown_all().await {
+                        Ok(resp) => tracing::info!("Daemon shutdown complete: {}", resp.message),
+                        Err(e) => tracing::error!("Daemon shutdown error: {}", e),
+                    }
+                }
+            })
+        };
+        let signalled = || {
+            let mut rx = shutdown_rx.clone();
+            async move {
+                let _ = rx.wait_for(|v| *v).await;
+            }
+        };
 
         // Serve until a shutdown signal drains the listener. Every path wires a
         // real graceful drain (`axum_server::Handle` / `with_graceful_shutdown`)
@@ -240,25 +287,39 @@ impl AppServer {
             } else {
                 tracing::info!("Starting HTTP server on: {addr}");
                 let tcp = tokio::net::TcpListener::bind(addr).await?;
-                axum::serve(
-                    tcp,
-                    router.into_make_service_with_connect_info::<SocketAddr>(),
-                )
-                .with_graceful_shutdown(shutdown_signal())
-                .await?;
+                // Bounded like the TLS paths: an unbounded drain let one slow
+                // response hold the exit past TimeoutStopSec (#116).
+                let deadline = async {
+                    signalled().await;
+                    tokio::time::sleep(shutdown_timeout).await;
+                };
+                tokio::select! {
+                    served = axum::serve(
+                        tcp,
+                        router.into_make_service_with_connect_info::<SocketAddr>(),
+                    )
+                    .with_graceful_shutdown(signalled()) => served?,
+                    _ = deadline => tracing::warn!(
+                        "HTTP drain exceeded {:?}; exiting with requests in flight",
+                        shutdown_timeout
+                    ),
+                }
             }
             Ok(())
         }
         .await;
 
         // Always runs — drain managed daemons cleanly, whatever the outcome.
+        // After a signal the stop wave above is already under way and this
+        // just waits for it; after a server error it is the only wave.
         if let Some(ref dm) = daemon_manager {
-            tracing::info!("Shutting down managed daemons...");
+            dm.mark_process_exiting();
             match dm.shutdown_all().await {
                 Ok(resp) => tracing::info!("Daemon shutdown complete: {}", resp.message),
                 Err(e) => tracing::error!("Daemon shutdown error: {}", e),
             }
         }
+        daemon_stop.abort();
 
         server_result
     }

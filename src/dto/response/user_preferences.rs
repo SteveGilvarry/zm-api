@@ -7,7 +7,7 @@ use utoipa::ToSchema;
 pub struct UserPreferenceResponse {
     pub id: u32,
     pub user_id: u32,
-    pub name: Option<String>,
+    pub name: String,
     pub value: Option<String>,
 }
 

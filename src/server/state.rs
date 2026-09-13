@@ -185,13 +185,21 @@ impl AppState {
         // keeps running zmstats/zmaudit/zmtelemetry until the operator moves
         // over deliberately — running both at once would have them competing
         // over the same rows.
+        // Which Servers row this host is (None = single-server). Used by the
+        // stats job and the daemon manager; resolved the way ZoneMinder's
+        // own daemons do it, from zm.conf and the Servers table.
+        let server_id = crate::daemon::server_id::resolve_server_id(db.as_ref()).await;
+
         {
             let m = &config.maintenance;
             if m.stats.enabled {
-                Arc::new(crate::service::maintenance::stats::StatsService::new(
-                    db.clone(),
-                    m.stats.clone(),
-                ))
+                Arc::new(
+                    crate::service::maintenance::stats::StatsService::new(
+                        db.clone(),
+                        m.stats.clone(),
+                    )
+                    .with_server_id(server_id),
+                )
                 .spawn();
                 tracing::info!(
                     "stats maintenance enabled (every {}s) — disable zmstats.pl",
@@ -253,11 +261,8 @@ impl AppState {
         // Initialize daemon manager if enabled
         let daemon_manager = if config.daemon.enabled {
             tracing::info!("Daemon controller enabled, initializing manager");
-            let mut manager = DaemonManager::with_database(
-                config.daemon.clone(),
-                None, // Server ID can be set from DB config later
-                db.clone(),
-            );
+            let mut manager =
+                DaemonManager::with_database(config.daemon.clone(), server_id, db.clone());
             // Enable zm-next worker control (no-op unless [zmnext].enabled).
             // Synopsis-opted-in monitors get the extra export stages in their
             // generated pipeline.
@@ -271,6 +276,11 @@ impl AppState {
                 config.streaming.zoneminder.socks_path.clone(),
                 synopsis_monitors,
             );
+            // Native [maintenance.*] jobs replace their Perl daemons; the
+            // supervisor must not start both.
+            manager.set_native_maintenance(crate::daemon::manager::NativeJobs::from(
+                &config.maintenance,
+            ));
             Some(Arc::new(manager))
         } else {
             tracing::info!("Daemon controller disabled in configuration");
@@ -379,7 +389,8 @@ impl AppState {
 
         let mut spawned = 0usize;
         for m in monitors {
-            if m.onvif_event_listener == 0 || m.onvif_url.trim().is_empty() {
+            // A deleted monitor must not get a listener inserting events (#120).
+            if m.deleted != 0 || m.onvif_event_listener == 0 || m.onvif_url.trim().is_empty() {
                 continue;
             }
             // Events service endpoint = onvif_url joined with onvif_events_path.

@@ -94,10 +94,13 @@ pub fn scrub_monitor_path(path: &str, is_local: bool) -> String {
     }
     match url::Url::parse(path) {
         Ok(mut url) => {
-            // Keep scheme and path shape; discard credentials and host.
+            // Keep scheme and path shape; discard credentials and host. The
+            // query string goes too: cameras take `?user=..&password=..` (#102).
             let _ = url.set_username("username");
             let _ = url.set_password(Some("password"));
             let _ = url.set_host(Some("host"));
+            url.set_query(None);
+            url.set_fragment(None);
             url.to_string()
         }
         Err(_) => UNKNOWN.to_string(),
@@ -153,6 +156,14 @@ impl TelemetryService {
     /// Send a report if the configured interval has elapsed since the last
     /// successful upload.
     pub async fn send_if_due(&self) -> Result<bool, DbErr> {
+        // ZoneMinder's own opt-in (Options → System → TELEMETRY_DATA) still
+        // rules: the native job replaces zmtelemetry.pl, not the switch (#103).
+        if let Some(v) = read_zm_config_str(self.db.as_ref(), "ZM_TELEMETRY_DATA").await {
+            if !matches!(v.trim(), "1" | "true" | "yes" | "on") {
+                debug!("telemetry disabled by ZM_TELEMETRY_DATA");
+                return Ok(false);
+            }
+        }
         let interval = self.effective_interval().await;
         let last = self.last_upload().await.unwrap_or(0);
         let now = chrono::Utc::now().timestamp();
@@ -299,8 +310,11 @@ impl TelemetryService {
     /// This install's stable anonymous identifier, minted on first use.
     async fn uuid(&self) -> String {
         if let Some(existing) = read_zm_config_str(self.db.as_ref(), "ZM_TELEMETRY_UUID").await {
-            if !existing.trim().is_empty() {
-                return existing;
+            // zmtelemetry.pl validates the stored value the same way (#103).
+            if let Ok(parsed) = uuid::Uuid::parse_str(existing.trim()) {
+                if !parsed.is_nil() {
+                    return existing.trim().to_string();
+                }
             }
         }
         let fresh = uuid::Uuid::new_v4().to_string();
@@ -316,13 +330,28 @@ impl TelemetryService {
     }
 
     async fn write_config(&self, name: &str, value: &str) -> Result<(), DbErr> {
-        self.db
+        let backend = self.db.get_database_backend();
+        let updated = self
+            .db
             .execute(Statement::from_sql_and_values(
-                self.db.get_database_backend(),
+                backend,
                 "UPDATE Config SET Value = ? WHERE Name = ?",
                 [value.into(), name.into()],
             ))
-            .await?;
+            .await?
+            .rows_affected();
+        if updated == 0 {
+            // A database provisioned without ZoneMinder's Config seed has no
+            // row to update; a silent no-op minted a fresh uuid and re-sent
+            // every pass (#103).
+            self.db
+                .execute(Statement::from_sql_and_values(
+                    backend,
+                    "INSERT INTO Config (Name, Value, Type, Category) VALUES (?, ?, 'string', 'system')",
+                    [name.into(), value.into()],
+                ))
+                .await?;
+        }
         Ok(())
     }
 }
@@ -384,6 +413,20 @@ mod tests {
         // The shape is still recognisable, which is the point of sending it.
         assert!(scrubbed.starts_with("rtsp://"), "{scrubbed}");
         assert!(scrubbed.ends_with("/stream1"), "{scrubbed}");
+    }
+
+    /// Cameras also take credentials in the query string (#102).
+    #[test]
+    fn query_string_credentials_are_stripped_too() {
+        let scrubbed = scrub_monitor_path(
+            "http://10.0.0.5/video.cgi?user=admin&password=hunter2#x",
+            false,
+        );
+        assert!(!scrubbed.contains("hunter2"), "{scrubbed}");
+        assert!(!scrubbed.contains("password="), "{scrubbed}");
+        assert!(!scrubbed.contains('?'), "{scrubbed}");
+        assert!(!scrubbed.contains('#'), "{scrubbed}");
+        assert!(scrubbed.ends_with("/video.cgi"), "{scrubbed}");
     }
 
     #[test]

@@ -37,6 +37,13 @@ The URL can come from `DATABASE_URL` instead of `-u`. See
 [Upgrading](../getting-started/upgrading.md) — picking the wrong one of
 `bridge`/`up` matters.
 
+`up` accepts a Postgres URL as well as MySQL/MariaDB
+(`zm-api-db up -u postgres://user:pass@host:5432/zm`). On either backend an
+empty database becomes ZoneMinder's 1.39.1 schema followed by every upstream
+schema update since, one migration per `zm_update-1.39.x` (see
+`docs/DB_VERSIONING_PLAN.md`). Postgres support stops at the schema: the API
+itself still runs against MySQL/MariaDB only.
+
 `man 8 zm-api-db`
 
 ## `zm-api-takeover`

@@ -144,7 +144,7 @@ dashmap = "6"
 
 # FFmpeg bindings for H.264 → JPEG snapshot decoding, and the in-process
 # libavcodec/libavformat encode+mux path for the motion-synopsis mp4 renderer.
-ffmpeg-next = "8"
+ffmpeg-next = "9"
 
 # Image compositing for the motion-synopsis renderer: decode the pre-rendered
 # cutout/plate JPEGs, alpha-composite them over the plate, encode the still.
@@ -152,7 +152,7 @@ ffmpeg-next = "8"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 
 # Unix signal handling and filesystem utilities
-nix = { version = "0.31", features = ["signal", "fs"] }
+nix = { version = "0.31", features = ["signal", "fs", "hostname", "user"] }
 
 # Low-level libc bindings for PR_SET_PDEATHSIG
 libc = "0.2"

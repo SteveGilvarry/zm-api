@@ -131,7 +131,7 @@ FOR EACH ROW
         ),
         (
             "event_update_trigger",
-            r#"CREATE TRIGGER event_update_trigger AFTER UPDATE ON Events
+            r#"CREATE TRIGGER event_update_trigger AFTER UPDATE ON Events 
 FOR EACH ROW
 BEGIN
   declare diff BIGINT default 0;
@@ -228,7 +228,6 @@ pub(super) fn autoinc_tables() -> Vec<(&'static str, &'static str)> {
     vec![
         ("Controls", "Id"),
         ("Devices", "Id"),
-        ("EncoderTemplates", "Id"),
         ("Events", "Id"),
         ("Event_Data", "Id"),
         ("Filters", "Id"),
@@ -260,13 +259,6 @@ pub(super) fn autoinc_tables() -> Vec<(&'static str, &'static str)> {
         ("Snapshots_Events", "Id"),
         ("Reports", "Id"),
         ("Tags", "Id"),
-        ("Notifications", "Id"),
-        ("Menu_Items", "Id"),
         ("Object_Types", "Id"),
-        ("AI_Datasets", "Id"),
-        ("AI_Models", "Id"),
-        ("AI_Object_Classes", "Id"),
-        ("AI_Detection_Settings", "Id"),
-        ("AI_Detections", "Id"),
     ]
 }

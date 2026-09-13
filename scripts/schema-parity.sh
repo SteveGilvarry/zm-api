@@ -37,10 +37,17 @@ CREATE DATABASE $LEGACY_DB;
 CREATE DATABASE $BASELINE_DB;
 EOF
 
-echo "== Loading legacy schema into $LEGACY_DB"
+# Which create script the migrations must reproduce. Default: the repo-root
+# zm_create.sql.in (latest vendored upstream) with fragments in db/. Set
+# SCHEMA_SNAPSHOT to a directory holding a create script plus its fragments
+# (db/baseline-1.39.1) to check the baseline alone against its own snapshot.
+SCHEMA_DIR="${SCHEMA_SNAPSHOT:-$PROJECT_ROOT}"
+FRAG_DIR="${SCHEMA_SNAPSHOT:-$PROJECT_ROOT/db}"
+
+echo "== Loading legacy schema ($SCHEMA_DIR/zm_create.sql.in) into $LEGACY_DB"
 # Substitute cmake placeholders and inline `source @PKGDATADIR@/db/X.sql`
 # from the vendored copies, exactly like packaging / setup-ci-db.sh.
-awk -v dbdir="$PROJECT_ROOT/db" '
+awk -v dbdir="$FRAG_DIR" '
     /^source @PKGDATADIR@\/db\// {
         f = $2; sub(/@PKGDATADIR@\/db\//, "", f)
         path = dbdir "/" f
@@ -51,7 +58,7 @@ awk -v dbdir="$PROJECT_ROOT/db" '
         next
     }
     { print }
-' "$PROJECT_ROOT/zm_create.sql.in" \
+' "$SCHEMA_DIR/zm_create.sql.in" \
     | sed -e "s/@ZM_DB_NAME@/$LEGACY_DB/g" \
           -e "s/@ZM_MYSQL_ENGINE@/InnoDB/g" \
           -e "s|@ZM_DIR_EVENTS@|/var/cache/zoneminder/events|g" \

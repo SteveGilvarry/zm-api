@@ -16,16 +16,22 @@ mod m00000000_000001_zm_baseline;
 mod m20260625_000001_create_event_synopsis;
 mod m20260627_000001_create_monitor_pipeline;
 pub mod stamp;
+pub mod upstream;
 
 pub struct Migrator;
 
 #[async_trait::async_trait]
 impl MigratorTrait for Migrator {
     fn migrations() -> Vec<Box<dyn MigrationTrait>> {
-        vec![
-            Box::new(m00000000_000001_zm_baseline::Migration),
-            Box::new(m20260625_000001_create_event_synopsis::Migration),
-            Box::new(m20260627_000001_create_monitor_pipeline::Migration),
-        ]
+        let mut all: Vec<Box<dyn MigrationTrait>> =
+            vec![Box::new(m00000000_000001_zm_baseline::Migration)];
+        // Upstream's 1.39 chain, mirrored (see upstream/mod.rs), then
+        // zm-api's own tables on top.
+        all.extend(upstream::migrations());
+        all.push(Box::new(m20260625_000001_create_event_synopsis::Migration));
+        all.push(Box::new(
+            m20260627_000001_create_monitor_pipeline::Migration,
+        ));
+        all
     }
 }

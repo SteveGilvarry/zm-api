@@ -10,7 +10,7 @@ pub struct Model {
     #[sea_orm(column_name = "UserId")]
     pub user_id: u32,
     #[sea_orm(column_name = "Name")]
-    pub name: Option<String>,
+    pub name: String,
     #[sea_orm(column_name = "Value", column_type = "Text", nullable)]
     pub value: Option<String>,
 }

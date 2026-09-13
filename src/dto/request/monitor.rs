@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 // use sea_orm::ActiveEnum; // Unused import
 use crate::entity::sea_orm_active_enums::{
-    Analysing, AnalysisImage, AnalysisSource, Capturing, Decoding, DefaultCodec, EventCloseMode,
-    Function, Importance, MonitorType, Orientation, OutputContainer, Recording, RecordingSource,
-    Rtsp2WebType,
+    Analysing, AnalysisImage, AnalysisSource, Capturing, Decoding, DefaultCodec, DeviceClass,
+    EventCloseMode, Function, Importance, MonitorType, Orientation, OutputContainer, Recording,
+    RecordingSource, Rtsp2WebType,
 };
 
 // Custom validator for state actions
@@ -384,10 +384,20 @@ pub struct CreateMonitorRequest {
     pub min_section_length: u32,
 
     #[garde(skip)] // u16 doesn't need validation in this case
-    pub frame_skip: u16,
-
-    #[garde(skip)] // u16 doesn't need validation in this case
     pub motion_frame_skip: u16,
+
+    /// Whether this monitor is a camera or an IP speaker (1.39.30). Defaults to Camera.
+    #[garde(skip)]
+    pub device_class: Option<DeviceClass>,
+    /// Audio-level alarm detection on the recorded audio (1.39.31); 0 = off.
+    #[garde(skip)]
+    pub audio_detection: Option<u8>,
+    /// Audio level (0-255) above which audio detection alarms.
+    #[garde(skip)]
+    pub audio_threshold: Option<u8>,
+    /// Score an audio alarm contributes; upstream default 9.
+    #[garde(skip)]
+    pub audio_alarm_score: Option<u16>,
 
     #[garde(skip)] // Option<f64> can be None
     pub analysis_fps_limit: Option<f64>,
@@ -611,8 +621,11 @@ impl Default for CreateMonitorRequest {
             section_length_warn: 0,
             event_close_mode: EventCloseMode::Idle,
             min_section_length: 10,
-            frame_skip: 0,
             motion_frame_skip: 0,
+            device_class: None,
+            audio_detection: None,
+            audio_threshold: None,
+            audio_alarm_score: None,
             analysis_fps_limit: None,
             analysis_update_delay: 0,
             max_fps: None,
@@ -961,10 +974,16 @@ pub struct UpdateMonitorRequest {
     pub min_section_length: Option<u32>,
 
     #[garde(skip)]
-    pub frame_skip: Option<u16>,
+    pub motion_frame_skip: Option<u16>,
 
     #[garde(skip)]
-    pub motion_frame_skip: Option<u16>,
+    pub device_class: Option<DeviceClass>,
+    #[garde(skip)]
+    pub audio_detection: Option<u8>,
+    #[garde(skip)]
+    pub audio_threshold: Option<u8>,
+    #[garde(skip)]
+    pub audio_alarm_score: Option<u16>,
 
     #[garde(skip)]
     pub analysis_fps_limit: Option<f64>,

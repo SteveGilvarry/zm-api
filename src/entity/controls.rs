@@ -206,6 +206,18 @@ pub struct Model {
     pub can_auto_scan: u8,
     #[sea_orm(column_name = "NumScanPaths")]
     pub num_scan_paths: u8,
+    #[sea_orm(column_name = "CanLight")]
+    pub can_light: u8,
+    #[sea_orm(column_name = "CanIndicatorLight")]
+    pub can_indicator_light: u8,
+    #[sea_orm(column_name = "CanAudioPlay")]
+    pub can_audio_play: u8,
+    #[sea_orm(column_name = "MinAudioFile")]
+    pub min_audio_file: Option<u32>,
+    #[sea_orm(column_name = "MaxAudioFile")]
+    pub max_audio_file: Option<u32>,
+    #[sea_orm(column_name = "CanAudioVolume")]
+    pub can_audio_volume: u8,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

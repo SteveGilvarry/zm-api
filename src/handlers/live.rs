@@ -1323,6 +1323,104 @@ pub async fn get_monitor_snapshot(
         .unwrap())
 }
 
+/// Take a snapshot now on a zm-next monitor
+///
+/// Asks the monitor's zm-next worker to encode the current frame (its
+/// `store_snapshot` plugin) and returns the JPEG. Unlike `GET`, which decodes
+/// the last cached keyframe here, this is a fresh frame from the pipeline, and
+/// the file is also kept wherever the plugin's `root` points. The worker's
+/// report comes back in `X-Snapshot-*` headers.
+#[utoipa::path(
+    post,
+    path = "/api/v3/monitors/{monitor_id}/snapshot",
+    operation_id = "takeMonitorSnapshot",
+    tag = "Live Streaming",
+    params(
+        ("monitor_id" = u32, Path, description = "Monitor/Camera ID"),
+        crate::dto::request::monitor_ondemand::SnapshotNowQuery
+    ),
+    responses(
+        (status = 200, description = "JPEG of the current frame", content_type = "image/jpeg"),
+        (status = 404, description = "Monitor not found", body = AppResponseError),
+        (status = 409, description = "Monitor is not running on zm-next", body = AppResponseError),
+        (status = 503, description = "Worker unreachable, no store_snapshot in the pipeline, or timed out", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+pub async fn take_monitor_snapshot(
+    State(state): State<AppState>,
+    Path(monitor_id): Path<u32>,
+    Query(query): Query<crate::dto::request::monitor_ondemand::SnapshotNowQuery>,
+    scope: crate::service::monitor_acl::MonitorScope,
+) -> AppResult<Response> {
+    let snap =
+        crate::service::zmnext::ondemand::snapshot(&state, monitor_id, &scope, query.stream_id)
+            .await?;
+    let orientation =
+        crate::handlers::events_playback::monitor_orientation(&state, monitor_id).await;
+    let jpeg = crate::service::image_orientation::orient_jpeg(snap.jpeg, orientation).await;
+
+    let mut builder = Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "image/jpeg")
+        .header(header::CACHE_CONTROL, "no-cache, no-store");
+    if let Ok(v) = header::HeaderValue::from_str(&snap.path) {
+        builder = builder.header("X-Snapshot-Path", v);
+    }
+    for (name, value) in [
+        ("X-Snapshot-Width", snap.width.map(i64::from)),
+        ("X-Snapshot-Height", snap.height.map(i64::from)),
+        ("X-Snapshot-Pts-Usec", snap.pts_usec),
+    ] {
+        if let Some(v) = value {
+            builder = builder.header(name, v);
+        }
+    }
+    Ok(builder.body(Body::from(jpeg)).unwrap())
+}
+
+/// Describe the scene now on a zm-next monitor
+///
+/// Asks the monitor's zm-next worker to run its `describe_vlm` plugin on the
+/// current frame, optionally with a one-off prompt, and returns the text. The
+/// description is not stored as an event.
+#[utoipa::path(
+    post,
+    path = "/api/v3/monitors/{monitor_id}/describe",
+    operation_id = "describeMonitor",
+    tag = "Live Streaming",
+    params(("monitor_id" = u32, Path, description = "Monitor/Camera ID")),
+    request_body(content = crate::dto::request::monitor_ondemand::DescribeNowRequest, description = "Optional prompt and stream", content_type = "application/json"),
+    responses(
+        (status = 200, description = "Scene description", body = crate::dto::response::monitor_ondemand::DescribeNowResponse),
+        (status = 400, description = "Invalid request", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError),
+        (status = 409, description = "Monitor is not running on zm-next", body = AppResponseError),
+        (status = 503, description = "Worker unreachable, no describe_vlm in the pipeline, VLM failed, or timed out", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+pub async fn describe_monitor(
+    State(state): State<AppState>,
+    Path(monitor_id): Path<u32>,
+    scope: crate::service::monitor_acl::MonitorScope,
+    body: Option<Json<crate::dto::request::monitor_ondemand::DescribeNowRequest>>,
+) -> AppResult<Json<crate::dto::response::monitor_ondemand::DescribeNowResponse>> {
+    use garde::Validate;
+    let req = body.map(|Json(r)| r).unwrap_or_default();
+    req.validate().map_err(AppError::InvalidInputError)?;
+    Ok(Json(
+        crate::service::zmnext::ondemand::describe(
+            &state,
+            monitor_id,
+            &scope,
+            req.prompt,
+            req.stream_id,
+        )
+        .await?,
+    ))
+}
+
 // ============================================================================
 // Source Statistics
 // ============================================================================

@@ -3,12 +3,14 @@
 //! * [`detail`] — typed views over the EVENT `json_detail` JSON payloads.
 //! * [`graph`] — validation for the stored processing plugin graph.
 //! * [`ingest`] — maps decoded monitor EVENTs onto Events/Frames rows.
+//! * [`ondemand`] — snapshot / describe a monitor now via worker commands.
 //! * [`pipeline`] — generates/composes a worker pipeline JSON from a monitor,
 //!   its zones, and (when present) its stored processing graph.
 
 pub mod detail;
 pub mod graph;
 pub mod ingest;
+pub mod ondemand;
 pub mod pipeline;
 
 pub use ingest::EventIngestor;

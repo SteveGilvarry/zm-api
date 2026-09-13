@@ -144,6 +144,11 @@ impl DaemonDefinition {
         ZM_DAEMONS.iter().find(|d| d.command == command)
     }
 
+    /// Every command the supervisor can spawn, for the orphan sweep.
+    pub fn commands() -> impl Iterator<Item = &'static str> {
+        ZM_DAEMONS.iter().map(|d| d.command)
+    }
+
     /// Get all singleton daemons (for system startup).
     pub fn singletons() -> impl Iterator<Item = &'static DaemonDefinition> {
         ZM_DAEMONS.iter().filter(|d| d.singleton)

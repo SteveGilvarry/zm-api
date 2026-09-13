@@ -78,7 +78,8 @@ pub struct AuditConfig {
     #[serde(default = "default_true")]
     pub resync_counters: bool,
 
-    /// Never delete more than this many items in one pass. A misconfigured
+    /// Never delete more than this many items per check in one pass (each of
+    /// the sweeps and the filesystem half has its own budget). A misconfigured
     /// storage path makes every event look orphaned; this bounds the damage to
     /// something recoverable while the log makes the cause obvious.
     #[serde(default = "default_max_deletes")]
@@ -117,8 +118,9 @@ pub struct FilesystemAuditConfig {
     ///
     /// Independent of the above and more dangerous, because the evidence is an
     /// absence: a storage that failed to mount looks exactly like every event
-    /// being gone. The preconditions guard that, but leave this off unless the
-    /// broken-playback rows are actually a problem.
+    /// being gone. A pass refuses this half when more rows are missing than
+    /// events were found on disk, which is what that looks like — but leave
+    /// this off unless the broken-playback rows are actually a problem.
     #[serde(default)]
     pub remove_rows_without_media: bool,
 

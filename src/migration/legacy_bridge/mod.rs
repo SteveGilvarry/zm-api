@@ -18,7 +18,7 @@
 //! (upgrade with ZoneMinder's zmupdate.pl first); the vendored chain is
 //! pruned to 1.34.0+ accordingly.
 
-mod chain;
+pub(crate) mod chain;
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement, Value};
 use tracing::info;
@@ -35,11 +35,11 @@ const FLOOR_VERSION: &str = "1.34.0";
 const ADVISORY_LOCK: &str = "zm_api_migration";
 
 /// Numeric dotted-version ordering ("1.36.9" < "1.36.12" < "1.37.0").
-fn version_key(v: &str) -> Vec<u64> {
+pub(crate) fn version_key(v: &str) -> Vec<u64> {
     v.split('.').filter_map(|p| p.parse().ok()).collect()
 }
 
-fn version_lt(a: &str, b: &str) -> bool {
+pub(crate) fn version_lt(a: &str, b: &str) -> bool {
     version_key(a) < version_key(b)
 }
 
@@ -320,15 +320,21 @@ async fn run_locked(conn: &DatabaseConnection) -> Result<(), DbErr> {
     info!("converging schema drift left by the legacy chain");
     converge_schema(conn).await?;
 
+    // The chain's last trigger rewrite (1.39.26) leaves the four-trigger set;
+    // drop everything any 1.39 install may carry and install exactly that.
     info!("converging triggers onto the current set");
-    for (name, create) in triggers::mysql_triggers() {
+    for name in triggers::mysql_triggers().iter().map(|(n, _)| *n) {
+        conn.execute_unprepared(&format!("DROP TRIGGER IF EXISTS `{name}`"))
+            .await?;
+    }
+    for (name, create) in super::upstream::current_mysql_triggers() {
         conn.execute_unprepared(&format!("DROP TRIGGER IF EXISTS `{name}`"))
             .await?;
         conn.execute_unprepared(create).await?;
     }
 
-    info!("stamping baseline migration as applied");
-    super::stamp::record_baseline(conn).await?;
+    // The database now embodies the baseline and every mirrored update.
+    super::stamp::record_through_version(conn, chain::CUTOVER_ZM_VERSION).await?;
 
     set_config(conn, "ZM_DYN_DB_VERSION", chain::CUTOVER_ZM_VERSION).await?;
     set_config(conn, "ZM_DYN_CURR_VERSION", chain::CUTOVER_ZM_VERSION).await?;
@@ -373,27 +379,9 @@ async fn column_exists(
 /// scripts/upgrade-parity.sh.
 async fn converge_schema(conn: &DatabaseConnection) -> Result<(), DbErr> {
     // -- Indexes the chain never created ------------------------------------
+    // (Logs.TimeKey, Monitor_Status_UpdatedOn_idx and the two
+    // Role_*_RoleId_idx used to be added here; zm_update-1.39.28 drops them.)
     for (table, index, ddl) in [
-        (
-            "Logs",
-            "TimeKey",
-            "CREATE INDEX `TimeKey` ON `Logs` (`TimeKey`)",
-        ),
-        (
-            "Monitor_Status",
-            "Monitor_Status_UpdatedOn_idx",
-            "CREATE INDEX `Monitor_Status_UpdatedOn_idx` ON `Monitor_Status` (`UpdatedOn`)",
-        ),
-        (
-            "Role_Groups_Permissions",
-            "Role_Groups_Permissions_RoleId_idx",
-            "CREATE INDEX `Role_Groups_Permissions_RoleId_idx` ON `Role_Groups_Permissions` (`RoleId`)",
-        ),
-        (
-            "Role_Monitors_Permissions",
-            "Role_Monitors_Permissions_RoleId_idx",
-            "CREATE INDEX `Role_Monitors_Permissions_RoleId_idx` ON `Role_Monitors_Permissions` (`RoleId`)",
-        ),
         (
             "Stats",
             "EventId_ZoneId",
@@ -416,6 +404,37 @@ async fn converge_schema(conn: &DatabaseConnection) -> Result<(), DbErr> {
         info!("dropping superseded index Stats.EventId");
         conn.execute_unprepared("DROP INDEX `EventId` ON `Stats`")
             .await?;
+    }
+
+    // Upstream commented Stats' foreign keys out of zm_create (every event
+    // delete took locks on Monitors/Zones through them), but no update drops
+    // them from an install that has them — and zm_update-1.39.28 then keeps
+    // the MonitorId/ZoneId indexes those keys need. A fresh install has
+    // neither; converge by dropping the keys, then the indexes.
+    let stats_fks = conn
+        .query_all(Statement::from_string(
+            DatabaseBackend::MySql,
+            "SELECT CONSTRAINT_NAME, COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE \
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Stats' \
+               AND REFERENCED_TABLE_NAME IS NOT NULL"
+                .to_string(),
+        ))
+        .await?;
+    for row in stats_fks {
+        let constraint: String = row.try_get("", "CONSTRAINT_NAME")?;
+        let column: String = row.try_get("", "COLUMN_NAME")?;
+        info!("dropping retired foreign key Stats.{constraint} ({column})");
+        conn.execute_unprepared(&format!(
+            "ALTER TABLE `Stats` DROP FOREIGN KEY `{constraint}`"
+        ))
+        .await?;
+        if matches!(column.as_str(), "MonitorId" | "ZoneId")
+            && index_exists(conn, "Stats", &column).await?
+        {
+            info!("dropping index Stats.{column} that only the foreign key needed");
+            conn.execute_unprepared(&format!("DROP INDEX `{column}` ON `Stats`"))
+                .await?;
+        }
     }
 
     // -- Index names that differ between chain and create -------------------
@@ -729,6 +748,30 @@ mod tests {
             super::super::m00000000_000001_zm_baseline::Migration.name(),
             BASELINE_VERSION
         );
+    }
+
+    /// The chain ends past zm_update-1.39.26, which replaced the twelve
+    /// per-bucket triggers with four; a bridged install must end up with
+    /// exactly that set, and every name the baseline set carries must be in
+    /// the drop list so none survives.
+    #[test]
+    fn bridge_converges_onto_the_four_current_triggers() {
+        let current: Vec<&str> = super::super::upstream::current_mysql_triggers()
+            .iter()
+            .map(|(n, _)| *n)
+            .collect();
+        assert_eq!(
+            current,
+            vec![
+                "event_update_trigger",
+                "event_delete_trigger",
+                "Zone_Insert_Trigger",
+                "Zone_Delete_Trigger"
+            ]
+        );
+        // Every baseline trigger is dropped before the current set is created
+        // (run_locked drops triggers::mysql_triggers() first).
+        assert_eq!(triggers::mysql_triggers().len(), 12);
     }
 
     #[test]

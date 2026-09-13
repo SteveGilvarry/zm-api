@@ -15,32 +15,12 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
     let mut stmts: Vec<InsertStatement> = Vec::new();
     stmts.push({
         let mut s = Query::insert();
-        s.into_table(Alias::new("EncoderTemplates"))
-            .columns([Alias::new("Encoder"), Alias::new("Name"), Alias::new("Description"), Alias::new("Params")]);
-        s.values_panic(["libx264".into(), "Balanced".into(), "1080p recording with reasonable CPU cost. Good default for most cameras.".into(), "preset=fast\ncrf=23\ng=30\nprofile=high\npix_fmt=yuv420p".into()]);
-        s.values_panic(["libx264".into(), "Archival (high quality)".into(), "Slow encode for archival storage; substantially smaller files at higher CPU cost.".into(), "preset=slow\ncrf=20\ng=30\nprofile=high\npix_fmt=yuv420p".into()]);
-        s.values_panic(["libx264".into(), "Low CPU".into(), "Highest encoding speed for slow CPUs; quality and file size trade off.".into(), "preset=ultrafast\ncrf=26\ng=30\nprofile=baseline\npix_fmt=yuv420p".into()]);
-        s.values_panic(["libx265".into(), "Balanced".into(), "1080p HEVC recording with reasonable CPU cost. Significantly smaller files than x264 at similar quality.".into(), "preset=fast\ncrf=25\ng=30\nprofile=main\npix_fmt=yuv420p".into()]);
-        s.values_panic(["libx265".into(), "Archival (high quality)".into(), "Slow HEVC encode for archival storage.".into(), "preset=slow\ncrf=22\ng=30\nprofile=main\npix_fmt=yuv420p".into()]);
-        s.values_panic(["libx265".into(), "Low CPU".into(), "Highest HEVC encoding speed for slow CPUs.".into(), "preset=ultrafast\ncrf=28\ng=30\nprofile=main\npix_fmt=yuv420p".into()]);
-        s.values_panic(["h264_nvenc".into(), "Balanced".into(), "1080p H.264 on NVIDIA GPU; sane vbr+cq defaults, no B-frames for low latency.".into(), "preset=p4\nrc=vbr\ncq=23\ng=30\nbf=0\nprofile=high\npix_fmt=nv12".into()]);
-        s.values_panic(["h264_nvenc".into(), "Low Power".into(), "Faster preset for thermally-constrained NVIDIA hardware.".into(), "preset=p1\nrc=vbr\ncq=26\ng=30\nbf=0\nprofile=high\npix_fmt=nv12".into()]);
-        s.values_panic(["hevc_nvenc".into(), "Balanced".into(), "1080p HEVC on NVIDIA GPU; sane vbr+cq defaults, no B-frames.".into(), "preset=p4\nrc=vbr\ncq=28\ng=30\nbf=0\nprofile=main\npix_fmt=nv12".into()]);
-        s.values_panic(["hevc_nvenc".into(), "Low Power".into(), "Faster preset for thermally-constrained NVIDIA hardware.".into(), "preset=p1\nrc=vbr\ncq=30\ng=30\nbf=0\nprofile=main\npix_fmt=nv12".into()]);
-        s.values_panic(["h264_vaapi".into(), "Balanced".into(), "1080p H.264 via VA-API (Intel/AMD/Mesa); no B-frames.".into(), "rc_mode=CQP\nqp=24\ng=30\nbf=0\nprofile=high\npix_fmt=nv12".into()]);
-        s.values_panic(["h264_vaapi".into(), "Low Power".into(), "Lower-quality VA-API encode using the low_power codepath.".into(), "rc_mode=CQP\nqp=27\ng=30\nbf=0\nprofile=high\npix_fmt=nv12\nlow_power=1".into()]);
-        s.values_panic(["hevc_vaapi".into(), "Balanced".into(), "1080p HEVC via VA-API; no B-frames.".into(), "rc_mode=CQP\nqp=27\ng=30\nbf=0\nprofile=main\npix_fmt=nv12".into()]);
-        s.values_panic(["hevc_vaapi".into(), "Low Power".into(), "Lower-quality HEVC VA-API encode using the low_power codepath.".into(), "rc_mode=CQP\nqp=30\ng=30\nbf=0\nprofile=main\npix_fmt=nv12\nlow_power=1".into()]);
-        s.to_owned()
-    });
-    stmts.push({
-        let mut s = Query::insert();
         s.into_table(Alias::new("States")).columns([
             Alias::new("Name"),
             Alias::new("Definition"),
             Alias::new("IsActive"),
         ]);
-        s.values_panic(["default".into(), "".into(), "1".into()]);
+        s.values_panic(["default".into(), "".into(), (1_i64).into()]);
         s.to_owned()
     });
     stmts.push({
@@ -59,10 +39,10 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             ZM_DIR_EVENTS.to_string().into(),
             "Default".into(),
-            "local".into(),
+            Expr::val("local").as_enum(Alias::new("storage_type")),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
-            "Medium".into(),
+            Expr::val("Medium").as_enum(Alias::new("storage_scheme")),
             (0_i64).into(),
             true.into(),
             true.into(),
@@ -94,14 +74,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             "$2b$12$NHZsm6AM2f2LQVROriz79ul3D6DnmFiZC.ZK5eqbF.ZWfwH9bqUJ6".into(),
             "".into(),
             (1_i64).into(),
-            "View".into(),
-            "Edit".into(),
-            "Edit".into(),
-            "Create".into(),
-            "Edit".into(),
-            "Edit".into(),
-            "Edit".into(),
-            "Edit".into(),
+            Expr::val("View").as_enum(Alias::new("users_stream")),
+            Expr::val("Edit").as_enum(Alias::new("users_events")),
+            Expr::val("Edit").as_enum(Alias::new("users_control")),
+            Expr::val("Create").as_enum(Alias::new("users_monitors")),
+            Expr::val("Edit").as_enum(Alias::new("users_groups")),
+            Expr::val("Edit").as_enum(Alias::new("users_devices")),
+            Expr::val("Edit").as_enum(Alias::new("users_snapshots")),
+            Expr::val("Edit").as_enum(Alias::new("users_system")),
             "".into(),
             (0_i64).into(),
             (1_i64).into(),
@@ -193,8 +173,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -230,7 +208,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Pelco-D".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("controls_type")),
             "PelcoD".into(),
             (1_i64).into(),
             (1_i64).into(),
@@ -296,8 +274,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (20_i64).into(),
             (1_i64).into(),
@@ -403,8 +379,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -440,7 +414,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Pelco-P".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("controls_type")),
             "PelcoP".into(),
             (1_i64).into(),
             (1_i64).into(),
@@ -506,8 +480,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (20_i64).into(),
             (1_i64).into(),
@@ -613,8 +585,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -650,7 +620,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Sony VISCA".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("controls_type")),
             "Visca".into(),
             (1_i64).into(),
             (1_i64).into(),
@@ -716,8 +686,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (3_i64).into(),
             (1_i64).into(),
@@ -823,8 +791,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -860,7 +826,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Axis API v2".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("controls_type")),
             "AxisV2".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -926,8 +892,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (12_i64).into(),
             (1_i64).into(),
@@ -1033,8 +997,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -1070,7 +1032,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Panasonic IP".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("controls_type")),
             "PanasonicIP".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -1136,8 +1098,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (8_i64).into(),
             (1_i64).into(),
@@ -1243,8 +1203,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -1280,7 +1238,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Neu-Fusion NCS370".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("controls_type")),
             "Ncs370".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -1346,8 +1304,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (24_i64).into(),
             (1_i64).into(),
@@ -1453,8 +1409,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -1490,7 +1444,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "AirLink SkyIPCam 7xx".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("controls_type")),
             "SkyIPCam7xx".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -1556,8 +1510,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (8_i64).into(),
             (1_i64).into(),
@@ -1663,8 +1615,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -1700,7 +1650,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Pelco-D".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "PelcoD".into(),
             (1_i64).into(),
             (1_i64).into(),
@@ -1766,8 +1716,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (20_i64).into(),
             (1_i64).into(),
@@ -1873,8 +1821,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -1910,7 +1856,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Pelco-P".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "PelcoP".into(),
             (1_i64).into(),
             (1_i64).into(),
@@ -1976,8 +1922,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (20_i64).into(),
             (1_i64).into(),
@@ -2083,8 +2027,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -2120,7 +2062,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Foscam FI8620".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "FI8620_Y2k".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -2186,8 +2128,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (1_i64).into(),
             (0_i64).into(),
             (255_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (8_i64).into(),
             (0_i64).into(),
@@ -2293,8 +2233,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -2330,7 +2268,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Foscam FI8608W".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "FI8608W_Y2k".into(),
             (1_i64).into(),
             (0_i64).into(),
@@ -2396,8 +2334,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (1_i64).into(),
             (0_i64).into(),
             (255_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (8_i64).into(),
             (0_i64).into(),
@@ -2503,8 +2439,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -2540,7 +2474,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Foscam FI8908W".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("controls_type")),
             "FI8908W".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -2606,8 +2540,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (0_i64).into(),
             (1_i64).into(),
@@ -2713,8 +2645,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -2750,7 +2680,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Foscam FI9821W".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "FI9821W_Y2k".into(),
             (1_i64).into(),
             (0_i64).into(),
@@ -2816,8 +2746,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (1_i64).into(),
             (0_i64).into(),
             (100_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (16_i64).into(),
             (0_i64).into(),
@@ -2923,8 +2851,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -2960,7 +2886,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Loftek Sentinel".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("controls_type")),
             "LoftekSentinel".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -3026,8 +2952,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (10_i64).into(),
             (0_i64).into(),
@@ -3133,8 +3057,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -3170,7 +3092,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Toshiba IK-WB11A".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("controls_type")),
             "Toshiba_IK_WB11A".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -3236,8 +3158,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (10_i64).into(),
             (0_i64).into(),
@@ -3343,8 +3263,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -3380,7 +3298,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "WanscamPT".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("controls_type")),
             "Wanscam".into(),
             (1_i64).into(),
             (1_i64).into(),
@@ -3446,8 +3364,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (16_i64).into(),
             (1_i64).into(),
@@ -3553,8 +3469,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -3590,7 +3504,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "3S Domo N5071".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("controls_type")),
             "3S".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -3629,8 +3543,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (9999_i64).into(),
             (1_i64).into(),
             (9999_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -3763,8 +3675,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -3800,7 +3710,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "ONVIF Camera".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "ONVIF".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -3863,8 +3773,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (6_i64).into(),
             (1_i64).into(),
             (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -3973,8 +3881,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -4010,13 +3916,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Foscam 9831W".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "FI9831W".into(),
             (0_i64).into(),
             (0_i64).into(),
             (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -4183,8 +4087,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -4220,7 +4122,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Foscam FI8918W".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "FI8918W".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -4286,8 +4188,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (8_i64).into(),
             (0_i64).into(),
@@ -4393,8 +4293,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -4430,7 +4328,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "SunEyes SP-P1802SWPTZ".into(),
-            "Libvlc".into(),
+            Expr::val("Libvlc").as_enum(Alias::new("controls_type")),
             "SPP1802SWPTZ".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -4496,8 +4394,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (8_i64).into(),
             (0_i64).into(),
@@ -4603,8 +4499,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -4640,7 +4534,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Wanscam HW0025".into(),
-            "Libvlc".into(),
+            Expr::val("Libvlc").as_enum(Alias::new("controls_type")),
             "WanscamHW0025".into(),
             (1_i64).into(),
             (1_i64).into(),
@@ -4650,8 +4544,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             (0_i64).into(),
             (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -4813,8 +4705,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -4850,7 +4740,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "IPCC 7210W".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("controls_type")),
             "IPCC7210W".into(),
             (1_i64).into(),
             (1_i64).into(),
@@ -4860,8 +4750,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             (0_i64).into(),
             (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -5023,8 +4911,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -5060,7 +4946,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Vivotek ePTZ".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("controls_type")),
             "Vivotek_ePTZ".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -5078,8 +4964,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (1_i64).into(),
             (0_i64).into(),
             (5_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -5233,8 +5117,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -5270,7 +5152,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Netcat ONVIF".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "ONVIF".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -5333,8 +5215,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (100_i64).into(),
             (5_i64).into(),
             (5_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -5443,8 +5323,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -5480,10 +5358,8 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Keekoon".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("controls_type")),
             "Keekoon".into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -5653,8 +5529,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -5690,13 +5564,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "HikVision".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("controls_type")),
             "HikVision".into(),
             (0_i64).into(),
             (0_i64).into(),
             (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -5863,8 +5735,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -5900,10 +5770,8 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Maginon Supra IPC".into(),
-            "cURL".into(),
+            Expr::val("cURL").as_enum(Alias::new("controls_type")),
             "MaginonIPC".into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -6073,8 +5941,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -6110,7 +5976,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Floureon 1080P".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "Floureon".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -6145,8 +6011,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             (0_i64).into(),
             (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -6283,8 +6147,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -6320,7 +6182,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Reolink RLC-423".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "ONVIF".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -6335,8 +6197,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             (1_i64).into(),
             (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -6493,8 +6353,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -6530,7 +6388,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Reolink RLC-411".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "ONVIF".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -6545,8 +6403,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             (1_i64).into(),
             (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -6703,8 +6559,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -6740,13 +6594,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Reolink RLC-420".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "ONVIF".into(),
             (0_i64).into(),
             (0_i64).into(),
             (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -6913,8 +6765,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -6950,7 +6800,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "D-LINK DCS-3415".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("controls_type")),
             "DCS3415".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -7026,8 +6876,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -7123,8 +6971,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -7160,13 +7006,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "D-Link DCS-5020L".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("controls_type")),
             "DCS5020L".into(),
             (1_i64).into(),
             (1_i64).into(),
             (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -7333,8 +7177,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -7370,7 +7212,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "IOS Camera".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "IPCAMIOS".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -7427,8 +7269,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (1_i64).into(),
             (0_i64).into(),
             (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -7543,8 +7383,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -7580,13 +7418,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Dericam P2".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "DericamP2".into(),
             (0_i64).into(),
             (1_i64).into(),
             (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -7753,8 +7589,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -7790,13 +7624,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Trendnet".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("controls_type")),
             "Trendnet".into(),
             (1_i64).into(),
             (1_i64).into(),
             (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -7963,8 +7795,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -8000,7 +7830,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "PSIA".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("controls_type")),
             "PSIA".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -8018,8 +7848,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             (0_i64).into(),
             (100_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -8173,8 +8001,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -8210,7 +8036,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Dahua".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "Dahua".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -8244,8 +8070,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             (0_i64).into(),
             (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -8383,8 +8207,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -8420,7 +8242,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "FOSCAMR2C".into(),
-            "Libvlc".into(),
+            Expr::val("Libvlc").as_enum(Alias::new("controls_type")),
             "FOSCAMR2C".into(),
             (1_i64).into(),
             (1_i64).into(),
@@ -8486,8 +8308,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (12_i64).into(),
             (0_i64).into(),
@@ -8593,8 +8413,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -8630,7 +8448,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "Amcrest HTTP API".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "Amcrest_HTTP".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -8696,8 +8514,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             (0_i64).into(),
             (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (5_i64).into(),
             (0_i64).into(),
@@ -8730,196 +8546,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             (0_i64).into(),
             (5_i64).into(),
-        ]);
-        s.to_owned()
-    });
-    stmts.push({
-        let mut s = Query::insert();
-        s.into_table(Alias::new("Controls")).columns([
-            Alias::new("Name"),
-            Alias::new("Type"),
-            Alias::new("Protocol"),
-            Alias::new("CanReset"),
-            Alias::new("CanReboot"),
-            Alias::new("CanZoom"),
-            Alias::new("CanZoomCon"),
-            Alias::new("HasPresets"),
-            Alias::new("NumPresets"),
-            Alias::new("HasHomePreset"),
-            Alias::new("CanSetPresets"),
-            Alias::new("CanMove"),
-            Alias::new("CanMoveDiag"),
-            Alias::new("CanMoveCon"),
-            Alias::new("CanPan"),
-            Alias::new("CanTilt"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
-        ]);
-        s.values_panic([
-            "Dahua/Amcrest RPC".into(),
-            "Ffmpeg".into(),
-            "Dahua_RPC".into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (25_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-        ]);
-        s.to_owned()
-    });
-    stmts.push({
-        let mut s = Query::insert();
-        s.into_table(Alias::new("Controls")).columns([
-            Alias::new("Name"),
-            Alias::new("Type"),
-            Alias::new("Protocol"),
-            Alias::new("CanReset"),
-            Alias::new("CanReboot"),
-            Alias::new("CanZoom"),
-            Alias::new("CanZoomCon"),
-            Alias::new("HasPresets"),
-            Alias::new("NumPresets"),
-            Alias::new("HasHomePreset"),
-            Alias::new("CanSetPresets"),
-            Alias::new("CanMove"),
-            Alias::new("CanMoveDiag"),
-            Alias::new("CanMoveCon"),
-            Alias::new("CanPan"),
-            Alias::new("CanTilt"),
-            Alias::new("CanIndicatorLight"),
-        ]);
-        s.values_panic([
-            "Amcrest ASH21-B RPC".into(),
-            "Ffmpeg".into(),
-            "Dahua_RPC".into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (1_i64).into(),
-            (0_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-        ]);
-        s.to_owned()
-    });
-    stmts.push({
-        let mut s = Query::insert();
-        s.into_table(Alias::new("Controls")).columns([
-            Alias::new("Name"),
-            Alias::new("Type"),
-            Alias::new("Protocol"),
-            Alias::new("CanReset"),
-            Alias::new("CanReboot"),
-            Alias::new("CanZoom"),
-            Alias::new("CanZoomCon"),
-            Alias::new("HasPresets"),
-            Alias::new("NumPresets"),
-            Alias::new("HasHomePreset"),
-            Alias::new("CanSetPresets"),
-            Alias::new("CanMove"),
-            Alias::new("CanMoveDiag"),
-            Alias::new("CanMoveCon"),
-            Alias::new("CanPan"),
-            Alias::new("CanTilt"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
-        ]);
-        s.values_panic([
-            "Amcrest ADC2W RPC".into(),
-            "Ffmpeg".into(),
-            "Dahua_RPC".into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-        ]);
-        s.to_owned()
-    });
-    stmts.push({
-        let mut s = Query::insert();
-        s.into_table(Alias::new("Controls")).columns([
-            Alias::new("Name"),
-            Alias::new("Type"),
-            Alias::new("Protocol"),
-            Alias::new("CanReset"),
-            Alias::new("CanReboot"),
-            Alias::new("CanIndicatorLight"),
-        ]);
-        s.values_panic([
-            "Amcrest ASH42-B RPC".into(),
-            "Ffmpeg".into(),
-            "Dahua_RPC".into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-        ]);
-        s.to_owned()
-    });
-    stmts.push({
-        let mut s = Query::insert();
-        s.into_table(Alias::new("Controls")).columns([
-            Alias::new("Name"),
-            Alias::new("Type"),
-            Alias::new("Protocol"),
-            Alias::new("CanReset"),
-            Alias::new("CanReboot"),
-            Alias::new("CanLight"),
-        ]);
-        s.values_panic([
-            "LTS CMIP1342WE-28MDA".into(),
-            "Ffmpeg".into(),
-            "HikVision".into(),
-            (0_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-        ]);
-        s.to_owned()
-    });
-    stmts.push({
-        let mut s = Query::insert();
-        s.into_table(Alias::new("Controls")).columns([
-            Alias::new("Name"),
-            Alias::new("Type"),
-            Alias::new("Protocol"),
-            Alias::new("CanReset"),
-            Alias::new("CanReboot"),
-            Alias::new("CanLight"),
-        ]);
-        s.values_panic([
-            "LTS CMIP3CD42WI-28AISP".into(),
-            "Ffmpeg".into(),
-            "HikVision".into(),
-            (0_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
         ]);
         s.to_owned()
     });
@@ -8993,8 +8619,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             Alias::new("HasWhiteSpeed"),
             Alias::new("MinWhiteSpeed"),
             Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
             Alias::new("HasPresets"),
             Alias::new("NumPresets"),
             Alias::new("HasHomePreset"),
@@ -9030,7 +8654,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         ]);
         s.values_panic([
             "ONVIF".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("controls_type")),
             "ONVIF".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -9096,8 +8720,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (0_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
-            (0_i64).into(),
-            (0_i64).into(),
             (1_i64).into(),
             (20_i64).into(),
             (1_i64).into(),
@@ -9135,216 +8757,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
     });
     stmts.push({
         let mut s = Query::insert();
-        s.into_table(Alias::new("Controls")).columns([
-            Alias::new("Name"),
-            Alias::new("Type"),
-            Alias::new("Protocol"),
-            Alias::new("CanWake"),
-            Alias::new("CanSleep"),
-            Alias::new("CanReset"),
-            Alias::new("CanReboot"),
-            Alias::new("CanZoom"),
-            Alias::new("CanAutoZoom"),
-            Alias::new("CanZoomAbs"),
-            Alias::new("CanZoomRel"),
-            Alias::new("CanZoomCon"),
-            Alias::new("MinZoomRange"),
-            Alias::new("MaxZoomRange"),
-            Alias::new("MinZoomStep"),
-            Alias::new("MaxZoomStep"),
-            Alias::new("HasZoomSpeed"),
-            Alias::new("MinZoomSpeed"),
-            Alias::new("MaxZoomSpeed"),
-            Alias::new("CanFocus"),
-            Alias::new("CanAutoFocus"),
-            Alias::new("CanFocusAbs"),
-            Alias::new("CanFocusRel"),
-            Alias::new("CanFocusCon"),
-            Alias::new("MinFocusRange"),
-            Alias::new("MaxFocusRange"),
-            Alias::new("MinFocusStep"),
-            Alias::new("MaxFocusStep"),
-            Alias::new("HasFocusSpeed"),
-            Alias::new("MinFocusSpeed"),
-            Alias::new("MaxFocusSpeed"),
-            Alias::new("CanIris"),
-            Alias::new("CanAutoIris"),
-            Alias::new("CanIrisAbs"),
-            Alias::new("CanIrisRel"),
-            Alias::new("CanIrisCon"),
-            Alias::new("MinIrisRange"),
-            Alias::new("MaxIrisRange"),
-            Alias::new("MinIrisStep"),
-            Alias::new("MaxIrisStep"),
-            Alias::new("HasIrisSpeed"),
-            Alias::new("MinIrisSpeed"),
-            Alias::new("MaxIrisSpeed"),
-            Alias::new("CanGain"),
-            Alias::new("CanAutoGain"),
-            Alias::new("CanGainAbs"),
-            Alias::new("CanGainRel"),
-            Alias::new("CanGainCon"),
-            Alias::new("MinGainRange"),
-            Alias::new("MaxGainRange"),
-            Alias::new("MinGainStep"),
-            Alias::new("MaxGainStep"),
-            Alias::new("HasGainSpeed"),
-            Alias::new("MinGainSpeed"),
-            Alias::new("MaxGainSpeed"),
-            Alias::new("CanWhite"),
-            Alias::new("CanAutoWhite"),
-            Alias::new("CanWhiteAbs"),
-            Alias::new("CanWhiteRel"),
-            Alias::new("CanWhiteCon"),
-            Alias::new("MinWhiteRange"),
-            Alias::new("MaxWhiteRange"),
-            Alias::new("MinWhiteStep"),
-            Alias::new("MaxWhiteStep"),
-            Alias::new("HasWhiteSpeed"),
-            Alias::new("MinWhiteSpeed"),
-            Alias::new("MaxWhiteSpeed"),
-            Alias::new("CanLight"),
-            Alias::new("CanIndicatorLight"),
-            Alias::new("HasPresets"),
-            Alias::new("NumPresets"),
-            Alias::new("HasHomePreset"),
-            Alias::new("CanSetPresets"),
-            Alias::new("CanMove"),
-            Alias::new("CanMoveDiag"),
-            Alias::new("CanMoveMap"),
-            Alias::new("CanMoveAbs"),
-            Alias::new("CanMoveRel"),
-            Alias::new("CanMoveCon"),
-            Alias::new("CanPan"),
-            Alias::new("MinPanRange"),
-            Alias::new("MaxPanRange"),
-            Alias::new("MinPanStep"),
-            Alias::new("MaxPanStep"),
-            Alias::new("HasPanSpeed"),
-            Alias::new("MinPanSpeed"),
-            Alias::new("MaxPanSpeed"),
-            Alias::new("HasTurboPan"),
-            Alias::new("TurboPanSpeed"),
-            Alias::new("CanTilt"),
-            Alias::new("MinTiltRange"),
-            Alias::new("MaxTiltRange"),
-            Alias::new("MinTiltStep"),
-            Alias::new("MaxTiltStep"),
-            Alias::new("HasTiltSpeed"),
-            Alias::new("MinTiltSpeed"),
-            Alias::new("MaxTiltSpeed"),
-            Alias::new("HasTurboTilt"),
-            Alias::new("TurboTiltSpeed"),
-            Alias::new("CanAutoScan"),
-            Alias::new("NumScanPaths"),
-        ]);
-        s.values_panic([
-            "HiSilicon Hi3510 CGI".into(),
-            "Ffmpeg".into(),
-            "HiSilicon_Hi3510_CGI".into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (1_i64).into(),
-            (10_i64).into(),
-            (0_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (1_i64).into(),
-            (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (1_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-            (0_i64).into(),
-        ]);
-        s.to_owned()
-    });
-    stmts.push({
-        let mut s = Query::insert();
         s.into_table(Alias::new("MonitorPresets")).columns([
             Alias::new("ModelId"),
             Alias::new("Name"),
@@ -9372,14 +8784,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Amcrest, IP8M-T2499EW 640x480, RTP/RTSP".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("monitor_presets_type")),
             "rtsp".into(),
             (0_i64).into(),
             (255_i64).into(),
             "rtsp".into(),
             "rtpRtsp".into(),
             "NULL".into(),
-            (554_i64).into(),
+            "554".into(),
             "rtsp://<username>:<password>@<ip-address>/cam/realmonitor?channel=1&subtype=1".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -9391,7 +8803,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -9424,14 +8836,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Amcrest, IP8M-T2499EW 3840x2160, RTP/RTSP".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("monitor_presets_type")),
             "rtsp".into(),
             (0_i64).into(),
             (255_i64).into(),
             "rtsp".into(),
             "rtpRtsp".into(),
             "NULL".into(),
-            (554_i64).into(),
+            "554".into(),
             "rtsp://<username>:<password>@<ip-address>/cam/realmonitor?channel=1&subtype=0".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (3840_i64).into(),
@@ -9443,7 +8855,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -9476,14 +8888,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP, 320x240, mpjpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/mjpg/video.cgi?resolution=320x240".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (320_i64).into(),
@@ -9495,7 +8907,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -9528,14 +8940,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP, 320x240, mpjpeg, max 5 FPS".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/mjpg/video.cgi?resolution=320x240&req_fps=5".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (320_i64).into(),
@@ -9547,7 +8959,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -9580,14 +8992,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP, 320x240, jpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/jpg/image.cgi?resolution=320x240".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (320_i64).into(),
@@ -9599,7 +9011,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -9632,14 +9044,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP, 320x240, jpeg, max 5 FPS".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/jpg/image.cgi?resolution=320x240".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (320_i64).into(),
@@ -9651,7 +9063,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -9684,14 +9096,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP, 640x480, mpjpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/mjpg/video.cgi?resolution=640x480".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -9703,7 +9115,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -9736,14 +9148,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP, 640x480, mpjpeg, max 5 FPS".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/mjpg/video.cgi?resolution=640x480&req_fps=5".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -9755,7 +9167,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -9788,14 +9200,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP, 640x480, jpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/jpg/image.cgi?resolution=640x480".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -9807,7 +9219,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -9840,14 +9252,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP, 640x480, jpeg, max 5 FPS".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/jpg/image.cgi?resolution=640x480".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -9859,7 +9271,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -9892,14 +9304,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP, 320x240, mpjpeg, B&W".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/mjpg/video.cgi?resolution=320x240&color=0".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (320_i64).into(),
@@ -9911,7 +9323,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -9944,14 +9356,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP, 640x480, mpjpeg, B&W".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/mjpg/video.cgi?resolution=640x480&color=0".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -9963,7 +9375,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -9996,14 +9408,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP PTZ, 320x240, mpjpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/mjpg/video.cgi?resolution=320x240".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (320_i64).into(),
@@ -10011,11 +9423,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (3_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (1_i64).into(),
-            (4_i64).into(),
+            "4".into(),
             SimpleExpr::Keyword(Keyword::Null),
             "<ip-address>:<port>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10048,14 +9460,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP PTZ, 320x240, mpjpeg, max 5 FPS".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/mjpg/video.cgi?resolution=320x240&req_fps=5".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (320_i64).into(),
@@ -10063,11 +9475,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (3_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (1_i64).into(),
-            (4_i64).into(),
+            "4".into(),
             SimpleExpr::Keyword(Keyword::Null),
             "<ip-address>:<port>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10100,14 +9512,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP PTZ, 320x240, jpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/jpg/image.cgi?resolution=320x240".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (320_i64).into(),
@@ -10115,11 +9527,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (3_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (1_i64).into(),
-            (4_i64).into(),
+            "4".into(),
             SimpleExpr::Keyword(Keyword::Null),
             "<ip-address>:<port>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10152,14 +9564,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP PTZ, 320x240, jpeg, max 5 FPS".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/jpg/image.cgi?resolution=320x240".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (320_i64).into(),
@@ -10167,11 +9579,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (3_i64).into(),
             (5.0_f64).into(),
             (1_i64).into(),
-            (4_i64).into(),
+            "4".into(),
             SimpleExpr::Keyword(Keyword::Null),
             "<ip-address>:<port>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10204,14 +9616,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP PTZ, 640x480, mpjpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/mjpg/video.cgi?resolution=640x480".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -10219,11 +9631,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (3_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (1_i64).into(),
-            (4_i64).into(),
+            "4".into(),
             SimpleExpr::Keyword(Keyword::Null),
             "<ip-address>:<port>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10256,14 +9668,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP PTZ, 640x480, mpjpeg, max 5 FPS".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/mjpg/video.cgi?resolution=640x480&req_fps=5".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -10271,11 +9683,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (3_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (1_i64).into(),
-            (4_i64).into(),
+            "4".into(),
             SimpleExpr::Keyword(Keyword::Null),
             "<ip-address>:<port>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10308,14 +9720,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP PTZ, 640x480, jpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/jpg/image.cgi?resolution=640x480".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -10323,11 +9735,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (3_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (1_i64).into(),
-            (4_i64).into(),
+            "4".into(),
             SimpleExpr::Keyword(Keyword::Null),
             "<ip-address>:<port>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10360,14 +9772,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP PTZ, 640x480, jpeg, max 5 FPS".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/axis-cgi/jpg/image.cgi?resolution=640x480".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -10375,11 +9787,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (3_i64).into(),
             (5.0_f64).into(),
             (1_i64).into(),
-            (4_i64).into(),
+            "4".into(),
             SimpleExpr::Keyword(Keyword::Null),
             "<ip-address>:<port>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10412,14 +9824,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP, mpeg4, unicast".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "rtsp".into(),
             (0_i64).into(),
             (255_i64).into(),
             "rtsp".into(),
             "rtpUni".into(),
             "<ip-address>".into(),
-            (554_i64).into(),
+            "554".into(),
             "/mpeg4/media.amp".into(),
             "/trackID=".into(),
             SimpleExpr::Keyword(Keyword::Null),
@@ -10431,7 +9843,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10464,14 +9876,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP, mpeg4, multicast".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "rtsp".into(),
             (0_i64).into(),
             (255_i64).into(),
             "rtsp".into(),
             "rtpMulti".into(),
             "<ip-address>".into(),
-            (554_i64).into(),
+            "554".into(),
             "/mpeg4/media.amp".into(),
             "/trackID=".into(),
             SimpleExpr::Keyword(Keyword::Null),
@@ -10483,7 +9895,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10516,14 +9928,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP, mpeg4, RTP/RTSP".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "rtsp".into(),
             (0_i64).into(),
             (255_i64).into(),
             "rtsp".into(),
             "rtpRtsp".into(),
             "<ip-address>".into(),
-            (554_i64).into(),
+            "554".into(),
             "/mpeg4/media.amp".into(),
             "/trackID=".into(),
             SimpleExpr::Keyword(Keyword::Null),
@@ -10535,7 +9947,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10568,14 +9980,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis IP, mpeg4, RTP/RTSP/HTTP".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             "rtsp".into(),
             "rtpRtspHttp".into(),
             "<ip-address>".into(),
-            (554_i64).into(),
+            "554".into(),
             "/mpeg4/media.amp".into(),
             "/trackID=".into(),
             SimpleExpr::Keyword(Keyword::Null),
@@ -10587,7 +9999,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10620,14 +10032,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "D-link DCS-930L, 640x480, mjpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/mjpeg.cgi".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -10639,7 +10051,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10672,7 +10084,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "D-Link DCS-5020L, 640x480, mjpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -10691,7 +10103,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             "<username>:<pwd>@<ip-address>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10724,14 +10136,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Panasonic IP, 320x240, mpjpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/nphMotionJpeg?Resolution=320x240&Quality=Standard".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (320_i64).into(),
@@ -10743,7 +10155,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10776,14 +10188,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Panasonic IP, 320x240, jpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/SnapshotJPEG?Resolution=320x240&Quality=Standard".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (320_i64).into(),
@@ -10795,7 +10207,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10828,14 +10240,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Panasonic IP, 320x240, jpeg, max 5 FPS".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/SnapshotJPEG?Resolution=320x240&Quality=Standard".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (320_i64).into(),
@@ -10847,7 +10259,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10880,14 +10292,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Panasonic IP, 640x480, mpjpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/nphMotionJpeg?Resolution=640x480&Quality=Standard".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -10899,7 +10311,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10932,14 +10344,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Panasonic IP, 640x480, jpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/SnapshotJPEG?Resolution=640x480&Quality=Standard".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -10951,7 +10363,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -10984,14 +10396,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Panasonic IP, 640x480, jpeg, max 5 FPS".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/SnapshotJPEG?Resolution=640x480&Quality=Standard".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -11003,7 +10415,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11036,14 +10448,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Panasonic IP PTZ, 320x240, mpjpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/nphMotionJpeg?Resolution=320x240&Quality=Standard".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (320_i64).into(),
@@ -11051,11 +10463,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (3_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (1_i64).into(),
-            (5_i64).into(),
+            "5".into(),
             SimpleExpr::Keyword(Keyword::Null),
             "<ip-address>:<port>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11088,14 +10500,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Panasonic IP PTZ, 320x240, jpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/SnapshotJPEG?Resolution=320x240&Quality=Standard".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (320_i64).into(),
@@ -11103,11 +10515,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (3_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (1_i64).into(),
-            (5_i64).into(),
+            "5".into(),
             SimpleExpr::Keyword(Keyword::Null),
             "<ip-address>:<port>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11140,14 +10552,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Panasonic IP PTZ, 320x240, jpeg, max 5 FPS".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/SnapshotJPEG?Resolution=320x240&Quality=Standard".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (320_i64).into(),
@@ -11155,11 +10567,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (3_i64).into(),
             (5.0_f64).into(),
             (1_i64).into(),
-            (5_i64).into(),
+            "5".into(),
             SimpleExpr::Keyword(Keyword::Null),
             "<ip-address>:<port>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11192,14 +10604,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Panasonic IP PTZ, 640x480, mpjpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/nphMotionJpeg?Resolution=640x480&Quality=Standard".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -11207,11 +10619,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (3_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (1_i64).into(),
-            (5_i64).into(),
+            "5".into(),
             SimpleExpr::Keyword(Keyword::Null),
             "<ip-address>:<port>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11244,14 +10656,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Panasonic IP PTZ, 640x480, jpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/SnapshotJPEG?Resolution=640x480&Quality=Standard".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -11259,11 +10671,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (3_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (1_i64).into(),
-            (5_i64).into(),
+            "5".into(),
             SimpleExpr::Keyword(Keyword::Null),
             "<ip-address>:<port>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11296,14 +10708,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Panasonic IP PTZ, 640x480, jpeg, max 5 FPS".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/SnapshotJPEG?Resolution=640x480&Quality=Standard".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (640_i64).into(),
@@ -11311,11 +10723,11 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             (3_i64).into(),
             (5.0_f64).into(),
             (1_i64).into(),
-            (5_i64).into(),
+            "5".into(),
             SimpleExpr::Keyword(Keyword::Null),
             "<ip-address>:<port>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11348,14 +10760,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Gadspot IP, jpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/Jpeg/CamImg.jpg".into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
@@ -11367,7 +10779,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11400,14 +10812,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Gadspot IP, jpeg, max 5 FPS".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/Jpeg/CamImg.jpg".into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
@@ -11419,7 +10831,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11452,14 +10864,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Gadspot IP, mpjpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/GetData.cgi".into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
@@ -11471,7 +10883,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11504,14 +10916,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Gadspot IP, mpjpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/Jpeg/CamImg.jpg".into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
@@ -11523,7 +10935,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11556,9 +10968,9 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "IP Webcam by Pavel Khlebovich 1920x1080".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
-            "0".into(),
+            (0_i64).into(),
             (255_i64).into(),
             "http".into(),
             "simple".into(),
@@ -11575,7 +10987,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             "".into(),
             "".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11608,14 +11020,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "VEO Observer, jpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/Jpeg/CamImg.jpg".into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
@@ -11627,7 +11039,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11660,14 +11072,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Blue Net Video Server, jpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/cgi-bin/image.cgi?control=0&id=admin&passwd=admin".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (320_i64).into(),
@@ -11679,7 +11091,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11712,14 +11124,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "ACTi IP, mpeg4, unicast".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             "rtsp".into(),
             "rtpUni".into(),
             "<ip-address>".into(),
-            (7070_i64).into(),
+            "7070".into(),
             "".into(),
             "/track".into(),
             SimpleExpr::Keyword(Keyword::Null),
@@ -11731,7 +11143,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11764,7 +11176,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis FFMPEG H.264".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("monitor_presets_type")),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
@@ -11783,7 +11195,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11816,7 +11228,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Vivotek FFMPEG".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("monitor_presets_type")),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
@@ -11835,7 +11247,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11868,7 +11280,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Axis FFMPEG".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("monitor_presets_type")),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
@@ -11887,7 +11299,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11920,7 +11332,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "ACTi TCM FFMPEG".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("monitor_presets_type")),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
@@ -11939,7 +11351,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -11972,7 +11384,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "BTTV Video (V4L2), PAL, 320x240".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
             (0_i64).into(),
             (255_i64).into(),
@@ -11991,7 +11403,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12024,7 +11436,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "BTTV Video (V4L2), PAL, 320x240, max 5 FPS".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
             (0_i64).into(),
             (255_i64).into(),
@@ -12043,7 +11455,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12076,7 +11488,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "BTTV Video (V4L2), PAL, 640x480".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
             (0_i64).into(),
             (255_i64).into(),
@@ -12095,7 +11507,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12128,7 +11540,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "BTTV Video (V4L2), PAL, 640x480, max 5 FPS".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
             (0_i64).into(),
             (255_i64).into(),
@@ -12147,7 +11559,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12180,7 +11592,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "BTTV Video (V4L2), NTSC, 320x240".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
             (0_i64).into(),
             (45056_i64).into(),
@@ -12199,7 +11611,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12232,7 +11644,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "BTTV Video (V4L2), NTSC, 320x240, max 5 FPS".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
             (0_i64).into(),
             (45056_i64).into(),
@@ -12251,7 +11663,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12284,7 +11696,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "BTTV Video (V4L2), NTSC, 640x480".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
             (0_i64).into(),
             (45056_i64).into(),
@@ -12303,7 +11715,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12336,7 +11748,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "BTTV Video (V4L2), NTSC, 640x480, max 5 FPS".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
             (0_i64).into(),
             (45056_i64).into(),
@@ -12355,7 +11767,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12388,7 +11800,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "BTTV Video (V4L1), PAL, 320x240".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -12407,7 +11819,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12440,7 +11852,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "BTTV Video (V4L1), PAL, 320x240, max 5 FPS".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -12459,7 +11871,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12492,7 +11904,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "BTTV Video (V4L1), PAL, 640x480".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -12511,7 +11923,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12544,7 +11956,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "BTTV Video (V4L1), PAL, 640x480, max 5 FPS".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -12563,7 +11975,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12596,7 +12008,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "BTTV Video (V4L1), NTSC, 320x240".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
             (0_i64).into(),
             (1_i64).into(),
@@ -12615,7 +12027,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12648,7 +12060,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "BTTV Video (V4L1), NTSC, 320x240, max 5 FPS".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
             (0_i64).into(),
             (1_i64).into(),
@@ -12667,7 +12079,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12700,7 +12112,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "BTTV Video (V4L1), NTSC, 640x480".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
             (0_i64).into(),
             (1_i64).into(),
@@ -12719,7 +12131,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12752,7 +12164,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "BTTV Video (V4L1), NTSC, 640x480, max 5 FPS".into(),
-            "Local".into(),
+            Expr::val("Local").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
             (0_i64).into(),
             (1_i64).into(),
@@ -12771,7 +12183,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12804,14 +12216,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Remote ZoneMinder".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             "http".into(),
             "simple".into(),
             "<ip-address>".into(),
-            (80_i64).into(),
+            "80".into(),
             "/cgi-bin/nph-zms?mode=jpeg&monitor=<monitor-id>&scale=100&maxfps=5&buffer=0".into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
@@ -12823,7 +12235,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12856,7 +12268,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Foscam FI8620 FFMPEG H.264".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("monitor_presets_type")),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
@@ -12875,7 +12287,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             "<admin_pwd>".into(),
             "<ip-address>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12908,7 +12320,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Foscam FI8608W FFMPEG H.264".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("monitor_presets_type")),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
@@ -12927,7 +12339,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             "<admin_pwd>".into(),
             "<ip-address>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -12960,7 +12372,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Foscam FI9821W FFMPEG H.264".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("monitor_presets_type")),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
@@ -12979,7 +12391,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             "<admin_pwd>".into(),
             "<ip-address>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -13012,7 +12424,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Loftek Sentinel PTZ, 640x480, mjpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -13031,7 +12443,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             "".into(),
             "<username>:<pwd>@<ip-address>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -13064,7 +12476,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Airlink 777W PTZ, 640x480, mjpeg".into(),
-            "Remote".into(),
+            Expr::val("Remote").as_enum(Alias::new("monitor_presets_type")),
             "http".into(),
             (0_i64).into(),
             (0_i64).into(),
@@ -13083,7 +12495,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             "".into(),
             "<username>:<pwd>@<ip-address>".into(),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -13116,9 +12528,9 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "SunEyes SP-P1802SWPTZ".into(),
-            "Libvlc".into(),
+            Expr::val("Libvlc").as_enum(Alias::new("monitor_presets_type")),
             "/dev/video<?>".into(),
-            "0".into(),
+            (0_i64).into(),
             (255_i64).into(),
             "".into(),
             "rtpMulti".into(),
@@ -13135,7 +12547,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             "-speed=64".into(),
             "<ip-address>:<port>".into(),
             (100_i64).into(),
-            (33_i64).into(),
+            "33".into(),
         ]);
         s.to_owned()
     });
@@ -13168,14 +12580,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Qihan IP, 1280x720, RTP/RTSP".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("monitor_presets_type")),
             "rtsp".into(),
             (0_i64).into(),
             (255_i64).into(),
             "rtsp".into(),
             "rtpRtsp".into(),
             SimpleExpr::Keyword(Keyword::Null),
-            (554_i64).into(),
+            "554".into(),
             "rtsp://<ip-address>/tcp_live/ch0_0".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (1280_i64).into(),
@@ -13187,7 +12599,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -13220,14 +12632,14 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             SimpleExpr::Keyword(Keyword::Null),
             "Qihan IP, 1920x1080, RTP/RTSP".into(),
-            "Ffmpeg".into(),
+            Expr::val("Ffmpeg").as_enum(Alias::new("monitor_presets_type")),
             "rtsp".into(),
             (0_i64).into(),
             (255_i64).into(),
             "rtsp".into(),
             "rtpRtsp".into(),
             SimpleExpr::Keyword(Keyword::Null),
-            (554_i64).into(),
+            "554".into(),
             "rtsp://<ip-address>/tcp_live/ch0_0".into(),
             SimpleExpr::Keyword(Keyword::Null),
             (1920_i64).into(),
@@ -13239,7 +12651,7 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             (100_i64).into(),
-            (100_i64).into(),
+            "100".into(),
         ]);
         s.to_owned()
     });
@@ -13269,18 +12681,18 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             (1_i64).into(),
             "Default".into(),
-            "Active".into(),
-            "Percent".into(),
-            "Blobs".into(),
+            Expr::val("Active").as_enum(Alias::new("zone_presets_type")),
+            Expr::val("Percent").as_enum(Alias::new("zone_presets_units")),
+            Expr::val("Blobs").as_enum(Alias::new("zone_presets_check_method")),
             (25_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
-            (0.5_f64).into(),
+            (3_i64).into(),
             (75_i64).into(),
             (3_i64).into(),
             (3_i64).into(),
-            (0.35_f64).into(),
+            (3_i64).into(),
             (75_i64).into(),
-            (0.3_f64).into(),
+            (2_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (1_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
@@ -13315,12 +12727,12 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             (2_i64).into(),
             "Fast, low sensitivity".into(),
-            "Active".into(),
-            "Percent".into(),
-            "AlarmedPixels".into(),
+            Expr::val("Active").as_enum(Alias::new("zone_presets_type")),
+            Expr::val("Percent").as_enum(Alias::new("zone_presets_units")),
+            Expr::val("AlarmedPixels").as_enum(Alias::new("zone_presets_check_method")),
             (60_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
-            (3_i64).into(),
+            (20_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
@@ -13361,12 +12773,12 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             (3_i64).into(),
             "Fast, medium sensitivity".into(),
-            "Active".into(),
-            "Percent".into(),
-            "AlarmedPixels".into(),
+            Expr::val("Active").as_enum(Alias::new("zone_presets_type")),
+            Expr::val("Percent").as_enum(Alias::new("zone_presets_units")),
+            Expr::val("AlarmedPixels").as_enum(Alias::new("zone_presets_check_method")),
             (40_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
-            (0.5_f64).into(),
+            (10_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
@@ -13407,12 +12819,12 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             (4_i64).into(),
             "Fast, high sensitivity".into(),
-            "Active".into(),
-            "Percent".into(),
-            "AlarmedPixels".into(),
+            Expr::val("Active").as_enum(Alias::new("zone_presets_type")),
+            Expr::val("Percent").as_enum(Alias::new("zone_presets_units")),
+            Expr::val("AlarmedPixels").as_enum(Alias::new("zone_presets_check_method")),
             (20_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
-            (0.1_f64).into(),
+            (5_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
             SimpleExpr::Keyword(Keyword::Null),
@@ -13453,18 +12865,18 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             (5_i64).into(),
             "Best, low sensitivity".into(),
-            "Active".into(),
-            "Percent".into(),
-            "Blobs".into(),
+            Expr::val("Active").as_enum(Alias::new("zone_presets_type")),
+            Expr::val("Percent").as_enum(Alias::new("zone_presets_units")),
+            Expr::val("Blobs").as_enum(Alias::new("zone_presets_check_method")),
             (60_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
-            (5_i64).into(),
+            (36_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (7_i64).into(),
             (7_i64).into(),
-            (3.5_f64).into(),
+            (24_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
-            (3_i64).into(),
+            (20_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (1_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
@@ -13499,18 +12911,18 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             (6_i64).into(),
             "Best, medium sensitivity".into(),
-            "Active".into(),
-            "Percent".into(),
-            "Blobs".into(),
+            Expr::val("Active").as_enum(Alias::new("zone_presets_type")),
+            Expr::val("Percent").as_enum(Alias::new("zone_presets_units")),
+            Expr::val("Blobs").as_enum(Alias::new("zone_presets_check_method")),
             (40_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
-            (1_i64).into(),
+            (16_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (5_i64).into(),
             (5_i64).into(),
-            (0.7_f64).into(),
+            (12_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
-            (0.6_f64).into(),
+            (10_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (1_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
@@ -13545,18 +12957,18 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([
             (7_i64).into(),
             "Best, high sensitivity".into(),
-            "Active".into(),
-            "Percent".into(),
-            "Blobs".into(),
+            Expr::val("Active").as_enum(Alias::new("zone_presets_type")),
+            Expr::val("Percent").as_enum(Alias::new("zone_presets_units")),
+            Expr::val("Blobs").as_enum(Alias::new("zone_presets_check_method")),
             (20_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
-            (0.2_f64).into(),
+            (8_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (3_i64).into(),
             (3_i64).into(),
-            (0.14_f64).into(),
+            (6_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
-            (0.12_f64).into(),
+            (5_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
             (1_i64).into(),
             SimpleExpr::Keyword(Keyword::Null),
@@ -13640,30 +13052,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.into_table(Alias::new("MontageLayouts"))
             .columns([Alias::new("Name"), Alias::new("Positions")]);
         s.values_panic(["48 Wide".into(), SimpleExpr::Keyword(Keyword::Null)]);
-        s.to_owned()
-    });
-    stmts.push({
-        let mut s = Query::insert();
-        s.into_table(Alias::new("Menu_Items")).columns([
-            Alias::new("MenuKey"),
-            Alias::new("Enabled"),
-            Alias::new("SortOrder"),
-        ]);
-        s.values_panic(["Console".into(), (1_i64).into(), (10_i64).into()]);
-        s.values_panic(["Watch".into(), (1_i64).into(), (15_i64).into()]);
-        s.values_panic(["Montage".into(), (1_i64).into(), (20_i64).into()]);
-        s.values_panic(["MontageReview".into(), (1_i64).into(), (30_i64).into()]);
-        s.values_panic(["Events".into(), (1_i64).into(), (40_i64).into()]);
-        s.values_panic(["Options".into(), (1_i64).into(), (50_i64).into()]);
-        s.values_panic(["Log".into(), (1_i64).into(), (60_i64).into()]);
-        s.values_panic(["Devices".into(), (1_i64).into(), (70_i64).into()]);
-        s.values_panic(["IntelGpu".into(), (1_i64).into(), (80_i64).into()]);
-        s.values_panic(["Groups".into(), (1_i64).into(), (90_i64).into()]);
-        s.values_panic(["Filters".into(), (1_i64).into(), (100_i64).into()]);
-        s.values_panic(["Snapshots".into(), (1_i64).into(), (110_i64).into()]);
-        s.values_panic(["Reports".into(), (1_i64).into(), (120_i64).into()]);
-        s.values_panic(["ReportEventAudit".into(), (1_i64).into(), (130_i64).into()]);
-        s.values_panic(["Map".into(), (1_i64).into(), (140_i64).into()]);
         s.to_owned()
     });
     stmts.push({
@@ -13992,20 +13380,6 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         let mut s = Query::insert();
         s.into_table(Alias::new("Models"))
             .columns([Alias::new("ManufacturerId"), Alias::new("Name")]);
-        s.values_panic([(2_i64).into(), "ASH21-B".into()]);
-        s.to_owned()
-    });
-    stmts.push({
-        let mut s = Query::insert();
-        s.into_table(Alias::new("Models"))
-            .columns([Alias::new("ManufacturerId"), Alias::new("Name")]);
-        s.values_panic([(2_i64).into(), "ADC2W".into()]);
-        s.to_owned()
-    });
-    stmts.push({
-        let mut s = Query::insert();
-        s.into_table(Alias::new("Models"))
-            .columns([Alias::new("ManufacturerId"), Alias::new("Name")]);
         s.values_panic([(7_i64).into(), "DCS-930L".into()]);
         s.to_owned()
     });
@@ -14037,486 +13411,10 @@ pub(super) fn seed_statements() -> Vec<InsertStatement> {
         s.values_panic([(7_i64).into(), "DCS-5020L".into()]);
         s.to_owned()
     });
-    stmts.push({
-        let mut s = Query::insert();
-        s.into_table(Alias::new("AI_Datasets")).columns([
-            Alias::new("Id"),
-            Alias::new("Name"),
-            Alias::new("Description"),
-            Alias::new("Version"),
-            Alias::new("NumClasses"),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "COCO".into(),
-            "Microsoft Common Objects in Context".into(),
-            "2017".into(),
-            (80_i64).into(),
-        ]);
-        s.to_owned()
-    });
-    stmts.push({
-        let mut s = Query::insert();
-        s.into_table(Alias::new("AI_Object_Classes")).columns([
-            Alias::new("DatasetId"),
-            Alias::new("ClassName"),
-            Alias::new("ClassIndex"),
-            Alias::new("Description"),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "person".into(),
-            (0_i64).into(),
-            "Person".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "bicycle".into(),
-            (1_i64).into(),
-            "Bicycle".into(),
-        ]);
-        s.values_panic([(1_i64).into(), "car".into(), (2_i64).into(), "Car".into()]);
-        s.values_panic([
-            (1_i64).into(),
-            "motorcycle".into(),
-            (3_i64).into(),
-            "Motorcycle".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "airplane".into(),
-            (4_i64).into(),
-            "Airplane".into(),
-        ]);
-        s.values_panic([(1_i64).into(), "bus".into(), (5_i64).into(), "Bus".into()]);
-        s.values_panic([
-            (1_i64).into(),
-            "train".into(),
-            (6_i64).into(),
-            "Train".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "truck".into(),
-            (7_i64).into(),
-            "Truck".into(),
-        ]);
-        s.values_panic([(1_i64).into(), "boat".into(), (8_i64).into(), "Boat".into()]);
-        s.values_panic([
-            (1_i64).into(),
-            "traffic light".into(),
-            (9_i64).into(),
-            "Traffic light".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "fire hydrant".into(),
-            (10_i64).into(),
-            "Fire hydrant".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "stop sign".into(),
-            (11_i64).into(),
-            "Stop sign".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "parking meter".into(),
-            (12_i64).into(),
-            "Parking meter".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "bench".into(),
-            (13_i64).into(),
-            "Bench".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "bird".into(),
-            (14_i64).into(),
-            "Bird".into(),
-        ]);
-        s.values_panic([(1_i64).into(), "cat".into(), (15_i64).into(), "Cat".into()]);
-        s.values_panic([(1_i64).into(), "dog".into(), (16_i64).into(), "Dog".into()]);
-        s.values_panic([
-            (1_i64).into(),
-            "horse".into(),
-            (17_i64).into(),
-            "Horse".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "sheep".into(),
-            (18_i64).into(),
-            "Sheep".into(),
-        ]);
-        s.values_panic([(1_i64).into(), "cow".into(), (19_i64).into(), "Cow".into()]);
-        s.values_panic([
-            (1_i64).into(),
-            "elephant".into(),
-            (20_i64).into(),
-            "Elephant".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "bear".into(),
-            (21_i64).into(),
-            "Bear".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "zebra".into(),
-            (22_i64).into(),
-            "Zebra".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "giraffe".into(),
-            (23_i64).into(),
-            "Giraffe".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "backpack".into(),
-            (24_i64).into(),
-            "Backpack".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "umbrella".into(),
-            (25_i64).into(),
-            "Umbrella".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "handbag".into(),
-            (26_i64).into(),
-            "Handbag".into(),
-        ]);
-        s.values_panic([(1_i64).into(), "tie".into(), (27_i64).into(), "Tie".into()]);
-        s.values_panic([
-            (1_i64).into(),
-            "suitcase".into(),
-            (28_i64).into(),
-            "Suitcase".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "frisbee".into(),
-            (29_i64).into(),
-            "Frisbee".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "skis".into(),
-            (30_i64).into(),
-            "Skis".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "snowboard".into(),
-            (31_i64).into(),
-            "Snowboard".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "sports ball".into(),
-            (32_i64).into(),
-            "Sports ball".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "kite".into(),
-            (33_i64).into(),
-            "Kite".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "baseball bat".into(),
-            (34_i64).into(),
-            "Baseball bat".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "baseball glove".into(),
-            (35_i64).into(),
-            "Baseball glove".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "skateboard".into(),
-            (36_i64).into(),
-            "Skateboard".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "surfboard".into(),
-            (37_i64).into(),
-            "Surfboard".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "tennis racket".into(),
-            (38_i64).into(),
-            "Tennis racket".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "bottle".into(),
-            (39_i64).into(),
-            "Bottle".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "wine glass".into(),
-            (40_i64).into(),
-            "Wine glass".into(),
-        ]);
-        s.values_panic([(1_i64).into(), "cup".into(), (41_i64).into(), "Cup".into()]);
-        s.values_panic([
-            (1_i64).into(),
-            "fork".into(),
-            (42_i64).into(),
-            "Fork".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "knife".into(),
-            (43_i64).into(),
-            "Knife".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "spoon".into(),
-            (44_i64).into(),
-            "Spoon".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "bowl".into(),
-            (45_i64).into(),
-            "Bowl".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "banana".into(),
-            (46_i64).into(),
-            "Banana".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "apple".into(),
-            (47_i64).into(),
-            "Apple".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "sandwich".into(),
-            (48_i64).into(),
-            "Sandwich".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "orange".into(),
-            (49_i64).into(),
-            "Orange".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "broccoli".into(),
-            (50_i64).into(),
-            "Broccoli".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "carrot".into(),
-            (51_i64).into(),
-            "Carrot".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "hot dog".into(),
-            (52_i64).into(),
-            "Hot dog".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "pizza".into(),
-            (53_i64).into(),
-            "Pizza".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "donut".into(),
-            (54_i64).into(),
-            "Donut".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "cake".into(),
-            (55_i64).into(),
-            "Cake".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "chair".into(),
-            (56_i64).into(),
-            "Chair".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "couch".into(),
-            (57_i64).into(),
-            "Couch".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "potted plant".into(),
-            (58_i64).into(),
-            "Potted plant".into(),
-        ]);
-        s.values_panic([(1_i64).into(), "bed".into(), (59_i64).into(), "Bed".into()]);
-        s.values_panic([
-            (1_i64).into(),
-            "dining table".into(),
-            (60_i64).into(),
-            "Dining table".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "toilet".into(),
-            (61_i64).into(),
-            "Toilet".into(),
-        ]);
-        s.values_panic([(1_i64).into(), "tv".into(), (62_i64).into(), "TV".into()]);
-        s.values_panic([
-            (1_i64).into(),
-            "laptop".into(),
-            (63_i64).into(),
-            "Laptop".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "mouse".into(),
-            (64_i64).into(),
-            "Mouse".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "remote".into(),
-            (65_i64).into(),
-            "Remote".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "keyboard".into(),
-            (66_i64).into(),
-            "Keyboard".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "cell phone".into(),
-            (67_i64).into(),
-            "Cell phone".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "microwave".into(),
-            (68_i64).into(),
-            "Microwave".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "oven".into(),
-            (69_i64).into(),
-            "Oven".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "toaster".into(),
-            (70_i64).into(),
-            "Toaster".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "sink".into(),
-            (71_i64).into(),
-            "Sink".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "refrigerator".into(),
-            (72_i64).into(),
-            "Refrigerator".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "book".into(),
-            (73_i64).into(),
-            "Book".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "clock".into(),
-            (74_i64).into(),
-            "Clock".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "vase".into(),
-            (75_i64).into(),
-            "Vase".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "scissors".into(),
-            (76_i64).into(),
-            "Scissors".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "teddy bear".into(),
-            (77_i64).into(),
-            "Teddy bear".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "hair drier".into(),
-            (78_i64).into(),
-            "Hair drier".into(),
-        ]);
-        s.values_panic([
-            (1_i64).into(),
-            "toothbrush".into(),
-            (79_i64).into(),
-            "Toothbrush".into(),
-        ]);
-        s.to_owned()
-    });
     stmts
 }
 
 /// Derived seeds (INSERT ... SELECT) kept as raw portable SQL.
 pub(super) fn raw_seed_sql() -> Vec<&'static str> {
-    vec![
-        r#"INSERT INTO AI_Detection_Settings (MonitorId, ObjectClassId, Enabled, ReportDetection, ConfidenceThreshold, BoxColor)
-SELECT NULL, Id, 1, 1,
-  CASE
-    WHEN ClassName = 'person' THEN 60
-    ELSE 50
-  END,
-  CASE
-    WHEN ClassName = 'person' THEN '#FF0000'
-    WHEN ClassName = 'car' THEN '#0000FF'
-    WHEN ClassName = 'truck' THEN '#0066FF'
-    WHEN ClassName = 'bus' THEN '#0099FF'
-    WHEN ClassName = 'motorcycle' THEN '#00CCFF'
-    ELSE '#808080'
-  END
-FROM AI_Object_Classes
-WHERE DatasetId = (SELECT Id FROM AI_Datasets WHERE Name = 'COCO' LIMIT 1)
-AND ClassName IN ('person', 'car', 'truck', 'bus', 'motorcycle')"#,
-    ]
+    vec![]
 }

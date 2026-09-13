@@ -16,7 +16,9 @@
 //! u64  pts_us      microseconds (AV_TIME_BASE_Q), shared clock
 //! ```
 //!
-//! Version 1 has no client-to-server messages; zmc ignores inbound bytes.
+//! Canonical version 1 has no client-to-server messages and zmc ignores
+//! inbound bytes. zm-next workers additionally accept `0x11 Command` and reply
+//! with `0x12 Response` on the same connection.
 
 use super::media::{AudioCodec, VideoCodec};
 
@@ -115,12 +117,36 @@ pub const EVENT_RECORDING_SAVED: u16 = 0x0303; // a clip was written to storage
 pub const EVENT_RECORDING_OPENING: u16 = 0x0304; // a clip segment opened; awaits an event-id assignment
                                                  // 0x0305 is reserved for a future `reasoning` event.
 pub const EVENT_REVIEW_ASSETS: u16 = 0x0306; // motion-synopsis ingredients: tube + plate manifest in json_detail
+pub const EVENT_SNAPSHOT_SAVED: u16 = 0x0307; // a JPEG snapshot was written (routine, or the snapshot_now result)
 
-/// Client→server control message type for the id-assignment handshake (the
-/// `0x11 Command` of zm-next's control extension). zm-api is the client; the
-/// canonical media producer (zmc) ignores inbound bytes, while zm-next's worker
-/// consumes this to learn the event id + target path for a recording segment.
+/// Client→server control message type (the `0x11 Command` of zm-next's control
+/// extension). zm-api is the client; the canonical media producer (zmc) ignores
+/// inbound bytes, while zm-next's worker consumes it: `assign_recording` for the
+/// id-assignment handshake, and the on-demand `snapshot_now` / `describe_now`.
 pub const MSG_TYPE_COMMAND: u8 = 0x11;
+
+/// Server→client reply to a `0x11 Command`, sent only to the connection that
+/// sent the command. Payload is UTF-8 JSON (see [`CommandResponse`]).
+pub const MSG_TYPE_RESPONSE: u8 = 0x12;
+
+/// zm-core's immediate reply to a Command. `ok:true` with message `dispatched`
+/// only means the command was handed to the plugins; the result, if any plugin
+/// owns the command, arrives separately as an EVENT carrying the same
+/// `request_id`.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct CommandResponse {
+    #[serde(default)]
+    pub request_id: u64,
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub message: String,
+}
+
+/// Parse a Response payload. `None` when it isn't a JSON object.
+pub fn parse_command_response(payload: &[u8]) -> Option<CommandResponse> {
+    serde_json::from_slice(payload).ok()
+}
 
 // EVENT TLV tags
 const TLV_WALL_CLOCK_US: u8 = 0x01; // u64, unix-epoch microseconds
@@ -695,6 +721,50 @@ mod tests {
         assert_eq!(&msg[HEADER_SIZE..], json);
         // The control type is not a media/parse type — consumers skip it.
         assert_eq!(MessageType::from_u8(header.msg_type), None);
+    }
+
+    #[test]
+    fn snapshot_saved_event_code_matches_zmnext() {
+        // zm-next kEventSnapshotSaved: routine snapshots and the snapshot_now
+        // result both use it.
+        assert_eq!(EVENT_SNAPSHOT_SAVED, 0x0307);
+        let json = r#"{"event":"EventSnapshot","path":"/s/a.jpg","request_id":7,"on_demand":true,"ok":true}"#;
+        let payload = event_payload(EVENT_SNAPSHOT_SAVED, &tlv(0x10, json.as_bytes()));
+        let ev = parse_event(&payload).unwrap();
+        assert_eq!(ev.code, EVENT_SNAPSHOT_SAVED);
+        assert_eq!(ev.json_detail.as_deref(), Some(json));
+    }
+
+    #[test]
+    fn command_response_parses_zmnext_reply() {
+        assert_eq!(MSG_TYPE_RESPONSE, 0x12);
+        // Exactly what zm-core's WorkerLink writes.
+        let ok = parse_command_response(
+            br#"{"data":"","message":"dispatched","ok":true,"request_id":7}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            ok,
+            CommandResponse {
+                request_id: 7,
+                ok: true,
+                message: "dispatched".into(),
+            }
+        );
+        let rejected = parse_command_response(
+            br#"{"data":"","message":"unknown_command: bogus","ok":false,"request_id":10}"#,
+        )
+        .unwrap();
+        assert!(!rejected.ok);
+        assert_eq!(rejected.message, "unknown_command: bogus");
+        // A reply to a command sent without a request_id.
+        assert_eq!(
+            parse_command_response(br#"{"ok":true,"message":"x"}"#)
+                .unwrap()
+                .request_id,
+            0
+        );
+        assert!(parse_command_response(b"not json").is_none());
     }
 
     #[test]

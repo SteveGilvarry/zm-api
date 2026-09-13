@@ -215,6 +215,9 @@ image_embed = false    # also embed on-disk crop JPEGs (off = text-only)
 enabled = false
 socket_path = "/run/zm"
 socket_name = "zmdc.sock"
+# Group zmdc.sock is chgrp'd to so ZoneMinder's web user can reach it. Unset =
+# ZM_WEB_GROUP from zm.conf. The zm-api service user must belong to it.
+# socket_group = "www-data"
 # On Ubuntu/Debian, both binaries and scripts are in /usr/bin
 bin_path = "/usr/bin"
 script_path = "/usr/bin"
@@ -229,8 +232,10 @@ enable_rest_api = true
 # independently switchable and all default off, so an existing install keeps
 # running the Perl until you move over deliberately.
 #
-# IMPORTANT: enable the Rust job and disable the matching Perl daemon together.
-# Running both has them competing over the same rows.
+# Only one of a pair may run — both writing the same rows has them competing.
+# In takeover mode zm-api will not start the Perl counterpart of an enabled
+# job. In passive mode ZoneMinder is still the supervisor, so disable the Perl
+# daemon there (Servers.zmstats, ZM_RUN_AUDIT, ZM_TELEMETRY_DATA) yourself.
 
 # Replaces zmstats.pl. Samples CPU/memory into Server_Stats, evicts stale
 # Monitor_Status heartbeats, ages events out of the Events_Hour/Day/Week/Month
@@ -258,8 +263,9 @@ remove_orphaned_frames = true
 remove_empty_events = true
 close_unclosed_events = true
 resync_counters = true
-# Cap per pass: a misconfigured storage path can make a great many rows look
-# orphaned at once, and this keeps the blast radius recoverable.
+# Cap per check within a pass (each sweep has its own budget): a misconfigured
+# storage path can make a great many rows look orphaned at once, and this keeps
+# the blast radius recoverable.
 max_deletes_per_pass = 1000
 
 # Reconciling event directories on disk against Events rows. Off even when the
@@ -278,8 +284,8 @@ enabled = false
 quarantine_orphaned_dirs = true
 # Delete Events rows whose directory was not found. Off by default: the evidence
 # is an absence, and a storage that failed to mount looks like every event being
-# gone. The preconditions guard that, but leave this off unless broken-playback
-# rows are actually a problem.
+# gone. A pass refuses this when more rows are missing than events were found on
+# disk, but leave it off unless broken-playback rows are actually a problem.
 remove_rows_without_media = false
 quarantine_dir = ".zm-api-quarantine"
 # Remove quarantined directories after this many days. 0 keeps them forever,

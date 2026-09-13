@@ -23,7 +23,7 @@
 
 use std::sync::Arc;
 
-use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr, Statement};
+use sea_orm::{ConnectionTrait, DatabaseConnection, DbErr, FromQueryResult, Statement};
 use tracing::{debug, warn};
 
 use crate::configure::maintenance::StatsConfig;
@@ -31,9 +31,19 @@ use crate::configure::maintenance::StatsConfig;
 pub struct StatsService {
     db: Arc<DatabaseConnection>,
     config: StatsConfig,
+    /// This host's `Servers.Id`, or 0 on a single-server install — matching
+    /// what ZoneMinder writes. See `daemon::server_id`.
+    server_id: u32,
     /// Previous `/proc/stat` sample, for computing CPU percentages as a delta.
     /// The first pass has nothing to compare against and reports no percentages.
     last_cpu: tokio::sync::Mutex<Option<CpuSample>>,
+}
+
+/// What one stats pass could not do.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct StatsReport {
+    /// `"<job>: <error>"` for each job that failed.
+    pub failures: Vec<String>,
 }
 
 /// Cumulative jiffies from `/proc/stat`'s aggregate `cpu` line.
@@ -162,8 +172,17 @@ impl StatsService {
         Self {
             db,
             config,
+            server_id: 0,
             last_cpu: tokio::sync::Mutex::new(None),
         }
+    }
+
+    /// Record which `Servers` row is ours (`None` = single-server, written as
+    /// 0). Without this the stats used to come from a `ZM_SERVER_ID`
+    /// environment variable nothing sets (#100).
+    pub fn with_server_id(mut self, server_id: Option<u32>) -> Self {
+        self.server_id = server_id.unwrap_or(0);
+        self
     }
 
     /// Spawn the periodic loop. Returns immediately.
@@ -174,33 +193,44 @@ impl StatsService {
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 ticker.tick().await;
-                if let Err(e) = self.run_once().await {
-                    warn!("stats pass failed: {e}");
+                match self.run_once().await {
+                    Ok(report) if !report.failures.is_empty() => {
+                        warn!("stats pass: {} job(s) failed", report.failures.len())
+                    }
+                    Ok(_) => {}
+                    Err(e) => warn!("stats pass failed: {e}"),
                 }
             }
         });
     }
 
-    /// One full pass. Each job is independent: a failure is logged and the rest
-    /// still run, because a stats daemon that stops entirely because one query
-    /// failed is worse than one that skips a job.
-    pub async fn run_once(&self) -> Result<(), DbErr> {
-        if let Err(e) = self.sample_server_load().await {
-            warn!("server load sample failed: {e}");
+    /// One full pass. Each job is independent: a failure is recorded and the
+    /// rest still run, because a stats daemon that stops entirely because one
+    /// query failed is worse than one that skips a job. The failures come back
+    /// in the report so a query that is wrong every pass cannot hide behind a
+    /// warn line (#101).
+    pub async fn run_once(&self) -> Result<StatsReport, DbErr> {
+        let mut report = StatsReport::default();
+        let jobs: [(&str, Result<(), DbErr>); 5] = [
+            ("server load sample", self.sample_server_load().await),
+            (
+                "monitor status eviction",
+                self.evict_stale_monitor_status().await,
+            ),
+            (
+                "event window maintenance",
+                self.age_out_event_windows().await,
+            ),
+            ("log pruning", self.prune_logs().await),
+            ("session pruning", self.prune_sessions().await),
+        ];
+        for (job, outcome) in jobs {
+            if let Err(e) = outcome {
+                warn!("{job} failed: {e}");
+                report.failures.push(format!("{job}: {e}"));
+            }
         }
-        if let Err(e) = self.evict_stale_monitor_status().await {
-            warn!("monitor status eviction failed: {e}");
-        }
-        if let Err(e) = self.age_out_event_windows().await {
-            warn!("event window maintenance failed: {e}");
-        }
-        if let Err(e) = self.prune_logs().await {
-            warn!("log pruning failed: {e}");
-        }
-        if let Err(e) = self.prune_sessions().await {
-            warn!("session pruning failed: {e}");
-        }
-        Ok(())
+        Ok(report)
     }
 
     /// Read the current CPU sample, returning percentages against the previous
@@ -233,7 +263,7 @@ impl StatsService {
                   CpuSystemPercent, CpuIdlePercent, CpuUsagePercent) \
                  VALUES (?, NOW(), ?, ?, ?, ?, ?)",
                 [
-                    server_id().into(),
+                    self.server_id.into(),
                     cpu.user.into(),
                     cpu.nice.into(),
                     cpu.system.into(),
@@ -337,42 +367,83 @@ impl StatsService {
     /// resync. Writing them from here would need a scan of the whole `Events`
     /// table on a timer measured in minutes.
     async fn resync_window_counters(&self) -> Result<(), DbErr> {
+        // Read each window's totals with a plain SELECT (a consistent read,
+        // no locks), then write each monitor's row by primary key. The single
+        // UPDATE driven by correlated subqueries that was here took shared
+        // locks on the window rows and held them to commit — the reverse of
+        // the order the Events triggers take, so a closing event and this
+        // resync could deadlock, and zmc's event close blocked behind it (#99).
+        // This is the shape zmstats.pl settled on for the same reason.
+        const WINDOWS: &[(&str, &str, &str)] = &[
+            ("Events_Hour", "HourEvents", "HourEventDiskSpace"),
+            ("Events_Day", "DayEvents", "DayEventDiskSpace"),
+            ("Events_Week", "WeekEvents", "WeekEventDiskSpace"),
+            ("Events_Month", "MonthEvents", "MonthEventDiskSpace"),
+        ];
+
+        #[derive(FromQueryResult)]
+        struct Totals {
+            monitor_id: i64,
+            n: i64,
+            bytes: i64,
+        }
+        #[derive(FromQueryResult)]
+        struct Summary {
+            monitor_id: i64,
+        }
+
         let backend = self.db.get_database_backend();
-        // Single-table UPDATE driven by correlated subqueries: a multi-table
-        // UPDATE would take shared locks on the joined rows and hold them to
-        // commit, deadlocking against the Events triggers.
-        self.db
-            .execute(Statement::from_string(
+        let monitors: Vec<i64> = Summary::find_by_statement(Statement::from_string(
+            backend,
+            "SELECT CAST(MonitorId AS SIGNED) AS monitor_id FROM Event_Summaries",
+        ))
+        .all(self.db.as_ref())
+        .await?
+        .into_iter()
+        .map(|s| s.monitor_id)
+        .collect();
+
+        for (table, count_col, bytes_col) in WINDOWS {
+            let totals = Totals::find_by_statement(Statement::from_string(
                 backend,
-                "UPDATE Event_Summaries SET \
-                 HourEvents = (SELECT COUNT(*) FROM Events_Hour \
-                     WHERE Events_Hour.MonitorId = Event_Summaries.MonitorId), \
-                 HourEventDiskSpace = (SELECT COALESCE(SUM(DiskSpace),0) FROM Events_Hour \
-                     WHERE Events_Hour.MonitorId = Event_Summaries.MonitorId), \
-                 DayEvents = (SELECT COUNT(*) FROM Events_Day \
-                     WHERE Events_Day.MonitorId = Event_Summaries.MonitorId), \
-                 DayEventDiskSpace = (SELECT COALESCE(SUM(DiskSpace),0) FROM Events_Day \
-                     WHERE Events_Day.MonitorId = Event_Summaries.MonitorId), \
-                 WeekEvents = (SELECT COUNT(*) FROM Events_Week \
-                     WHERE Events_Week.MonitorId = Event_Summaries.MonitorId), \
-                 WeekEventDiskSpace = (SELECT COALESCE(SUM(DiskSpace),0) FROM Events_Week \
-                     WHERE Events_Week.MonitorId = Event_Summaries.MonitorId), \
-                 MonthEvents = (SELECT COUNT(*) FROM Events_Month \
-                     WHERE Events_Month.MonitorId = Event_Summaries.MonitorId), \
-                 MonthEventDiskSpace = (SELECT COALESCE(SUM(DiskSpace),0) FROM Events_Month \
-                     WHERE Events_Month.MonitorId = Event_Summaries.MonitorId)",
+                format!(
+                    "SELECT CAST(MonitorId AS SIGNED) AS monitor_id, \
+                            CAST(COUNT(*) AS SIGNED) AS n, \
+                            CAST(COALESCE(SUM(DiskSpace),0) AS SIGNED) AS bytes \
+                     FROM {table} GROUP BY MonitorId"
+                ),
             ))
+            .all(self.db.as_ref())
             .await?;
+            let by_monitor: std::collections::HashMap<i64, (i64, i64)> = totals
+                .into_iter()
+                .map(|t| (t.monitor_id, (t.n, t.bytes)))
+                .collect();
+
+            for monitor_id in &monitors {
+                let (n, bytes) = by_monitor.get(monitor_id).copied().unwrap_or((0, 0));
+                self.db
+                    .execute(Statement::from_sql_and_values(
+                        backend,
+                        format!(
+                            "UPDATE Event_Summaries SET {count_col} = ?, {bytes_col} = ? \
+                             WHERE MonitorId = ?"
+                        ),
+                        [n.into(), bytes.into(), (*monitor_id).into()],
+                    ))
+                    .await?;
+            }
+        }
         Ok(())
     }
 
     /// Mirror the current load onto this host's own `Servers` row.
     ///
-    /// Only meaningful on a multi-server install, where `ZM_SERVER_ID`
-    /// identifies which row is ours; a single-server install has no row to
+    /// Only meaningful on a multi-server install, where the resolved server
+    /// id says which row is ours; a single-server install has no row to
     /// update and this is skipped.
     async fn update_server_row(&self, cpu: &CpuPercentages) -> Result<(), DbErr> {
-        let id = server_id();
+        let id = self.server_id;
         if id == 0 {
             return Ok(());
         }
@@ -518,15 +589,6 @@ impl StatsService {
             .await
             .unwrap_or(3600)
     }
-}
-
-/// This host's `Servers.Id`, or 0 on a single-server install — matching what
-/// ZoneMinder writes.
-fn server_id() -> u32 {
-    std::env::var("ZM_SERVER_ID")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0)
 }
 
 /// Read a raw string out of ZoneMinder's `Config` table.

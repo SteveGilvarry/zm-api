@@ -147,15 +147,15 @@ impl MonitorEventListener {
         let mut tracker = AlarmTracker::new();
 
         loop {
-            if self.manager.is_shutting_down() {
+            if self.manager.is_process_exiting() {
                 break;
             }
 
-            match self.run_subscription(&mut tracker).await {
+            match self.run_subscription(&mut tracker, &mut backoff).await {
                 Ok(()) => {
                     // Clean exit only happens on shutdown; reset backoff.
                     backoff = self.config.min_backoff;
-                    if self.manager.is_shutting_down() {
+                    if self.manager.is_process_exiting() {
                         break;
                     }
                 }
@@ -178,11 +178,20 @@ impl MonitorEventListener {
     }
 
     /// Establish one subscription and poll/renew it until shutdown or error.
-    async fn run_subscription(&self, tracker: &mut AlarmTracker) -> Result<(), OnvifError> {
+    async fn run_subscription(
+        &self,
+        tracker: &mut AlarmTracker,
+        backoff: &mut Duration,
+    ) -> Result<(), OnvifError> {
         let sub: PullPointSubscription = self
             .client
             .create_pull_point_subscription(Some(SUBSCRIPTION_TERMINATION))
             .await?;
+        // A subscription came up: the camera is back, so the next failure
+        // starts the backoff from the beginning again. It used to reset only
+        // on shutdown, so a camera that flapped once a day was retried at the
+        // maximum delay forever (#120).
+        *backoff = self.config.min_backoff;
 
         if sub.address.is_empty() {
             return Err(OnvifError::Parse(
@@ -200,7 +209,7 @@ impl MonitorEventListener {
         let mut last_renew = tokio::time::Instant::now();
 
         loop {
-            if self.manager.is_shutting_down() {
+            if self.manager.is_process_exiting() {
                 // Best-effort teardown so the device frees the subscription.
                 if let Err(e) = self.client.unsubscribe(&address).await {
                     debug!(
@@ -212,31 +221,36 @@ impl MonitorEventListener {
                 return Ok(());
             }
 
-            // Race the long-poll against the renew deadline. Renew must not be
-            // gated behind `PullMessages` returning — on a quiet camera a pull
-            // only completes every `pull_timeout`, so a deadline-after-pull
-            // check would first fire at `renew_interval + pull_timeout`, which
-            // can exceed the subscription lifetime and let it lapse mid-poll.
-            // `select!` cancels the in-flight pull when the renew fires; no
-            // messages are lost because PullPoint queues them on the device
-            // until the next successful pull.
-            let renew_at = last_renew + self.config.renew_interval;
-            tokio::select! {
-                _ = tokio::time::sleep_until(renew_at) => {
-                    self.client
-                        .renew(&address, SUBSCRIPTION_TERMINATION)
-                        .await?;
-                    last_renew = tokio::time::Instant::now();
-                    debug!(monitor_id = self.monitor_id, "renewed ONVIF subscription");
-                }
-                resp = self.client.pull_messages(
-                    &address,
-                    &self.config.pull_timeout,
-                    self.config.message_limit,
-                ) => {
-                    let resp = resp?;
-                    for msg in &resp.messages {
-                        self.handle_notification(msg, tracker).await;
+            // Renew must not wait for `PullMessages` to return — on a quiet
+            // camera a pull only completes every `pull_timeout`, which can
+            // exceed the subscription lifetime. But cancelling the pull to
+            // renew loses any response the device had already sent: the
+            // device removes messages from its queue on delivery (#120). So
+            // the pull is pinned and kept running while a renew fires beside
+            // it, and only the pull's completion ends the iteration.
+            let pull = self.client.pull_messages(
+                &address,
+                &self.config.pull_timeout,
+                self.config.message_limit,
+            );
+            tokio::pin!(pull);
+            let mut renew_at = last_renew + self.config.renew_interval;
+            loop {
+                tokio::select! {
+                    _ = tokio::time::sleep_until(renew_at) => {
+                        self.client
+                            .renew(&address, SUBSCRIPTION_TERMINATION)
+                            .await?;
+                        last_renew = tokio::time::Instant::now();
+                        renew_at = last_renew + self.config.renew_interval;
+                        debug!(monitor_id = self.monitor_id, "renewed ONVIF subscription");
+                    }
+                    resp = &mut pull => {
+                        let resp = resp?;
+                        for msg in &resp.messages {
+                            self.handle_notification(msg, tracker).await;
+                        }
+                        break;
                     }
                 }
             }
@@ -356,7 +370,7 @@ impl MonitorEventListener {
         let tick = Duration::from_millis(250);
         let deadline = tokio::time::Instant::now() + dur;
         loop {
-            if self.manager.is_shutting_down() {
+            if self.manager.is_process_exiting() {
                 return true;
             }
             let now = tokio::time::Instant::now();

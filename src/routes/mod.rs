@@ -530,7 +530,13 @@ pub fn create_router_app(state: AppState) -> Router {
     let stat_routes = protect(stats::add_stat_routes(Router::new()), Feature::System);
     let state_routes = protect(states::add_state_routes(Router::new()), Feature::System);
     let report_routes = protect(reports::add_report_routes(Router::new()), Feature::System);
-    let daemon_routes = protect(daemon::add_daemon_routes(Router::new()), Feature::System);
+    // `[daemon].enable_rest_api = false` leaves daemon/system control to the
+    // legacy socket only; the routes are not registered at all (#88).
+    let daemon_routes = if crate::constant::CONFIG.daemon.enable_rest_api {
+        protect(daemon::add_daemon_routes(Router::new()), Feature::System)
+    } else {
+        Router::new()
+    };
     let user_routes = protect(users::add_user_routes(Router::new()), Feature::System);
     let user_preference_routes = protect(
         user_preferences::add_user_preference_routes(Router::new()),

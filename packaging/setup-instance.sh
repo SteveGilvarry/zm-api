@@ -27,6 +27,13 @@ if ! id "$ZM_USER" >/dev/null 2>&1; then
 fi
 # video group is needed for local camera/device access; ignore if absent.
 getent group video >/dev/null 2>&1 && usermod -aG video "$ZM_USER" || true
+# The legacy zmdc.sock is chgrp'd to ZoneMinder's web group so the console and
+# zmdc.pl clients, which run as the web user, can connect. chgrp is only
+# allowed for a member, so the service account joins that group.
+web_group=$(sed -n 's/^ZM_WEB_GROUP=//p' /etc/zm/zm.conf /etc/zm/conf.d/*.conf 2>/dev/null | tail -n1)
+if [[ -n "${web_group:-}" ]] && getent group "$web_group" >/dev/null 2>&1; then
+  usermod -aG "$web_group" "$ZM_USER" || true
+fi
 
 # 2. Writable state + log dirs owned by the service account.
 install -d -o "$ZM_USER" -g "$ZM_GROUP" -m 0750 "$STATE_DIR" "$KEY_DIR" "$LOG_DIR"
