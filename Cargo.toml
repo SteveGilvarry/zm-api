@@ -234,12 +234,10 @@ conf-files = [
   "/etc/zm-api/zm-api.env",
 ]
 
-# Full DWARF debug info triples the linker's peak memory and pushes this dev
-# box (16 GiB / 4 GiB swap, with ZoneMinder + zm-api already resident) into
-# systemd-oomd's kill range — `cargo test` was reliably killing the tmux
-# scope. Line tables alone still give file/line numbers in panics and
-# backtraces; the variable/type info dropped here is rarely used outside an
-# attached debugger.
+# Full DWARF debug info roughly triples link time and the linker's peak memory
+# across ~60 test binaries. Line tables alone still give file/line numbers in
+# panics and backtraces; the variable/type info dropped here is rarely used
+# outside an attached debugger.
 [profile.dev]
 debug = "line-tables-only"
 
