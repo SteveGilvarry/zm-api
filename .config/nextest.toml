@@ -8,6 +8,21 @@ retries = 1
 # Consider tests slow after 60s; allow them to run up to 2x that before termination
 slow-timeout = { period = "60s", terminate-after = 2 }
 
-# Run tests in parallel by default (nextest picks sensible defaults)
-run-ignored = "never"
 
+# Every audit/stats pass in it_maintenance sweeps the whole shared test
+# database, so two of them at once delete or close each other's fixtures.
+# The in-file mutex serializes them under `cargo test`; nextest runs each test
+# in its own process, where that mutex does nothing, so the group does it here.
+[test-groups]
+whole-db-sweeps = { max-threads = 1 }
+# it_search's TABLE_LOCK has the same problem: its writers to
+# zmnext_event_vectors can InnoDB-deadlock if they run at once.
+event-vectors = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'binary(it_maintenance)'
+test-group = 'whole-db-sweeps'
+
+[[profile.default.overrides]]
+filter = 'binary(it_search)'
+test-group = 'event-vectors'
