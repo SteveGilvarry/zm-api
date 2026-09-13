@@ -18,8 +18,11 @@ use zm_api::dto::response::{EventTagResponse, PaginatedEventsTagsResponse};
 use zm_api::entity::sea_orm_active_enums::Permission;
 use zm_api::util::authz::UserPermissions;
 
-/// User ids for the ACL cases, chosen to avoid colliding with real users.
+/// User ids for the ACL cases, chosen to avoid colliding with real users. Each
+/// test needs its own: tests run concurrently, and one test's cleanup deleting
+/// a shared user's permission rows makes that user unrestricted in the other.
 const ETAG_ACL_UID: u32 = 990_401;
+const ETAG_ACL_CREATE_UID: u32 = 990_402;
 
 fn monitor_permissions_guard(user_id: u32) -> RowGuard {
     RowGuard::new(
@@ -308,20 +311,23 @@ async fn restricted_user_cannot_tag_event_of_hidden_monitor() {
     let tag_id = insert_tag(&app.db, "EtagAclCreateTag").await;
     let _tag = RowGuard::tag(tag_id);
 
-    insert_user_with_id(&app.db, ETAG_ACL_UID, "EtagAclCreateUser")
+    insert_user_with_id(&app.db, ETAG_ACL_CREATE_UID, "EtagAclCreateUser")
         .await
         .expect("insert user");
-    let _ug = RowGuard::new(format!("Users#{ETAG_ACL_UID}"), move |db| async move {
-        let _ = common::fixtures::cleanup_user(&db, ETAG_ACL_UID).await;
-    });
-    grant_monitor_permission(&app.db, visible.id, ETAG_ACL_UID, Permission::View)
+    let _ug = RowGuard::new(
+        format!("Users#{ETAG_ACL_CREATE_UID}"),
+        move |db| async move {
+            let _ = common::fixtures::cleanup_user(&db, ETAG_ACL_CREATE_UID).await;
+        },
+    );
+    grant_monitor_permission(&app.db, visible.id, ETAG_ACL_CREATE_UID, Permission::View)
         .await
         .expect("grant permission");
-    let _pg = monitor_permissions_guard(ETAG_ACL_UID);
+    let _pg = monitor_permissions_guard(ETAG_ACL_CREATE_UID);
     // Reclaim the association if the (buggy) create unexpectedly succeeds.
     let _link = guard_event_tag(tag_id, event_id);
 
-    let token = token_for(ETAG_ACL_UID, UserPermissions::superuser());
+    let token = token_for(ETAG_ACL_CREATE_UID, UserPermissions::superuser());
     let create = app
         .post_json(
             "/api/v3/events-tags",
