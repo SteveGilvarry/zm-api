@@ -146,7 +146,14 @@ impl SearchService {
     /// Build a disabled service synchronously (no DB probe) — for tests and the
     /// off path where no async resolution is needed.
     pub fn disabled(config: SearchConfig) -> Self {
-        let http = Arc::new(HttpInference::new(reqwest::Client::new(), &config));
+        // A disabled service never sends a request, so skip system proxy
+        // discovery: on macOS it scans the executable's directory, which takes
+        // ~a minute per test when target/debug/deps is large.
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("http client");
+        let http = Arc::new(HttpInference::new(client, &config));
         Self::with_components(
             config,
             Backend::None,
