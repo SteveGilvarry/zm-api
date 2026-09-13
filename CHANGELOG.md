@@ -128,6 +128,15 @@ recognisable path forward.
 
 ### Fixed
 
+- **Over-long request fields are a 400 naming the field, not a 500** (#55).
+  About forty request structs had no length rule for columns that are
+  `varchar(N)` or `tinytext`, so anything past the width reached MySQL and
+  came back as a truncation error. Every bounded field on those structs now
+  carries the column's cap, the handlers that never called `validate()` do,
+  and the caps count *characters* for `varchar` (a 64-character non-ASCII name
+  is legal) and *bytes* for `tinytext` (which is 255 bytes). The monitor
+  requests' 26 `#[garde(skip)]` fields are bounded the same way. The 1406→400
+  safety net stays for columns nobody has enumerated.
 - **The hung-daemon watchdog could never fire** (#73). `check_activity` stamped
   a timestamp on every sample and `appears_hung` then asked whether that stamp
   was older than `watch_max_delay_seconds` — microseconds later it never was.

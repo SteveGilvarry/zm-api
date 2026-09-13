@@ -17,12 +17,13 @@ use crate::dto::request::sessions::{CreateSessionRequest, UpdateSessionRequest};
 use crate::dto::response::sessions::PaginatedSessionsResponse;
 use crate::dto::response::SessionResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 
 /// List all sessions with pagination.
 ///
@@ -80,6 +81,7 @@ pub async fn create_session(
     State(state): State<AppState>,
     Json(req): Json<CreateSessionRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<SessionResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::sessions::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -102,6 +104,7 @@ pub async fn update_session(
     State(state): State<AppState>,
     Json(req): Json<UpdateSessionRequest>,
 ) -> AppResult<Json<SessionResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::sessions::update(&state, &id, req).await?;
     Ok(Json(item))
 }

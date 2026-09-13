@@ -2,12 +2,13 @@ use crate::dto::request::CreateModelRequest;
 use crate::dto::response::models::PaginatedModelsResponse;
 use crate::dto::response::ModelResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 use serde::Deserialize;
 
 // NB: pagination fields are inlined rather than `#[serde(flatten)]`-ed in.
@@ -89,13 +90,16 @@ pub async fn create_model(
     State(state): State<AppState>,
     Json(req): Json<CreateModelRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<ModelResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::models::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Deserialize, utoipa::ToSchema, Validate)]
 pub struct UpdateModelRequest {
+    #[garde(inner(length(chars, max = 64)))]
     pub name: Option<String>,
+    #[garde(skip)]
     pub manufacturer_id: Option<i32>,
 }
 
@@ -117,6 +121,7 @@ pub async fn update_model(
     State(state): State<AppState>,
     Json(req): Json<UpdateModelRequest>,
 ) -> AppResult<Json<ModelResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::models::update(&state, id, req.name, req.manufacturer_id).await?;
     Ok(Json(item))
 }

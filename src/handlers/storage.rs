@@ -2,12 +2,13 @@ use crate::dto::request::CreateStorageRequest;
 use crate::dto::response::storage::PaginatedStorageResponse;
 use crate::dto::response::StorageResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 use serde::Deserialize;
 
 /// List storage definitions used by ZoneMinder for event/video storage.
@@ -67,18 +68,26 @@ pub async fn create_storage(
     State(state): State<AppState>,
     Json(req): Json<CreateStorageRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<StorageResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::storage::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Deserialize, utoipa::ToSchema, Validate)]
 pub struct UpdateStorageRequest {
+    #[garde(inner(length(chars, max = 64)))]
     pub name: Option<String>,
+    #[garde(inner(length(chars, max = 64)))]
     pub path: Option<String>,
+    #[garde(skip)]
     pub r#type: Option<String>,
+    #[garde(skip)]
     pub enabled: Option<i8>,
+    #[garde(skip)]
     pub scheme: Option<String>,
+    #[garde(skip)]
     pub server_id: Option<u32>,
+    #[garde(inner(length(chars, max = 255)))]
     pub url: Option<String>,
 }
 
@@ -100,6 +109,7 @@ pub async fn update_storage(
     State(state): State<AppState>,
     Json(req): Json<UpdateStorageRequest>,
 ) -> AppResult<Json<StorageResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::storage::update(
         &state,
         id,

@@ -2,12 +2,13 @@ use crate::dto::request::states::{CreateStateRequest, UpdateStateRequest};
 use crate::dto::response::states::PaginatedStatesResponse;
 use crate::dto::response::StateResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 
 /// List all states with pagination.
 ///
@@ -66,6 +67,7 @@ pub async fn create_state(
     State(state): State<AppState>,
     Json(req): Json<CreateStateRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<StateResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::states::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -89,6 +91,7 @@ pub async fn update_state(
     State(state): State<AppState>,
     Json(req): Json<UpdateStateRequest>,
 ) -> AppResult<Json<StateResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::states::update(&state, id, req).await?;
     Ok(Json(item))
 }

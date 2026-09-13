@@ -2,13 +2,14 @@ use crate::dto::request::CreateGroupRequest;
 use crate::dto::response::groups::PaginatedGroupsResponse;
 use crate::dto::response::GroupResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use crate::service::group_acl::GroupScope;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 use serde::Deserialize;
 
 /// List user groups with pagination.
@@ -54,13 +55,15 @@ pub async fn get_group(
     Ok(Json(item))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Deserialize, utoipa::ToSchema, Validate)]
 pub struct UpdateGroupRequest {
+    #[garde(inner(length(chars, max = 64)))]
     pub name: Option<String>,
     /// Re-parent the group. Omit to leave the parent unchanged; `null` clears
     /// it (top-level group); a group id nests under that group. Self-parenting
     /// and cycles are rejected (GH #28).
     #[serde(default)]
+    #[garde(skip)]
     pub parent_id: Option<Option<u32>>,
 }
 
@@ -82,6 +85,7 @@ pub async fn update_group(
     scope: GroupScope,
     Json(req): Json<UpdateGroupRequest>,
 ) -> AppResult<Json<GroupResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::groups::update(&state, id, req.name, req.parent_id, &scope).await?;
     Ok(Json(item))
 }
@@ -101,6 +105,7 @@ pub async fn create_group(
     State(state): State<AppState>,
     Json(req): Json<CreateGroupRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<GroupResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::groups::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }

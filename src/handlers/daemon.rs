@@ -8,9 +8,10 @@ use crate::dto::request::daemon::{ApplyStateRequest, StartDaemonRequest};
 use crate::dto::response::daemon::{
     DaemonActionResponse, DaemonListResponse, DaemonStatusResponse, SystemStatusResponse,
 };
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use crate::service;
+use garde::Validate;
 
 /// List all daemons.
 #[utoipa::path(
@@ -261,6 +262,7 @@ pub async fn apply_state(
     State(state): State<AppState>,
     Json(request): Json<ApplyStateRequest>,
 ) -> AppResult<Json<DaemonActionResponse>> {
+    request.validate().map_err(AppError::InvalidInputError)?;
     info!("Applying state: {}", request.state_name);
     let response = service::daemon::apply_state(&state, &request.state_name).await?;
     Ok(Json(response))

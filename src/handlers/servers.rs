@@ -2,12 +2,13 @@ use crate::dto::request::CreateServerRequest;
 use crate::dto::response::servers::PaginatedServersResponse;
 use crate::dto::response::ServerResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 use serde::Deserialize;
 
 /// List registered ZoneMinder servers with pagination.
@@ -67,15 +68,20 @@ pub async fn create_server(
     State(state): State<AppState>,
     Json(req): Json<CreateServerRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<ServerResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::servers::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Debug, Deserialize, utoipa::ToSchema, Validate)]
 pub struct UpdateServerRequest {
+    #[garde(inner(length(chars, max = 64)))]
     pub name: Option<String>,
+    #[garde(skip)]
     pub hostname: Option<String>,
+    #[garde(skip)]
     pub port: Option<u32>,
+    #[garde(skip)]
     pub status: Option<String>,
 }
 
@@ -97,6 +103,7 @@ pub async fn update_server(
     State(state): State<AppState>,
     Json(req): Json<UpdateServerRequest>,
 ) -> AppResult<Json<ServerResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item =
         crate::service::servers::update(&state, id, req.name, req.hostname, req.port, req.status)
             .await?;

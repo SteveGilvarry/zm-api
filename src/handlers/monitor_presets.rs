@@ -4,12 +4,13 @@ use crate::dto::request::monitor_presets::{
 use crate::dto::response::monitor_presets::PaginatedMonitorPresetsResponse;
 use crate::dto::response::MonitorPresetResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 
 /// List all monitor presets with pagination.
 ///
@@ -67,6 +68,7 @@ pub async fn create_monitor_preset(
     State(state): State<AppState>,
     Json(req): Json<CreateMonitorPresetRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<MonitorPresetResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::monitor_presets::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -89,6 +91,7 @@ pub async fn update_monitor_preset(
     State(state): State<AppState>,
     Json(req): Json<UpdateMonitorPresetRequest>,
 ) -> AppResult<Json<MonitorPresetResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::monitor_presets::update(&state, id, req).await?;
     Ok(Json(item))
 }
