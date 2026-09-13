@@ -18,6 +18,7 @@ pub mod logs;
 pub mod manufacturers;
 pub mod models;
 mod monitor;
+pub mod monitor_ondemand;
 pub mod monitor_pipeline;
 pub mod monitor_presets;
 pub mod monitor_status;

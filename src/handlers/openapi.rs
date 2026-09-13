@@ -173,6 +173,8 @@ use crate::util::claim::UserClaims;
         crate::handlers::live::get_live_segment,
         crate::handlers::live::get_live_sources,
         crate::handlers::live::get_monitor_snapshot,
+        crate::handlers::live::take_monitor_snapshot,
+        crate::handlers::live::describe_monitor,
         crate::handlers::live::webrtc_websocket_handler,
 
         // logs
@@ -387,6 +389,9 @@ use crate::util::claim::UserClaims;
     ),
     components(
         schemas(
+            // zm-next on-demand commands
+            crate::dto::request::monitor_ondemand::DescribeNowRequest,
+            crate::dto::response::monitor_ondemand::DescribeNowResponse,
             // auth
             AppError,
             AppResponseError,

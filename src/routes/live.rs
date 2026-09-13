@@ -42,9 +42,19 @@ pub fn add_live_routes(router: Router<AppState>) -> Router<AppState> {
             get(live::get_live_sources).route_layer(axum::middleware::from_fn(auth_middleware)),
         )
         // Monitor snapshot (supports token query param for <img> tags)
+        // `POST` takes a fresh snapshot through a zm-next worker. Header auth
+        // only: it does work on the server, so no `?token=` fallback.
         .route(
             "/api/v3/monitors/{monitor_id}/snapshot",
             get(live::get_monitor_snapshot)
-                .route_layer(axum::middleware::from_fn(media_auth_middleware)),
+                .route_layer(axum::middleware::from_fn(media_auth_middleware))
+                .merge(
+                    post(live::take_monitor_snapshot)
+                        .route_layer(axum::middleware::from_fn(auth_middleware)),
+                ),
+        )
+        .route(
+            "/api/v3/monitors/{monitor_id}/describe",
+            post(live::describe_monitor).route_layer(axum::middleware::from_fn(auth_middleware)),
         )
 }
