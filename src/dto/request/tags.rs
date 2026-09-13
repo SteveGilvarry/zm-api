@@ -1,18 +1,23 @@
+use garde::Validate;
 use sea_orm::prelude::DateTimeUtc;
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
-#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema, Validate)]
 pub struct CreateTagRequest {
+    #[garde(length(chars, max = 64))]
     pub name: String,
     #[schema(value_type = Option<String>, example = "2025-01-15T10:30:00Z")]
+    #[garde(skip)]
     pub create_date: Option<DateTimeUtc>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema, Validate)]
 pub struct UpdateTagRequest {
+    #[garde(inner(length(chars, max = 64)))]
     pub name: Option<String>,
     #[schema(value_type = Option<String>, example = "2025-01-15T10:30:00Z")]
+    #[garde(skip)]
     pub create_date: Option<DateTimeUtc>,
 }
 

@@ -85,7 +85,7 @@ your own TOML to change them:
 | --- | --- | --- |
 | `enable_watchdog` | `true` | Health-check loop; this is the part that replaces `zmwatch.pl` |
 | `watch_check_interval_seconds` | `10` | Matches ZoneMinder's `ZM_WATCH_CHECK_INTERVAL` |
-| `watch_max_delay_seconds` | `30` | Seconds of unchanged CPU time before a restart. ZoneMinder's `ZM_WATCH_MAX_DELAY` default is 45 |
+| `watch_max_delay_seconds` | `30` | Seconds without activity before a restart: for `zmc`, the capture heartbeat in its shared memory (read from `ZM_PATH_MAP`, as `zmwatch.pl` does); for everything else, unchanged CPU time. ZoneMinder's `ZM_WATCH_MAX_DELAY` default is 45 |
 
 Separately from the watchdog, a reconciliation loop runs every 60 seconds (after
 a 45-second startup delay) and brings running daemons back in line with the

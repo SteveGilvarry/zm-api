@@ -2,12 +2,13 @@ use crate::dto::request::CreateUserRequest;
 use crate::dto::response::users::PaginatedUsersResponse;
 use crate::dto::response::UserResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 
 /// List ZoneMinder users with pagination.
 ///
@@ -70,6 +71,7 @@ pub async fn update_user(
     State(state): State<AppState>,
     Json(req): Json<crate::dto::request::UpdateUserRequest>,
 ) -> AppResult<Json<UserResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::users::update(&state, id, req).await?;
     Ok(Json(item))
 }
@@ -90,6 +92,7 @@ pub async fn create_user(
     State(state): State<AppState>,
     Json(req): Json<CreateUserRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<UserResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::users::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }

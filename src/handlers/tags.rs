@@ -6,8 +6,9 @@ use crate::dto::response::events_tags::TagDetailResponse;
 use crate::dto::response::tags::PaginatedTagsResponse;
 use crate::dto::response::TagResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
+use garde::Validate;
 
 /// List all tags with pagination.
 ///
@@ -75,6 +76,7 @@ pub async fn create_tag(
     State(state): State<AppState>,
     Json(req): Json<CreateTagRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<TagResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::tags::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -97,6 +99,7 @@ pub async fn update_tag(
     State(state): State<AppState>,
     Json(req): Json<UpdateTagRequest>,
 ) -> AppResult<Json<TagResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::tags::update(&state, id, req).await?;
     Ok(Json(item))
 }

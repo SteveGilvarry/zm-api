@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
@@ -29,6 +29,7 @@ use crate::entity::sea_orm_active_enums::{Capturing, Function, MonitorType, Stat
 use crate::entity::{filters, monitors, servers, storage, zones};
 use crate::error::AppResult;
 use crate::service::zmnext::pipeline;
+use crate::zm_shm::{MonitorShm, DEFAULT_SHM_PATH, DEFAULT_SHM_PREFIX};
 
 /// Runtime context the manager needs to drive zm-next workers: the validated
 /// config plus the stream-socket directory (from the streaming config) used to
@@ -102,6 +103,10 @@ pub struct DaemonManager {
     /// zm-next worker runtime; `None` (the default) means every monitor stays
     /// on legacy zmc/zma regardless of any per-monitor flag.
     zmnext: Option<Arc<ZmNextRuntime>>,
+    /// Where zmc keeps its per-monitor shared memory (`ZM_PATH_MAP`), read by
+    /// the watchdog for the capture heartbeat (#123). Loaded from `Config` at
+    /// `startup`; `/dev/shm` until then.
+    shm_dir: Arc<std::sync::RwLock<PathBuf>>,
 }
 
 impl DaemonManager {
@@ -121,7 +126,20 @@ impl DaemonManager {
             running: Arc::new(RwLock::new(false)),
             db: None,
             zmnext: None,
+            shm_dir: Arc::new(std::sync::RwLock::new(PathBuf::from(DEFAULT_SHM_PATH))),
         }
+    }
+
+    /// Point the watchdog at a different shared-memory directory.
+    pub fn set_shm_dir(&self, dir: impl Into<PathBuf>) {
+        *self.shm_dir.write().unwrap_or_else(|e| e.into_inner()) = dir.into();
+    }
+
+    fn shm_dir(&self) -> PathBuf {
+        self.shm_dir
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// True exactly once per manager: the first caller owns the orphan sweep.
@@ -180,6 +198,7 @@ impl DaemonManager {
             running: Arc::new(RwLock::new(false)),
             db: Some(db),
             zmnext: None,
+            shm_dir: Arc::new(std::sync::RwLock::new(PathBuf::from(DEFAULT_SHM_PATH))),
         }
     }
 
@@ -890,6 +909,18 @@ impl DaemonManager {
         // Retire any loop from a previous startup that is still mid-tick.
         let generation = self.loop_generation.fetch_add(1, Ordering::SeqCst) + 1;
         drop(running); // Release lock before spawning
+
+        // The watchdog reads zmc's shared memory from wherever ZoneMinder
+        // puts it; the default only holds for a stock install.
+        if let Some(db) = &self.db {
+            match crate::repo::config::get_config_value(db, "ZM_PATH_MAP").await {
+                Ok(Some(dir)) if !dir.trim().is_empty() => self.set_shm_dir(dir.trim()),
+                Ok(_) => {}
+                Err(e) => {
+                    warn!("Could not read ZM_PATH_MAP: {e} (watchdog uses {DEFAULT_SHM_PATH})")
+                }
+            }
+        }
 
         // Start background health check task
         let manager = Arc::clone(self);
@@ -1786,7 +1817,7 @@ impl DaemonManager {
 
         for id in hung_processes {
             warn!(
-                "Process {} appears hung (no CPU activity for {:?}), restarting",
+                "Process {} appears hung (no heartbeat or CPU activity for {:?}), restarting",
                 id, max_delay
             );
             // Pass empty args - restart_daemon will get args from existing process entry
@@ -1805,14 +1836,22 @@ impl DaemonManager {
         self.check_for_hung_processes(max_delay).await
     }
 
-    /// Check for processes that appear to be hung (no CPU activity).
+    /// Check for processes that appear to be hung: a `zmc` whose capture
+    /// heartbeat has gone stale, or any daemon whose CPU time has stopped
+    /// advancing when no heartbeat can be read for it.
     async fn check_for_hung_processes(&self, max_delay: std::time::Duration) -> Vec<String> {
         let mut hung = Vec::new();
+        let shm_dir = self.shm_dir();
         let mut processes = self.processes.write().await;
 
         for (id, process) in processes.iter_mut() {
-            // Update activity tracking
-            process.check_activity();
+            // Update activity tracking: the shared-memory heartbeat where
+            // there is one, CPU time otherwise.
+            let heartbeat = capture_heartbeat_age(process, &shm_dir, max_delay);
+            process.set_heartbeat_age(heartbeat);
+            if heartbeat.is_none() {
+                process.check_activity();
+            }
 
             // The zm-infer daemon sleeps on GPU waits (blocking-sync) when idle, so
             // its CPU time barely advances and appears_hung would false-positive.
@@ -2755,6 +2794,64 @@ fn parse_zm_bool(value: &str) -> bool {
 ///
 /// Returns false on missing key, parse failure, or DB error — matching upstream
 /// Perl truthiness: `if ($Config{KEY})` treats undef/0/empty as false.
+/// Age of the capture heartbeat for a supervised `zmc`, read from the
+/// monitor's shared memory the way zmwatch.pl does (#123).
+///
+/// `None` means the signal does not apply and the caller falls back to CPU
+/// time: the process is not a running `zmc`, it is still inside its startup
+/// grace (`max_delay`, as zmwatch allows — the segment may not exist yet), or
+/// the segment cannot be read. That last case is deliberately *not* treated
+/// as hung, unlike zmwatch's "shared data not valid" restart: a wrong
+/// `ZM_PATH_MAP` or a permissions problem would otherwise restart every
+/// camera on every tick.
+fn capture_heartbeat_age(
+    process: &ManagedProcess,
+    shm_dir: &Path,
+    max_delay: Duration,
+) -> Option<Duration> {
+    let monitor_id = process.monitor_id?;
+    if process.state != ProcessState::Running || !process.id.starts_with("zmc ") {
+        return None;
+    }
+    let uptime = process.started_at?.elapsed();
+    if uptime < max_delay {
+        return None;
+    }
+    let shm = match MonitorShm::connect_with_path(
+        monitor_id,
+        &shm_dir.to_string_lossy(),
+        DEFAULT_SHM_PREFIX,
+    ) {
+        Ok(shm) => shm,
+        Err(e) => {
+            debug!(
+                "{}: shared memory unreadable ({e}); judging liveness by CPU time",
+                process.id
+            );
+            return None;
+        }
+    };
+    Some(heartbeat_age(
+        shm.get_heartbeat_time(),
+        std::time::SystemTime::now(),
+        uptime,
+    ))
+}
+
+/// How long since zmc last touched its heartbeat. A segment with no heartbeat
+/// at all, past the startup grace, is as old as the process; a heartbeat in
+/// the future (clock step) counts as now.
+fn heartbeat_age(
+    heartbeat: Option<std::time::SystemTime>,
+    now: std::time::SystemTime,
+    uptime: Duration,
+) -> Duration {
+    match heartbeat {
+        Some(at) => now.duration_since(at).unwrap_or(Duration::ZERO),
+        None => uptime,
+    }
+}
+
 async fn read_bool_config(db: &DatabaseConnection, key: &str) -> bool {
     match crate::repo::config::get_config_value(db, key).await {
         Ok(Some(v)) => parse_zm_bool(&v),
@@ -3513,6 +3610,80 @@ mod tests {
         );
         off.register_daemon(stale()).await;
         assert!(off.hung_candidates(max).await.is_empty());
+    }
+
+    /// A `zmc` is judged by the heartbeat in its shared memory when the
+    /// segment can be read (#123): a stale heartbeat is hung even while the
+    /// process burns CPU, and a fresh one is healthy even when it does not.
+    #[tokio::test]
+    async fn zmc_liveness_comes_from_the_shared_memory_heartbeat() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let max = Duration::from_secs(30);
+        let dir = tempfile::tempdir().unwrap();
+        let write_segment = |heartbeat_age: u64| {
+            // SharedData: `valid` at +92, `heartbeat_time` at +128; the file
+            // must be at least SharedData + TriggerData long.
+            let mut bytes = vec![0u8; 872 + 560];
+            bytes[92] = 1;
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+            bytes[128..136].copy_from_slice(&(now - heartbeat_age as i64).to_le_bytes());
+            std::fs::write(dir.path().join("zm.mmap.7"), bytes).unwrap();
+        };
+        let past_grace = || {
+            let mut p = ManagedProcess::new("zmc -m 7", "zmc[7]", "zmc", vec![], true, Some(7));
+            p.set_state(ProcessState::Running);
+            p.started_at = Some(std::time::Instant::now() - max - Duration::from_secs(1));
+            p
+        };
+
+        // Stale heartbeat, busy CPU: hung.
+        write_segment(120);
+        let manager = DaemonManager::new(DaemonConfig::default(), None);
+        manager.set_shm_dir(dir.path());
+        let mut p = past_grace();
+        p.last_active_at = Some(std::time::Instant::now());
+        manager.register_daemon(p).await;
+        assert_eq!(
+            manager.hung_candidates(max).await,
+            vec!["zmc -m 7".to_string()]
+        );
+
+        // Fresh heartbeat, idle CPU: healthy.
+        write_segment(2);
+        let manager = DaemonManager::new(DaemonConfig::default(), None);
+        manager.set_shm_dir(dir.path());
+        let mut p = past_grace();
+        p.last_active_at = Some(std::time::Instant::now() - max - Duration::from_secs(1));
+        manager.register_daemon(p).await;
+        assert!(manager.hung_candidates(max).await.is_empty());
+
+        // No segment at all: back to the CPU heuristic, so that same idle
+        // process is hung — and a busy one is not.
+        std::fs::remove_file(dir.path().join("zm.mmap.7")).unwrap();
+        assert_eq!(
+            manager.hung_candidates(max).await,
+            vec!["zmc -m 7".to_string()]
+        );
+    }
+
+    #[test]
+    fn heartbeat_age_handles_missing_and_future_heartbeats() {
+        use std::time::SystemTime;
+        let now = SystemTime::now();
+        let uptime = Duration::from_secs(90);
+        assert_eq!(heartbeat_age(None, now, uptime), uptime);
+        assert_eq!(
+            heartbeat_age(Some(now - Duration::from_secs(40)), now, uptime),
+            Duration::from_secs(40)
+        );
+        assert_eq!(
+            heartbeat_age(Some(now + Duration::from_secs(5)), now, uptime),
+            Duration::ZERO
+        );
     }
 
     /// Regression for #87: base.toml told operators to "enable the Rust job

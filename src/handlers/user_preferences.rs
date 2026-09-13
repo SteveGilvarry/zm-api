@@ -4,12 +4,13 @@ use crate::dto::request::user_preferences::{
 use crate::dto::response::user_preferences::PaginatedUserPreferencesResponse;
 use crate::dto::response::UserPreferenceResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 
 /// List user preferences with pagination.
 ///
@@ -67,6 +68,7 @@ pub async fn create_user_preference(
     State(state): State<AppState>,
     Json(req): Json<CreateUserPreferenceRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<UserPreferenceResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::user_preferences::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -89,6 +91,7 @@ pub async fn update_user_preference(
     State(state): State<AppState>,
     Json(req): Json<UpdateUserPreferenceRequest>,
 ) -> AppResult<Json<UserPreferenceResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::user_preferences::update(&state, id, req).await?;
     Ok(Json(item))
 }

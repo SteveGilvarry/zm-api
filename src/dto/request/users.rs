@@ -1,3 +1,4 @@
+use garde::Validate;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -131,41 +132,63 @@ impl UserPermissionsInput {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Default, Serialize, Deserialize, ToSchema, Validate)]
 pub struct CreateUserRequest {
+    #[garde(length(chars, max = 64))]
     pub username: String,
+    #[garde(skip)]
     pub password: String,
+    #[garde(length(chars, max = 64))]
     pub email: String,
+    #[garde(inner(length(chars, max = 64)))]
     pub name: Option<String>,
+    #[garde(inner(length(chars, max = 64)))]
     pub phone: Option<String>,
+    #[garde(skip)]
     pub enabled: Option<u8>,
+    #[garde(inner(length(chars, max = 8)))]
     pub language: Option<String>,
+    #[garde(inner(length(chars, max = 64)))]
     pub home_view: Option<String>,
     /// Whether the user may authenticate to the API (`APIEnabled`).
+    #[garde(skip)]
     pub api_enabled: Option<u8>,
+    #[garde(inner(length(chars, max = 16)))]
     pub max_bandwidth: Option<String>,
     /// Per-feature permission levels. Omitted features default to `View`.
     #[serde(flatten)]
+    #[garde(skip)]
     pub permissions: UserPermissionsInput,
 }
 
 /// Partial update: every field is optional and only provided fields change.
-#[derive(Debug, Default, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Default, Serialize, Deserialize, ToSchema, Validate)]
 pub struct UpdateUserRequest {
+    #[garde(inner(length(chars, max = 64)))]
     pub email: Option<String>,
+    #[garde(skip)]
     pub enabled: Option<u8>,
     /// New password (re-hashed with bcrypt; never stored in plaintext).
+    #[garde(skip)]
     pub password: Option<String>,
+    #[garde(inner(length(chars, max = 64)))]
     pub name: Option<String>,
+    #[garde(inner(length(chars, max = 64)))]
     pub phone: Option<String>,
+    #[garde(inner(length(chars, max = 8)))]
     pub language: Option<String>,
+    #[garde(inner(length(chars, max = 64)))]
     pub home_view: Option<String>,
+    #[garde(skip)]
     pub api_enabled: Option<u8>,
+    #[garde(inner(length(chars, max = 16)))]
     pub max_bandwidth: Option<String>,
     /// Set the token-revocation floor (unix seconds). Setting it to "now"
     /// revokes all of the user's outstanding tokens (admin revoke-all).
+    #[garde(skip)]
     pub token_min_expiry: Option<u64>,
     #[serde(flatten)]
+    #[garde(skip)]
     pub permissions: UserPermissionsInput,
 }
 

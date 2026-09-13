@@ -27,6 +27,14 @@ const MON_EMPTY: u32 = 99_311;
 const MON_FRAMES: u32 = 99_312;
 const MON_UNCLOSED: u32 = 99_313;
 const MON_COUNTERS: u32 = 99_314;
+const MON_LIVE: u32 = 99_315;
+const MON_SUPERSEDED: u32 = 99_316;
+
+/// Every audit pass sweeps the whole database, not just the calling test's
+/// monitor, so two tests running passes at once can delete or close each
+/// other's fixtures between insert and assertion. The tests take this lock for
+/// their whole body; the per-test monitor ids still keep their cleanups apart.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn exec(db: &DatabaseConnection, sql: impl Into<String>) {
     db.execute(Statement::from_string(
@@ -72,6 +80,136 @@ async fn cleanup(db: &DatabaseConnection, monitor: u32, first_event: u64, last_e
         format!("DELETE FROM Event_Summaries WHERE MonitorId = {monitor}"),
     )
     .await;
+    exec(
+        db,
+        format!("DELETE FROM Monitor_Status WHERE MonitorId = {monitor}"),
+    )
+    .await;
+}
+
+/// Mark a monitor's capture daemon as live right now, as zmc's periodic
+/// `Monitor_Status` write does.
+async fn mark_capture_live(db: &DatabaseConnection, monitor: u32) {
+    exec(
+        db,
+        format!(
+            "INSERT INTO Monitor_Status (MonitorId, Status, CaptureFPS, AnalysisFPS, \
+                CaptureBandwidth, UpdatedOn) \
+             VALUES ({monitor}, 'Connected', 5.0, 5.0, 0, NOW()) \
+             ON DUPLICATE KEY UPDATE Status = 'Connected', UpdatedOn = NOW()"
+        ),
+    )
+    .await;
+}
+
+async fn still_open(db: &DatabaseConnection, event: u64) -> bool {
+    scalar(
+        db,
+        &format!("SELECT COUNT(*) AS n FROM Events WHERE Id = {event} AND EndDateTime IS NULL"),
+    )
+    .await
+        == 1
+}
+
+/// Regression for #124: an open event with no frame rows on a monitor whose
+/// capture daemon is live is a video-only recording in progress, not a leak —
+/// neither the empty-event sweep nor the unclosed-event sweep may touch it.
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn an_open_event_on_a_live_capture_daemon_is_left_alone() {
+    let _serial = SERIAL.lock().await;
+    const MON: u32 = MON_LIVE;
+    let db = Arc::new(get_test_db().await.expect("test db"));
+    cleanup(&db, MON, 9_930_040, 9_930_040).await;
+
+    // Live before the event exists: the empty-event test counts candidates
+    // globally and runs in parallel, so there must be no window in which this
+    // event looks abandoned.
+    mark_capture_live(&db, MON).await;
+    exec(
+        &db,
+        format!(
+            "INSERT INTO Events (Id, MonitorId, StateId, StartDateTime, EndDateTime, Scheme, Notes) \
+             VALUES (9930040, {MON}, 1, DATE_SUB(NOW(), INTERVAL 2 HOUR), NULL, 'Deep', '')"
+        ),
+    )
+    .await;
+
+    let audit = AuditService::new(Arc::clone(&db), audit_config(false));
+    audit.run_once().await.expect("pass");
+    assert!(
+        still_open(&db, 9_930_040).await,
+        "the daemon is live and nothing newer exists: the event may still be recording"
+    );
+
+    // The daemon stops reporting: now it is the leak the sweep exists for.
+    // Give it one old frame first so it is judged by the unclosed-event sweep
+    // and not deleted as empty — the empty-event test counts those globally
+    // and runs in parallel with this one.
+    exec(
+        &db,
+        "INSERT INTO Frames (EventId, FrameId, Type, TimeStamp, Delta, Score) \
+         VALUES (9930040, 1, 'Normal', DATE_SUB(NOW(), INTERVAL 2 HOUR), 0, 0)",
+    )
+    .await;
+    exec(
+        &db,
+        format!(
+            "UPDATE Monitor_Status SET UpdatedOn = DATE_SUB(NOW(), INTERVAL 2 HOUR) \
+             WHERE MonitorId = {MON}"
+        ),
+    )
+    .await;
+    audit.run_once().await.expect("pass");
+    assert!(
+        !still_open(&db, 9_930_040).await,
+        "closed once the daemon went quiet"
+    );
+
+    cleanup(&db, MON, 9_930_040, 9_930_040).await;
+}
+
+/// Regression for #124: a live daemon records one event at a time, so an open
+/// event with a newer sibling on the same monitor is finished regardless.
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn an_open_event_superseded_on_a_live_monitor_is_closed() {
+    let _serial = SERIAL.lock().await;
+    const MON: u32 = MON_SUPERSEDED;
+    let db = Arc::new(get_test_db().await.expect("test db"));
+    cleanup(&db, MON, 9_930_050, 9_930_051).await;
+
+    mark_capture_live(&db, MON).await;
+    exec(
+        &db,
+        format!(
+            "INSERT INTO Events (Id, MonitorId, StateId, StartDateTime, EndDateTime, Scheme, Notes) \
+             VALUES (9930050, {MON}, 1, DATE_SUB(NOW(), INTERVAL 2 HOUR), NULL, 'Deep', ''), \
+                    (9930051, {MON}, 1, NOW(), NULL, 'Deep', '')"
+        ),
+    )
+    .await;
+    // An old frame keeps it out of the empty-event sweep (see the live test)
+    // so it is the unclosed-event sweep that closes it.
+    exec(
+        &db,
+        "INSERT INTO Frames (EventId, FrameId, Type, TimeStamp, Delta, Score) \
+         VALUES (9930050, 1, 'Normal', DATE_SUB(NOW(), INTERVAL 2 HOUR), 0, 0)",
+    )
+    .await;
+
+    let audit = AuditService::new(Arc::clone(&db), audit_config(false));
+    audit.run_once().await.expect("pass");
+    assert!(
+        !still_open(&db, 9_930_050).await,
+        "superseded by 9930051, so closed"
+    );
+    assert!(
+        still_open(&db, 9_930_051).await,
+        "the current event is untouched"
+    );
+
+    cleanup(&db, MON, 9_930_050, 9_930_051).await;
 }
 
 fn audit_config(dry_run: bool) -> AuditConfig {
@@ -86,6 +224,7 @@ fn audit_config(dry_run: bool) -> AuditConfig {
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn empty_events_are_deleted_but_only_when_old_and_unarchived() {
+    let _serial = SERIAL.lock().await;
     const MON: u32 = MON_EMPTY;
     let db = Arc::new(get_test_db().await.expect("test db"));
     cleanup(&db, MON, 9_930_001, 9_930_004).await;
@@ -163,6 +302,7 @@ async fn empty_events_are_deleted_but_only_when_old_and_unarchived() {
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn orphaned_frames_are_removed_and_live_ones_kept() {
+    let _serial = SERIAL.lock().await;
     const MON: u32 = MON_FRAMES;
     let db = Arc::new(get_test_db().await.expect("test db"));
     cleanup(&db, MON, 9_930_010, 9_930_011).await;
@@ -212,6 +352,7 @@ async fn orphaned_frames_are_removed_and_live_ones_kept() {
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn an_unclosed_event_is_closed_from_its_frames() {
+    let _serial = SERIAL.lock().await;
     const MON: u32 = MON_UNCLOSED;
     let db = Arc::new(get_test_db().await.expect("test db"));
     cleanup(&db, MON, 9_930_020, 9_930_020).await;
@@ -282,6 +423,7 @@ async fn an_unclosed_event_is_closed_from_its_frames() {
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn counter_resync_corrects_drift() {
+    let _serial = SERIAL.lock().await;
     const MON: u32 = MON_COUNTERS;
     let db = Arc::new(get_test_db().await.expect("test db"));
     cleanup(&db, MON, 9_930_030, 9_930_031).await;
@@ -338,6 +480,7 @@ async fn counter_resync_corrects_drift() {
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn a_stats_pass_runs_clean_against_a_real_schema() {
+    let _serial = SERIAL.lock().await;
     // Every statement zmstats issues, executed once. This does not assert on
     // counts — the shared test database has other tests' rows in it — but it
     // does prove the SQL is valid against the real schema, which is the failure
@@ -442,6 +585,7 @@ async fn drop_storage(db: &DatabaseConnection, id: u16) {
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn an_orphan_directory_is_quarantined_and_a_live_one_is_not() {
+    let _serial = SERIAL.lock().await;
     let db = Arc::new(get_test_db().await.expect("test db"));
     let root = short_root("orphan");
     let _ = std::fs::remove_dir_all(&root);
@@ -500,6 +644,7 @@ async fn an_orphan_directory_is_quarantined_and_a_live_one_is_not() {
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn a_dry_run_moves_nothing() {
+    let _serial = SERIAL.lock().await;
     let db = Arc::new(get_test_db().await.expect("test db"));
     let root = short_root("dry");
     let _ = std::fs::remove_dir_all(&root);
@@ -528,6 +673,7 @@ async fn a_dry_run_moves_nothing() {
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn an_unmounted_storage_refuses_rather_than_orphaning_everything() {
+    let _serial = SERIAL.lock().await;
     // The scenario that makes this dangerous: a volume that failed to mount
     // presents an empty directory, and every event looks orphaned.
     let db = Arc::new(get_test_db().await.expect("test db"));
@@ -574,6 +720,7 @@ async fn an_unmounted_storage_refuses_rather_than_orphaning_everything() {
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn an_unidentifiable_directory_is_reported_but_left_alone() {
+    let _serial = SERIAL.lock().await;
     // zmaudit reconstructs a timestamp from the path and deletes these. Without
     // an id there is no way to ask whether it is orphaned, so it stays.
     let db = Arc::new(get_test_db().await.expect("test db"));

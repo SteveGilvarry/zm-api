@@ -48,7 +48,7 @@ pub fn is_valid_alarm_action(value: &str, _ctx: &()) -> garde::Result {
 // Used on `host`, `path`, `second_path`, `port`, and similar URL components.
 pub fn is_safe_url_component(value: &str, _ctx: &()) -> garde::Result {
     if value.len() > 2048 {
-        return Err(garde::Error::new("must be at most 2048 characters"));
+        return Err(garde::Error::new("must be at most 2048 bytes"));
     }
     if value.bytes().any(|b| b < 0x20 || b == 0x7F) {
         return Err(garde::Error::new(
@@ -82,7 +82,7 @@ pub fn is_safe_onvif_url(value: &str, ctx: &()) -> garde::Result {
 // forgery in the daemon that runs the command.
 pub fn is_safe_command_string(value: &str, _ctx: &()) -> garde::Result {
     if value.len() > 4096 {
-        return Err(garde::Error::new("must be at most 4096 characters"));
+        return Err(garde::Error::new("must be at most 4096 bytes"));
     }
     if value.bytes().any(|b| b == 0 || b == b'\n' || b == b'\r') {
         return Err(garde::Error::new(
@@ -94,7 +94,7 @@ pub fn is_safe_command_string(value: &str, _ctx: &()) -> garde::Result {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct CreateMonitorRequest {
-    #[garde(length(min = 1, max = 64))]
+    #[garde(length(chars, min = 1, max = 64))]
     pub name: String,
     #[garde(skip)] // Boolean type doesn't need validation
     pub deleted: bool,
@@ -147,7 +147,7 @@ pub struct CreateMonitorRequest {
     #[garde(range(min = -1, max = 1))]
     pub janus_audio_enabled: i8,
 
-    #[garde(skip)] // Option<String> can be None
+    #[garde(inner(length(chars, max = 30)))]
     pub janus_profile_override: Option<String>,
 
     #[garde(range(min = -1, max = 1))]
@@ -159,7 +159,7 @@ pub struct CreateMonitorRequest {
     #[garde(skip)] // Option<i32> can be None
     pub janus_rtsp_session_timeout: Option<i32>,
 
-    #[garde(skip)] // Option<String> can be None
+    #[garde(inner(length(chars, max = 255)))]
     pub linked_monitors: Option<String>,
 
     #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
@@ -180,28 +180,28 @@ pub struct CreateMonitorRequest {
     #[garde(custom(is_safe_onvif_url))]
     pub onvif_url: String,
 
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
+    #[garde(length(chars, max = 20))]
     pub onvif_events_path: String,
 
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
+    #[garde(length(chars, max = 64))]
     pub onvif_username: String,
 
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
+    #[garde(length(chars, max = 64))]
     pub onvif_password: String,
 
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
+    #[garde(length(chars, max = 255))]
     pub onvif_options: String,
 
     #[garde(range(min = -1, max = 1))]
     pub onvif_event_listener: i8,
 
-    #[garde(skip)] // Option<String> can be None
+    #[garde(inner(length(chars, max = 30)))]
     pub onvif_alarm_text: Option<String>,
 
     #[garde(range(min = -1, max = 1))]
     pub use_amcrest_api: i8,
 
-    #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
+    #[garde(length(max = 255))]
     pub device: String,
 
     #[garde(range(min = 0))]
@@ -216,10 +216,10 @@ pub struct CreateMonitorRequest {
     #[garde(skip)] // Option<u8> can be None
     pub v4l_captures_per_frame: Option<u8>,
 
-    #[garde(skip)] // Option<String> can be None
+    #[garde(inner(length(chars, max = 16)))]
     pub protocol: Option<String>,
 
-    #[garde(skip)] // Option<String> can be None
+    #[garde(inner(length(chars, max = 16)))]
     pub method: Option<String>,
 
     // DB column `Host` is varchar(64).
@@ -247,13 +247,13 @@ pub struct CreateMonitorRequest {
     #[garde(inner(custom(is_safe_url_component)))]
     pub second_path: Option<String>,
 
-    #[garde(skip)] // Option<String> can be None
+    #[garde(inner(length(chars, max = 255)))]
     pub options: Option<String>,
 
-    #[garde(skip)] // Option<String> can be None
+    #[garde(inner(length(chars, max = 64)))]
     pub user: Option<String>,
 
-    #[garde(skip)] // Option<String> can be None
+    #[garde(inner(length(chars, max = 64)))]
     pub pass: Option<String>,
 
     #[garde(range(min = 1))]
@@ -275,13 +275,13 @@ pub struct CreateMonitorRequest {
     #[garde(skip)] // u32 doesn't need validation in this case
     pub deinterlacing: u32,
 
-    #[garde(skip)] // Option<String> can be None
+    #[garde(inner(length(chars, max = 32)))]
     pub decoder: Option<String>,
 
-    #[garde(skip)] // Option<String> can be None
+    #[garde(inner(length(chars, max = 64)))]
     pub decoder_hw_accel_name: Option<String>,
 
-    #[garde(skip)] // Option<String> can be None
+    #[garde(inner(length(chars, max = 255)))]
     pub decoder_hw_accel_device: Option<String>,
 
     /// `Monitors.SaveJPEGs` is a two-bit mask, not a flag: bit 0 saves
@@ -297,7 +297,7 @@ pub struct CreateMonitorRequest {
     #[garde(skip)] // Option<u32> can be None
     pub output_codec: Option<u32>,
 
-    #[garde(skip)] // Option<String> can be None
+    #[garde(inner(length(chars, max = 32)))]
     pub encoder: Option<String>,
 
     // Nullable so a monitor whose stored OutputContainer is NULL round-trips
@@ -333,10 +333,10 @@ pub struct CreateMonitorRequest {
     #[garde(range(min = -1, max = i32::MAX))]
     pub colour: i32,
 
-    #[garde(length(min = 0))] // Empty string is valid
+    #[garde(length(chars, max = 32))]
     pub event_prefix: String,
 
-    #[garde(skip)] // Option<String> can be None
+    #[garde(inner(length(chars, max = 64)))]
     pub label_format: Option<String>,
 
     #[garde(skip)] // u16 doesn't need validation in this case
@@ -426,10 +426,10 @@ pub struct CreateMonitorRequest {
     #[garde(skip)] // Option<u32> can be None
     pub control_id: Option<u32>,
 
-    #[garde(skip)] // Option<String> can be None
+    #[garde(inner(length(chars, max = 255)))]
     pub control_device: Option<String>,
 
-    #[garde(skip)] // Option<String> can be None
+    #[garde(inner(length(chars, max = 255)))]
     pub control_address: Option<String>,
 
     #[garde(skip)] // Option<f64> can be None
@@ -453,7 +453,7 @@ pub struct CreateMonitorRequest {
     #[garde(skip)]
     pub default_rate: u16,
 
-    #[garde(length(min = 0))]
+    #[garde(length(chars, max = 16))]
     pub default_scale: String,
 
     #[serde(rename = "default_codec")]
@@ -463,10 +463,10 @@ pub struct CreateMonitorRequest {
     #[garde(skip)] // u32 doesn't need validation in this case
     pub signal_check_points: u32,
 
-    #[garde(length(min = 0))] // Empty string is valid
+    #[garde(length(chars, max = 32))]
     pub signal_check_colour: String,
 
-    #[garde(length(min = 0))] // Empty string is valid
+    #[garde(length(chars, max = 32))]
     pub web_colour: String,
 
     #[garde(range(min = 0, max = 1))]
@@ -490,7 +490,7 @@ pub struct CreateMonitorRequest {
     #[garde(range(min = -1, max = 1))]
     pub rtsp_server: i8,
 
-    #[garde(length(min = 0))] // Empty string is valid
+    #[garde(length(chars, max = 255))]
     pub rtsp_stream_name: String,
 
     #[garde(range(min = -1, max = 1))]
@@ -504,7 +504,7 @@ pub struct CreateMonitorRequest {
     #[garde(range(min = -1, max = 1))]
     pub mqtt_enabled: i8,
 
-    #[garde(length(min = 0))] // Empty string is valid
+    #[garde(length(chars, max = 255))]
     pub mqtt_subscriptions: String,
 
     #[garde(skip)] // i32 doesn't need validation in this case
@@ -672,7 +672,7 @@ impl Default for CreateMonitorRequest {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct UpdateMonitorRequest {
-    #[garde(length(min = 1, max = 64))]
+    #[garde(length(chars, min = 1, max = 64))]
     pub name: Option<String>,
 
     // Boolean to match CreateMonitorRequest and MonitorResponse (GH #18).
@@ -748,7 +748,7 @@ pub struct UpdateMonitorRequest {
     #[garde(range(min = -1, max = 1))]
     pub janus_audio_enabled: Option<i8>,
 
-    #[garde(skip)]
+    #[garde(inner(length(chars, max = 30)))]
     pub janus_profile_override: Option<String>,
 
     #[garde(range(min = -1, max = 1))]
@@ -760,7 +760,7 @@ pub struct UpdateMonitorRequest {
     #[garde(skip)]
     pub janus_rtsp_session_timeout: Option<i32>,
 
-    #[garde(skip)]
+    #[garde(inner(length(chars, max = 255)))]
     pub linked_monitors: Option<String>,
 
     #[garde(length(min = 0))]
@@ -778,28 +778,28 @@ pub struct UpdateMonitorRequest {
     #[garde(inner(custom(is_safe_onvif_url)))]
     pub onvif_url: Option<String>,
 
-    #[garde(length(min = 0))]
+    #[garde(inner(length(chars, max = 20)))]
     pub onvif_events_path: Option<String>,
 
-    #[garde(length(min = 0))]
+    #[garde(inner(length(chars, max = 64)))]
     pub onvif_username: Option<String>,
 
-    #[garde(length(min = 0))]
+    #[garde(inner(length(chars, max = 64)))]
     pub onvif_password: Option<String>,
 
-    #[garde(length(min = 0))]
+    #[garde(inner(length(chars, max = 255)))]
     pub onvif_options: Option<String>,
 
     #[garde(range(min = -1, max = 1))]
     pub onvif_event_listener: Option<i8>,
 
-    #[garde(skip)]
+    #[garde(inner(length(chars, max = 30)))]
     pub onvif_alarm_text: Option<String>,
 
     #[garde(range(min = -1, max = 1))]
     pub use_amcrest_api: Option<i8>,
 
-    #[garde(length(min = 0))]
+    #[garde(inner(length(max = 255)))]
     pub device: Option<String>,
 
     #[garde(range(min = 0))]
@@ -814,10 +814,10 @@ pub struct UpdateMonitorRequest {
     #[garde(skip)]
     pub v4l_captures_per_frame: Option<u8>,
 
-    #[garde(skip)]
+    #[garde(inner(length(chars, max = 16)))]
     pub protocol: Option<String>,
 
-    #[garde(skip)]
+    #[garde(inner(length(chars, max = 16)))]
     pub method: Option<String>,
 
     #[garde(inner(length(max = 64)))]
@@ -840,13 +840,13 @@ pub struct UpdateMonitorRequest {
     #[garde(inner(custom(is_safe_url_component)))]
     pub second_path: Option<String>,
 
-    #[garde(skip)]
+    #[garde(inner(length(chars, max = 255)))]
     pub options: Option<String>,
 
-    #[garde(skip)]
+    #[garde(inner(length(chars, max = 64)))]
     pub user: Option<String>,
 
-    #[garde(skip)]
+    #[garde(inner(length(chars, max = 64)))]
     pub pass: Option<String>,
 
     #[garde(range(min = 1))]
@@ -868,13 +868,13 @@ pub struct UpdateMonitorRequest {
     #[garde(skip)]
     pub deinterlacing: Option<u32>,
 
-    #[garde(skip)]
+    #[garde(inner(length(chars, max = 32)))]
     pub decoder: Option<String>,
 
-    #[garde(skip)]
+    #[garde(inner(length(chars, max = 64)))]
     pub decoder_hw_accel_name: Option<String>,
 
-    #[garde(skip)]
+    #[garde(inner(length(chars, max = 255)))]
     pub decoder_hw_accel_device: Option<String>,
 
     /// `Monitors.SaveJPEGs` is a two-bit mask, not a flag: bit 0 saves
@@ -890,7 +890,7 @@ pub struct UpdateMonitorRequest {
     #[garde(skip)]
     pub output_codec: Option<u32>,
 
-    #[garde(skip)]
+    #[garde(inner(length(chars, max = 32)))]
     pub encoder: Option<String>,
 
     #[serde(rename = "output_container")]
@@ -923,10 +923,10 @@ pub struct UpdateMonitorRequest {
     #[garde(range(min = -1, max = i32::MAX))]
     pub colour: Option<i32>,
 
-    #[garde(length(min = 0))]
+    #[garde(inner(length(chars, max = 32)))]
     pub event_prefix: Option<String>,
 
-    #[garde(skip)]
+    #[garde(inner(length(chars, max = 64)))]
     pub label_format: Option<String>,
 
     #[garde(skip)]
@@ -1012,10 +1012,10 @@ pub struct UpdateMonitorRequest {
     #[garde(skip)]
     pub control_id: Option<u32>,
 
-    #[garde(skip)]
+    #[garde(inner(length(chars, max = 255)))]
     pub control_device: Option<String>,
 
-    #[garde(skip)]
+    #[garde(inner(length(chars, max = 255)))]
     pub control_address: Option<String>,
 
     #[garde(skip)]
@@ -1039,7 +1039,7 @@ pub struct UpdateMonitorRequest {
     #[garde(skip)]
     pub default_rate: Option<u16>,
 
-    #[garde(length(min = 0))]
+    #[garde(inner(length(chars, max = 16)))]
     pub default_scale: Option<String>,
 
     #[serde(rename = "default_codec")]
@@ -1049,10 +1049,10 @@ pub struct UpdateMonitorRequest {
     #[garde(skip)]
     pub signal_check_points: Option<u32>,
 
-    #[garde(length(min = 0))]
+    #[garde(inner(length(chars, max = 32)))]
     pub signal_check_colour: Option<String>,
 
-    #[garde(length(min = 0))]
+    #[garde(inner(length(chars, max = 32)))]
     pub web_colour: Option<String>,
 
     #[garde(range(min = 0, max = 1))]
@@ -1076,7 +1076,7 @@ pub struct UpdateMonitorRequest {
     #[garde(range(min = -1, max = 1))]
     pub rtsp_server: Option<i8>,
 
-    #[garde(length(min = 0))]
+    #[garde(inner(length(chars, max = 255)))]
     pub rtsp_stream_name: Option<String>,
 
     #[garde(range(min = -1, max = 1))]
@@ -1089,7 +1089,7 @@ pub struct UpdateMonitorRequest {
     #[garde(range(min = -1, max = 1))]
     pub mqtt_enabled: Option<i8>,
 
-    #[garde(length(min = 0))]
+    #[garde(inner(length(chars, max = 255)))]
     pub mqtt_subscriptions: Option<String>,
 
     #[garde(skip)]

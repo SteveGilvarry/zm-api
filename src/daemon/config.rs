@@ -73,8 +73,9 @@ pub struct DaemonConfig {
     #[serde(default = "default_watch_check_interval_seconds")]
     pub watch_check_interval_seconds: u64,
 
-    /// Seconds of unchanged CPU time before a restart (default: 30; ZoneMinder's
-    /// ZM_WATCH_MAX_DELAY defaults to 45)
+    /// Seconds without activity before a restart: a stale capture heartbeat in
+    /// zmc's shared memory, or unchanged CPU time for daemons without one
+    /// (default: 30; ZoneMinder's ZM_WATCH_MAX_DELAY defaults to 45)
     #[serde(default = "default_watch_max_delay_seconds")]
     pub watch_max_delay_seconds: u64,
 }

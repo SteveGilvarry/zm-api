@@ -2,12 +2,13 @@ use crate::dto::request::CreateZonePresetRequest;
 use crate::dto::response::zone_presets::PaginatedZonePresetsResponse;
 use crate::dto::response::ZonePresetResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 
 /// List available zone presets which define reusable zone parameters.
 ///
@@ -67,15 +68,20 @@ pub async fn create_zone_preset(
     State(state): State<AppState>,
     Json(req): Json<CreateZonePresetRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<ZonePresetResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::zone_presets::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
-#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema, Validate)]
 pub struct UpdateZonePresetRequest {
+    #[garde(inner(length(chars, max = 64)))]
     pub name: Option<String>,
+    #[garde(skip)]
     pub r#type: Option<String>,
+    #[garde(skip)]
     pub units: Option<String>,
+    #[garde(skip)]
     pub check_method: Option<String>,
 }
 
@@ -97,6 +103,7 @@ pub async fn update_zone_preset(
     State(state): State<AppState>,
     Json(req): Json<UpdateZonePresetRequest>,
 ) -> AppResult<Json<ZonePresetResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::zone_presets::update(
         &state,
         id,

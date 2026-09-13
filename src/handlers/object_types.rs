@@ -2,12 +2,13 @@ use crate::dto::request::object_types::{CreateObjectTypeRequest, UpdateObjectTyp
 use crate::dto::response::object_types::PaginatedObjectTypesResponse;
 use crate::dto::response::ObjectTypeResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 
 /// List all object types with pagination.
 ///
@@ -61,6 +62,7 @@ pub async fn create_object_type(
     State(state): State<AppState>,
     Json(req): Json<CreateObjectTypeRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<ObjectTypeResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::object_types::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -80,6 +82,7 @@ pub async fn update_object_type(
     State(state): State<AppState>,
     Json(req): Json<UpdateObjectTypeRequest>,
 ) -> AppResult<Json<ObjectTypeResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::object_types::update(&state, id, req).await?;
     Ok(Json(item))
 }

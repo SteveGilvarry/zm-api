@@ -73,6 +73,13 @@ pub struct ManagedProcess {
     /// of this stamp, so it must only move when the process did work — not on
     /// every sample (that is what made the watchdog dead code, #73).
     pub last_active_at: Option<Instant>,
+    /// Age of the capture heartbeat in the monitor's shared memory at the last
+    /// watchdog sample — set only for a `zmc` whose segment could be read.
+    /// When present it is what `appears_hung` judges, in place of CPU time: a
+    /// zmc that is alive and spinning but no longer capturing keeps burning
+    /// CPU and stops touching the heartbeat, which is what zmwatch.pl catches
+    /// and the CPU heuristic cannot (#123).
+    pub last_heartbeat_age: Option<Duration>,
     /// Optional payload written to the child's stdin at (every) spawn. Used to
     /// deliver the zm-next worker's pipeline config (camera credentials included)
     /// in memory, so it never lands on disk. Persisted on the process entry so a
@@ -108,6 +115,7 @@ impl ManagedProcess {
             term_sent_at: None,
             last_cpu_time: None,
             last_active_at: None,
+            last_heartbeat_age: None,
             stdin_payload: None,
         }
     }
@@ -329,13 +337,25 @@ impl ManagedProcess {
         is_active
     }
 
-    /// Whether the process has shown no CPU activity for at least
-    /// `max_inactive`. Only a Running process with at least one sample can be
-    /// hung; on platforms with no CPU-time source no sample is ever recorded
-    /// and this is always false.
+    /// Record the latest shared-memory heartbeat age, or `None` when the
+    /// segment could not be read this tick (the CPU heuristic then applies
+    /// again, so a stale reading must not linger).
+    pub fn set_heartbeat_age(&mut self, age: Option<Duration>) {
+        self.last_heartbeat_age = age;
+    }
+
+    /// Whether the process has shown no activity for at least `max_inactive`:
+    /// its capture heartbeat is that old when one was read, otherwise its CPU
+    /// time has not advanced for that long. Only a Running process with at
+    /// least one sample can be hung; on platforms with no CPU-time source and
+    /// no readable heartbeat no sample is ever recorded and this is always
+    /// false.
     pub fn appears_hung(&self, max_inactive: Duration) -> bool {
         if self.state != ProcessState::Running {
             return false;
+        }
+        if let Some(age) = self.last_heartbeat_age {
+            return age >= max_inactive;
         }
         match self.last_active_at {
             Some(last_active) => last_active.elapsed() >= max_inactive,
@@ -347,6 +367,7 @@ impl ManagedProcess {
     pub fn reset_activity(&mut self) {
         self.last_cpu_time = None;
         self.last_active_at = None;
+        self.last_heartbeat_age = None;
     }
 }
 
@@ -416,6 +437,29 @@ mod tests {
     /// older than `max_inactive` — microseconds later, it never was. The
     /// watchdog that replaces zmwatch.pl could not fire. The timestamp must
     /// mean "when CPU time last advanced", so a stalled process ages out.
+    #[test]
+    fn a_heartbeat_sample_overrides_cpu_time() {
+        let mut p = ManagedProcess::new("zmc -m 1", "zmc[1]", "zmc", vec![], true, Some(1));
+        p.set_state(ProcessState::Running);
+        let max = Duration::from_secs(30);
+
+        // CPU says active; the heartbeat says stalled.
+        p.record_cpu_sample(1);
+        p.record_cpu_sample(2);
+        p.set_heartbeat_age(Some(Duration::from_secs(31)));
+        assert!(p.appears_hung(max));
+
+        // Heartbeat fresh: healthy regardless of CPU.
+        p.set_heartbeat_age(Some(Duration::from_secs(1)));
+        assert!(!p.appears_hung(max));
+
+        // Sample withdrawn: CPU time decides again.
+        p.set_heartbeat_age(None);
+        assert!(!p.appears_hung(max));
+        p.reset_activity();
+        assert!(p.last_heartbeat_age.is_none());
+    }
+
     #[test]
     fn hung_detection_fires_when_cpu_time_stops_advancing() {
         let max = Duration::from_secs(30);

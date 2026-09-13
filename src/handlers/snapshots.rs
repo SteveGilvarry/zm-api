@@ -11,12 +11,13 @@ use crate::dto::request::snapshots::{CreateSnapshotRequest, UpdateSnapshotReques
 use crate::dto::response::snapshots::PaginatedSnapshotsResponse;
 use crate::dto::response::SnapshotResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 
 /// List all snapshots with pagination.
 ///
@@ -74,6 +75,7 @@ pub async fn create_snapshot(
     State(state): State<AppState>,
     Json(req): Json<CreateSnapshotRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<SnapshotResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::snapshots::create(&state, req).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
@@ -96,6 +98,7 @@ pub async fn update_snapshot(
     State(state): State<AppState>,
     Json(req): Json<UpdateSnapshotRequest>,
 ) -> AppResult<Json<SnapshotResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::snapshots::update(&state, id, req).await?;
     Ok(Json(item))
 }

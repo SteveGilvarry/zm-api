@@ -128,6 +128,29 @@ recognisable path forward.
 
 ### Fixed
 
+- **Over-long request fields are a 400 naming the field, not a 500** (#55).
+  About forty request structs had no length rule for columns that are
+  `varchar(N)` or `tinytext`, so anything past the width reached MySQL and
+  came back as a truncation error. Every bounded field on those structs now
+  carries the column's cap, the handlers that never called `validate()` do,
+  and the caps count *characters* for `varchar` (a 64-character non-ASCII name
+  is legal) and *bytes* for `tinytext` (which is 255 bytes). The monitor
+  requests' 26 `#[garde(skip)]` fields are bounded the same way. The 1406→400
+  safety net stays for columns nobody has enumerated.
+- **The watchdog judges `zmc` by its capture heartbeat, not CPU time** (#123).
+  `zmwatch.pl` reads the heartbeat in the monitor's shared memory; the CPU
+  heuristic could not see a capture loop that was alive and spinning but no
+  longer capturing. The health loop now reads the heartbeat (from
+  `ZM_PATH_MAP`) for each running `zmc` past its startup grace, and falls back
+  to CPU time only when there is no segment to read — an unreadable segment is
+  not treated as hung, so a wrong path cannot restart every camera each tick.
+- **The audit no longer closes or deletes a video-only event that zmc is still
+  writing** (#124). Frame freshness (#96) is blind to an event that has no
+  `Frames` rows at all, so such an event was deleted as empty, or closed as
+  unclosed, after `min_age_seconds`. Both sweeps now also require evidence the
+  daemon is done with it: a newer event on the same monitor, no live
+  `Monitor_Status` row, or an age past the monitor's `SectionLength` plus the
+  grace period.
 - **The hung-daemon watchdog could never fire** (#73). `check_activity` stamped
   a timestamp on every sample and `appears_hung` then asked whether that stamp
   was older than `watch_max_delay_seconds` — microseconds later it never was.

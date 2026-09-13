@@ -4,7 +4,7 @@ use crate::dto::response::events::PaginatedEventsResponse;
 use crate::dto::response::filters::PaginatedFiltersResponse;
 use crate::dto::response::FilterResponse;
 use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use crate::service::monitor_acl::MonitorScope;
 use crate::util::claim::UserClaims;
@@ -12,6 +12,7 @@ use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 
 /// List saved event filters with pagination.
 ///
@@ -75,6 +76,7 @@ pub async fn update_filter(
     claims: UserClaims,
     Json(req): Json<UpdateFilterRequest>,
 ) -> AppResult<Json<FilterResponse>> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::filters::update(&state, id, &req, &claims).await?;
     Ok(Json(item))
 }
@@ -96,6 +98,7 @@ pub async fn create_filter(
     claims: UserClaims,
     Json(req): Json<CreateFilterRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<FilterResponse>)> {
+    req.validate().map_err(AppError::InvalidInputError)?;
     let item = crate::service::filters::create(&state, req, &claims).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
