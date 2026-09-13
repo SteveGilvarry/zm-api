@@ -382,6 +382,10 @@ recognisable path forward.
 
 ### Changed
 
+- **BREAKING: `frame_skip` is gone from monitor requests and responses.**
+  ZoneMinder 1.39.24 drops `Monitors.FrameSkip`, and zm-api now mirrors that
+  update, so `MonitorResponse` no longer carries the field and create/update
+  ignore it. `motion_frame_skip` is unchanged.
 - **BREAKING: six `operationId`s renamed** (#32). They were duplicated, which
   meant a generated client silently got one method and lost the other, so this
   had to change — but it renames methods for anyone already generating against

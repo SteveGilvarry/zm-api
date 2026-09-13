@@ -7666,6 +7666,97 @@
         ]
       }
     },
+    "/api/v3/monitors/{monitor_id}/describe": {
+      "post": {
+        "tags": [
+          "Live Streaming"
+        ],
+        "summary": "Describe the scene now on a zm-next monitor",
+        "description": "Asks the monitor's zm-next worker to run its `describe_vlm` plugin on the\ncurrent frame, optionally with a one-off prompt, and returns the text. The\ndescription is not stored as an event.",
+        "operationId": "describeMonitor",
+        "parameters": [
+          {
+            "name": "monitor_id",
+            "in": "path",
+            "description": "Monitor/Camera ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Optional prompt and stream",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DescribeNowRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Scene description",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DescribeNowResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Monitor is not running on zm-next",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Worker unreachable, no describe_vlm in the pipeline, VLM failed, or timed out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/monitors/{monitor_id}/snapshot": {
       "get": {
         "tags": [
@@ -7705,6 +7796,84 @@
           },
           "503": {
             "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Live Streaming"
+        ],
+        "summary": "Take a snapshot now on a zm-next monitor",
+        "description": "Asks the monitor's zm-next worker to encode the current frame (its\n`store_snapshot` plugin) and returns the JPEG. Unlike `GET`, which decodes\nthe last cached keyframe here, this is a fresh frame from the pipeline, and\nthe file is also kept wherever the plugin's `root` points. The worker's\nreport comes back in `X-Snapshot-*` headers.",
+        "operationId": "takeMonitorSnapshot",
+        "parameters": [
+          {
+            "name": "monitor_id",
+            "in": "path",
+            "description": "Monitor/Camera ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "stream_id",
+            "in": "query",
+            "description": "Worker stream to snapshot. Omit to use whichever instance answers.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JPEG of the current frame",
+            "content": {
+              "image/jpeg": {}
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Monitor is not running on zm-next",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Worker unreachable, no store_snapshot in the pipeline, or timed out",
             "content": {
               "application/json": {
                 "schema": {
@@ -17055,7 +17224,6 @@
           "section_length_warn",
           "event_close_mode",
           "min_section_length",
-          "frame_skip",
           "motion_frame_skip",
           "analysis_update_delay",
           "fps_report_interval",
@@ -17122,6 +17290,33 @@
           "analysis_update_delay": {
             "type": "integer",
             "format": "int32",
+            "minimum": 0
+          },
+          "audio_alarm_score": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Score an audio alarm contributes; upstream default 9.",
+            "minimum": 0
+          },
+          "audio_detection": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Audio-level alarm detection on the recorded audio (1.39.31); 0 = off.",
+            "minimum": 0
+          },
+          "audio_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Audio level (0-255) above which audio detection alarms.",
             "minimum": 0
           },
           "auto_stop_timeout": {
@@ -17229,6 +17424,17 @@
           "device": {
             "type": "string"
           },
+          "device_class": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeviceClass",
+                "description": "Whether this monitor is a camera or an IP speaker (1.39.30). Defaults to Camera."
+              }
+            ]
+          },
           "enabled": {
             "type": [
               "integer",
@@ -17273,11 +17479,6 @@
             "minimum": 0
           },
           "fps_report_interval": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "frame_skip": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
@@ -18230,14 +18431,13 @@
       "CreateUserPreferenceRequest": {
         "type": "object",
         "required": [
-          "user_id"
+          "user_id",
+          "name"
         ],
         "properties": {
           "name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string",
+            "description": "Required since ZoneMinder 1.39.19 (`User_Preferences.Name` is NOT NULL\nand unique per user)."
           },
           "user_id": {
             "type": "integer",
@@ -18500,6 +18700,92 @@
           "auto",
           "MP4",
           "MJPEG"
+        ]
+      },
+      "DescribeNowRequest": {
+        "type": "object",
+        "description": "`POST /api/v3/monitors/{monitor_id}/describe` body. Every field is optional.",
+        "properties": {
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One-off prompt replacing the pipeline's configured one for this call."
+          },
+          "stream_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Worker stream to describe. Omit to use whichever instance answers.",
+            "minimum": 0
+          }
+        }
+      },
+      "DescribeNowResponse": {
+        "type": "object",
+        "description": "A scene description produced on request by the monitor's `describe_vlm`.",
+        "required": [
+          "monitor_id",
+          "text"
+        ],
+        "properties": {
+          "frames": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Frames sent to the model.",
+            "minimum": 0
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "monitor_id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "prompt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Prompt the model was given."
+          },
+          "pts_usec": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Presentation timestamp of the described frame, microseconds."
+          },
+          "stream_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "text": {
+            "type": "string",
+            "description": "The model's description."
+          }
+        }
+      },
+      "DeviceClass": {
+        "type": "string",
+        "enum": [
+          "Camera",
+          "Speaker"
         ]
       },
       "DeviceResponse": {
@@ -20714,8 +21000,11 @@
           "section_length_warn",
           "event_close_mode",
           "min_section_length",
-          "frame_skip",
           "motion_frame_skip",
+          "device_class",
+          "audio_detection",
+          "audio_threshold",
+          "audio_alarm_score",
           "analysis_update_delay",
           "fps_report_interval",
           "ref_blend_perc",
@@ -20791,6 +21080,22 @@
             "type": "string"
           },
           "analysis_update_delay": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "audio_alarm_score": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "audio_detection": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Audio-level alarm detection (1.39.31): on/off, trigger level, alarm score.",
+            "minimum": 0
+          },
+          "audio_threshold": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
@@ -20915,6 +21220,10 @@
           "device": {
             "type": "string"
           },
+          "device_class": {
+            "type": "string",
+            "description": "`Camera` or `Speaker` (1.39.30)."
+          },
           "enabled": {
             "type": "integer",
             "format": "int32",
@@ -20968,11 +21277,6 @@
             "minimum": 0
           },
           "fps_report_interval": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "frame_skip": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
@@ -26446,6 +26750,30 @@
             "format": "int32",
             "minimum": 0
           },
+          "audio_alarm_score": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "audio_detection": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "audio_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "auto_stop_timeout": {
             "type": [
               "number",
@@ -26608,6 +26936,16 @@
               "null"
             ]
           },
+          "device_class": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeviceClass"
+              }
+            ]
+          },
           "enabled": {
             "type": [
               "integer",
@@ -26674,14 +27012,6 @@
             "minimum": 0
           },
           "fps_report_interval": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "minimum": 0
-          },
-          "frame_skip": {
             "type": [
               "integer",
               "null"
@@ -28098,7 +28428,8 @@
         "type": "object",
         "required": [
           "id",
-          "user_id"
+          "user_id",
+          "name"
         ],
         "properties": {
           "id": {
@@ -28107,10 +28438,7 @@
             "minimum": 0
           },
           "name": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "user_id": {
             "type": "integer",
