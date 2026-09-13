@@ -742,6 +742,12 @@ impl SourceRouter {
                                 }
                             }
                         }
+                        Ok(SocketEvent::CommandResponse(resp)) => {
+                            debug!(
+                                "Monitor {}: command response request_id={} ok={} {}",
+                                monitor_id, resp.request_id, resp.ok, resp.message
+                            );
+                        }
                         Err(SourceError::Timeout { .. }) => {
                             // Expected when no media is flowing (idle camera);
                             // STATS messages keep a healthy connection chatty.
