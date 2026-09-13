@@ -224,6 +224,13 @@ setup_mysql() {
     ( while true; do log_info "Schema load still running..."; sleep 15; done ) &
     heartbeat_pid=$!
 
+    # Start from an empty database: upstream's create script no longer drops
+    # every table before creating it, so loading over a previous schema
+    # aborts on the first table that still exists.
+    "$CONTAINER_CMD" exec "$CONTAINER_NAME_MYSQL" \
+        mariadb -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" \
+        -e "DROP DATABASE IF EXISTS $MYSQL_DATABASE; CREATE DATABASE $MYSQL_DATABASE;"
+
     # Copy the processed schema into the container, then load it with the
     # container's own client (no host mysql client required).
     "$CONTAINER_CMD" cp "$schema_sql" "$CONTAINER_NAME_MYSQL:$schema_container_path"

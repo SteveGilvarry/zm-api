@@ -11,6 +11,18 @@ pub(super) trait ColumnDefApply {
     fn apply(&mut self, f: impl FnOnce(&mut Self) -> &mut Self) -> &mut Self;
 }
 
+/// Index names are per-table in MySQL but per-schema in Postgres, and
+/// ZoneMinder reuses names like `Name` across tables: keep upstream's
+/// exact name on MySQL (the parity job compares it) and prefix the table
+/// on Postgres unless the name already starts with it.
+pub(crate) fn index_name(backend: DatabaseBackend, table: &str, name: &str) -> String {
+    match backend {
+        DatabaseBackend::MySql => name.to_string(),
+        _ if name.starts_with(table) => name.to_string(),
+        _ => format!("{table}_{name}"),
+    }
+}
+
 impl ColumnDefApply for ColumnDef {
     fn apply(&mut self, f: impl FnOnce(&mut Self) -> &mut Self) -> &mut Self {
         f(self)
@@ -139,7 +151,10 @@ pub(super) fn controls_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -405,18 +420,6 @@ pub(super) fn controls_table(backend: DatabaseBackend) -> TableCreateStatement {
         .col(ColumnDef::new(Alias::new("MinWhiteSpeed")).unsigned())
         .col(ColumnDef::new(Alias::new("MaxWhiteSpeed")).unsigned())
         .col(
-            ColumnDef::new(Alias::new("CanLight"))
-                .tiny_unsigned()
-                .not_null()
-                .default("0"),
-        )
-        .col(
-            ColumnDef::new(Alias::new("CanIndicatorLight"))
-                .tiny_unsigned()
-                .not_null()
-                .default("0"),
-        )
-        .col(
             ColumnDef::new(Alias::new("HasPresets"))
                 .tiny_unsigned()
                 .not_null()
@@ -548,7 +551,10 @@ pub(super) fn devices_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -577,53 +583,16 @@ pub(super) fn devices_table(backend: DatabaseBackend) -> TableCreateStatement {
     t
 }
 
-pub(super) fn encoder_templates_table(backend: DatabaseBackend) -> TableCreateStatement {
-    let mut t = Table::create();
-    t.table(Alias::new("EncoderTemplates"))
-        .if_not_exists()
-        .col(
-            ColumnDef::new(Alias::new("Id"))
-                .unsigned()
-                .not_null()
-                .auto_increment()
-                .primary_key(),
-        )
-        .col(
-            ColumnDef::new(Alias::new("Encoder"))
-                .string_len(32)
-                .not_null(),
-        )
-        .col(ColumnDef::new(Alias::new("Name")).string_len(64).not_null())
-        .col(ColumnDef::new(Alias::new("Description")).text())
-        .col(ColumnDef::new(Alias::new("Params")).text().not_null());
-    let _ = backend;
-    t
-}
-
-pub(super) fn encoder_templates_indexes() -> Vec<IndexCreateStatement> {
-    vec![
-        Index::create()
-            .name("Encoder_Name")
-            .table(Alias::new("EncoderTemplates"))
-            .col(Alias::new("Encoder"))
-            .col(Alias::new("Name"))
-            .unique()
-            .to_owned(),
-        Index::create()
-            .name("Encoder")
-            .table(Alias::new("EncoderTemplates"))
-            .col(Alias::new("Encoder"))
-            .to_owned(),
-    ]
-}
-
 pub(super) fn events_table(backend: DatabaseBackend) -> TableCreateStatement {
     let mut t = Table::create();
     t.table(Alias::new("Events"))
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .big_unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.big_unsigned(),
+                    _ => c.big_integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -780,25 +749,29 @@ pub(super) fn events_table(backend: DatabaseBackend) -> TableCreateStatement {
     t
 }
 
-pub(super) fn events_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn events_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![
         Index::create()
-            .name("Events_MonitorId_idx")
+            .name(index_name(backend, "Events", "Events_MonitorId_idx"))
             .table(Alias::new("Events"))
             .col(Alias::new("MonitorId"))
             .to_owned(),
         Index::create()
-            .name("Events_StorageId_idx")
+            .name(index_name(backend, "Events", "Events_StorageId_idx"))
             .table(Alias::new("Events"))
             .col(Alias::new("StorageId"))
             .to_owned(),
         Index::create()
-            .name("Events_StartDateTime_idx")
+            .name(index_name(backend, "Events", "Events_StartDateTime_idx"))
             .table(Alias::new("Events"))
             .col(Alias::new("StartDateTime"))
             .to_owned(),
         Index::create()
-            .name("Events_EndDateTime_DiskSpace")
+            .name(index_name(
+                backend,
+                "Events",
+                "Events_EndDateTime_DiskSpace",
+            ))
             .table(Alias::new("Events"))
             .col(Alias::new("EndDateTime"))
             .col(Alias::new("DiskSpace"))
@@ -827,15 +800,23 @@ pub(super) fn events_hour_table(backend: DatabaseBackend) -> TableCreateStatemen
     t
 }
 
-pub(super) fn events_hour_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn events_hour_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![
         Index::create()
-            .name("Events_Hour_MonitorId_idx")
+            .name(index_name(
+                backend,
+                "Events_Hour",
+                "Events_Hour_MonitorId_idx",
+            ))
             .table(Alias::new("Events_Hour"))
             .col(Alias::new("MonitorId"))
             .to_owned(),
         Index::create()
-            .name("Events_Hour_StartDateTime_idx")
+            .name(index_name(
+                backend,
+                "Events_Hour",
+                "Events_Hour_StartDateTime_idx",
+            ))
             .table(Alias::new("Events_Hour"))
             .col(Alias::new("StartDateTime"))
             .to_owned(),
@@ -863,15 +844,23 @@ pub(super) fn events_day_table(backend: DatabaseBackend) -> TableCreateStatement
     t
 }
 
-pub(super) fn events_day_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn events_day_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![
         Index::create()
-            .name("Events_Day_MonitorId_idx")
+            .name(index_name(
+                backend,
+                "Events_Day",
+                "Events_Day_MonitorId_idx",
+            ))
             .table(Alias::new("Events_Day"))
             .col(Alias::new("MonitorId"))
             .to_owned(),
         Index::create()
-            .name("Events_Day_StartDateTime_idx")
+            .name(index_name(
+                backend,
+                "Events_Day",
+                "Events_Day_StartDateTime_idx",
+            ))
             .table(Alias::new("Events_Day"))
             .col(Alias::new("StartDateTime"))
             .to_owned(),
@@ -899,15 +888,23 @@ pub(super) fn events_week_table(backend: DatabaseBackend) -> TableCreateStatemen
     t
 }
 
-pub(super) fn events_week_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn events_week_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![
         Index::create()
-            .name("Events_Week_MonitorId_idx")
+            .name(index_name(
+                backend,
+                "Events_Week",
+                "Events_Week_MonitorId_idx",
+            ))
             .table(Alias::new("Events_Week"))
             .col(Alias::new("MonitorId"))
             .to_owned(),
         Index::create()
-            .name("Events_Week_StartDateTime_idx")
+            .name(index_name(
+                backend,
+                "Events_Week",
+                "Events_Week_StartDateTime_idx",
+            ))
             .table(Alias::new("Events_Week"))
             .col(Alias::new("StartDateTime"))
             .to_owned(),
@@ -935,15 +932,23 @@ pub(super) fn events_month_table(backend: DatabaseBackend) -> TableCreateStateme
     t
 }
 
-pub(super) fn events_month_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn events_month_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![
         Index::create()
-            .name("Events_Month_MonitorId_idx")
+            .name(index_name(
+                backend,
+                "Events_Month",
+                "Events_Month_MonitorId_idx",
+            ))
             .table(Alias::new("Events_Month"))
             .col(Alias::new("MonitorId"))
             .to_owned(),
         Index::create()
-            .name("Events_Month_StartDateTime_idx")
+            .name(index_name(
+                backend,
+                "Events_Month",
+                "Events_Month_StartDateTime_idx",
+            ))
             .table(Alias::new("Events_Month"))
             .col(Alias::new("StartDateTime"))
             .to_owned(),
@@ -970,9 +975,13 @@ pub(super) fn events_archived_table(backend: DatabaseBackend) -> TableCreateStat
     t
 }
 
-pub(super) fn events_archived_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn events_archived_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("Events_Archived_MonitorId_idx")
+        .name(index_name(
+            backend,
+            "Events_Archived",
+            "Events_Archived_MonitorId_idx",
+        ))
         .table(Alias::new("Events_Archived"))
         .col(Alias::new("MonitorId"))
         .to_owned()]
@@ -984,7 +993,10 @@ pub(super) fn event_data_table(backend: DatabaseBackend) -> TableCreateStatement
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .big_unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.big_unsigned(),
+                    _ => c.big_integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -998,9 +1010,13 @@ pub(super) fn event_data_table(backend: DatabaseBackend) -> TableCreateStatement
     t
 }
 
-pub(super) fn event_data_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn event_data_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("Event_Data_EventId_FrameId_idx")
+        .name(index_name(
+            backend,
+            "Event_Data",
+            "Event_Data_EventId_FrameId_idx",
+        ))
         .table(Alias::new("Event_Data"))
         .col(Alias::new("EventId"))
         .col(Alias::new("FrameId"))
@@ -1013,7 +1029,10 @@ pub(super) fn filters_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -1151,9 +1170,9 @@ pub(super) fn filters_table(backend: DatabaseBackend) -> TableCreateStatement {
     t
 }
 
-pub(super) fn filters_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn filters_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("Name")
+        .name(index_name(backend, "Filters", "Name"))
         .table(Alias::new("Filters"))
         .col(Alias::new("Name"))
         .to_owned()]
@@ -1165,7 +1184,10 @@ pub(super) fn frames_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .big_unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.big_unsigned(),
+                    _ => c.big_integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -1221,20 +1243,20 @@ pub(super) fn frames_table(backend: DatabaseBackend) -> TableCreateStatement {
     t
 }
 
-pub(super) fn frames_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn frames_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![
         Index::create()
-            .name("EventId_idx")
+            .name(index_name(backend, "Frames", "EventId_idx"))
             .table(Alias::new("Frames"))
             .col(Alias::new("EventId"))
             .to_owned(),
         Index::create()
-            .name("Type")
+            .name(index_name(backend, "Frames", "Type"))
             .table(Alias::new("Frames"))
             .col(Alias::new("Type"))
             .to_owned(),
         Index::create()
-            .name("TimeStamp")
+            .name(index_name(backend, "Frames", "TimeStamp"))
             .table(Alias::new("Frames"))
             .col(Alias::new("TimeStamp"))
             .to_owned(),
@@ -1247,7 +1269,10 @@ pub(super) fn groups_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -1275,7 +1300,10 @@ pub(super) fn logs_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -1305,30 +1333,27 @@ pub(super) fn logs_table(backend: DatabaseBackend) -> TableCreateStatement {
     t
 }
 
-pub(super) fn logs_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn logs_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![
         Index::create()
-            .name("TimeKey")
+            .name(index_name(backend, "Logs", "TimeKey"))
             .table(Alias::new("Logs"))
             .col(Alias::new("TimeKey"))
             .to_owned(),
         Index::create()
-            .name("Logs_TimeKey_idx")
+            .name(index_name(backend, "Logs", "Logs_TimeKey_idx"))
             .table(Alias::new("Logs"))
             .col(Alias::new("TimeKey"))
             .to_owned(),
         Index::create()
-            .name("Logs_Level_idx")
+            .name(index_name(backend, "Logs", "Logs_Level_idx"))
             .table(Alias::new("Logs"))
             .col(Alias::new("Level"))
             .to_owned(),
         Index::create()
-            .name("Logs_Component_Level_TimeKey_Id_idx")
+            .name(index_name(backend, "Logs", "Logs_Component_idx"))
             .table(Alias::new("Logs"))
             .col(Alias::new("Component"))
-            .col(Alias::new("Level"))
-            .col(Alias::new("TimeKey"))
-            .col(Alias::new("Id"))
             .to_owned(),
     ]
 }
@@ -1339,7 +1364,10 @@ pub(super) fn manufacturers_table(backend: DatabaseBackend) -> TableCreateStatem
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -1349,9 +1377,9 @@ pub(super) fn manufacturers_table(backend: DatabaseBackend) -> TableCreateStatem
     t
 }
 
-pub(super) fn manufacturers_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn manufacturers_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("Name")
+        .name(index_name(backend, "Manufacturers", "Name"))
         .table(Alias::new("Manufacturers"))
         .col(Alias::new("Name"))
         .unique()
@@ -1364,7 +1392,10 @@ pub(super) fn models_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -1375,9 +1406,9 @@ pub(super) fn models_table(backend: DatabaseBackend) -> TableCreateStatement {
     t
 }
 
-pub(super) fn models_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn models_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("ManufacturerId")
+        .name(index_name(backend, "Models", "ManufacturerId"))
         .table(Alias::new("Models"))
         .col(Alias::new("ManufacturerId"))
         .col(Alias::new("Name"))
@@ -1391,7 +1422,10 @@ pub(super) fn monitor_presets_table(backend: DatabaseBackend) -> TableCreateStat
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -1457,7 +1491,7 @@ pub(super) fn monitor_presets_table(backend: DatabaseBackend) -> TableCreateStat
         )
         .col(
             ColumnDef::new(Alias::new("DefaultScale"))
-                .string_len(16)
+                .char_len(6)
                 .not_null()
                 .default("0"),
         )
@@ -1476,7 +1510,10 @@ pub(super) fn monitors_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -1581,36 +1618,6 @@ pub(super) fn monitors_table(backend: DatabaseBackend) -> TableCreateStatement {
                 .default("FullColour"),
         )
         .col(
-            ColumnDef::new(Alias::new("AnalysisImageOpacity"))
-                .tiny_unsigned()
-                .not_null()
-                .default("128"),
-        )
-        .col(
-            ColumnDef::new(Alias::new("ObjectDetection"))
-                .string_len(16)
-                .not_null()
-                .default("none"),
-        )
-        .col(
-            ColumnDef::new(Alias::new("ObjectDetectionModel"))
-                .string_len(255)
-                .not_null()
-                .default(""),
-        )
-        .col(
-            ColumnDef::new(Alias::new("ObjectDetectionObjectThreshold"))
-                .float()
-                .not_null()
-                .default(0.4_f64),
-        )
-        .col(
-            ColumnDef::new(Alias::new("ObjectDetectionNMSThreshold"))
-                .float()
-                .not_null()
-                .default(0.25_f64),
-        )
-        .col(
             ColumnDef::new(Alias::new("Recording"))
                 .enumeration(
                     Alias::new("monitors_recording"),
@@ -1649,19 +1656,6 @@ pub(super) fn monitors_table(backend: DatabaseBackend) -> TableCreateStatement {
                 )
                 .not_null()
                 .default("Always"),
-        )
-        .col(
-            ColumnDef::new(Alias::new("WhatDisplay"))
-                .enumeration(
-                    Alias::new("monitors_what_display"),
-                    [
-                        Alias::new("OnlyVideo"),
-                        Alias::new("OnlyAudioVisualization"),
-                        Alias::new("VideoAudioVisualization"),
-                    ],
-                )
-                .not_null()
-                .default("OnlyVideo"),
         )
         .col(
             ColumnDef::new(Alias::new("RTSP2WebEnabled"))
@@ -2194,7 +2188,7 @@ pub(super) fn monitors_table(backend: DatabaseBackend) -> TableCreateStatement {
         )
         .col(
             ColumnDef::new(Alias::new("DefaultScale"))
-                .string_len(16)
+                .char_len(6)
                 .not_null()
                 .default("0"),
         )
@@ -2308,9 +2302,9 @@ pub(super) fn monitors_table(backend: DatabaseBackend) -> TableCreateStatement {
     t
 }
 
-pub(super) fn monitors_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn monitors_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("Monitors_ServerId_idx")
+        .name(index_name(backend, "Monitors", "Monitors_ServerId_idx"))
         .table(Alias::new("Monitors"))
         .col(Alias::new("ServerId"))
         .to_owned()]
@@ -2369,9 +2363,13 @@ pub(super) fn monitor_status_table(backend: DatabaseBackend) -> TableCreateState
     t
 }
 
-pub(super) fn monitor_status_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn monitor_status_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("Monitor_Status_UpdatedOn_idx")
+        .name(index_name(
+            backend,
+            "Monitor_Status",
+            "Monitor_Status_UpdatedOn_idx",
+        ))
         .table(Alias::new("Monitor_Status"))
         .col(Alias::new("UpdatedOn"))
         .to_owned()]
@@ -2409,7 +2407,10 @@ pub(super) fn states_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -2431,9 +2432,9 @@ pub(super) fn states_table(backend: DatabaseBackend) -> TableCreateStatement {
     t
 }
 
-pub(super) fn states_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn states_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("Name")
+        .name(index_name(backend, "States", "Name"))
         .table(Alias::new("States"))
         .col(Alias::new("Name"))
         .unique()
@@ -2446,7 +2447,10 @@ pub(super) fn servers_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -2529,9 +2533,9 @@ pub(super) fn servers_table(backend: DatabaseBackend) -> TableCreateStatement {
     t
 }
 
-pub(super) fn servers_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn servers_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("Servers_Name_idx")
+        .name(index_name(backend, "Servers", "Servers_Name_idx"))
         .table(Alias::new("Servers"))
         .col(Alias::new("Name"))
         .to_owned()]
@@ -2543,7 +2547,10 @@ pub(super) fn server_stats_table(backend: DatabaseBackend) -> TableCreateStateme
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -2573,9 +2580,13 @@ pub(super) fn server_stats_table(backend: DatabaseBackend) -> TableCreateStateme
     t
 }
 
-pub(super) fn server_stats_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn server_stats_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("Server_Stats_TimeStamp_idx")
+        .name(index_name(
+            backend,
+            "Server_Stats",
+            "Server_Stats_TimeStamp_idx",
+        ))
         .table(Alias::new("Server_Stats"))
         .col(Alias::new("TimeStamp"))
         .to_owned()]
@@ -2587,7 +2598,10 @@ pub(super) fn stats_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -2691,21 +2705,21 @@ pub(super) fn stats_table(backend: DatabaseBackend) -> TableCreateStatement {
     t
 }
 
-pub(super) fn stats_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn stats_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![
         Index::create()
-            .name("EventId_ZoneId")
+            .name(index_name(backend, "Stats", "EventId_ZoneId"))
             .table(Alias::new("Stats"))
             .col(Alias::new("EventId"))
             .col(Alias::new("ZoneId"))
             .to_owned(),
         Index::create()
-            .name("MonitorId")
+            .name(index_name(backend, "Stats", "MonitorId"))
             .table(Alias::new("Stats"))
             .col(Alias::new("MonitorId"))
             .to_owned(),
         Index::create()
-            .name("ZoneId")
+            .name(index_name(backend, "Stats", "ZoneId"))
             .table(Alias::new("Stats"))
             .col(Alias::new("ZoneId"))
             .to_owned(),
@@ -2736,7 +2750,10 @@ pub(super) fn user_roles_table(backend: DatabaseBackend) -> TableCreateStatement
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -2829,9 +2846,9 @@ pub(super) fn user_roles_table(backend: DatabaseBackend) -> TableCreateStatement
     t
 }
 
-pub(super) fn user_roles_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn user_roles_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("UC_Name")
+        .name(index_name(backend, "User_Roles", "UC_Name"))
         .table(Alias::new("User_Roles"))
         .col(Alias::new("Name"))
         .unique()
@@ -2844,7 +2861,10 @@ pub(super) fn users_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -2998,9 +3018,9 @@ pub(super) fn users_table(backend: DatabaseBackend) -> TableCreateStatement {
     t
 }
 
-pub(super) fn users_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn users_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("UC_Username")
+        .name(index_name(backend, "Users", "UC_Username"))
         .table(Alias::new("Users"))
         .col(Alias::new("Username"))
         .unique()
@@ -3013,7 +3033,10 @@ pub(super) fn user_preferences_table(backend: DatabaseBackend) -> TableCreateSta
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -3030,9 +3053,13 @@ pub(super) fn user_preferences_table(backend: DatabaseBackend) -> TableCreateSta
     t
 }
 
-pub(super) fn user_preferences_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn user_preferences_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("User_Preferences_UserID_idx")
+        .name(index_name(
+            backend,
+            "User_Preferences",
+            "User_Preferences_UserID_idx",
+        ))
         .table(Alias::new("User_Preferences"))
         .col(Alias::new("UserId"))
         .to_owned()]
@@ -3044,7 +3071,10 @@ pub(super) fn zone_presets_table(backend: DatabaseBackend) -> TableCreateStateme
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -3095,44 +3125,14 @@ pub(super) fn zone_presets_table(backend: DatabaseBackend) -> TableCreateStateme
         )
         .col(ColumnDef::new(Alias::new("MinPixelThreshold")).small_unsigned())
         .col(ColumnDef::new(Alias::new("MaxPixelThreshold")).small_unsigned())
-        .col(
-            ColumnDef::new(Alias::new("MinAlarmPixels")).apply(|c| match backend {
-                DatabaseBackend::MySql => c.custom(Alias::new("decimal(10,2) unsigned")),
-                _ => c.decimal_len(10, 2),
-            }),
-        )
-        .col(
-            ColumnDef::new(Alias::new("MaxAlarmPixels")).apply(|c| match backend {
-                DatabaseBackend::MySql => c.custom(Alias::new("decimal(10,2) unsigned")),
-                _ => c.decimal_len(10, 2),
-            }),
-        )
+        .col(ColumnDef::new(Alias::new("MinAlarmPixels")).unsigned())
+        .col(ColumnDef::new(Alias::new("MaxAlarmPixels")).unsigned())
         .col(ColumnDef::new(Alias::new("FilterX")).tiny_unsigned())
         .col(ColumnDef::new(Alias::new("FilterY")).tiny_unsigned())
-        .col(
-            ColumnDef::new(Alias::new("MinFilterPixels")).apply(|c| match backend {
-                DatabaseBackend::MySql => c.custom(Alias::new("decimal(10,2) unsigned")),
-                _ => c.decimal_len(10, 2),
-            }),
-        )
-        .col(
-            ColumnDef::new(Alias::new("MaxFilterPixels")).apply(|c| match backend {
-                DatabaseBackend::MySql => c.custom(Alias::new("decimal(10,2) unsigned")),
-                _ => c.decimal_len(10, 2),
-            }),
-        )
-        .col(
-            ColumnDef::new(Alias::new("MinBlobPixels")).apply(|c| match backend {
-                DatabaseBackend::MySql => c.custom(Alias::new("decimal(10,2) unsigned")),
-                _ => c.decimal_len(10, 2),
-            }),
-        )
-        .col(
-            ColumnDef::new(Alias::new("MaxBlobPixels")).apply(|c| match backend {
-                DatabaseBackend::MySql => c.custom(Alias::new("decimal(10,2) unsigned")),
-                _ => c.decimal_len(10, 2),
-            }),
-        )
+        .col(ColumnDef::new(Alias::new("MinFilterPixels")).unsigned())
+        .col(ColumnDef::new(Alias::new("MaxFilterPixels")).unsigned())
+        .col(ColumnDef::new(Alias::new("MinBlobPixels")).unsigned())
+        .col(ColumnDef::new(Alias::new("MaxBlobPixels")).unsigned())
         .col(ColumnDef::new(Alias::new("MinBlobs")).small_unsigned())
         .col(ColumnDef::new(Alias::new("MaxBlobs")).small_unsigned())
         .col(
@@ -3157,7 +3157,10 @@ pub(super) fn zones_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -3239,44 +3242,14 @@ pub(super) fn zones_table(backend: DatabaseBackend) -> TableCreateStatement {
         )
         .col(ColumnDef::new(Alias::new("MinPixelThreshold")).small_unsigned())
         .col(ColumnDef::new(Alias::new("MaxPixelThreshold")).small_unsigned())
-        .col(
-            ColumnDef::new(Alias::new("MinAlarmPixels")).apply(|c| match backend {
-                DatabaseBackend::MySql => c.custom(Alias::new("decimal(10,2) unsigned")),
-                _ => c.decimal_len(10, 2),
-            }),
-        )
-        .col(
-            ColumnDef::new(Alias::new("MaxAlarmPixels")).apply(|c| match backend {
-                DatabaseBackend::MySql => c.custom(Alias::new("decimal(10,2) unsigned")),
-                _ => c.decimal_len(10, 2),
-            }),
-        )
+        .col(ColumnDef::new(Alias::new("MinAlarmPixels")).unsigned())
+        .col(ColumnDef::new(Alias::new("MaxAlarmPixels")).unsigned())
         .col(ColumnDef::new(Alias::new("FilterX")).tiny_unsigned())
         .col(ColumnDef::new(Alias::new("FilterY")).tiny_unsigned())
-        .col(
-            ColumnDef::new(Alias::new("MinFilterPixels")).apply(|c| match backend {
-                DatabaseBackend::MySql => c.custom(Alias::new("decimal(10,2) unsigned")),
-                _ => c.decimal_len(10, 2),
-            }),
-        )
-        .col(
-            ColumnDef::new(Alias::new("MaxFilterPixels")).apply(|c| match backend {
-                DatabaseBackend::MySql => c.custom(Alias::new("decimal(10,2) unsigned")),
-                _ => c.decimal_len(10, 2),
-            }),
-        )
-        .col(
-            ColumnDef::new(Alias::new("MinBlobPixels")).apply(|c| match backend {
-                DatabaseBackend::MySql => c.custom(Alias::new("decimal(10,2) unsigned")),
-                _ => c.decimal_len(10, 2),
-            }),
-        )
-        .col(
-            ColumnDef::new(Alias::new("MaxBlobPixels")).apply(|c| match backend {
-                DatabaseBackend::MySql => c.custom(Alias::new("decimal(10,2) unsigned")),
-                _ => c.decimal_len(10, 2),
-            }),
-        )
+        .col(ColumnDef::new(Alias::new("MinFilterPixels")).unsigned())
+        .col(ColumnDef::new(Alias::new("MaxFilterPixels")).unsigned())
+        .col(ColumnDef::new(Alias::new("MinBlobPixels")).unsigned())
+        .col(ColumnDef::new(Alias::new("MaxBlobPixels")).unsigned())
         .col(ColumnDef::new(Alias::new("MinBlobs")).small_unsigned())
         .col(ColumnDef::new(Alias::new("MaxBlobs")).small_unsigned())
         .col(
@@ -3301,9 +3274,9 @@ pub(super) fn zones_table(backend: DatabaseBackend) -> TableCreateStatement {
     t
 }
 
-pub(super) fn zones_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn zones_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("MonitorId")
+        .name(index_name(backend, "Zones", "MonitorId"))
         .table(Alias::new("Zones"))
         .col(Alias::new("MonitorId"))
         .to_owned()]
@@ -3315,7 +3288,10 @@ pub(super) fn storage_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .small_unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.small_unsigned(),
+                    _ => c.small_integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -3385,7 +3361,10 @@ pub(super) fn maps_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -3422,7 +3401,10 @@ pub(super) fn montage_layouts_table(backend: DatabaseBackend) -> TableCreateStat
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -3460,21 +3442,16 @@ pub(super) fn sessions_table(backend: DatabaseBackend) -> TableCreateStatement {
     t
 }
 
-pub(super) fn sessions_indexes() -> Vec<IndexCreateStatement> {
-    vec![Index::create()
-        .name("Sessions_access_idx")
-        .table(Alias::new("Sessions"))
-        .col(Alias::new("access"))
-        .to_owned()]
-}
-
 pub(super) fn snapshots_table(backend: DatabaseBackend) -> TableCreateStatement {
     let mut t = Table::create();
     t.table(Alias::new("Snapshots"))
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -3493,7 +3470,10 @@ pub(super) fn snapshots_events_table(backend: DatabaseBackend) -> TableCreateSta
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -3524,9 +3504,13 @@ pub(super) fn snapshots_events_table(backend: DatabaseBackend) -> TableCreateSta
     t
 }
 
-pub(super) fn snapshots_events_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn snapshots_events_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("Snapshots_Events_SnapshotId_idx")
+        .name(index_name(
+            backend,
+            "Snapshots_Events",
+            "Snapshots_Events_SnapshotId_idx",
+        ))
         .table(Alias::new("Snapshots_Events"))
         .col(Alias::new("SnapshotId"))
         .to_owned()]
@@ -3538,7 +3522,10 @@ pub(super) fn reports_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .auto_increment()
                 .primary_key(),
         )
@@ -3546,8 +3533,7 @@ pub(super) fn reports_table(backend: DatabaseBackend) -> TableCreateStatement {
         .col(ColumnDef::new(Alias::new("FilterId")).unsigned())
         .col(ColumnDef::new(Alias::new("StartDateTime")).date_time())
         .col(ColumnDef::new(Alias::new("EndDateTime")).date_time())
-        .col(ColumnDef::new(Alias::new("Interval")).unsigned())
-        .col(ColumnDef::new(Alias::new("CreatedBy")).unsigned());
+        .col(ColumnDef::new(Alias::new("Interval")).unsigned());
     let _ = backend;
     t
 }
@@ -3558,7 +3544,10 @@ pub(super) fn tags_table(backend: DatabaseBackend) -> TableCreateStatement {
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .big_unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.big_unsigned(),
+                    _ => c.big_integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -3585,9 +3574,9 @@ pub(super) fn tags_table(backend: DatabaseBackend) -> TableCreateStatement {
     t
 }
 
-pub(super) fn tags_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn tags_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("Name")
+        .name(index_name(backend, "Tags", "Name"))
         .table(Alias::new("Tags"))
         .col(Alias::new("Name"))
         .unique()
@@ -3637,152 +3626,6 @@ pub(super) fn events_tags_table(backend: DatabaseBackend) -> TableCreateStatemen
     t
 }
 
-pub(super) fn notifications_table(backend: DatabaseBackend) -> TableCreateStatement {
-    let mut t = Table::create();
-    t.table(Alias::new("Notifications"))
-        .if_not_exists()
-        .col(
-            ColumnDef::new(Alias::new("Id"))
-                .unsigned()
-                .not_null()
-                .auto_increment()
-                .primary_key(),
-        )
-        .col(ColumnDef::new(Alias::new("UserId")).unsigned())
-        .col(
-            ColumnDef::new(Alias::new("Token"))
-                .string_len(512)
-                .not_null(),
-        )
-        .col(
-            ColumnDef::new(Alias::new("Platform"))
-                .enumeration(
-                    Alias::new("notifications_platform"),
-                    [Alias::new("android"), Alias::new("ios"), Alias::new("web")],
-                )
-                .not_null(),
-        )
-        .col(ColumnDef::new(Alias::new("MonitorList")).text())
-        .col(
-            ColumnDef::new(Alias::new("Interval"))
-                .unsigned()
-                .not_null()
-                .default(0),
-        )
-        .col(
-            ColumnDef::new(Alias::new("PushState"))
-                .enumeration(
-                    Alias::new("notifications_push_state"),
-                    [Alias::new("enabled"), Alias::new("disabled")],
-                )
-                .not_null()
-                .default("enabled"),
-        )
-        .col(ColumnDef::new(Alias::new("AppVersion")).string_len(32))
-        .col(ColumnDef::new(Alias::new("Profile")).string_len(128))
-        .col(
-            ColumnDef::new(Alias::new("BadgeCount"))
-                .integer()
-                .not_null()
-                .default(0),
-        )
-        .col(ColumnDef::new(Alias::new("LastNotifiedAt")).date_time())
-        .col(ColumnDef::new(Alias::new("CreatedOn")).date_time())
-        .col(
-            ColumnDef::new(Alias::new("UpdatedOn"))
-                .timestamp()
-                .not_null()
-                .default(Expr::current_timestamp())
-                .apply(|c| match backend {
-                    DatabaseBackend::MySql => c.extra("ON UPDATE CURRENT_TIMESTAMP"),
-                    _ => c,
-                }),
-        )
-        .foreign_key(
-            ForeignKey::create()
-                .name("Notifications_ibfk_1")
-                .from(Alias::new("Notifications"), Alias::new("UserId"))
-                .to(Alias::new("Users"), Alias::new("Id"))
-                .on_delete(ForeignKeyAction::Cascade),
-        );
-    let _ = backend;
-    t
-}
-
-pub(super) fn notifications_indexes() -> Vec<IndexCreateStatement> {
-    vec![
-        Index::create()
-            .name("Notifications_Token_idx")
-            .table(Alias::new("Notifications"))
-            .col(Alias::new("Token"))
-            .unique()
-            .to_owned(),
-        Index::create()
-            .name("Notifications_UserId_idx")
-            .table(Alias::new("Notifications"))
-            .col(Alias::new("UserId"))
-            .to_owned(),
-    ]
-}
-
-pub(super) fn menu_items_table(backend: DatabaseBackend) -> TableCreateStatement {
-    let mut t = Table::create();
-    t.table(Alias::new("Menu_Items"))
-        .if_not_exists()
-        .col(
-            ColumnDef::new(Alias::new("Id"))
-                .unsigned()
-                .not_null()
-                .auto_increment()
-                .primary_key(),
-        )
-        .col(
-            ColumnDef::new(Alias::new("MenuKey"))
-                .string_len(32)
-                .not_null(),
-        )
-        .col(
-            ColumnDef::new(Alias::new("Enabled"))
-                .tiny_integer()
-                .not_null()
-                .default(1),
-        )
-        .col(ColumnDef::new(Alias::new("Label")).string_len(64))
-        .col(
-            ColumnDef::new(Alias::new("SortOrder"))
-                .small_integer()
-                .not_null()
-                .default(0),
-        )
-        .col(ColumnDef::new(Alias::new("Icon")).string_len(128))
-        .col(
-            ColumnDef::new(Alias::new("IconType"))
-                .enumeration(
-                    Alias::new("menu_items_icon_type"),
-                    [
-                        Alias::new("material"),
-                        Alias::new("fontawesome"),
-                        Alias::new("image"),
-                        Alias::new("none"),
-                    ],
-                )
-                .not_null()
-                .default("material"),
-        )
-        .col(ColumnDef::new(Alias::new("Link")).string_len(255));
-    let _ = backend;
-    t
-}
-
-pub(super) fn menu_items_indexes() -> Vec<IndexCreateStatement> {
-    vec![Index::create()
-        .name("Menu_Items_MenuKey_idx")
-        .table(Alias::new("Menu_Items"))
-        .col(Alias::new("MenuKey"))
-        .unique()
-        .to_owned()]
-}
-
 pub(super) fn object_types_table(backend: DatabaseBackend) -> TableCreateStatement {
     let mut t = Table::create();
     t.table(Alias::new("Object_Types"))
@@ -3800,316 +3643,13 @@ pub(super) fn object_types_table(backend: DatabaseBackend) -> TableCreateStateme
     t
 }
 
-pub(super) fn object_types_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn object_types_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![Index::create()
-        .name("Name")
+        .name(index_name(backend, "Object_Types", "Name"))
         .table(Alias::new("Object_Types"))
         .col(Alias::new("Name"))
         .unique()
         .to_owned()]
-}
-
-pub(super) fn ai_datasets_table(backend: DatabaseBackend) -> TableCreateStatement {
-    let mut t = Table::create();
-    t.table(Alias::new("AI_Datasets"))
-        .if_not_exists()
-        .col(
-            ColumnDef::new(Alias::new("Id"))
-                .unsigned()
-                .not_null()
-                .auto_increment()
-                .primary_key(),
-        )
-        .col(ColumnDef::new(Alias::new("Name")).string_len(64).not_null())
-        .col(ColumnDef::new(Alias::new("Description")).text())
-        .col(ColumnDef::new(Alias::new("Version")).string_len(32))
-        .col(
-            ColumnDef::new(Alias::new("NumClasses"))
-                .unsigned()
-                .not_null(),
-        );
-    let _ = backend;
-    t
-}
-
-pub(super) fn ai_datasets_indexes() -> Vec<IndexCreateStatement> {
-    vec![Index::create()
-        .name("AI_Datasets_Name_idx")
-        .table(Alias::new("AI_Datasets"))
-        .col(Alias::new("Name"))
-        .unique()
-        .to_owned()]
-}
-
-pub(super) fn ai_models_table(backend: DatabaseBackend) -> TableCreateStatement {
-    let mut t = Table::create();
-    t.table(Alias::new("AI_Models"))
-        .if_not_exists()
-        .col(
-            ColumnDef::new(Alias::new("Id"))
-                .unsigned()
-                .not_null()
-                .auto_increment()
-                .primary_key(),
-        )
-        .col(ColumnDef::new(Alias::new("Name")).string_len(64).not_null())
-        .col(ColumnDef::new(Alias::new("Description")).text())
-        .col(ColumnDef::new(Alias::new("ModelPath")).string_len(255))
-        .col(
-            ColumnDef::new(Alias::new("Framework"))
-                .enumeration(
-                    Alias::new("ai_models_framework"),
-                    [
-                        Alias::new("TensorFlow"),
-                        Alias::new("PyTorch"),
-                        Alias::new("ONNX"),
-                        Alias::new("OpenVINO"),
-                        Alias::new("TensorRT"),
-                        Alias::new("Other"),
-                    ],
-                )
-                .not_null()
-                .default("ONNX"),
-        )
-        .col(ColumnDef::new(Alias::new("Version")).string_len(32))
-        .col(ColumnDef::new(Alias::new("DatasetId")).unsigned())
-        .col(
-            ColumnDef::new(Alias::new("Enabled"))
-                .tiny_unsigned()
-                .not_null()
-                .default(0),
-        )
-        .foreign_key(
-            ForeignKey::create()
-                .from(Alias::new("AI_Models"), Alias::new("DatasetId"))
-                .to(Alias::new("AI_Datasets"), Alias::new("Id"))
-                .on_delete(ForeignKeyAction::SetNull),
-        );
-    let _ = backend;
-    t
-}
-
-pub(super) fn ai_models_indexes() -> Vec<IndexCreateStatement> {
-    vec![Index::create()
-        .name("AI_Models_Name_idx")
-        .table(Alias::new("AI_Models"))
-        .col(Alias::new("Name"))
-        .unique()
-        .to_owned()]
-}
-
-pub(super) fn ai_object_classes_table(backend: DatabaseBackend) -> TableCreateStatement {
-    let mut t = Table::create();
-    t.table(Alias::new("AI_Object_Classes"))
-        .if_not_exists()
-        .col(
-            ColumnDef::new(Alias::new("Id"))
-                .unsigned()
-                .not_null()
-                .auto_increment()
-                .primary_key(),
-        )
-        .col(
-            ColumnDef::new(Alias::new("DatasetId"))
-                .unsigned()
-                .not_null(),
-        )
-        .col(
-            ColumnDef::new(Alias::new("ClassName"))
-                .string_len(64)
-                .not_null(),
-        )
-        .col(
-            ColumnDef::new(Alias::new("ClassIndex"))
-                .unsigned()
-                .not_null(),
-        )
-        .col(ColumnDef::new(Alias::new("Description")).text())
-        .foreign_key(
-            ForeignKey::create()
-                .from(Alias::new("AI_Object_Classes"), Alias::new("DatasetId"))
-                .to(Alias::new("AI_Datasets"), Alias::new("Id"))
-                .on_delete(ForeignKeyAction::Cascade),
-        );
-    let _ = backend;
-    t
-}
-
-pub(super) fn ai_object_classes_indexes() -> Vec<IndexCreateStatement> {
-    vec![
-        Index::create()
-            .name("AI_Object_Classes_Dataset_Class_idx")
-            .table(Alias::new("AI_Object_Classes"))
-            .col(Alias::new("DatasetId"))
-            .col(Alias::new("ClassName"))
-            .unique()
-            .to_owned(),
-        Index::create()
-            .name("AI_Object_Classes_DatasetId_idx")
-            .table(Alias::new("AI_Object_Classes"))
-            .col(Alias::new("DatasetId"))
-            .to_owned(),
-    ]
-}
-
-pub(super) fn ai_detection_settings_table(backend: DatabaseBackend) -> TableCreateStatement {
-    let mut t = Table::create();
-    t.table(Alias::new("AI_Detection_Settings"))
-        .if_not_exists()
-        .col(
-            ColumnDef::new(Alias::new("Id"))
-                .unsigned()
-                .not_null()
-                .auto_increment()
-                .primary_key(),
-        )
-        .col(ColumnDef::new(Alias::new("MonitorId")).unsigned())
-        .col(
-            ColumnDef::new(Alias::new("ObjectClassId"))
-                .unsigned()
-                .not_null(),
-        )
-        .col(
-            ColumnDef::new(Alias::new("Enabled"))
-                .tiny_unsigned()
-                .not_null()
-                .default(1),
-        )
-        .col(
-            ColumnDef::new(Alias::new("ReportDetection"))
-                .tiny_unsigned()
-                .not_null()
-                .default(1),
-        )
-        .col(
-            ColumnDef::new(Alias::new("ConfidenceThreshold"))
-                .tiny_unsigned()
-                .not_null()
-                .default(50),
-        )
-        .col(
-            ColumnDef::new(Alias::new("BoxColor"))
-                .string_len(7)
-                .not_null()
-                .default("#FF0000"),
-        )
-        .foreign_key(
-            ForeignKey::create()
-                .from(Alias::new("AI_Detection_Settings"), Alias::new("MonitorId"))
-                .to(Alias::new("Monitors"), Alias::new("Id"))
-                .on_delete(ForeignKeyAction::Cascade),
-        )
-        .foreign_key(
-            ForeignKey::create()
-                .from(
-                    Alias::new("AI_Detection_Settings"),
-                    Alias::new("ObjectClassId"),
-                )
-                .to(Alias::new("AI_Object_Classes"), Alias::new("Id"))
-                .on_delete(ForeignKeyAction::Cascade),
-        );
-    let _ = backend;
-    t
-}
-
-pub(super) fn ai_detection_settings_indexes() -> Vec<IndexCreateStatement> {
-    vec![
-        Index::create()
-            .name("AI_Detection_Settings_Monitor_Object_idx")
-            .table(Alias::new("AI_Detection_Settings"))
-            .col(Alias::new("MonitorId"))
-            .col(Alias::new("ObjectClassId"))
-            .unique()
-            .to_owned(),
-        Index::create()
-            .name("AI_Detection_Settings_MonitorId_idx")
-            .table(Alias::new("AI_Detection_Settings"))
-            .col(Alias::new("MonitorId"))
-            .to_owned(),
-        Index::create()
-            .name("AI_Detection_Settings_ObjectClassId_idx")
-            .table(Alias::new("AI_Detection_Settings"))
-            .col(Alias::new("ObjectClassId"))
-            .to_owned(),
-    ]
-}
-
-pub(super) fn ai_detections_table(backend: DatabaseBackend) -> TableCreateStatement {
-    let mut t = Table::create();
-    t.table(Alias::new("AI_Detections"))
-        .if_not_exists()
-        .col(
-            ColumnDef::new(Alias::new("Id"))
-                .big_unsigned()
-                .not_null()
-                .auto_increment()
-                .primary_key(),
-        )
-        .col(
-            ColumnDef::new(Alias::new("EventId"))
-                .big_unsigned()
-                .not_null(),
-        )
-        .col(ColumnDef::new(Alias::new("FrameId")).big_unsigned())
-        .col(
-            ColumnDef::new(Alias::new("ObjectClassId"))
-                .unsigned()
-                .not_null(),
-        )
-        .col(
-            ColumnDef::new(Alias::new("Confidence"))
-                .decimal_len(5, 4)
-                .not_null(),
-        )
-        .col(ColumnDef::new(Alias::new("BoundingBoxX")).unsigned())
-        .col(ColumnDef::new(Alias::new("BoundingBoxY")).unsigned())
-        .col(ColumnDef::new(Alias::new("BoundingBoxWidth")).unsigned())
-        .col(ColumnDef::new(Alias::new("BoundingBoxHeight")).unsigned())
-        .col(
-            ColumnDef::new(Alias::new("DetectedAt"))
-                .custom(Alias::new("timestamp(3)"))
-                .default(Expr::cust("CURRENT_TIMESTAMP(3)")),
-        )
-        .foreign_key(
-            ForeignKey::create()
-                .from(Alias::new("AI_Detections"), Alias::new("EventId"))
-                .to(Alias::new("Events"), Alias::new("Id"))
-                .on_delete(ForeignKeyAction::Cascade),
-        )
-        .foreign_key(
-            ForeignKey::create()
-                .from(Alias::new("AI_Detections"), Alias::new("FrameId"))
-                .to(Alias::new("Frames"), Alias::new("Id"))
-                .on_delete(ForeignKeyAction::SetNull),
-        )
-        .foreign_key(
-            ForeignKey::create()
-                .from(Alias::new("AI_Detections"), Alias::new("ObjectClassId"))
-                .to(Alias::new("AI_Object_Classes"), Alias::new("Id"))
-                .on_delete(ForeignKeyAction::Cascade),
-        );
-    let _ = backend;
-    t
-}
-
-pub(super) fn ai_detections_indexes() -> Vec<IndexCreateStatement> {
-    vec![
-        Index::create()
-            .name("AI_Detections_EventId_idx")
-            .table(Alias::new("AI_Detections"))
-            .col(Alias::new("EventId"))
-            .to_owned(),
-        Index::create()
-            .name("AI_Detections_FrameId_idx")
-            .table(Alias::new("AI_Detections"))
-            .col(Alias::new("FrameId"))
-            .to_owned(),
-        Index::create()
-            .name("AI_Detections_ObjectClassId_idx")
-            .table(Alias::new("AI_Detections"))
-            .col(Alias::new("ObjectClassId"))
-            .to_owned(),
-    ]
 }
 
 pub(super) fn groups_monitors_table(backend: DatabaseBackend) -> TableCreateStatement {
@@ -4118,7 +3658,10 @@ pub(super) fn groups_monitors_table(backend: DatabaseBackend) -> TableCreateStat
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -4145,15 +3688,23 @@ pub(super) fn groups_monitors_table(backend: DatabaseBackend) -> TableCreateStat
     t
 }
 
-pub(super) fn groups_monitors_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn groups_monitors_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![
         Index::create()
-            .name("Groups_Monitors_GroupId_idx")
+            .name(index_name(
+                backend,
+                "Groups_Monitors",
+                "Groups_Monitors_GroupId_idx",
+            ))
             .table(Alias::new("Groups_Monitors"))
             .col(Alias::new("GroupId"))
             .to_owned(),
         Index::create()
-            .name("Groups_Monitors_MonitorId_idx")
+            .name(index_name(
+                backend,
+                "Groups_Monitors",
+                "Groups_Monitors_MonitorId_idx",
+            ))
             .table(Alias::new("Groups_Monitors"))
             .col(Alias::new("MonitorId"))
             .to_owned(),
@@ -4166,7 +3717,10 @@ pub(super) fn groups_permissions_table(backend: DatabaseBackend) -> TableCreateS
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -4203,17 +3757,25 @@ pub(super) fn groups_permissions_table(backend: DatabaseBackend) -> TableCreateS
     t
 }
 
-pub(super) fn groups_permissions_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn groups_permissions_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![
         Index::create()
-            .name("Groups_Permissions_GroupId_UserId_idx")
+            .name(index_name(
+                backend,
+                "Groups_Permissions",
+                "Groups_Permissions_GroupId_UserId_idx",
+            ))
             .table(Alias::new("Groups_Permissions"))
             .col(Alias::new("GroupId"))
             .col(Alias::new("UserId"))
             .unique()
             .to_owned(),
         Index::create()
-            .name("Groups_Permissions_UserId_idx")
+            .name(index_name(
+                backend,
+                "Groups_Permissions",
+                "Groups_Permissions_UserId_idx",
+            ))
             .table(Alias::new("Groups_Permissions"))
             .col(Alias::new("UserId"))
             .to_owned(),
@@ -4226,7 +3788,10 @@ pub(super) fn monitors_permissions_table(backend: DatabaseBackend) -> TableCreat
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -4267,17 +3832,25 @@ pub(super) fn monitors_permissions_table(backend: DatabaseBackend) -> TableCreat
     t
 }
 
-pub(super) fn monitors_permissions_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn monitors_permissions_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {
     vec![
         Index::create()
-            .name("Monitors_Permissions_MonitorId_UserId_idx")
+            .name(index_name(
+                backend,
+                "Monitors_Permissions",
+                "Monitors_Permissions_MonitorId_UserId_idx",
+            ))
             .table(Alias::new("Monitors_Permissions"))
             .col(Alias::new("MonitorId"))
             .col(Alias::new("UserId"))
             .unique()
             .to_owned(),
         Index::create()
-            .name("Monitors_Permissions_UserId_idx")
+            .name(index_name(
+                backend,
+                "Monitors_Permissions",
+                "Monitors_Permissions_UserId_idx",
+            ))
             .table(Alias::new("Monitors_Permissions"))
             .col(Alias::new("UserId"))
             .to_owned(),
@@ -4290,7 +3863,10 @@ pub(super) fn role_groups_permissions_table(backend: DatabaseBackend) -> TableCr
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -4327,17 +3903,27 @@ pub(super) fn role_groups_permissions_table(backend: DatabaseBackend) -> TableCr
     t
 }
 
-pub(super) fn role_groups_permissions_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn role_groups_permissions_indexes(
+    backend: DatabaseBackend,
+) -> Vec<IndexCreateStatement> {
     vec![
         Index::create()
-            .name("Role_Groups_Permissions_RoleId_GroupId_idx")
+            .name(index_name(
+                backend,
+                "Role_Groups_Permissions",
+                "Role_Groups_Permissions_RoleId_GroupId_idx",
+            ))
             .table(Alias::new("Role_Groups_Permissions"))
             .col(Alias::new("RoleId"))
             .col(Alias::new("GroupId"))
             .unique()
             .to_owned(),
         Index::create()
-            .name("Role_Groups_Permissions_RoleId_idx")
+            .name(index_name(
+                backend,
+                "Role_Groups_Permissions",
+                "Role_Groups_Permissions_RoleId_idx",
+            ))
             .table(Alias::new("Role_Groups_Permissions"))
             .col(Alias::new("RoleId"))
             .to_owned(),
@@ -4350,7 +3936,10 @@ pub(super) fn role_monitors_permissions_table(backend: DatabaseBackend) -> Table
         .if_not_exists()
         .col(
             ColumnDef::new(Alias::new("Id"))
-                .unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.unsigned(),
+                    _ => c.integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -4397,17 +3986,27 @@ pub(super) fn role_monitors_permissions_table(backend: DatabaseBackend) -> Table
     t
 }
 
-pub(super) fn role_monitors_permissions_indexes() -> Vec<IndexCreateStatement> {
+pub(super) fn role_monitors_permissions_indexes(
+    backend: DatabaseBackend,
+) -> Vec<IndexCreateStatement> {
     vec![
         Index::create()
-            .name("Role_Monitors_Permissions_RoleId_MonitorId_idx")
+            .name(index_name(
+                backend,
+                "Role_Monitors_Permissions",
+                "Role_Monitors_Permissions_RoleId_MonitorId_idx",
+            ))
             .table(Alias::new("Role_Monitors_Permissions"))
             .col(Alias::new("RoleId"))
             .col(Alias::new("MonitorId"))
             .unique()
             .to_owned(),
         Index::create()
-            .name("Role_Monitors_Permissions_RoleId_idx")
+            .name(index_name(
+                backend,
+                "Role_Monitors_Permissions",
+                "Role_Monitors_Permissions_RoleId_idx",
+            ))
             .table(Alias::new("Role_Monitors_Permissions"))
             .col(Alias::new("RoleId"))
             .to_owned(),
@@ -4468,14 +4067,6 @@ pub(super) fn enum_types() -> Vec<(&'static str, Vec<&'static str>)> {
                 "KeyFrames",
                 "KeyFrames+Ondemand",
                 "Always",
-            ],
-        ),
-        (
-            "monitors_what_display",
-            vec![
-                "OnlyVideo",
-                "OnlyAudioVisualization",
-                "VideoAudioVisualization",
             ],
         ),
         ("monitors_rtsp2_web_type", vec!["HLS", "MSE", "WebRTC"]),
@@ -4566,23 +4157,6 @@ pub(super) fn enum_types() -> Vec<(&'static str, Vec<&'static str>)> {
         ),
         ("storage_type", vec!["local", "s3fs"]),
         ("storage_scheme", vec!["Deep", "Medium", "Shallow"]),
-        ("notifications_platform", vec!["android", "ios", "web"]),
-        ("notifications_push_state", vec!["enabled", "disabled"]),
-        (
-            "menu_items_icon_type",
-            vec!["material", "fontawesome", "image", "none"],
-        ),
-        (
-            "ai_models_framework",
-            vec![
-                "TensorFlow",
-                "PyTorch",
-                "ONNX",
-                "OpenVINO",
-                "TensorRT",
-                "Other",
-            ],
-        ),
         (
             "groups_permissions_permission",
             vec!["Inherit", "None", "View", "Edit"],
@@ -4611,7 +4185,6 @@ pub(super) fn all_tables() -> Vec<(&'static str, TableFn)> {
         ("ControlPresets", control_presets_table as TableFn),
         ("Controls", controls_table as TableFn),
         ("Devices", devices_table as TableFn),
-        ("EncoderTemplates", encoder_templates_table as TableFn),
         ("Events", events_table as TableFn),
         ("Events_Hour", events_hour_table as TableFn),
         ("Events_Day", events_day_table as TableFn),
@@ -4648,17 +4221,7 @@ pub(super) fn all_tables() -> Vec<(&'static str, TableFn)> {
         ("Reports", reports_table as TableFn),
         ("Tags", tags_table as TableFn),
         ("Events_Tags", events_tags_table as TableFn),
-        ("Notifications", notifications_table as TableFn),
-        ("Menu_Items", menu_items_table as TableFn),
         ("Object_Types", object_types_table as TableFn),
-        ("AI_Datasets", ai_datasets_table as TableFn),
-        ("AI_Models", ai_models_table as TableFn),
-        ("AI_Object_Classes", ai_object_classes_table as TableFn),
-        (
-            "AI_Detection_Settings",
-            ai_detection_settings_table as TableFn,
-        ),
-        ("AI_Detections", ai_detections_table as TableFn),
         ("Groups_Monitors", groups_monitors_table as TableFn),
         ("Groups_Permissions", groups_permissions_table as TableFn),
         (
@@ -4676,46 +4239,37 @@ pub(super) fn all_tables() -> Vec<(&'static str, TableFn)> {
     ]
 }
 
-pub(super) fn all_indexes() -> Vec<Vec<IndexCreateStatement>> {
+pub(super) fn all_indexes(backend: DatabaseBackend) -> Vec<Vec<IndexCreateStatement>> {
     vec![
-        encoder_templates_indexes(),
-        events_indexes(),
-        events_hour_indexes(),
-        events_day_indexes(),
-        events_week_indexes(),
-        events_month_indexes(),
-        events_archived_indexes(),
-        event_data_indexes(),
-        filters_indexes(),
-        frames_indexes(),
-        logs_indexes(),
-        manufacturers_indexes(),
-        models_indexes(),
-        monitors_indexes(),
-        monitor_status_indexes(),
-        states_indexes(),
-        servers_indexes(),
-        server_stats_indexes(),
-        stats_indexes(),
-        user_roles_indexes(),
-        users_indexes(),
-        user_preferences_indexes(),
-        zones_indexes(),
-        sessions_indexes(),
-        snapshots_events_indexes(),
-        tags_indexes(),
-        notifications_indexes(),
-        menu_items_indexes(),
-        object_types_indexes(),
-        ai_datasets_indexes(),
-        ai_models_indexes(),
-        ai_object_classes_indexes(),
-        ai_detection_settings_indexes(),
-        ai_detections_indexes(),
-        groups_monitors_indexes(),
-        groups_permissions_indexes(),
-        monitors_permissions_indexes(),
-        role_groups_permissions_indexes(),
-        role_monitors_permissions_indexes(),
+        events_indexes(backend),
+        events_hour_indexes(backend),
+        events_day_indexes(backend),
+        events_week_indexes(backend),
+        events_month_indexes(backend),
+        events_archived_indexes(backend),
+        event_data_indexes(backend),
+        filters_indexes(backend),
+        frames_indexes(backend),
+        logs_indexes(backend),
+        manufacturers_indexes(backend),
+        models_indexes(backend),
+        monitors_indexes(backend),
+        monitor_status_indexes(backend),
+        states_indexes(backend),
+        servers_indexes(backend),
+        server_stats_indexes(backend),
+        stats_indexes(backend),
+        user_roles_indexes(backend),
+        users_indexes(backend),
+        user_preferences_indexes(backend),
+        zones_indexes(backend),
+        snapshots_events_indexes(backend),
+        tags_indexes(backend),
+        object_types_indexes(backend),
+        groups_monitors_indexes(backend),
+        groups_permissions_indexes(backend),
+        monitors_permissions_indexes(backend),
+        role_groups_permissions_indexes(backend),
+        role_monitors_permissions_indexes(backend),
     ]
 }

@@ -5,7 +5,7 @@
 /// ZM_VERSION of the vendored schema snapshot: the version whose
 /// schema equals the baseline migration. The bridge records this in
 /// ZM_DYN_DB_VERSION / ZM_DYN_CURR_VERSION after stamping.
-pub(crate) const CUTOVER_ZM_VERSION: &str = "1.39.17";
+pub(crate) const CUTOVER_ZM_VERSION: &str = "1.39.33";
 
 /// (version, sql) in ascending version order.
 pub(super) const CHAIN: &[(&str, &str)] = &[
@@ -532,5 +532,69 @@ pub(super) const CHAIN: &[(&str, &str)] = &[
     (
         "1.39.17",
         include_str!("../../../db/legacy/zm_update-1.39.17.sql"),
+    ),
+    (
+        "1.39.18",
+        include_str!("../../../db/legacy/zm_update-1.39.18.sql"),
+    ),
+    (
+        "1.39.19",
+        include_str!("../../../db/legacy/zm_update-1.39.19.sql"),
+    ),
+    (
+        "1.39.20",
+        include_str!("../../../db/legacy/zm_update-1.39.20.sql"),
+    ),
+    (
+        "1.39.21",
+        include_str!("../../../db/legacy/zm_update-1.39.21.sql"),
+    ),
+    (
+        "1.39.22",
+        include_str!("../../../db/legacy/zm_update-1.39.22.sql"),
+    ),
+    (
+        "1.39.23",
+        include_str!("../../../db/legacy/zm_update-1.39.23.sql"),
+    ),
+    (
+        "1.39.24",
+        include_str!("../../../db/legacy/zm_update-1.39.24.sql"),
+    ),
+    (
+        "1.39.25",
+        include_str!("../../../db/legacy/zm_update-1.39.25.sql"),
+    ),
+    (
+        "1.39.26",
+        include_str!("../../../db/legacy/zm_update-1.39.26.sql"),
+    ),
+    (
+        "1.39.27",
+        include_str!("../../../db/legacy/zm_update-1.39.27.sql"),
+    ),
+    (
+        "1.39.28",
+        include_str!("../../../db/legacy/zm_update-1.39.28.sql"),
+    ),
+    (
+        "1.39.29",
+        include_str!("../../../db/legacy/zm_update-1.39.29.sql"),
+    ),
+    (
+        "1.39.30",
+        include_str!("../../../db/legacy/zm_update-1.39.30.sql"),
+    ),
+    (
+        "1.39.31",
+        include_str!("../../../db/legacy/zm_update-1.39.31.sql"),
+    ),
+    (
+        "1.39.32",
+        include_str!("../../../db/legacy/zm_update-1.39.32.sql"),
+    ),
+    (
+        "1.39.33",
+        include_str!("../../../db/legacy/zm_update-1.39.33.sql"),
     ),
 ];

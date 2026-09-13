@@ -129,6 +129,14 @@ pub async fn create(
         turbo_tilt_speed: Set(req.turbo_tilt_speed),
         can_auto_scan: Set(req.can_auto_scan.unwrap_or(0)),
         num_scan_paths: Set(req.num_scan_paths.unwrap_or(0)),
+        // Capability columns added by upstream 1.39.13-1.39.29; not on the
+        // request yet, so they take the schema defaults.
+        can_light: Set(0),
+        can_indicator_light: Set(0),
+        can_audio_play: Set(0),
+        min_audio_file: Set(None),
+        max_audio_file: Set(None),
+        can_audio_volume: Set(0),
     };
     Ok(am.insert(db).await?)
 }

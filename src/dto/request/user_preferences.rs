@@ -4,7 +4,9 @@ use utoipa::ToSchema;
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct CreateUserPreferenceRequest {
     pub user_id: u32,
-    pub name: Option<String>,
+    /// Required since ZoneMinder 1.39.19 (`User_Preferences.Name` is NOT NULL
+    /// and unique per user).
+    pub name: String,
     pub value: Option<String>,
 }
 

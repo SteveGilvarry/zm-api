@@ -771,3 +771,24 @@ mod tests {
         );
     }
 }
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    EnumIter,
+    DeriveActiveEnum,
+    serde::Serialize,
+    serde::Deserialize,
+    ToSchema,
+)]
+#[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "DeviceClass")]
+pub enum DeviceClass {
+    #[sea_orm(string_value = "Camera")]
+    #[serde(rename = "Camera")]
+    Camera,
+    #[sea_orm(string_value = "Speaker")]
+    #[serde(rename = "Speaker")]
+    Speaker,
+}

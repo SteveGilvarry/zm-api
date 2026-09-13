@@ -11,19 +11,35 @@
 //! than a native `ENUM`, so the same migration runs on MySQL and Postgres.
 
 use sea_orm_migration::prelude::*;
+use sea_orm_migration::sea_orm::DatabaseBackend;
+
+/// Chain helper so the backend-specific id type stays inline.
+trait ColumnDefApply {
+    fn apply(&mut self, f: impl FnOnce(&mut Self) -> &mut Self) -> &mut Self;
+}
+impl ColumnDefApply for ColumnDef {
+    fn apply(&mut self, f: impl FnOnce(&mut Self) -> &mut Self) -> &mut Self {
+        f(self)
+    }
+}
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
 /// The `event_synopsis` table create statement. Extracted so the DDL can be
 /// rendered and asserted offline (the migration itself needs a live DB).
-fn event_synopsis_table() -> TableCreateStatement {
+fn event_synopsis_table(backend: DatabaseBackend) -> TableCreateStatement {
     Table::create()
         .table(EventSynopsis::Table)
         .if_not_exists()
         .col(
+            // bigint unsigned on MySQL; Postgres has no unsigned serial, and
+            // sea-query refuses `big_unsigned` + `auto_increment` there.
             ColumnDef::new(EventSynopsis::Id)
-                .big_unsigned()
+                .apply(|c| match backend {
+                    DatabaseBackend::MySql => c.big_unsigned(),
+                    _ => c.big_integer(),
+                })
                 .not_null()
                 .auto_increment()
                 .primary_key(),
@@ -82,7 +98,9 @@ fn event_synopsis_table() -> TableCreateStatement {
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager.create_table(event_synopsis_table()).await?;
+        manager
+            .create_table(event_synopsis_table(manager.get_database_backend()))
+            .await?;
 
         // One synopsis row per recording segment; `clip_token` is the stable key
         // even before `event_id` is reconciled.
@@ -163,7 +181,7 @@ mod tests {
     /// migration itself only runs against a live MySQL in the DB-gated suite.
     #[test]
     fn table_ddl_has_expected_columns() {
-        let sql = event_synopsis_table()
+        let sql = event_synopsis_table(DatabaseBackend::MySql)
             .to_string(MysqlQueryBuilder)
             .to_lowercase();
 

@@ -31,7 +31,14 @@ from pathlib import Path
 from dataclasses import dataclass, field
 
 ROOT = Path(__file__).resolve().parent.parent
-SQL_PATH = ROOT / "zm_create.sql.in"
+# The schema snapshot the baseline reproduces. `--snapshot db/baseline-1.39.1`
+# points at a vendored directory holding zm_create.sql.in and the fragments it
+# sources (see docs/DB_VERSIONING_PLAN.md); the default is the repo-root
+# create script with fragments in db/, the pre-1.39.1-baseline layout.
+_args = [a for a in sys.argv[1:]]
+SNAPSHOT = ROOT / _args[_args.index("--snapshot") + 1] if "--snapshot" in _args else None
+SQL_PATH = (SNAPSHOT / "zm_create.sql.in") if SNAPSHOT else ROOT / "zm_create.sql.in"
+FRAG_DIR = SNAPSHOT if SNAPSHOT else ROOT / "db"
 OUT_DIR = ROOT / "src" / "migration" / "m00000000_000001_zm_baseline"
 
 # ---------------------------------------------------------------------------
@@ -79,7 +86,7 @@ def read_sql() -> str:
         name = m.group(1)
         if name == "triggers":
             return ""
-        return (ROOT / "db" / f"{name}.sql").read_text()
+        return (FRAG_DIR / f"{name}.sql").read_text()
     text = re.sub(r"(?m)^source\s+@PKGDATADIR@/db/(\w+)\.sql\s*$", inline, text)
     text = text.replace("@ZM_MYSQL_ENGINE@", "InnoDB")
     # Strip block comments and line comments (none of ZM's are load-bearing).
@@ -93,7 +100,7 @@ def parse_triggers() -> list:
     """Split db/triggers.sql into individual CREATE TRIGGER statements.
     The DELIMITER // dance is a mysql-client artifact; each statement is sent
     individually at runtime so inner semicolons are fine."""
-    text = (ROOT / "db" / "triggers.sql").read_text()
+    text = (FRAG_DIR / "triggers.sql").read_text()
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
     text = re.sub(r"(?m)^\s*--.*$", "", text)
     text = re.sub(r"(?im)^\s*delimiter\s.*$", "", text)
@@ -435,6 +442,14 @@ def column_type_calls(t: Table, c: Column):
 
 def emit_column(t: Table, c: Column, single_pk: str) -> str:
     portable, mysql = column_type_calls(t, c)
+    # sea-query refuses `unsigned` + `auto_increment` on Postgres (there is no
+    # unsigned serial); such ids become plain serial/bigserial there and keep
+    # their unsigned type on MySQL.
+    serial = {".tiny_unsigned()": ".tiny_integer()", ".small_unsigned()": ".small_integer()",
+              ".unsigned()": ".integer()", ".big_unsigned()": ".big_integer()"}
+    if c.autoinc and mysql is None and portable in serial:
+        mysql = portable
+        portable = serial[portable]
     chain = ""
     if mysql:
         chain += f"\n            .apply(|c| match backend {{\n                DatabaseBackend::MySql => c{mysql},\n                _ => c{portable},\n            }})"
@@ -509,18 +524,18 @@ def emit_index_fns(t: Table) -> str:
     for name, cols in t.uniques:
         colcalls = "".join(f".col(Alias::new({rs_str(c)}))" for c in cols)
         stmts.append(
-            f"        Index::create().name({rs_str(name)}).table(Alias::new({rs_str(t.name)})){colcalls}.unique().to_owned(),"
+            f"        Index::create().name(index_name(backend, {rs_str(t.name)}, {rs_str(name)})).table(Alias::new({rs_str(t.name)})){colcalls}.unique().to_owned(),"
         )
     for name, cols in t.keys:
         colcalls = "".join(f".col(Alias::new({rs_str(c)}))" for c in cols)
         stmts.append(
-            f"        Index::create().name({rs_str(name)}).table(Alias::new({rs_str(t.name)})){colcalls}.to_owned(),"
+            f"        Index::create().name(index_name(backend, {rs_str(t.name)}, {rs_str(name)})).table(Alias::new({rs_str(t.name)})){colcalls}.to_owned(),"
         )
     if not stmts:
         return ""
     body = "\n".join(stmts)
     return (
-        f"pub(super) fn {snake(t.name)}_indexes() -> Vec<IndexCreateStatement> {{\n"
+        f"pub(super) fn {snake(t.name)}_indexes(backend: DatabaseBackend) -> Vec<IndexCreateStatement> {{\n"
         f"    vec![\n{body}\n    ]\n}}"
     )
 
@@ -543,7 +558,16 @@ def emit_enum_types(tables, order) -> str:
     return "\n".join(lines)
 
 
-def value_token_to_rust(tok: str, subst: dict) -> str:
+NUMERIC_KINDS = set(INT_KINDS) | {"mediumint", "decimal", "float", "double"}
+STRING_KINDS = {"varchar", "char", "text", "tinytext", "mediumtext", "longtext"}
+
+
+def value_token_to_rust(tok: str, subst: dict, table: str = None, col: Column = None) -> str:
+    """A seed value as a sea-query expression. MySQL coerces a quoted '1'
+    into any column; Postgres binds it as text and refuses, so quoted values
+    are typed from the column they go into: numbers as numbers, booleans as
+    booleans, and enum members cast to the enum type (`as_enum` renders the
+    plain value on MySQL and CAST(... AS type) on Postgres)."""
     tok = tok.strip()
     if tok.upper() == "NULL":
         return "SimpleExpr::Keyword(Keyword::Null)"
@@ -557,7 +581,23 @@ def value_token_to_rust(tok: str, subst: dict) -> str:
             if k in s:
                 s = s.replace(k, f"{{{v}}}")
                 return f"format!({rs_str(s)}).into()"
+        if col is not None:
+            b = col.base
+            if b in NUMERIC_KINDS and re.match(r"^[+-]?\d+$", s):
+                return f"({s}_i64).into()"
+            if b in ("decimal", "float", "double") and re.match(r"^[+-]?[\d.]+(e[+-]?\d+)?$", s, re.I):
+                return f"({s}_f64).into()"
+            if b in ("boolean", "bool") and s in ("0", "1"):
+                return f"{'true' if s == '1' else 'false'}.into()"
+            if b == "enum" and table is not None:
+                return f"Expr::val({rs_str(s)}).as_enum(Alias::new({rs_str(enum_type_name(table, col.name))}))"
         return f"{rs_str(s)}.into()"
+    if col is not None and col.base in ("boolean", "bool") and tok in ("0", "1"):
+        return f"{'true' if tok == '1' else 'false'}.into()"
+    # An unquoted number into a string column (`Port` is varchar(8) and
+    # upstream writes 554): MySQL coerces, Postgres refuses an INT8 payload.
+    if col is not None and col.base in STRING_KINDS and re.match(r"^[+-]?[\d.]+(e[+-]?\d+)?$", tok, re.I):
+        return f"{rs_str(tok)}.into()"
     if re.match(r"^[+-]?\d+$", tok):
         return f"({tok}_i64).into()"
     if re.match(r"^[+-]?[\d.]+(e[+-]?\d+)?$", tok, re.I):
@@ -625,8 +665,8 @@ def emit_seeds(tables, inserts, raw_seed_sql) -> str:
         out.append(f"        s.into_table(Alias::new({rs_str(ins.table)}))")
         out.append(f"            .columns([{col_list}]);")
         for r in ins.rows:
-            vals = [v for i, v in enumerate(r) if i != drop_idx]
-            rvals = ", ".join(value_token_to_rust(v, subst) for v in vals)
+            vals = [(v, by_name.get(cn)) for i, (v, cn) in enumerate(zip(r, cols)) if i != drop_idx]
+            rvals = ", ".join(value_token_to_rust(v, subst, ins.table, c) for v, c in vals)
             out.append(f"        s.values_panic([{rvals}]);")
         out.append("        s.to_owned()")
         out.append("    });")
@@ -711,6 +751,18 @@ def emit_tables_rs(tables, order) -> str:
         "    fn apply(&mut self, f: impl FnOnce(&mut Self) -> &mut Self) -> &mut Self;",
         "}",
         "",
+        "/// Index names are per-table in MySQL but per-schema in Postgres, and",
+        "/// ZoneMinder reuses names like `Name` across tables: keep upstream's",
+        "/// exact name on MySQL (the parity job compares it) and prefix the table",
+        "/// on Postgres unless the name already starts with it.",
+        "pub(crate) fn index_name(backend: DatabaseBackend, table: &str, name: &str) -> String {",
+        "    match backend {",
+        "        DatabaseBackend::MySql => name.to_string(),",
+        "        _ if name.starts_with(table) => name.to_string(),",
+        "        _ => format!(\"{table}_{name}\"),",
+        "    }",
+        "}",
+        "",
         "impl ColumnDefApply for ColumnDef {",
         "    fn apply(&mut self, f: impl FnOnce(&mut Self) -> &mut Self) -> &mut Self {",
         "        f(self)",
@@ -736,8 +788,8 @@ def emit_tables_rs(tables, order) -> str:
     parts.append("}")
     parts.append("")
     idx_tables = [tn for tn in order if tables[tn].uniques or tables[tn].keys]
-    idx_list = ",\n        ".join(f"{snake(tn)}_indexes()" for tn in idx_tables)
-    parts.append("pub(super) fn all_indexes() -> Vec<Vec<IndexCreateStatement>> {")
+    idx_list = ",\n        ".join(f"{snake(tn)}_indexes(backend)" for tn in idx_tables)
+    parts.append("pub(super) fn all_indexes(backend: DatabaseBackend) -> Vec<Vec<IndexCreateStatement>> {")
     parts.append(f"    vec![\n        {idx_list},\n    ]")
     parts.append("}")
     return "\n".join(parts)
@@ -796,7 +848,7 @@ impl MigrationTrait for Migration {
             manager.create_table(table_fn(backend)).await?;
         }
 
-        for group in tables::all_indexes() {
+        for group in tables::all_indexes(backend) {
             for idx in group {
                 manager.create_index(idx).await?;
             }
@@ -804,7 +856,11 @@ impl MigrationTrait for Migration {
 
         let conn = manager.get_connection();
         for stmt in seeds::seed_statements() {
-            conn.execute(backend.build(&stmt)).await?;
+            let built = backend.build(&stmt);
+            let head: String = built.sql.chars().take(120).collect();
+            conn.execute(built)
+                .await
+                .map_err(|e| DbErr::Custom(format!("{e}\n  while seeding: {head}")))?;
         }
         for sql in seeds::raw_seed_sql() {
             conn.execute_unprepared(sql).await?;
@@ -853,15 +909,48 @@ impl MigrationTrait for Migration {
 '''
 
 
+def emit_mysql_triggers_module(out_path: Path) -> None:
+    """Emit just `mysql_triggers()` from FRAG_DIR/triggers.sql, for a mirrored
+    upstream migration that replaces the trigger set (zm_update-1.39.26)."""
+    triggers = parse_triggers()
+    lines = [
+        "//! The MySQL trigger set from db/triggers.sql as of the vendored",
+        "//! upstream snapshot. Generated by scripts/gen_baseline_migration.py",
+        "//! --emit-mysql-triggers - edit the generator, not this file.",
+        "",
+        "/// (trigger name, CREATE TRIGGER statement).",
+        "pub(crate) fn mysql_triggers() -> Vec<(&'static str, &'static str)> {",
+        "    vec![",
+    ]
+    for t in triggers:
+        name = re.match(r"(?is)CREATE\s+TRIGGER\s+`?(\w+)`?", t).group(1)
+        lines.append(f"        ({rs_str(name)}, r#\"{t}\"#),")
+    lines += ["    ]", "}", ""]
+    out_path.write_text("\n".join(lines))
+    subprocess.run(["rustfmt", "--edition", "2021", str(out_path)], check=True)
+    print(f"wrote {out_path} ({len(triggers)} triggers)")
+
+
 def main():
+    if "--emit-mysql-triggers" in _args:
+        out = ROOT / _args[_args.index("--emit-mysql-triggers") + 1]
+        emit_mysql_triggers_module(out)
+        return
     text = read_sql()
     stmts = split_statements(text)
     tables, order, inserts, raw_seed_sql = parse_tables_and_inserts(stmts)
     triggers = parse_triggers()
     print(f"parsed {len(tables)} tables, {len(inserts)} insert statements, {len(triggers)} triggers")
-    assert len(tables) == 54, f"expected 54 tables, got {len(tables)}"
-    # 12 active; event_insert_trigger is commented out upstream.
-    assert len(triggers) == 12, f"expected 12 triggers, got {len(triggers)}"
+    # Optional sanity pins for a known snapshot (the 1.39.17 snapshot had 54
+    # tables and 12 active triggers — event_insert_trigger is commented out
+    # upstream). The parity job is the real check; these only catch a parse
+    # that silently dropped something.
+    def expect(flag, actual, what):
+        if flag in _args:
+            want = int(_args[_args.index(flag) + 1])
+            assert actual == want, f"expected {want} {what}, got {actual}"
+    expect("--expect-tables", len(tables), "tables")
+    expect("--expect-triggers", len(triggers), "triggers")
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     (OUT_DIR / "tables.rs").write_text(emit_tables_rs(tables, order) + "\n")

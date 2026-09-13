@@ -6,6 +6,7 @@ use super::sea_orm_active_enums::AnalysisSource;
 use super::sea_orm_active_enums::Capturing;
 use super::sea_orm_active_enums::Decoding;
 use super::sea_orm_active_enums::DefaultCodec;
+use super::sea_orm_active_enums::DeviceClass;
 use super::sea_orm_active_enums::EventCloseMode;
 use super::sea_orm_active_enums::Function;
 use super::sea_orm_active_enums::Importance;
@@ -42,6 +43,8 @@ pub struct Model {
     pub model_id: Option<u32>,
     #[sea_orm(column_name = "Type")]
     pub r#type: MonitorType,
+    #[sea_orm(column_name = "DeviceClass")]
+    pub device_class: DeviceClass,
     #[sea_orm(column_name = "Function")]
     pub function: Function,
     #[sea_orm(column_name = "Capturing")]
@@ -188,6 +191,12 @@ pub struct Model {
     pub wall_clock_timestamps: i8,
     #[sea_orm(column_name = "RecordAudio")]
     pub record_audio: i8,
+    #[sea_orm(column_name = "AudioDetection")]
+    pub audio_detection: u8,
+    #[sea_orm(column_name = "AudioThreshold")]
+    pub audio_threshold: u8,
+    #[sea_orm(column_name = "AudioAlarmScore")]
+    pub audio_alarm_score: u16,
     #[sea_orm(column_name = "RecordingSource")]
     pub recording_source: RecordingSource,
     #[sea_orm(column_name = "RTSPDescribe")]
@@ -244,8 +253,6 @@ pub struct Model {
     pub event_close_mode: EventCloseMode,
     #[sea_orm(column_name = "MinSectionLength")]
     pub min_section_length: u32,
-    #[sea_orm(column_name = "FrameSkip")]
-    pub frame_skip: u16,
     #[sea_orm(column_name = "MotionFrameSkip")]
     pub motion_frame_skip: u16,
     #[sea_orm(

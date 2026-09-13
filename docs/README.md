@@ -28,6 +28,12 @@ before relying on any specific phase verdict.
 
 ---
 
+## Database
+
+| Doc | Status | Summary |
+|---|---|---|
+| [`DB_VERSIONING_PLAN.md`](DB_VERSIONING_PLAN.md) | Active | Baseline at 1.39.1, one portable SeaORM migration per upstream `zm_update-1.39.x`, version-aware stamping, `migrator up` on Postgres. Replaces the frozen-cutover model; closes #48 when entities are regenerated. |
+
 ## Active plans
 
 | Doc | Status | One-line scope |

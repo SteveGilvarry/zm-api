@@ -174,8 +174,11 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         section_length_warn: Set(req.section_length_warn),
         event_close_mode: Set(req.event_close_mode),
         min_section_length: Set(req.min_section_length),
-        frame_skip: Set(req.frame_skip),
         motion_frame_skip: Set(req.motion_frame_skip),
+        device_class: req.device_class.clone().map(Set).unwrap_or(NotSet),
+        audio_detection: req.audio_detection.map(Set).unwrap_or(NotSet),
+        audio_threshold: req.audio_threshold.map(Set).unwrap_or(NotSet),
+        audio_alarm_score: req.audio_alarm_score.map(Set).unwrap_or(NotSet),
         analysis_fps_limit: Set(req
             .analysis_fps_limit
             .map(|f| Decimal::from_f64(f).unwrap_or_default())),
@@ -549,11 +552,20 @@ pub async fn update(
     if let Some(min_section_length) = req.min_section_length {
         monitor.min_section_length = Set(min_section_length);
     }
-    if let Some(frame_skip) = req.frame_skip {
-        monitor.frame_skip = Set(frame_skip);
-    }
     if let Some(motion_frame_skip) = req.motion_frame_skip {
         monitor.motion_frame_skip = Set(motion_frame_skip);
+    }
+    if let Some(device_class) = req.device_class {
+        monitor.device_class = Set(device_class);
+    }
+    if let Some(audio_detection) = req.audio_detection {
+        monitor.audio_detection = Set(audio_detection);
+    }
+    if let Some(audio_threshold) = req.audio_threshold {
+        monitor.audio_threshold = Set(audio_threshold);
+    }
+    if let Some(audio_alarm_score) = req.audio_alarm_score {
+        monitor.audio_alarm_score = Set(audio_alarm_score);
     }
     if let Some(analysis_fps_limit) = req.analysis_fps_limit {
         monitor.analysis_fps_limit = Set(Some(

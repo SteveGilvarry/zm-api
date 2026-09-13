@@ -68,7 +68,7 @@ pub async fn update(
         am.user_id = Set(v);
     }
     if let Some(v) = &req.name {
-        am.name = Set(Some(v.clone()));
+        am.name = Set(v.clone());
     }
     if let Some(v) = &req.value {
         am.value = Set(Some(v.clone()));

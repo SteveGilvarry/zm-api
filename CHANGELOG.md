@@ -10,6 +10,24 @@ recognisable path forward.
 
 ### Added
 
+- **Fresh databases start at ZoneMinder 1.39.1 and are upgraded by one portable
+  migration per upstream `zm_update-1.39.x`** (docs/DB_VERSIONING_PLAN.md).
+  `migrator up` on an empty MySQL/MariaDB *or* Postgres produces the 1.39.1
+  create script, then every upgrade upstream has shipped since (currently
+  through 1.39.33), the way `zmupdate.pl` does for MySQL alone. Stored
+  procedures in the upstream updates (zone-coordinate conversions) are Rust
+  loops; MySQL-only trigger rewrites are skipped on Postgres and logged. The
+  `schema-parity` CI job now proves the 32 migrations reproduce upstream's
+  create script exactly; a new `postgres-schema` job proves the Postgres
+  schema has every table and column MySQL has. Existing MySQL installs are
+  unchanged: `migrator bridge` walks the raw chain to the latest vendored
+  version and records the migrations that version embodies (#48).
+
+- `Monitors.DeviceClass`, `AudioDetection`, `AudioThreshold` and
+  `AudioAlarmScore` (upstream 1.39.30/31) on the monitor create/update
+  requests and response; `Controls` gains its light and audio capability
+  columns (#48).
+
 - `Reports.CreatedBy` is read and written (#29). The column has existed since
   1.37 but was never modelled, so it was neither stored nor returned.
   Attribution comes from the authenticated token rather than the request body —
@@ -310,6 +328,11 @@ recognisable path forward.
   default, and any other table that drifts is logged by name.
 
 ### Removed
+
+- `frame_skip` from the monitor create/update requests and response:
+  upstream dropped `Monitors.FrameSkip` in 1.39.24. `motion_frame_skip`
+  remains. `User_Preferences.Name` is required on create (NOT NULL and unique
+  per user since 1.39.19) (#48).
 
 - **Config blocks nothing implemented** (#53). `[streaming.rtsp_proxy]` declared
   a port and an RTP range that nothing bound, and `[streaming.go2rtc]` a base

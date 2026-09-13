@@ -20,7 +20,7 @@ pub struct Model {
     pub units: Units,
     #[sea_orm(column_name = "NumCoords")]
     pub num_coords: u8,
-    #[sea_orm(column_name = "Coords", column_type = "custom(\"TINYTEXT\")")]
+    #[sea_orm(column_name = "Coords", column_type = "Text")]
     pub coords: String,
     #[sea_orm(column_name = "Area")]
     pub area: u32,
