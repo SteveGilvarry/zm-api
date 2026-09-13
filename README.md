@@ -188,8 +188,9 @@ own health-check loop.
 
 ### How supervision behaves
 
-- **Health checks** — every 10s; a running daemon whose CPU time has not advanced for 30s is
-  restarted (`watch_check_interval_seconds` / `watch_max_delay_seconds`; ZoneMinder's own
+- **Health checks** — every 10s; a `zmc` whose shared-memory capture heartbeat is 30s stale
+  is restarted, as is any other daemon whose CPU time has not advanced for that long
+  (`watch_check_interval_seconds` / `watch_max_delay_seconds`; ZoneMinder's own
   `ZM_WATCH_MAX_DELAY` default is 45s).
 - **Restart backoff** — exponential: `min_backoff × 2^attempt`, so the first retry waits 10s,
   then 20s, capped at `max_backoff` (15min by default). A process that stayed up longer than

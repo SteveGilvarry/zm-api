@@ -137,6 +137,13 @@ recognisable path forward.
   is legal) and *bytes* for `tinytext` (which is 255 bytes). The monitor
   requests' 26 `#[garde(skip)]` fields are bounded the same way. The 1406→400
   safety net stays for columns nobody has enumerated.
+- **The watchdog judges `zmc` by its capture heartbeat, not CPU time** (#123).
+  `zmwatch.pl` reads the heartbeat in the monitor's shared memory; the CPU
+  heuristic could not see a capture loop that was alive and spinning but no
+  longer capturing. The health loop now reads the heartbeat (from
+  `ZM_PATH_MAP`) for each running `zmc` past its startup grace, and falls back
+  to CPU time only when there is no segment to read — an unreadable segment is
+  not treated as hung, so a wrong path cannot restart every camera each tick.
 - **The hung-daemon watchdog could never fire** (#73). `check_activity` stamped
   a timestamp on every sample and `appears_hung` then asked whether that stamp
   was older than `watch_max_delay_seconds` — microseconds later it never was.
