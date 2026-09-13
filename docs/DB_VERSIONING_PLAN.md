@@ -1,6 +1,6 @@
 # Database versioning: baseline 1.39.1, mirrored upgrades, Postgres
 
-**Status: Active** — started 2026-09-13. Phases 1–3 are implemented and proven on MySQL (`schema-parity` against 1.39.33 and `upgrade-parity` from 1.38.3 both pass); phase 4 (Postgres) passes locally — `migrator up` on Postgres 16 yields the same 56 tables/729 columns as MySQL; phase 5 (entities) is implemented and awaits the full test suite. Replaces the frozen-cutover model
+**Status: Active** — started 2026-09-13. Phases 1–3 are implemented and proven on MySQL (`schema-parity` against 1.39.33 and `upgrade-parity` from 1.38.3 both pass); phase 4 (Postgres) passes locally — `migrator up` on Postgres 16 yields the same 56 tables/729 columns as MySQL; phase 5 (entities) is proven — the full test suite and the DB-backed suites pass against the 1.39.33 entities. Replaces the frozen-cutover model
 described in `src/migration/mod.rs` and issue #48.
 
 ## The requirement
@@ -103,7 +103,7 @@ nothing changes for an existing MySQL install.
 | 2 | Mirror `zm_update-1.39.18…33` into `db/legacy/`; regenerate chain; write `m_1_39_2…33` | `schema-parity` against latest create | proven (MySQL) |
 | 3 | Version-aware stamping in `bridge` and `stamp.rs`; migrator records `ZM_DYN_DB_VERSION` | `upgrade-parity` matrix; unit tests on the stamp set for a given version | proven (MySQL) |
 | 4 | Backend-neutral `stamp.rs`; Postgres CI job | `postgres-schema` | proven locally (`postgres-schema.sh`: 729 columns match) |
-| 5 | Regenerate entities at 1.39.33; fix code for changed columns (`FrameSkip` gone, Janus fields non-null, new `Controls`/`Monitors` columns) | `cargo test`, DB suites | implemented; full test suite pending |
+| 5 | Regenerate entities at 1.39.33; fix code for changed columns (`FrameSkip` gone, Janus fields non-null, new `Controls`/`Monitors` columns) | `cargo test`, DB suites | proven |
 
 Phase 5 is what closes #48. Phases 1–4 are the demonstration.
 
