@@ -14,6 +14,7 @@ use tokio::sync::{broadcast, mpsc, watch, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
+use super::command::{on_demand_detail, CommandBroker, CommandError};
 use super::media::{
     extract_profile_level_id, h264_nal_type, h265_nal_type, AudioCodec, AudioPacket, VideoCodec,
     VideoPacket,
@@ -77,6 +78,33 @@ impl ControlReply {
 
 /// Default broadcast channel capacity for source packets
 const DEFAULT_SOURCE_CAPACITY: usize = 100;
+
+/// How long an on-demand command waits for a cold reader to connect before
+/// giving up (capped by the command's own timeout).
+const COMMAND_CONNECT_WAIT: Duration = Duration::from_secs(5);
+
+/// Lives for one stream-socket connection inside the reader task. Dropping it,
+/// on disconnect or task abort, withdraws the connection's control handle and
+/// fails the commands still waiting on it.
+struct ConnectionGuard {
+    conn_id: u64,
+    control_tx: watch::Sender<Option<(u64, ControlReply)>>,
+    commands: Arc<CommandBroker>,
+}
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        let conn_id = self.conn_id;
+        self.control_tx.send_if_modified(|current| match current {
+            Some((id, _)) if *id == conn_id => {
+                *current = None;
+                true
+            }
+            _ => false,
+        });
+        self.commands.on_disconnect(conn_id);
+    }
+}
 
 /// Health state of the stream-socket reader task.
 ///
@@ -253,6 +281,10 @@ pub struct MonitorSource {
     /// Updated each time an IDR is seen by the reader task.
     keyframe_cache_tx: watch::Sender<Option<CachedKeyframe>>,
     keyframe_cache_rx: watch::Receiver<Option<CachedKeyframe>>,
+    /// The live connection's control handle and broker connection id; `None`
+    /// while disconnected. On-demand commands are sent through it.
+    control_tx: watch::Sender<Option<(u64, ControlReply)>>,
+    control_rx: watch::Receiver<Option<(u64, ControlReply)>>,
 }
 
 impl MonitorSource {
@@ -263,6 +295,7 @@ impl MonitorSource {
         let (reader_health_tx, reader_health_rx) = watch::channel(ReaderHealth::Idle);
         let (stream_info_tx, stream_info_rx) = watch::channel(None);
         let (keyframe_cache_tx, keyframe_cache_rx) = watch::channel(None);
+        let (control_tx, control_rx) = watch::channel(None);
 
         Self {
             monitor_id,
@@ -278,6 +311,8 @@ impl MonitorSource {
             stream_info_rx,
             keyframe_cache_tx,
             keyframe_cache_rx,
+            control_tx,
+            control_rx,
         }
     }
 
@@ -439,6 +474,8 @@ pub struct SourceRouter {
     /// Most-recent WebRTC startup timing per monitor, recorded by the signaling
     /// handler and surfaced on `/live/{id}/stats` to confirm cold-vs-warm.
     webrtc_startup: DashMap<u32, WebRtcStartupTiming>,
+    /// Correlates on-demand worker commands with their results.
+    commands: Arc<CommandBroker>,
 }
 
 /// Server-side WebRTC startup profile for a monitor's most recent session.
@@ -478,6 +515,7 @@ impl SourceRouter {
             config,
             event_sink: None,
             webrtc_startup: DashMap::new(),
+            commands: Arc::new(CommandBroker::new()),
         }
     }
 
@@ -594,6 +632,8 @@ impl SourceRouter {
         let stream_info_tx = source.stream_info_tx.clone();
         let keyframe_cache_tx = source.keyframe_cache_tx.clone();
         let event_sink = self.event_sink.clone();
+        let control_tx = source.control_tx.clone();
+        let commands = self.commands.clone();
 
         let handle = tokio::spawn(async move {
             info!(
@@ -645,6 +685,17 @@ impl SourceRouter {
                 let (cmd_tx, mut cmd_rx) = mpsc::channel::<Vec<u8>>(8);
                 let control_reply = ControlReply::new(cmd_tx.clone());
                 let _cmd_keepalive = cmd_tx; // hold the channel open for this connection
+
+                // Publish this connection for on-demand commands. The guard
+                // withdraws it and fails its pending commands when the
+                // connection ends, including when the task is aborted.
+                let conn_id = commands.connection_id();
+                let _ = control_tx.send(Some((conn_id, control_reply.clone())));
+                let _conn_guard = ConnectionGuard {
+                    conn_id,
+                    control_tx: control_tx.clone(),
+                    commands: commands.clone(),
+                };
 
                 // Topology of this connection. zmc sends every stream's HELLO
                 // before any media, so the first media event confirms the
@@ -724,6 +775,13 @@ impl SourceRouter {
                             // No receivers is fine — nobody listening.
                             let _ = audio_tx.send(packet);
                         }
+                        Ok(SocketEvent::MonitorEvent(event)) if on_demand_detail(&event).is_some() => {
+                            // An on-demand command result. It answers a request
+                            // (ours or another client's) and is not activity, so
+                            // it never reaches ingest: a "describe now" must not
+                            // open or annotate an Event row.
+                            commands.on_event(monitor_id, &event);
+                        }
                         Ok(SocketEvent::MonitorEvent(event)) => {
                             // Forward to DB ingest. `try_send` keeps the media
                             // reader non-blocking: if ingest is backed up or
@@ -747,6 +805,7 @@ impl SourceRouter {
                                 "Monitor {}: command response request_id={} ok={} {}",
                                 monitor_id, resp.request_id, resp.ok, resp.message
                             );
+                            commands.on_response(conn_id, &resp);
                         }
                         Err(SourceError::Timeout { .. }) => {
                             // Expected when no media is flowing (idle camera);
@@ -932,6 +991,36 @@ impl SourceRouter {
             return false;
         }
         true
+    }
+
+    /// Send an on-demand command (`snapshot_now`, `describe_now`) to a
+    /// monitor's worker and wait up to `timeout` for its result EVENT's JSON
+    /// detail. Starts the monitor's reader if it isn't running, and reuses its
+    /// connection when it is.
+    pub async fn send_command(
+        &self,
+        monitor_id: u32,
+        command: serde_json::Value,
+        timeout: Duration,
+    ) -> Result<serde_json::Value, CommandError> {
+        if !self.ensure_warm(monitor_id).await {
+            return Err(CommandError::NotConnected(monitor_id));
+        }
+        let source = self
+            .get_existing_source(monitor_id)
+            .ok_or(CommandError::NotConnected(monitor_id))?;
+        let mut control = source.control_rx.clone();
+        let wait = timeout.min(COMMAND_CONNECT_WAIT);
+        let (conn_id, reply) =
+            match tokio::time::timeout(wait, control.wait_for(Option::is_some)).await {
+                Ok(Ok(current)) => current.clone().expect("wait_for matched Some"),
+                _ => return Err(CommandError::NotConnected(monitor_id)),
+            };
+        self.commands
+            .request(monitor_id, conn_id, command, timeout, |json| {
+                reply.send_command_json(json)
+            })
+            .await
     }
 
     /// Spawn the warm-keeper: every `interval` it re-ensures each monitor in
@@ -1571,6 +1660,178 @@ mod tests {
 
         let _ = router.stop_reader(20).await;
         server.abort();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// How a scripted fake worker answers the first command it reads.
+    #[derive(Clone, Copy)]
+    enum WorkerAnswer {
+        /// Result EVENT first, then the Response (the order zm-next often uses).
+        ResultThenResponse,
+        /// Close the connection without answering (worker restart).
+        Hangup,
+    }
+
+    /// A fake zm-next worker: sends a video HELLO, reads one `0x11 Command`,
+    /// and answers it as `answer` says. Also emits a routine detection EVENT
+    /// after the result, so tests can check what reaches ingest.
+    fn spawn_fake_worker(
+        path: std::path::PathBuf,
+        answer: WorkerAnswer,
+    ) -> tokio::task::JoinHandle<()> {
+        use super::super::protocol::{
+            parse_header, EVENT_DETECTION, EVENT_SNAPSHOT_SAVED, HEADER_SIZE,
+        };
+        use tokio::io::AsyncReadExt;
+
+        let listener = tokio::net::UnixListener::bind(&path).expect("bind fake worker");
+        tokio::spawn(async move {
+            let Ok((mut stream, _)) = listener.accept().await else {
+                return;
+            };
+            let hello = encode_message(
+                0x01,
+                0,
+                0,
+                0,
+                0,
+                0,
+                &hello_payload(h264_codec_id(), &h264_extradata()),
+            );
+            stream.write_all(&hello).await.unwrap();
+
+            let mut head = [0u8; HEADER_SIZE];
+            stream.read_exact(&mut head).await.unwrap();
+            let header = parse_header(&head).unwrap();
+            assert_eq!(header.msg_type, 0x11);
+            let mut body = vec![0u8; header.payload_len];
+            stream.read_exact(&mut body).await.unwrap();
+            let cmd: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            let request_id = cmd["request_id"].as_u64().unwrap();
+
+            match answer {
+                WorkerAnswer::Hangup => {}
+                WorkerAnswer::ResultThenResponse => {
+                    let detail = serde_json::json!({
+                        "event": "EventSnapshot", "path": "/snaps/a.jpg",
+                        "request_id": request_id, "on_demand": true, "ok": true,
+                    });
+                    let result = event_payload(
+                        EVENT_SNAPSHOT_SAVED,
+                        &tlv(0x10, detail.to_string().as_bytes()),
+                    );
+                    stream
+                        .write_all(&encode_message(0x06, 2, 0, 0, 0, 0, &result))
+                        .await
+                        .unwrap();
+                    let resp = serde_json::json!({
+                        "request_id": request_id, "ok": true, "message": "dispatched", "data": "",
+                    });
+                    stream
+                        .write_all(&encode_message(
+                            0x12,
+                            2,
+                            0,
+                            0,
+                            0,
+                            0,
+                            resp.to_string().as_bytes(),
+                        ))
+                        .await
+                        .unwrap();
+                    let detection =
+                        event_payload(EVENT_DETECTION, &tlv(0x10, br#"{"objects":[]}"#));
+                    stream
+                        .write_all(&encode_message(0x06, 2, 0, 1, 0, 0, &detection))
+                        .await
+                        .unwrap();
+                    // Hold the connection until the client leaves.
+                    let mut sink = [0u8; 64];
+                    while let Ok(n) = stream.read(&mut sink).await {
+                        if n == 0 {
+                            break;
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    /// A command sent through the router reaches the worker on the monitor's
+    /// connection and resolves on its result EVENT, which arrives before the
+    /// Response. The result is kept away from ingest; routine events are not.
+    #[tokio::test]
+    async fn send_command_resolves_on_result_and_skips_ingest() {
+        use super::super::protocol::EVENT_DETECTION;
+
+        let dir = test_sock_dir("router_command");
+        let server =
+            spawn_fake_worker(dir.join("stream_30.sock"), WorkerAnswer::ResultThenResponse);
+
+        let mut router = SourceRouter::from_zoneminder_config(test_zm_config(&dir));
+        let (ev_tx, mut ev_rx) = mpsc::channel(8);
+        router.set_event_sink(ev_tx);
+
+        // No reader is running yet: send_command must start one.
+        let detail = router
+            .send_command(
+                30,
+                serde_json::json!({"cmd": "snapshot_now"}),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("command resolves");
+        assert_eq!(detail["path"], "/snaps/a.jpg");
+
+        // Ingest sees the routine detection but never the on-demand result.
+        let env = tokio::time::timeout(Duration::from_secs(5), ev_rx.recv())
+            .await
+            .expect("event within 5s")
+            .expect("envelope");
+        assert_eq!(env.event.code, EVENT_DETECTION);
+
+        let _ = router.stop_reader(30).await;
+        server.abort();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn send_command_fails_when_worker_drops_the_connection() {
+        let dir = test_sock_dir("router_command_hangup");
+        let server = spawn_fake_worker(dir.join("stream_31.sock"), WorkerAnswer::Hangup);
+        let router = SourceRouter::from_zoneminder_config(test_zm_config(&dir));
+
+        let started = std::time::Instant::now();
+        let outcome = router
+            .send_command(
+                31,
+                serde_json::json!({"cmd": "describe_now"}),
+                Duration::from_secs(30),
+            )
+            .await;
+        assert_eq!(outcome, Err(CommandError::Disconnected));
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "a dropped connection must fail fast, not wait out the timeout"
+        );
+
+        let _ = router.stop_reader(31).await;
+        server.abort();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn send_command_without_a_socket_fails_fast() {
+        let dir = test_sock_dir("router_command_nosock");
+        let router = SourceRouter::from_zoneminder_config(test_zm_config(&dir));
+        let outcome = router
+            .send_command(
+                32,
+                serde_json::json!({"cmd": "snapshot_now"}),
+                Duration::from_secs(30),
+            )
+            .await;
+        assert_eq!(outcome, Err(CommandError::NotConnected(32)));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
