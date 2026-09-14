@@ -19,8 +19,10 @@ use super::media::{
     extract_profile_level_id, h264_nal_type, h265_nal_type, AudioCodec, AudioPacket, VideoCodec,
     VideoPacket,
 };
+use super::protocol::WorkerHello;
 use super::protocol::{self, MonitorEvent};
 use super::stream_socket::{stream_socket_path, SocketEvent, SourceError, StreamSocketReader};
+use super::worker_status::{StatusChange, WorkerStatus};
 use crate::configure::streaming::ZoneMinderConfig;
 
 /// A monitor EVENT decoded off a stream socket, tagged with its monitor, ready
@@ -88,8 +90,14 @@ const COMMAND_CONNECT_WAIT: Duration = Duration::from_secs(5);
 /// fails the commands still waiting on it.
 struct ConnectionGuard {
     conn_id: u64,
+    monitor_id: u32,
     control_tx: watch::Sender<Option<(u64, ControlReply)>>,
     commands: Arc<CommandBroker>,
+    hello_tx: watch::Sender<Option<(u64, WorkerHello)>>,
+    /// A hello arrived on this connection, so it was a zm-next worker.
+    hello_seen: Arc<std::sync::atomic::AtomicBool>,
+    worker_status: Arc<DashMap<u32, WorkerStatus>>,
+    status_tx: broadcast::Sender<StatusChange>,
 }
 
 impl Drop for ConnectionGuard {
@@ -102,6 +110,21 @@ impl Drop for ConnectionGuard {
             }
             _ => false,
         });
+        self.hello_tx.send_if_modified(|current| match current {
+            Some((id, _)) if *id == conn_id => {
+                *current = None;
+                true
+            }
+            _ => false,
+        });
+        if self.hello_seen.load(Ordering::Relaxed) {
+            let change = self
+                .worker_status
+                .entry(self.monitor_id)
+                .or_default()
+                .apply_disconnect(self.monitor_id);
+            let _ = self.status_tx.send(change);
+        }
         self.commands.on_disconnect(conn_id);
     }
 }
@@ -285,6 +308,10 @@ pub struct MonitorSource {
     /// while disconnected. On-demand commands are sent through it.
     control_tx: watch::Sender<Option<(u64, ControlReply)>>,
     control_rx: watch::Receiver<Option<(u64, ControlReply)>>,
+    /// The live connection's WorkerHello and broker connection id; `None`
+    /// while disconnected or for a producer that sends none (zmc, older zm-next).
+    hello_tx: watch::Sender<Option<(u64, WorkerHello)>>,
+    hello_rx: watch::Receiver<Option<(u64, WorkerHello)>>,
 }
 
 impl MonitorSource {
@@ -296,6 +323,7 @@ impl MonitorSource {
         let (stream_info_tx, stream_info_rx) = watch::channel(None);
         let (keyframe_cache_tx, keyframe_cache_rx) = watch::channel(None);
         let (control_tx, control_rx) = watch::channel(None);
+        let (hello_tx, hello_rx) = watch::channel(None);
 
         Self {
             monitor_id,
@@ -313,6 +341,8 @@ impl MonitorSource {
             keyframe_cache_rx,
             control_tx,
             control_rx,
+            hello_tx,
+            hello_rx,
         }
     }
 
@@ -476,6 +506,10 @@ pub struct SourceRouter {
     webrtc_startup: DashMap<u32, WebRtcStartupTiming>,
     /// Correlates on-demand worker commands with their results.
     commands: Arc<CommandBroker>,
+    /// Status folded from each zm-next worker's hello and status EVENTs.
+    worker_status: Arc<DashMap<u32, WorkerStatus>>,
+    /// Every status change, for SSE subscribers.
+    status_tx: broadcast::Sender<StatusChange>,
 }
 
 /// Server-side WebRTC startup profile for a monitor's most recent session.
@@ -516,6 +550,8 @@ impl SourceRouter {
             event_sink: None,
             webrtc_startup: DashMap::new(),
             commands: Arc::new(CommandBroker::new()),
+            worker_status: Arc::new(DashMap::new()),
+            status_tx: broadcast::channel(256).0,
         }
     }
 
@@ -634,6 +670,9 @@ impl SourceRouter {
         let event_sink = self.event_sink.clone();
         let control_tx = source.control_tx.clone();
         let commands = self.commands.clone();
+        let hello_tx = source.hello_tx.clone();
+        let worker_status = self.worker_status.clone();
+        let status_tx = self.status_tx.clone();
 
         let handle = tokio::spawn(async move {
             info!(
@@ -691,10 +730,16 @@ impl SourceRouter {
                 // connection ends, including when the task is aborted.
                 let conn_id = commands.connection_id();
                 let _ = control_tx.send(Some((conn_id, control_reply.clone())));
+                let hello_seen = Arc::new(std::sync::atomic::AtomicBool::new(false));
                 let _conn_guard = ConnectionGuard {
                     conn_id,
+                    monitor_id,
                     control_tx: control_tx.clone(),
                     commands: commands.clone(),
+                    hello_tx: hello_tx.clone(),
+                    hello_seen: hello_seen.clone(),
+                    worker_status: worker_status.clone(),
+                    status_tx: status_tx.clone(),
                 };
 
                 // Topology of this connection. zmc sends every stream's HELLO
@@ -775,6 +820,19 @@ impl SourceRouter {
                             // No receivers is fine — nobody listening.
                             let _ = audio_tx.send(packet);
                         }
+                        Ok(SocketEvent::WorkerHello(hello)) => {
+                            info!(
+                                "Monitor {}: zm-next worker hello (state {}, control protocol {})",
+                                monitor_id, hello.state, hello.protocol.control
+                            );
+                            hello_seen.store(true, Ordering::Relaxed);
+                            let change = worker_status
+                                .entry(monitor_id)
+                                .or_default()
+                                .apply_hello(monitor_id, &hello);
+                            let _ = status_tx.send(change);
+                            let _ = hello_tx.send(Some((conn_id, hello)));
+                        }
                         Ok(SocketEvent::MonitorEvent(event)) if on_demand_detail(&event).is_some() => {
                             // An on-demand command result. It answers a request
                             // (ours or another client's) and is not activity, so
@@ -783,6 +841,15 @@ impl SourceRouter {
                             commands.on_event(monitor_id, &event);
                         }
                         Ok(SocketEvent::MonitorEvent(event)) => {
+                            // Worker status for the API and SSE. zmc's lifecycle
+                            // codes count too: the same health, one model.
+                            if let Some(change) = worker_status
+                                .entry(monitor_id)
+                                .or_default()
+                                .apply(monitor_id, &event)
+                            {
+                                let _ = status_tx.send(change);
+                            }
                             // Forward to DB ingest. `try_send` keeps the media
                             // reader non-blocking: if ingest is backed up or
                             // absent we drop the event rather than stall video.
@@ -1021,6 +1088,69 @@ impl SourceRouter {
                 reply.send_command_json(json)
             })
             .await
+    }
+
+    /// Send a control command (`describe_plugins`, `configure`) whose result is
+    /// the worker's Response. Needs a connection whose hello says it may control.
+    pub async fn send_control(
+        &self,
+        monitor_id: u32,
+        command: serde_json::Value,
+        timeout: Duration,
+    ) -> Result<serde_json::Value, CommandError> {
+        if !self.ensure_warm(monitor_id).await {
+            return Err(CommandError::NotConnected(monitor_id));
+        }
+        let source = self
+            .get_existing_source(monitor_id)
+            .ok_or(CommandError::NotConnected(monitor_id))?;
+        let mut control = source.control_rx.clone();
+        let wait = timeout.min(COMMAND_CONNECT_WAIT);
+        let (conn_id, reply) =
+            match tokio::time::timeout(wait, control.wait_for(Option::is_some)).await {
+                Ok(Ok(current)) => current.clone().expect("wait_for matched Some"),
+                _ => return Err(CommandError::NotConnected(monitor_id)),
+            };
+        self.commands
+            .request_response(monitor_id, conn_id, command, timeout, |json| {
+                reply.send_command_json(json)
+            })
+            .await
+    }
+
+    /// The monitor's current WorkerHello, if its connection sent one.
+    pub fn worker_hello(&self, monitor_id: u32) -> Option<WorkerHello> {
+        let source = self.get_existing_source(monitor_id)?;
+        let hello = source.hello_rx.borrow().as_ref().map(|(_, h)| h.clone());
+        hello
+    }
+
+    /// Wait up to `timeout` for the monitor's connection to send a hello.
+    /// `None` means an older worker (or zmc) that never will.
+    pub async fn wait_for_worker_hello(
+        &self,
+        monitor_id: u32,
+        timeout: Duration,
+    ) -> Option<WorkerHello> {
+        if !self.ensure_warm(monitor_id).await {
+            return None;
+        }
+        let mut rx = self.get_existing_source(monitor_id)?.hello_rx.clone();
+        let hello = match tokio::time::timeout(timeout, rx.wait_for(Option::is_some)).await {
+            Ok(Ok(current)) => current.as_ref().map(|(_, h)| h.clone()),
+            _ => None,
+        };
+        hello
+    }
+
+    /// What is known about the monitor's worker, from hellos and status EVENTs.
+    pub fn worker_status(&self, monitor_id: u32) -> Option<WorkerStatus> {
+        self.worker_status.get(&monitor_id).map(|s| s.clone())
+    }
+
+    /// Every worker status change, as it happens.
+    pub fn subscribe_worker_status(&self) -> broadcast::Receiver<StatusChange> {
+        self.status_tx.subscribe()
     }
 
     /// Spawn the warm-keeper: every `interval` it re-ensures each monitor in
@@ -1832,6 +1962,146 @@ mod tests {
             )
             .await;
         assert_eq!(outcome, Err(CommandError::NotConnected(32)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A Phase 1 zm-next worker: hello, a connection_failed status (detail in
+    /// the message TLV), then answers one control command with a Response.
+    #[tokio::test]
+    async fn worker_hello_status_and_control_commands_flow_through_the_router() {
+        use super::super::protocol::{parse_header, EVENT_CONNECTION_FAILED, HEADER_SIZE};
+        use super::super::worker_status::StreamState;
+        use tokio::io::AsyncReadExt;
+
+        let dir = test_sock_dir("router_hello");
+        let listener = tokio::net::UnixListener::bind(dir.join("stream_40.sock")).unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let hello = serde_json::json!({
+                "protocol": {"canonical": 1, "control": 1},
+                "zm_next": {"version": "0.1.0", "commit": "abc1234"},
+                "monitor_id": 40, "state": "running", "pipeline_hash": "sha256:00",
+                "plugins": [{"kind": "tracker", "version": "1.2.0", "schema_sha256": "77e0"}],
+                "control_peer": true
+            });
+            stream
+                .write_all(&encode_message(
+                    0x14,
+                    2,
+                    0,
+                    0,
+                    0,
+                    0,
+                    hello.to_string().as_bytes(),
+                ))
+                .await
+                .unwrap();
+            let failed = event_payload(
+                EVENT_CONNECTION_FAILED,
+                &tlv(
+                    0x02,
+                    br#"{"stream_id":0,"error":"401 Unauthorized","retry_in_sec":60}"#,
+                ),
+            );
+            stream
+                .write_all(&encode_message(0x06, 2, 0, 0, 0, 0, &failed))
+                .await
+                .unwrap();
+
+            let mut head = [0u8; HEADER_SIZE];
+            stream.read_exact(&mut head).await.unwrap();
+            let header = parse_header(&head).unwrap();
+            let mut body = vec![0u8; header.payload_len];
+            stream.read_exact(&mut body).await.unwrap();
+            let cmd: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            assert_eq!(cmd["cmd"], "describe_plugins");
+            let data =
+                serde_json::json!({"tracker": {"version": "1.2.0", "schema": {"type": "object"}}});
+            let resp = serde_json::json!({
+                "request_id": cmd["request_id"], "ok": true, "message": "",
+                // zm-core's current encoding: data as a JSON string.
+                "data": data.to_string()
+            });
+            stream
+                .write_all(&encode_message(
+                    0x12,
+                    2,
+                    0,
+                    0,
+                    0,
+                    0,
+                    resp.to_string().as_bytes(),
+                ))
+                .await
+                .unwrap();
+            let mut sink = [0u8; 64];
+            while let Ok(n) = stream.read(&mut sink).await {
+                if n == 0 {
+                    break;
+                }
+            }
+        });
+
+        let router = SourceRouter::from_zoneminder_config(test_zm_config(&dir));
+        let mut changes = router.subscribe_worker_status();
+        let hello = router
+            .wait_for_worker_hello(40, Duration::from_secs(5))
+            .await
+            .expect("hello");
+        assert_eq!(hello.protocol.control, 1);
+        assert_eq!(
+            router.worker_hello(40).unwrap().pipeline_hash.as_deref(),
+            Some("sha256:00")
+        );
+
+        let data = router
+            .send_control(
+                40,
+                serde_json::json!({"cmd": "describe_plugins", "kinds": ["tracker"]}),
+                Duration::from_secs(5),
+            )
+            .await
+            .expect("describe_plugins");
+        assert_eq!(data["tracker"]["schema"]["type"], "object");
+
+        let mut kinds = Vec::new();
+        while kinds.len() < 2 {
+            let c = tokio::time::timeout(Duration::from_secs(5), changes.recv())
+                .await
+                .expect("status change")
+                .unwrap();
+            kinds.push(c.kind);
+        }
+        assert_eq!(kinds, ["hello", "connection_failed"]);
+        let status = router.worker_status(40).expect("status");
+        assert_eq!(status.state.as_deref(), Some("running"));
+        assert_eq!(status.streams[&0].state, StreamState::ConnectionFailed);
+        assert_eq!(status.streams[&0].retry_in_sec, Some(60.0));
+
+        // The worker goes away: state unknown, broadcast as a disconnect.
+        server.abort();
+        let _ = router.stop_reader(40).await;
+        let c = tokio::time::timeout(Duration::from_secs(5), changes.recv())
+            .await
+            .expect("disconnect change")
+            .unwrap();
+        assert_eq!(c.kind, "disconnected");
+        assert_eq!(router.worker_status(40).unwrap().state, None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// zmc and pre-Phase-1 zm-next send no hello.
+    #[tokio::test]
+    async fn no_hello_from_an_older_producer() {
+        let dir = test_sock_dir("router_nohello");
+        let server = spawn_fake_zmc(dir.join("stream_41.sock"), connect_script(false), false);
+        let router = SourceRouter::from_zoneminder_config(test_zm_config(&dir));
+        assert!(router
+            .wait_for_worker_hello(41, Duration::from_millis(300))
+            .await
+            .is_none());
+        let _ = router.stop_reader(41).await;
+        server.abort();
         let _ = std::fs::remove_dir_all(&dir);
     }
 

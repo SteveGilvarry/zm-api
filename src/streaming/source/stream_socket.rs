@@ -94,6 +94,8 @@ pub enum SocketEvent {
     MonitorEvent(MonitorEvent),
     /// A zm-next worker's `0x12 Response` to a command this connection sent.
     CommandResponse(protocol::CommandResponse),
+    /// A zm-next worker's hello (`0x14`), sent first on a new connection.
+    WorkerHello(protocol::WorkerHello),
 }
 
 /// Turn a connect failure into the most actionable variant we can. EACCES is
@@ -284,6 +286,16 @@ impl StreamSocketReader {
         // Command replies are a zm-next control extension, not a media type, so
         // they are matched on the raw byte. Malformed ones are skipped like a
         // malformed EVENT.
+        if header.msg_type == protocol::MSG_TYPE_WORKER_HELLO {
+            match protocol::parse_worker_hello(&payload) {
+                Some(hello) => self.pending.push_back(SocketEvent::WorkerHello(hello)),
+                None => debug!(
+                    "Monitor {}: skipping malformed worker hello",
+                    self.monitor_id
+                ),
+            }
+            return Ok(());
+        }
         if header.msg_type == protocol::MSG_TYPE_RESPONSE {
             match protocol::parse_command_response(&payload) {
                 Some(resp) => self.pending.push_back(SocketEvent::CommandResponse(resp)),
