@@ -48,8 +48,6 @@ install -D -m 0644 "${REPO_ROOT}/packaging/man/zm-api.env.5"      "${MAN_DIR}/ma
 
 echo "Installing systemd unit..."
 install -D -m 0644 "${REPO_ROOT}/packaging/systemd/zm-api.service" "${UNIT_DIR}/zm-api.service"
-install -D -m 0644 "${REPO_ROOT}/packaging/systemd/zm-next@.service" "${UNIT_DIR}/zm-next@.service"
-install -D -m 0644 "${REPO_ROOT}/packaging/systemd/50-zm-api-zm-next.rules" /usr/share/polkit-1/rules.d/50-zm-api-zm-next.rules
 
 # Config files are never overwritten: local edits outlive a reinstall. base.toml
 # is the exception — it is the packaged defaults layer and is meant to be

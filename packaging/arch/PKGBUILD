@@ -46,8 +46,6 @@ package() {
   install -Dm644 settings/prod.toml                    "${pkgdir}/etc/${_appname}/prod.toml"
   install -Dm644 packaging/systemd/zm-api.env          "${pkgdir}/etc/${_appname}/zm-api.env"
   install -Dm644 packaging/systemd/zm-api.service      "${pkgdir}/usr/lib/systemd/system/${_appname}.service"
-  install -Dm644 "packaging/systemd/zm-next@.service"  "${pkgdir}/usr/lib/systemd/system/zm-next@.service"
-  install -Dm644 packaging/systemd/50-zm-api-zm-next.rules "${pkgdir}/usr/share/polkit-1/rules.d/50-zm-api-zm-next.rules"
   install -Dm644 packaging/man/zm-api.8                 "${pkgdir}/usr/share/man/man8/${_appname}.8"
   install -Dm644 packaging/man/zm-api-takeover.8       "${pkgdir}/usr/share/man/man8/${_appname}-takeover.8"
   install -Dm644 packaging/man/zm-api-db.8             "${pkgdir}/usr/share/man/man8/${_appname}-db.8"

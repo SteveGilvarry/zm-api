@@ -144,12 +144,6 @@ pub struct WorkerConfig {
     /// `[daemon].bin_path` and the usual install directories. Its directory
     /// must hold the `plugins/` it loads.
     pub binary: String,
-    /// `auto` (a `zm-next@.service` unit when systemd runs and the template
-    /// is installed, else its own session), `systemd` or `session`.
-    pub launcher: String,
-    /// Where zm-api keeps each worker's pipeline, env and pid files. Must
-    /// survive zm-api restarts (the packaged unit preserves /run/zm-api).
-    pub runtime_dir: PathBuf,
 }
 
 /// Inputs to the pipeline-JSON generator.
@@ -203,8 +197,6 @@ impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
             binary: "zm-core".to_string(),
-            launcher: "auto".to_string(),
-            runtime_dir: PathBuf::from("/run/zm-api/zm-next"),
         }
     }
 }

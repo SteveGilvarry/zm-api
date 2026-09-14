@@ -225,8 +225,6 @@ assets = [
   ["settings/prod.toml", "etc/zm-api/prod.toml", "644"],
   ["packaging/systemd/zm-api.env", "etc/zm-api/zm-api.env", "644"],
   ["packaging/systemd/zm-api.service", "lib/systemd/system/zm-api.service", "644"],
-  ["packaging/systemd/zm-next@.service", "lib/systemd/system/zm-next@.service", "644"],
-  ["packaging/systemd/50-zm-api-zm-next.rules", "usr/share/polkit-1/rules.d/50-zm-api-zm-next.rules", "644"],
   # NOTE: do not ship `static/` wholesale — it holds the dev JWT keys
   # (static/key/*.pem). Packaged installs generate their own keys in
   # /var/lib/zm-api/keys. If real web assets are added later, ship a scoped

@@ -107,16 +107,11 @@ instead of `zmc`. zm-api doesn't assume zm-next is installed:
 | --- | --- | --- |
 | `zmnext.enabled` | `"auto"` | `"auto"` turns zm-next on when ZoneMinder's schema has the `Monitors.UseZmNext` column; `true` or `false` overrides that |
 | `zmnext.worker.binary` | `zm-core` | The worker executable: an absolute path, or a name looked up like the other daemons. Its directory must contain the `plugins/` it loads |
-| `zmnext.worker.launcher` | `auto` | `systemd` runs each worker as `zm-next@<monitor id>.service`; `session` runs it in its own session with a pidfile; `auto` picks systemd when the unit template is installed |
-| `zmnext.worker.runtime_dir` | `/run/zm-api/zm-next` | Each worker's pipeline (mode 0600, it holds camera credentials), unit environment and pid files |
 
-Workers are not part of `zm-api.service`, so restarting or upgrading zm-api
-leaves them recording; when zm-api comes back it adopts every worker whose
-pipeline is unchanged and replaces the rest. The package installs the
-`zm-next@.service` template and a polkit rule
-(`/usr/share/polkit-1/rules.d/50-zm-api-zm-next.rules`) that lets the
-`zoneminder` user start, stop and restart those units and no others. Stopping
-all daemons explicitly (the API or `zmpkg.pl stop`) still stops the workers.
+zm-api supervises workers the way it supervises `zmc`, and the way zmdc.pl
+supervises `zma`: they are its children, receive their pipeline on stdin (so
+camera credentials never touch disk), and stop when zm-api stops. Switching a
+monitor to zm-next is refused when the worker binary isn't there.
 
 A worker that exits within 10 seconds with the same startup error three times
 in a row (a bad command line, a pipeline that won't load) isn't restarted

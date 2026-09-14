@@ -91,23 +91,6 @@ pub struct ManagedProcess {
     /// Set when supervision gave up on this process, with the reason. Neither
     /// the health check nor reconcile restarts it; an explicit start clears it.
     pub gave_up: Option<String>,
-    /// Set for a zm-next worker that outlives zm-api (see
-    /// `daemon::zmnext_worker`); `None` for an ordinary child.
-    pub detached: Option<Detached>,
-    /// Start time of a detached process's pid, so a reused pid isn't taken
-    /// for it.
-    pub detached_start_time: Option<u64>,
-}
-
-/// How a detached zm-next worker is held.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Detached {
-    /// A `zm-next@<id>.service` instance.
-    Unit,
-    /// Our child, in its own session (so it survives zm-api's exit).
-    Session,
-    /// Found running when zm-api started; not our child.
-    Pid,
 }
 
 impl ManagedProcess {
@@ -141,8 +124,6 @@ impl ManagedProcess {
             stdin_payload: None,
             exit_history: Default::default(),
             gave_up: None,
-            detached: None,
-            detached_start_time: None,
         }
     }
 
@@ -180,26 +161,12 @@ impl ManagedProcess {
     pub fn set_child(&mut self, child: Child) {
         self.pid = child.id();
         self.child = Some(child);
-        self.detached = None;
-        self.detached_start_time = None;
         self.set_state(ProcessState::Running);
         self.started_at = Some(Instant::now());
         // A spawn is always intentional, so supervision is re-armed here.
         // `stop_daemon` clears the flag to keep the health loop from
         // resurrecting a deliberate stop; without this a later start
         // (monitor restart, reconcile) stayed unsupervised (#78).
-        self.auto_restart = true;
-    }
-
-    /// Record a running detached worker that isn't our child (a unit, or one
-    /// adopted at startup): supervised by pid.
-    pub fn set_detached(&mut self, kind: Detached, pid: u32, start_time: Option<u64>) {
-        self.child = None;
-        self.pid = Some(pid);
-        self.detached = Some(kind);
-        self.detached_start_time = start_time;
-        self.set_state(ProcessState::Running);
-        self.started_at = Some(Instant::now());
         self.auto_restart = true;
     }
 

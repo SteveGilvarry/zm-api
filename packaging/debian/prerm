@@ -7,8 +7,6 @@ case "$1" in
     if [ -d /run/systemd/system ]; then
       systemctl stop zm-api.service || true
       systemctl disable zm-api.service || true
-      # Workers are separate units; on removal (not upgrade) stop them too.
-      systemctl stop 'zm-next@*.service' || true
     fi
     ;;
   upgrade|failed-upgrade)
