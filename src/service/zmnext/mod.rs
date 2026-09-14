@@ -7,6 +7,7 @@
 //! * [`pipeline`] — generates/composes a worker pipeline JSON from a monitor,
 //!   its zones, and (when present) its stored processing graph.
 
+pub mod control;
 pub mod detail;
 pub mod graph;
 pub mod ingest;
