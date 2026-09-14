@@ -46,3 +46,13 @@ pub struct ZmNextWorkerStatusResponse {
     /// The worker's process entry; absent if it was never started.
     pub worker: Option<crate::dto::response::daemon::DaemonStatusResponse>,
 }
+
+/// Result of checking a pipeline graph without saving it.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct PipelineValidationResponse {
+    pub valid: bool,
+    /// `builtin` (zm-api's plugin list, for a worker that offers no schemas) or
+    /// the zm-next version whose plugin schemas were used.
+    pub checked_against: String,
+    pub errors: Vec<crate::service::zmnext::control::PathError>,
+}

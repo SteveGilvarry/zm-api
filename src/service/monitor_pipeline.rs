@@ -57,8 +57,23 @@ pub async fn replace(
 ) -> AppResult<MonitorPipelineResponse> {
     crate::service::monitor::get_by_id(state, monitor_id, scope).await?;
     graph::validate_graph(&graph_doc).map_err(AppError::BadRequestError)?;
+    if let Some((schemas, _)) = worker_schemas(state, monitor_id).await {
+        let errors = crate::service::zmnext::control::validate_graph_with_schemas(
+            &graph_doc,
+            &schemas,
+            crate::service::zmnext::control::SecretRule::LiteralOrReference,
+        );
+        if !errors.is_empty() {
+            return Err(invalid_pipeline(
+                "the graph doesn't match the worker's plugin schemas",
+                errors,
+            ));
+        }
+    }
+
     // Secret values go to the encrypted store; the saved graph holds only
     // `{"$secret": ...}` references.
+    let previous = repo::monitor_pipeline::find_by_monitor(state.db(), monitor_id).await?;
     let mut graph_doc = graph_doc;
     let key_file = &state.config.zmnext.secrets.key_file;
     crate::service::zmnext::secrets::stash_secrets(
@@ -71,9 +86,17 @@ pub async fn replace(
     let body = serde_json::to_string(&graph_doc)?;
     let now = chrono::Utc::now().naive_utc();
     let row = repo::monitor_pipeline::upsert(state.db(), monitor_id, body, 1, now).await?;
+
+    if let WorkerApply::Refused(errors) = apply_to_worker(state, monitor_id).await {
+        // The worker kept its pipeline; put the stored graph back in step.
+        restore_graph(state, monitor_id, previous, now).await?;
+        return Err(invalid_pipeline(
+            "the worker refused the graph and kept its current pipeline",
+            errors,
+        ));
+    }
     crate::service::zmnext::secrets::prune_secrets(state.db(), monitor_id, Some(&graph_doc))
         .await?;
-    reload_worker(state, monitor_id).await;
     Ok(MonitorPipelineResponse::from(row))
 }
 
@@ -83,7 +106,7 @@ pub async fn delete(state: &AppState, monitor_id: u32, scope: &MonitorScope) -> 
     crate::service::monitor::get_by_id(state, monitor_id, scope).await?;
     repo::monitor_pipeline::delete_by_monitor(state.db(), monitor_id).await?;
     crate::service::zmnext::secrets::prune_secrets(state.db(), monitor_id, None).await?;
-    reload_worker(state, monitor_id).await;
+    apply_or_log(state, monitor_id).await;
     Ok(())
 }
 
@@ -132,7 +155,7 @@ pub async fn enable_zmnext(
             repo::monitor_pipeline::upsert(state.db(), monitor_id, body, 1, now).await?
         }
     };
-    reload_worker(state, monitor_id).await;
+    apply_or_log(state, monitor_id).await;
     Ok(MonitorPipelineResponse::from(row))
 }
 
@@ -176,6 +199,205 @@ pub async fn worker_status(
             worker,
         },
     )
+}
+
+/// Put back the graph a refused configure replaced (or remove the new one),
+/// and drop secrets only the refused graph used.
+async fn restore_graph(
+    state: &AppState,
+    monitor_id: u32,
+    previous: Option<crate::entity::monitor_pipeline::Model>,
+    now: chrono::NaiveDateTime,
+) -> AppResult<()> {
+    match previous {
+        Some(old) => {
+            repo::monitor_pipeline::upsert(
+                state.db(),
+                monitor_id,
+                old.graph_json.clone(),
+                old.version,
+                now,
+            )
+            .await?;
+            let old_graph = serde_json::from_str::<Value>(&old.graph_json).ok();
+            crate::service::zmnext::secrets::prune_secrets(
+                state.db(),
+                monitor_id,
+                old_graph.as_ref(),
+            )
+            .await?;
+        }
+        None => {
+            repo::monitor_pipeline::delete_by_monitor(state.db(), monitor_id).await?;
+            crate::service::zmnext::secrets::prune_secrets(state.db(), monitor_id, None).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Check a graph without saving it, for the pipeline editor. Uses the
+/// worker's plugin schemas when it offers them, otherwise zm-api's built-in
+/// plugin list.
+pub async fn validate(
+    state: &AppState,
+    monitor_id: u32,
+    graph_doc: &Value,
+    scope: &MonitorScope,
+) -> AppResult<crate::dto::response::monitor_pipeline::PipelineValidationResponse> {
+    use crate::dto::response::monitor_pipeline::PipelineValidationResponse;
+    crate::service::monitor::get_by_id(state, monitor_id, scope).await?;
+    if let Err(message) = graph::validate_graph(graph_doc) {
+        return Ok(PipelineValidationResponse {
+            valid: false,
+            checked_against: "builtin".into(),
+            errors: vec![crate::service::zmnext::control::PathError {
+                path: String::new(),
+                message,
+            }],
+        });
+    }
+    let Some((schemas, source)) = worker_schemas(state, monitor_id).await else {
+        return Ok(PipelineValidationResponse {
+            valid: true,
+            checked_against: "builtin".into(),
+            errors: vec![],
+        });
+    };
+    let errors = crate::service::zmnext::control::validate_graph_with_schemas(
+        graph_doc,
+        &schemas,
+        crate::service::zmnext::control::SecretRule::LiteralOrReference,
+    );
+    Ok(PipelineValidationResponse {
+        valid: errors.is_empty(),
+        checked_against: source,
+        errors,
+    })
+}
+
+fn invalid_pipeline(
+    message: &str,
+    errors: Vec<crate::service::zmnext::control::PathError>,
+) -> AppError {
+    AppError::InvalidPipelineError {
+        message: message.to_string(),
+        errors: errors.into_iter().map(|e| (e.path, e.message)).collect(),
+    }
+}
+
+/// The monitor's worker hello, when it says the worker accepts control
+/// commands from zm-api.
+async fn control_hello(
+    state: &AppState,
+    monitor_id: u32,
+) -> Option<crate::streaming::source::protocol::WorkerHello> {
+    let router = state.source_router.as_ref()?;
+    router
+        .current_worker_hello(monitor_id, std::time::Duration::from_secs(2))
+        .await
+        .filter(|h| h.protocol.control >= 1 && h.control_peer)
+}
+
+/// The worker's plugin schemas and where they came from, or `None` when the
+/// worker doesn't offer them (no hello, older zm-next, zmc).
+async fn worker_schemas(
+    state: &AppState,
+    monitor_id: u32,
+) -> Option<(std::collections::BTreeMap<String, Value>, String)> {
+    let hello = control_hello(state, monitor_id).await?;
+    let router = state.source_router.as_ref()?;
+    match crate::service::zmnext::control::fetch_schemas(
+        router,
+        monitor_id,
+        &hello,
+        crate::service::zmnext::control::schema_cache(),
+        std::time::Duration::from_secs(5),
+    )
+    .await
+    {
+        Ok(schemas) => Some((
+            schemas,
+            format!("zm-next {} schemas", hello.zm_next.version),
+        )),
+        Err(e) => {
+            tracing::warn!("monitor {monitor_id}: couldn't fetch plugin schemas: {e}");
+            None
+        }
+    }
+}
+
+/// How a graph change reached the worker.
+enum WorkerApply {
+    /// Applied in place with `configure`.
+    Configured,
+    /// Restarted, or picked up at its next start.
+    Restarted,
+    /// The worker checked the pipeline and refused it; nothing changed.
+    Refused(Vec<crate::service::zmnext::control::PathError>),
+}
+
+/// Apply the stored graph to the monitor's worker: `configure` when its hello
+/// says it can take one, otherwise a restart as before.
+async fn apply_to_worker(state: &AppState, monitor_id: u32) -> WorkerApply {
+    use crate::service::zmnext::control::{configure_command, configure_errors};
+    use crate::streaming::source::command::CommandError;
+
+    let (Some(mgr), Some(router), Some(_)) = (
+        state.daemon_manager.as_ref(),
+        state.source_router.as_ref(),
+        control_hello(state, monitor_id).await,
+    ) else {
+        reload_worker(state, monitor_id).await;
+        return WorkerApply::Restarted;
+    };
+    let (pipeline, secrets) = match mgr.zmnext_configure_pipeline(monitor_id).await {
+        Ok(Some(p)) => p,
+        Ok(None) => {
+            reload_worker(state, monitor_id).await;
+            return WorkerApply::Restarted;
+        }
+        Err(e) => {
+            tracing::warn!("monitor {monitor_id}: couldn't build configure ({e}); restarting");
+            reload_worker(state, monitor_id).await;
+            return WorkerApply::Restarted;
+        }
+    };
+    let command = configure_command(&pipeline, &secrets, "restart");
+    match router
+        .send_control(monitor_id, command, std::time::Duration::from_secs(30))
+        .await
+    {
+        Ok(data) => {
+            tracing::info!(
+                "monitor {monitor_id}: worker reconfigured in place (pipeline {})",
+                data.get("pipeline_hash")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("hash not reported")
+            );
+            WorkerApply::Configured
+        }
+        // A worker that has the hello but not configure yet.
+        Err(CommandError::Refused { message, .. }) if message.starts_with("unknown_command") => {
+            reload_worker(state, monitor_id).await;
+            WorkerApply::Restarted
+        }
+        Err(CommandError::Refused { message, data }) => {
+            WorkerApply::Refused(configure_errors(&message, &data))
+        }
+        Err(e) => {
+            tracing::warn!("monitor {monitor_id}: configure didn't complete ({e}); restarting");
+            reload_worker(state, monitor_id).await;
+            WorkerApply::Restarted
+        }
+    }
+}
+
+/// [`apply_to_worker`] where there is nothing to roll back to: a refusal is
+/// logged, and the worker keeps its current pipeline.
+async fn apply_or_log(state: &AppState, monitor_id: u32) {
+    if let WorkerApply::Refused(errors) = apply_to_worker(state, monitor_id).await {
+        tracing::error!("monitor {monitor_id}: worker refused its default pipeline: {errors:?}");
+    }
 }
 
 /// Best-effort: restart the monitor's worker so a graph change is applied now.

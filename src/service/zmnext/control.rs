@@ -332,6 +332,49 @@ pub fn configure_errors(message: &str, data: &Value) -> Vec<PathError> {
     }
 }
 
+/// Replace the capture streams' `username`/`password` literals with `$secret`
+/// references (`camera.stream<N>.username` / `.password`) and return the
+/// values. Everything else in the pipeline is left alone.
+pub fn split_camera_credentials(pipeline: &mut Value) -> SecretMap {
+    fn walk(nodes: &mut Value, out: &mut SecretMap) {
+        let Some(arr) = nodes.as_array_mut() else {
+            return;
+        };
+        for node in arr {
+            let is_capture = node
+                .get("kind")
+                .and_then(Value::as_str)
+                .is_some_and(|k| k.starts_with("capture_"));
+            if is_capture {
+                if let Some(streams) = node
+                    .pointer_mut("/cfg/streams")
+                    .and_then(Value::as_array_mut)
+                {
+                    for (i, stream) in streams.iter_mut().enumerate() {
+                        for key in ["username", "password"] {
+                            if let Some(v) =
+                                stream.get(key).and_then(Value::as_str).map(str::to_string)
+                            {
+                                let name = format!("camera.stream{i}.{key}");
+                                stream[key] = json!({ "$secret": name });
+                                out.insert(name, v);
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(children) = node.get_mut("children") {
+                walk(children, out);
+            }
+        }
+    }
+    let mut out = SecretMap::new();
+    if let Some(plugins) = pipeline.get_mut("plugins") {
+        walk(plugins, &mut out);
+    }
+    out
+}
+
 /// `sha256:<hex>` of the pipeline's canonical JSON (object keys sorted, no
 /// whitespace), with `$secret` references as they are and no secret values.
 ///
@@ -508,6 +551,25 @@ mod tests {
         assert_eq!(
             configure_errors("unknown_command: configure", &Value::Null),
             vec![PathError::new("", "unknown_command: configure")]
+        );
+    }
+
+    #[test]
+    fn camera_credentials_become_references() {
+        let mut p = json!({"plugins": [{"id": "capture", "kind": "capture_rtsp_multi",
+            "cfg": {"streams": [{"url": "rtsp://10.0.0.5/102", "username": "admin", "password": "p@ss:w/d"}]},
+            "children": [{"kind": "output_webhook", "cfg": {"auth_header": {"$secret": "notify.auth_header"}}}]}]});
+        let map = split_camera_credentials(&mut p);
+        assert_eq!(map["camera.stream0.username"], "admin");
+        assert_eq!(map["camera.stream0.password"], "p@ss:w/d");
+        assert!(!p.to_string().contains("p@ss"));
+        assert_eq!(
+            p["plugins"][0]["cfg"]["streams"][0]["password"],
+            json!({"$secret": "camera.stream0.password"})
+        );
+        assert_eq!(
+            p["plugins"][0]["children"][0]["cfg"]["auth_header"],
+            json!({"$secret": "notify.auth_header"})
         );
     }
 

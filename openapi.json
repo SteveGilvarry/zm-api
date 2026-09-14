@@ -7289,6 +7289,75 @@
         ]
       }
     },
+    "/api/v3/monitors/{id}/pipeline/validate": {
+      "post": {
+        "tags": [
+          "Monitors"
+        ],
+        "operationId": "validate_monitor_pipeline",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "A processing graph, `{ \"plugins\": [...] }`",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Validation result; `errors` locate each problem by path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineValidationResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/monitors/{id}/state": {
       "patch": {
         "tags": [
@@ -14393,6 +14462,43 @@
             "properties": {
               "InvalidPayloadError": {
                 "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "A pipeline graph failed validation; each detail is `(path, message)`.",
+            "required": [
+              "InvalidPipelineError"
+            ],
+            "properties": {
+              "InvalidPipelineError": {
+                "type": "object",
+                "description": "A pipeline graph failed validation; each detail is `(path, message)`.",
+                "required": [
+                  "message",
+                  "errors"
+                ],
+                "properties": {
+                  "errors": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": false,
+                      "prefixItems": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                }
               }
             }
           },
@@ -23593,6 +23699,46 @@
           "tilt_turbo": {
             "$ref": "#/components/schemas/TurboSpeed",
             "description": "Turbo tilt speed"
+          }
+        }
+      },
+      "PathError": {
+        "type": "object",
+        "description": "One validation or configure error, located by path, e.g.\n`plugins[0].children[1].cfg.iou_threshold`.",
+        "required": [
+          "path",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "PipelineValidationResponse": {
+        "type": "object",
+        "description": "Result of checking a pipeline graph without saving it.",
+        "required": [
+          "valid",
+          "checked_against",
+          "errors"
+        ],
+        "properties": {
+          "checked_against": {
+            "type": "string",
+            "description": "`builtin` (zm-api's plugin list, for a worker that offers no schemas) or\nthe zm-next version whose plugin schemas were used."
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PathError"
+            }
+          },
+          "valid": {
+            "type": "boolean"
           }
         }
       },

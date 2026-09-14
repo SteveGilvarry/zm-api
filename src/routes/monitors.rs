@@ -32,6 +32,10 @@ pub fn add_monitor_routes(router: Router<AppState>) -> Router<AppState> {
                 .delete(monitor_pipeline::delete_monitor_pipeline),
         )
         .route(
+            &format!("{}/monitors/{{id}}/pipeline/validate", api_prefix),
+            axum::routing::post(monitor_pipeline::validate_monitor_pipeline),
+        )
+        .route(
             &format!("{}/monitors/{{id}}/zmnext", api_prefix),
             get(monitor_pipeline::get_monitor_zmnext_status)
                 .post(monitor_pipeline::enable_monitor_zmnext)

@@ -1143,6 +1143,24 @@ impl SourceRouter {
         hello
     }
 
+    /// The monitor's WorkerHello, starting its reader if needed. A reader that
+    /// was already running answers at once (it has seen the hello or never
+    /// will); a reader started here gets up to `timeout` for the hello.
+    pub async fn current_worker_hello(
+        &self,
+        monitor_id: u32,
+        timeout: Duration,
+    ) -> Option<WorkerHello> {
+        if self.is_reader_hot(monitor_id).await {
+            if let Some(source) = self.get_existing_source(monitor_id) {
+                if *source.reader_health_rx.borrow() == ReaderHealth::Active {
+                    return self.worker_hello(monitor_id);
+                }
+            }
+        }
+        self.wait_for_worker_hello(monitor_id, timeout).await
+    }
+
     /// What is known about the monitor's worker, from hellos and status EVENTs.
     pub fn worker_status(&self, monitor_id: u32) -> Option<WorkerStatus> {
         self.worker_status.get(&monitor_id).map(|s| s.clone())

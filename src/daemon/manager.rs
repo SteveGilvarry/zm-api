@@ -2105,7 +2105,57 @@ impl DaemonManager {
         monitor: &monitors::Model,
         rt: &ZmNextRuntime,
     ) -> AppResult<Vec<u8>> {
+        let (value, _) = self.build_zmnext_pipeline(monitor, rt, false).await?;
+        serde_json::to_vec(&value).map_err(|e| {
+            crate::error::AppError::InternalServerError(format!(
+                "Failed to serialize zm-next pipeline for monitor {}: {e}",
+                monitor.id
+            ))
+        })
+    }
+
+    /// The monitor's pipeline and its secrets, in the form a worker that
+    /// speaks the control protocol takes in `configure`: every secret, camera
+    /// credentials included, as a `$secret` reference with the values in the
+    /// map. `None` when zm-next isn't enabled or the monitor doesn't exist.
+    pub async fn zmnext_configure_pipeline(
+        &self,
+        monitor_id: u32,
+    ) -> AppResult<
+        Option<(
+            serde_json::Value,
+            crate::service::zmnext::secrets::SecretMap,
+        )>,
+    > {
+        let (Some(rt), Some(db)) = (self.zmnext.clone(), self.db.clone()) else {
+            return Ok(None);
+        };
+        let Some(monitor) = monitors::Entity::find_by_id(monitor_id)
+            .one(db.as_ref())
+            .await?
+        else {
+            return Ok(None);
+        };
+        self.build_zmnext_pipeline(&monitor, &rt, true)
+            .await
+            .map(Some)
+    }
+
+    /// Build the monitor's pipeline. With `configure_form` false, secrets are
+    /// resolved to their values in place (for a worker that reads its pipeline
+    /// from stdin) and the map is empty; with it true they stay references
+    /// and the map carries the values.
+    async fn build_zmnext_pipeline(
+        &self,
+        monitor: &monitors::Model,
+        rt: &ZmNextRuntime,
+        configure_form: bool,
+    ) -> AppResult<(
+        serde_json::Value,
+        crate::service::zmnext::secrets::SecretMap,
+    )> {
         let monitor_id = monitor.id;
+        let mut graph_secrets = crate::service::zmnext::secrets::SecretMap::new();
         let zones = match &self.db {
             Some(db) => {
                 zones::Entity::find()
@@ -2166,21 +2216,27 @@ impl DaemonManager {
         let mut value = match stored {
             Some(row) => match serde_json::from_str::<serde_json::Value>(&row.graph_json) {
                 Ok(graph) if crate::service::zmnext::graph::validate_graph(&graph).is_ok() => {
-                    // This worker reads a plain pipeline, so resolve the graph's
-                    // `$secret` references to their values here.
-                    match self.resolve_graph_secrets(monitor_id, rt, graph).await {
-                        Ok(graph) => pipeline::compose_pipeline(
-                            monitor_id,
-                            &clean_url,
-                            &username,
-                            &password,
-                            &graph,
-                            &zone_specs,
-                            &rt.config.pipeline,
-                            mode,
-                            &events_root,
-                        )
-                        .unwrap_or_else(default),
+                    // A worker that reads a plain pipeline gets the values in
+                    // place; a configure keeps the references.
+                    match self
+                        .graph_secrets(monitor_id, rt, graph, !configure_form)
+                        .await
+                    {
+                        Ok((graph, map)) => {
+                            graph_secrets = map;
+                            pipeline::compose_pipeline(
+                                monitor_id,
+                                &clean_url,
+                                &username,
+                                &password,
+                                &graph,
+                                &zone_specs,
+                                &rt.config.pipeline,
+                                mode,
+                                &events_root,
+                            )
+                            .unwrap_or_else(default)
+                        }
                         Err(e) => {
                             error!(
                                 "zm-next: monitor {monitor_id} stored pipeline graph needs \
@@ -2220,23 +2276,28 @@ impl DaemonManager {
             pipeline::inject_shared_inference(&mut value, &endpoint, si.gpu_id);
         }
 
-        serde_json::to_vec(&value).map_err(|e| {
-            crate::error::AppError::InternalServerError(format!(
-                "Failed to serialize zm-next pipeline for monitor {monitor_id}: {e}"
-            ))
-        })
+        if configure_form {
+            let camera = crate::service::zmnext::control::split_camera_credentials(&mut value);
+            graph_secrets.extend(camera);
+        }
+        Ok((value, graph_secrets))
     }
 
-    /// Replace a stored graph's `$secret` references with their decrypted values.
-    async fn resolve_graph_secrets(
+    /// Load the secrets a stored graph references and, with `resolve`, put
+    /// their values in place of the references.
+    async fn graph_secrets(
         &self,
         monitor_id: u32,
         rt: &ZmNextRuntime,
         mut graph: serde_json::Value,
-    ) -> AppResult<serde_json::Value> {
+        resolve: bool,
+    ) -> AppResult<(
+        serde_json::Value,
+        crate::service::zmnext::secrets::SecretMap,
+    )> {
         use crate::service::zmnext::secrets;
         if secrets::references(&graph).is_empty() {
-            return Ok(graph);
+            return Ok((graph, secrets::SecretMap::new()));
         }
         let db = self.db.as_ref().ok_or_else(|| {
             crate::error::AppError::InternalServerError("no database for secrets".into())
@@ -2244,9 +2305,18 @@ impl DaemonManager {
         let map =
             secrets::load_secrets(db.as_ref(), &rt.config.secrets.key_file, monitor_id, &graph)
                 .await?;
-        secrets::resolve_in_place(&mut graph, &map)
-            .map_err(crate::error::AppError::InternalServerError)?;
-        Ok(graph)
+        if resolve {
+            secrets::resolve_in_place(&mut graph, &map)
+                .map_err(crate::error::AppError::InternalServerError)?;
+        } else if let Some(missing) = secrets::references(&graph)
+            .into_iter()
+            .find(|n| !map.contains_key(n))
+        {
+            return Err(crate::error::AppError::InternalServerError(format!(
+                "secret `{missing}` is referenced but not stored"
+            )));
+        }
+        Ok((graph, map))
     }
 
     /// Resolve the directory the worker's `store` plugin writes clips to:
