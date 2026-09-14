@@ -130,6 +130,16 @@ pub async fn enable_zmnext(
         ));
     }
     crate::service::monitor::get_by_id(state, monitor_id, scope).await?;
+    // Don't switch a camera to a worker that can't run.
+    if let Some(mgr) = &state.daemon_manager {
+        if let Some((path, false)) = mgr.zmcore_installed() {
+            return Err(AppError::ServiceUnavailableError(format!(
+                "zm-next isn't installed on this server: {} not found \
+                 (set [zmnext.worker].binary)",
+                path.display()
+            )));
+        }
+    }
     crate::repo::monitors::set_use_zmnext(state.db(), monitor_id, true)
         .await
         .map_err(|e| {

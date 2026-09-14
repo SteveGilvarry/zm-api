@@ -16,6 +16,7 @@ pub mod onvif_event_listener;
 pub mod process;
 pub mod server_id;
 pub mod stats;
+pub mod zmnext_worker;
 
 pub use config::DaemonConfig;
 pub use manager::DaemonManager;

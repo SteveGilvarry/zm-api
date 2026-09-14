@@ -1,0 +1,14 @@
+// Let zm-api's service user start, stop and restart its zm-next worker units,
+// and nothing else. zm-api runs workers as zm-next@<monitor id>.service so they
+// survive a zm-api restart (see zm-next@.service).
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        subject.user == "zoneminder") {
+        var unit = action.lookup("unit");
+        var verb = action.lookup("verb");
+        if (unit && /^zm-next@[0-9]+\.service$/.test(unit) &&
+            (verb == "start" || verb == "stop" || verb == "restart")) {
+            return polkit.Result.YES;
+        }
+    }
+});

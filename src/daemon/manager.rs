@@ -40,6 +40,10 @@ struct ZmNextRuntime {
     socks_path: String,
     /// Monitor ids whose pipeline emits motion-synopsis ingredients.
     synopsis_monitors: std::collections::HashSet<u32>,
+    /// How workers are started so they outlive zm-api.
+    launcher: crate::daemon::zmnext_worker::Launcher,
+    /// Pipeline, env and pid files for the workers.
+    runtime: crate::daemon::zmnext_worker::RuntimeDir,
 }
 
 /// Internal command for the daemon manager.
@@ -170,10 +174,18 @@ impl DaemonManager {
         synopsis_monitors: std::collections::HashSet<u32>,
     ) {
         if config.enabled {
+            let launcher = crate::daemon::zmnext_worker::choose_launcher(&config.worker.launcher);
+            info!(
+                "zm-next workers run as {launcher:?} ({})",
+                config.worker.runtime_dir.display()
+            );
+            let runtime = crate::daemon::zmnext_worker::RuntimeDir::new(&config.worker.runtime_dir);
             self.zmnext = Some(Arc::new(ZmNextRuntime {
                 config,
                 socks_path,
                 synopsis_monitors,
+                launcher,
+                runtime,
             }));
         }
     }
@@ -330,6 +342,14 @@ impl DaemonManager {
             )));
         }
 
+        if command == "zm-core" {
+            if let Some(rt) = self.zmnext.clone() {
+                return self
+                    .start_worker_detached(id, &rt, daemon_args, stdin_payload)
+                    .await;
+            }
+        }
+
         let full_path = self.config.resolve_daemon_path(&command);
 
         info!("Starting daemon: {} {:?}", full_path.display(), daemon_args);
@@ -345,8 +365,8 @@ impl DaemonManager {
         // Spawn the process with PR_SET_PDEATHSIG on Linux so children die when
         // parent dies. A piped stdin is requested only when we have a payload to
         // deliver (the zm-next worker); other daemons inherit stdin as before.
-        let mut child =
-            spawn_daemon(&full_path, &daemon_args, stdin_payload.is_some()).map_err(|e| {
+        let mut child = spawn_daemon(&full_path, &daemon_args, stdin_payload.is_some(), false)
+            .map_err(|e| {
                 error!("Failed to spawn {}: {}", id, e);
                 crate::error::AppError::InternalServerError(format!(
                     "Failed to start {}: {}",
@@ -402,6 +422,202 @@ impl DaemonManager {
             "Started {} (PID: {:?})",
             id, pid
         )))
+    }
+
+    /// Where zm-core would be run from, and whether it's there. `None` when
+    /// zm-next isn't enabled.
+    pub fn zmcore_installed(&self) -> Option<(PathBuf, bool)> {
+        let rt = self.zmnext.as_ref()?;
+        let path = self.zmcore_binary(rt);
+        let present = path.is_file();
+        Some((path, present))
+    }
+
+    /// The zm-core binary: `[zmnext.worker].binary` when absolute, otherwise
+    /// looked up like any other daemon.
+    fn zmcore_binary(&self, rt: &ZmNextRuntime) -> PathBuf {
+        let configured = std::path::Path::new(&rt.config.worker.binary);
+        if configured.is_absolute() {
+            configured.to_path_buf()
+        } else {
+            self.config.resolve_daemon_path(&rt.config.worker.binary)
+        }
+    }
+
+    /// Start a zm-next worker so it outlives zm-api: as a
+    /// `zm-next@<id>.service` unit when that launcher is in use, otherwise in
+    /// its own session. The pipeline goes to a 0600 file in the runtime dir
+    /// (a unit can't read our stdin); `--pipeline -` is rewritten to point at it.
+    async fn start_worker_detached(
+        &self,
+        id: &str,
+        rt: &ZmNextRuntime,
+        mut args: Vec<String>,
+        payload: Option<std::sync::Arc<Vec<u8>>>,
+    ) -> AppResult<DaemonResponse> {
+        use crate::daemon::process::Detached;
+        use crate::daemon::zmnext_worker::{self as worker, Launcher};
+
+        let Some(monitor_id) = extract_monitor_id_flag(&args) else {
+            return Ok(DaemonResponse::error(format!("{id}: no --monitor-id")));
+        };
+        let binary = self.zmcore_binary(rt);
+        if !binary.exists() {
+            return Ok(DaemonResponse::error(format!(
+                "zm-next isn't installed here: {} not found",
+                binary.display()
+            )));
+        }
+
+        if let Some(bytes) = payload.as_deref() {
+            let path = rt.runtime.write_pipeline(monitor_id, bytes).map_err(|e| {
+                crate::error::AppError::InternalServerError(format!(
+                    "can't write the pipeline for monitor {monitor_id} to {}: {e}",
+                    rt.runtime.dir.display()
+                ))
+            })?;
+            if let Some(i) = args.iter().position(|a| a == "--pipeline") {
+                if let Some(v) = args.get_mut(i + 1) {
+                    *v = path.to_string_lossy().into_owned();
+                }
+            }
+        }
+
+        let mut started: Option<(Detached, u32, Option<tokio::process::Child>)> = None;
+        if rt.launcher == Launcher::Systemd {
+            match rt.runtime.write_env(monitor_id, &binary, &args) {
+                Ok(()) => match worker::start_unit(monitor_id).await {
+                    Ok(pid) => started = Some((Detached::Unit, pid, None)),
+                    Err(e) => warn!(
+                        "zm-next: {e}; starting monitor {monitor_id}'s worker in a session \
+                         instead (it won't survive a zm-api restart)"
+                    ),
+                },
+                Err(e) => warn!("zm-next: can't write the unit env for monitor {monitor_id}: {e}"),
+            }
+        }
+        let (kind, pid, child) = match started {
+            Some(s) => s,
+            None => {
+                let child = spawn_daemon(&binary, &args, false, true).map_err(|e| {
+                    crate::error::AppError::InternalServerError(format!(
+                        "Failed to start {id}: {e}"
+                    ))
+                })?;
+                let Some(pid) = child.id() else {
+                    return Ok(DaemonResponse::error(format!("{id} exited at once")));
+                };
+                if let Err(e) = rt.runtime.write_pid(monitor_id, pid) {
+                    warn!("zm-next: can't write the pidfile for monitor {monitor_id}: {e}");
+                }
+                (Detached::Session, pid, Some(child))
+            }
+        };
+
+        let mut processes = self.processes.write().await;
+        let process = processes.entry(id.to_string()).or_insert_with(|| {
+            ManagedProcess::new(id, id, "zm-core", args.clone(), true, Some(monitor_id))
+        });
+        process.args = args;
+        process.stdin_payload = payload;
+        if process.gave_up.take().is_some() {
+            process.exit_history = Default::default();
+        }
+        match child {
+            Some(child) => {
+                process.set_child(child);
+                process.detached = Some(kind);
+                process.detached_start_time = worker::start_time(pid);
+            }
+            None => process.set_detached(kind, pid, worker::start_time(pid)),
+        }
+        drop(processes);
+        self.pid_map.write().await.insert(pid, id.to_string());
+
+        info!("Started zm-next worker {id} as {kind:?} (PID {pid})");
+        Ok(DaemonResponse::ok(format!(
+            "Started {id} (PID: Some({pid}))"
+        )))
+    }
+
+    /// If a worker for this monitor is already running (started by an earlier
+    /// zm-api), adopt it when its pipeline file matches `payload`; otherwise
+    /// stop it so a fresh one can start. Returns whether it was adopted.
+    async fn adopt_running_worker(
+        &self,
+        rt: &ZmNextRuntime,
+        monitor_id: u32,
+        payload: &[u8],
+    ) -> bool {
+        use crate::daemon::process::Detached;
+        use crate::daemon::zmnext_worker::{self as worker, Launcher};
+
+        let id = zmnext_daemon_id(monitor_id);
+        if self
+            .processes
+            .read()
+            .await
+            .get(&id)
+            .is_some_and(|p| p.is_running() || p.state == ProcessState::Stopping)
+        {
+            return false;
+        }
+        let Some(running) = worker::find_running(rt.launcher, &rt.runtime, monitor_id).await else {
+            return false;
+        };
+        let kind = if rt.launcher == Launcher::Systemd
+            && worker::unit_info(monitor_id)
+                .await
+                .is_some_and(|i| i.active_state == "active" && i.main_pid == running.pid)
+        {
+            Detached::Unit
+        } else {
+            Detached::Pid
+        };
+
+        if worker::pipeline_matches(&rt.runtime, monitor_id, payload) {
+            let mut processes = self.processes.write().await;
+            let process = processes.entry(id.clone()).or_insert_with(|| {
+                ManagedProcess::new(&id, &id, "zm-core", vec![], true, Some(monitor_id))
+            });
+            process.stdin_payload = Some(std::sync::Arc::new(payload.to_vec()));
+            process.set_detached(kind, running.pid, running.start_time);
+            drop(processes);
+            self.pid_map.write().await.insert(running.pid, id.clone());
+            info!(
+                "zm-next: adopted running worker for monitor {monitor_id} (PID {})",
+                running.pid
+            );
+            return true;
+        }
+
+        info!(
+            "zm-next: running worker for monitor {monitor_id} has a different pipeline; replacing it"
+        );
+        match kind {
+            Detached::Unit => {
+                if let Err(e) = worker::stop_unit(monitor_id).await {
+                    warn!("zm-next: {e}");
+                }
+            }
+            _ => {
+                #[cfg(unix)]
+                {
+                    use nix::sys::signal::{kill, Signal};
+                    let _ = kill(
+                        nix::unistd::Pid::from_raw(running.pid as i32),
+                        Signal::SIGTERM,
+                    );
+                    for _ in 0..100 {
+                        if !worker::is_alive(running.pid, running.start_time) {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    }
+                }
+            }
+        }
+        false
     }
 
     /// Stop a daemon process gracefully.
@@ -804,11 +1020,23 @@ impl DaemonManager {
         let check_interval = std::time::Duration::from_millis(500);
 
         // Step 1: Send SIGTERM to all running processes
+        // zm-next workers that outlive zm-api stay up when zm-api itself is
+        // exiting (a restart or upgrade); an explicit stop-all still stops them.
+        let leave_workers = self.is_process_exiting();
         let ids: Vec<String> = {
             let processes = self.processes.read().await;
             processes
                 .iter()
                 .filter(|(_, p)| p.is_running() || p.state == ProcessState::Starting)
+                .filter(|(_, p)| {
+                    !(leave_workers
+                        && matches!(
+                            p.detached,
+                            Some(crate::daemon::process::Detached::Unit)
+                                | Some(crate::daemon::process::Detached::Pid)
+                                | Some(crate::daemon::process::Detached::Session)
+                        ))
+                })
                 .map(|(id, _)| id.clone())
                 .collect()
         };
@@ -1878,18 +2106,61 @@ impl DaemonManager {
                 let uptime = process.uptime().unwrap_or_default();
                 let wait_result = process.child_mut().map(|child| child.try_wait());
 
-                match wait_result {
+                // `Some(code)` once the process has exited (`code` is `None`
+                // when a signal ended it or the status can't be known).
+                let exited: Option<Option<i32>> = match wait_result {
                     Some(Ok(Some(status))) => {
-                        // Process exited — drop the dead handle so try_wait()
-                        // can't re-fire on the cached status next cycle.
+                        // Drop the dead handle so try_wait() can't re-fire on
+                        // the cached status next cycle.
                         let _ = process.take_child();
+                        Some(status.code())
+                    }
+                    Some(Ok(None)) => None,
+                    Some(Err(e)) => {
+                        warn!("Error checking daemon {} status: {}", id, e);
+                        None
+                    }
+                    // Not our child: a zm-next worker in its own unit, or one
+                    // adopted from a previous zm-api. Watch its pid instead.
+                    None => match (process.detached, process.pid) {
+                        (Some(d), Some(pid))
+                            if d != crate::daemon::process::Detached::Session
+                                && matches!(
+                                    process.state,
+                                    ProcessState::Running
+                                        | ProcessState::Starting
+                                        | ProcessState::Stopping
+                                ) =>
+                        {
+                            if crate::daemon::zmnext_worker::is_alive(
+                                pid,
+                                process.detached_start_time,
+                            ) {
+                                None
+                            } else if d == crate::daemon::process::Detached::Unit {
+                                let code = match process.monitor_id {
+                                    Some(m) => crate::daemon::zmnext_worker::unit_info(m)
+                                        .await
+                                        .and_then(|i| i.exit_status),
+                                    None => None,
+                                };
+                                Some(code)
+                            } else {
+                                Some(None)
+                            }
+                        }
+                        _ => None,
+                    },
+                };
 
+                match exited {
+                    Some(code) => {
                         let was_stopping = process.state == ProcessState::Stopping;
 
                         if was_stopping {
-                            info!("Daemon {} gracefully stopped with status: {:?}", id, status);
+                            info!("Daemon {} gracefully stopped (exit code {:?})", id, code);
                         } else {
-                            info!("Daemon {} exited with status: {:?}", id, status);
+                            info!("Daemon {} exited (exit code {:?})", id, code);
                         }
 
                         // Collect PID for removal (will remove after releasing lock)
@@ -1908,7 +2179,7 @@ impl DaemonManager {
                         // zm-next workers: give up on a status a restart can't
                         // fix instead of restart-looping it forever.
                         let decision = if id.starts_with("zm-core ") {
-                            process.exit_history.record(status.code(), uptime)
+                            process.exit_history.record(code, uptime)
                         } else {
                             crate::daemon::exit_policy::Decision::Restart
                         };
@@ -1933,20 +2204,18 @@ impl DaemonManager {
                             );
                         }
                     }
-                    Some(Ok(None)) => {
+                    None => {
                         // Still running — once it has outlived the max backoff
                         // delay it counts as stable, so forgive its crash
                         // history and let a future restart start fresh instead
                         // of inheriting an old escalation.
-                        process.reset_backoff_if_stable(
-                            self.config.max_backoff(),
-                            self.config.min_backoff(),
-                        );
+                        if process.is_running() {
+                            process.reset_backoff_if_stable(
+                                self.config.max_backoff(),
+                                self.config.min_backoff(),
+                            );
+                        }
                     }
-                    Some(Err(e)) => {
-                        warn!("Error checking daemon {} status: {}", id, e);
-                    }
-                    None => {}
                 }
 
                 // Check for pending restarts. Pass only the "extras" — the
@@ -2076,6 +2345,11 @@ impl DaemonManager {
         let monitor_id = monitor.id;
 
         let payload = std::sync::Arc::new(self.build_zmnext_pipeline_payload(monitor, &rt).await?);
+        if self.adopt_running_worker(&rt, monitor_id, &payload).await {
+            return Ok(DaemonResponse::ok(format!(
+                "Adopted the running zm-next worker for monitor {monitor_id}"
+            )));
+        }
         let socket_path = format!(
             "{}/stream_{}.sock",
             rt.socks_path.trim_end_matches('/'),
@@ -3093,6 +3367,14 @@ fn extract_monitor_id(args: &[String]) -> Option<u32> {
 /// Stable process-map id for a monitor's zm-next worker. The generated
 /// `--pipeline`/`--socket` paths ride as extra args, not in the id, so every
 /// call site derives the same key without recomputing those paths.
+/// The value of `--monitor-id` in a zm-core argument list.
+fn extract_monitor_id_flag(args: &[String]) -> Option<u32> {
+    args.iter()
+        .position(|a| a == "--monitor-id")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok())
+}
+
 fn zmnext_daemon_id(monitor_id: u32) -> String {
     format!("zm-core --monitor-id {monitor_id}")
 }
@@ -3118,11 +3400,14 @@ fn zminfer_daemon_id(gpu: u32) -> String {
 ///
 /// This ensures that child processes receive SIGTERM when the parent process dies,
 /// preventing orphaned daemons when zm-api crashes or is killed.
+/// With `detach`, the child gets its own session and no parent-death signal,
+/// so it outlives zm-api (a zm-next worker without a systemd unit).
 #[cfg(target_os = "linux")]
 fn spawn_daemon(
     path: &std::path::Path,
     args: &[String],
     with_stdin: bool,
+    detach: bool,
 ) -> Result<tokio::process::Child, std::io::Error> {
     let mut cmd = Command::new(path);
     cmd.args(args);
@@ -3158,6 +3443,21 @@ fn spawn_daemon(
         cmd.env("CUDA_MODULE_LOADING", "LAZY");
     }
 
+    if detach {
+        // Its own session: no controlling terminal, not in zm-api's process
+        // group, and no death signal.
+        // SAFETY: setsid is async-signal-safe.
+        unsafe {
+            cmd.pre_exec(|| {
+                if libc::setsid() == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        return cmd.spawn();
+    }
+
     // SAFETY: prctl is async-signal-safe and we're only setting PR_SET_PDEATHSIG
     // which is a simple flag operation with no memory allocation or locks.
     unsafe {
@@ -3180,6 +3480,7 @@ fn spawn_daemon(
     path: &std::path::Path,
     args: &[String],
     with_stdin: bool,
+    detach: bool,
 ) -> Result<tokio::process::Child, std::io::Error> {
     let mut cmd = Command::new(path);
     cmd.args(args);
@@ -3205,6 +3506,20 @@ fn spawn_daemon(
         }
         cmd.env("CUDA_MODULE_LOADING", "LAZY");
     }
+    #[cfg(unix)]
+    if detach {
+        // SAFETY: setsid is async-signal-safe.
+        unsafe {
+            cmd.pre_exec(|| {
+                if libc::setsid() == -1 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = detach;
     cmd.spawn()
 }
 
@@ -3218,7 +3533,9 @@ pub async fn kill_orphan_daemons() {
     // knows plus the zm-next workers. Derived, so it cannot drift from the
     // spawn list the way a hand-written copy did.
     let daemon_names: Vec<&str> = DaemonDefinition::commands()
-        .chain(["zm-core", "zm-infer"])
+        // zm-core is absent on purpose: workers outlive zm-api and are adopted
+        // or stopped by unit/pid at startup, never killed by name.
+        .chain(["zm-infer"])
         .collect();
 
     for daemon in &daemon_names {
@@ -3728,6 +4045,67 @@ mod tests {
         }
         assert!(!zmcore_supports_control_uid(&dir.join("missing")).await);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A detached worker (not our child) that exits is noticed by pid and
+    /// goes through the normal exit handling.
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn a_detached_worker_that_exits_is_noticed() {
+        use crate::daemon::process::Detached;
+        // A grandchild: its parent (sh) exits at once, so it isn't our child.
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 0.5 & echo $!")
+            .output()
+            .unwrap();
+        let pid: u32 = String::from_utf8_lossy(&out.stdout).trim().parse().unwrap();
+        let started = crate::daemon::zmnext_worker::start_time(pid);
+
+        let manager = DaemonManager::new(DaemonConfig::default(), None);
+        let id = "zm-core --monitor-id 7";
+        let mut p = ManagedProcess::new(id, id, "zm-core", vec![], true, Some(7));
+        p.set_detached(Detached::Pid, pid, started);
+        manager.register_daemon(p).await;
+
+        manager.check_daemons().await;
+        assert_eq!(
+            manager.processes.read().await[id].state,
+            ProcessState::Running
+        );
+
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+        manager.check_daemons().await;
+        let processes = manager.processes.read().await;
+        assert_eq!(processes[id].state, ProcessState::Restarting);
+        assert!(processes[id].pid.is_none());
+    }
+
+    /// When zm-api itself is exiting, the stop wave leaves detached workers
+    /// running; they're adopted when zm-api comes back.
+    #[tokio::test]
+    async fn exiting_zm_api_leaves_detached_workers_running() {
+        use crate::daemon::process::Detached;
+        let mut sleeper = Command::new("sleep").arg("30").spawn().unwrap();
+        let pid = sleeper.id().unwrap();
+
+        let manager = DaemonManager::new(DaemonConfig::default(), None);
+        let id = "zm-core --monitor-id 8";
+        let mut p = ManagedProcess::new(id, id, "zm-core", vec![], true, Some(8));
+        p.set_detached(
+            Detached::Unit,
+            pid,
+            crate::daemon::zmnext_worker::start_time(pid),
+        );
+        manager.register_daemon(p).await;
+
+        manager.mark_process_exiting();
+        manager.shutdown_all().await.unwrap();
+        assert!(
+            sleeper.try_wait().unwrap().is_none(),
+            "the worker must still be running"
+        );
+        let _ = sleeper.kill().await;
     }
 
     /// A zm-next worker that keeps failing to load its pipeline (exit 3) is

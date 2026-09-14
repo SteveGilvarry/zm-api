@@ -44,6 +44,13 @@ StateDirectory=zm-api
 # (#82). Create it only when it is missing, and never touch an existing one.
 ExecStartPre=+/bin/sh -c 'test -d /run/zm || install -d -m 0775 -o zoneminder -g zoneminder /run/zm'
 
+# zm-api's own runtime files: the zm-next workers' env and pipeline files
+# (/run/zm-api/zm-next). Preserved across restarts, because the workers run as
+# their own units (zm-next@.service) and outlive this one.
+RuntimeDirectory=zm-api
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+
 # Execution
 ExecStart=/usr/bin/zm-api
 ExecReload=/bin/kill -HUP $MAINPID
@@ -51,7 +58,7 @@ ExecReload=/bin/kill -HUP $MAINPID
 # Graceful shutdown. The HTTP drain and the daemon SIGTERM wave run
 # concurrently, each bounded by shutdown_timeout_seconds (30s), with the
 # SIGKILL escalation after it; leave margin so systemd never SIGKILLs a zmc
-# that was mid-SIGTERM.
+# that was mid-SIGTERM. zm-next workers are separate units and keep running.
 KillSignal=SIGTERM
 TimeoutStopSec=50
 KillMode=mixed

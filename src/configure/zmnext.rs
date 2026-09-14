@@ -17,8 +17,16 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct ZmNextConfig {
-    /// Master switch. When false, no monitor is routed to a zm-next worker
-    /// regardless of its per-monitor flag, and the ingest task is not spawned.
+    /// `[zmnext].enabled`: `true`, `false`, or `"auto"` (the default). Auto
+    /// turns zm-next on when ZoneMinder's schema has `Monitors.UseZmNext`, the
+    /// column a zm-next-capable ZoneMinder adds; zm-api never assumes zm-next
+    /// is installed otherwise. Resolved into [`Self::enabled`] at startup.
+    #[serde(rename = "enabled")]
+    pub setting: EnabledSetting,
+    /// Whether zm-next is on, after resolving `setting`. When false, no
+    /// monitor is routed to a zm-next worker regardless of its per-monitor
+    /// flag, and the ingest task is not spawned.
+    #[serde(skip)]
     pub enabled: bool,
     pub worker: WorkerConfig,
     pub pipeline: PipelineConfig,
@@ -42,6 +50,50 @@ impl Default for SecretsConfig {
         Self {
             key_file: PathBuf::from("/var/lib/zm-api/zmnext-secrets.key"),
         }
+    }
+}
+
+/// `[zmnext].enabled` as written: a boolean, or `"auto"`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum EnabledSetting {
+    #[default]
+    Auto,
+    On,
+    Off,
+}
+
+impl<'de> Deserialize<'de> for EnabledSetting {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Bool(bool),
+            Text(String),
+        }
+        match Raw::deserialize(d)? {
+            Raw::Bool(true) => Ok(Self::On),
+            Raw::Bool(false) => Ok(Self::Off),
+            Raw::Text(t) => match t.to_ascii_lowercase().as_str() {
+                "auto" => Ok(Self::Auto),
+                "true" | "on" | "yes" => Ok(Self::On),
+                "false" | "off" | "no" => Ok(Self::Off),
+                other => Err(serde::de::Error::custom(format!(
+                    "zmnext.enabled must be true, false or \"auto\", not {other:?}"
+                ))),
+            },
+        }
+    }
+}
+
+impl ZmNextConfig {
+    /// Settle `enabled` from the setting and whether the database has
+    /// `Monitors.UseZmNext`.
+    pub fn resolve(&mut self, use_zmnext_column: bool) {
+        self.enabled = match self.setting {
+            EnabledSetting::On => true,
+            EnabledSetting::Off => false,
+            EnabledSetting::Auto => use_zmnext_column,
+        };
     }
 }
 
@@ -88,8 +140,16 @@ pub struct ShareInferenceConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct WorkerConfig {
-    /// Worker executable. Resolved on `PATH` when not absolute.
+    /// Worker executable: an absolute path, or a name looked up in
+    /// `[daemon].bin_path` and the usual install directories. Its directory
+    /// must hold the `plugins/` it loads.
     pub binary: String,
+    /// `auto` (a `zm-next@.service` unit when systemd runs and the template
+    /// is installed, else its own session), `systemd` or `session`.
+    pub launcher: String,
+    /// Where zm-api keeps each worker's pipeline, env and pid files. Must
+    /// survive zm-api restarts (the packaged unit preserves /run/zm-api).
+    pub runtime_dir: PathBuf,
 }
 
 /// Inputs to the pipeline-JSON generator.
@@ -143,6 +203,8 @@ impl Default for WorkerConfig {
     fn default() -> Self {
         Self {
             binary: "zm-core".to_string(),
+            launcher: "auto".to_string(),
+            runtime_dir: PathBuf::from("/run/zm-api/zm-next"),
         }
     }
 }
@@ -209,5 +271,50 @@ mod tests {
         assert!(cfg.pipeline.mqtt_url.is_none());
         assert!(!cfg.share_inference.enabled);
         assert_eq!(cfg.share_inference.socket_name, "zm_infer_gpu{gpu}.sock");
+        assert_eq!(cfg.setting, EnabledSetting::Auto);
+    }
+
+    #[test]
+    fn enabled_accepts_bools_and_auto_and_resolves_from_the_column() {
+        #[derive(Deserialize)]
+        struct Doc {
+            zmnext: ZmNextConfig,
+        }
+        let parse = |t: &str| {
+            config::Config::builder()
+                .add_source(config::File::from_str(t, config::FileFormat::Toml))
+                .build()
+                .and_then(|c| c.try_deserialize::<Doc>())
+                .map(|d| d.zmnext)
+        };
+        assert_eq!(
+            parse("[zmnext]\nenabled = true").unwrap().setting,
+            EnabledSetting::On
+        );
+        assert_eq!(
+            parse("[zmnext]\nenabled = false").unwrap().setting,
+            EnabledSetting::Off
+        );
+        assert_eq!(
+            parse("[zmnext]\nenabled = \"auto\"").unwrap().setting,
+            EnabledSetting::Auto
+        );
+        assert_eq!(parse("[zmnext]").unwrap().setting, EnabledSetting::Auto);
+        assert!(parse("[zmnext]\nenabled = \"sometimes\"").is_err());
+
+        let mut auto = parse("[zmnext]").unwrap();
+        auto.resolve(false);
+        assert!(
+            !auto.enabled,
+            "no UseZmNext column: zm-next isn't installed"
+        );
+        auto.resolve(true);
+        assert!(auto.enabled);
+        let mut off = parse("[zmnext]\nenabled = false").unwrap();
+        off.resolve(true);
+        assert!(!off.enabled, "explicitly off wins over the column");
+        let mut on = parse("[zmnext]\nenabled = true").unwrap();
+        on.resolve(false);
+        assert!(on.enabled);
     }
 }

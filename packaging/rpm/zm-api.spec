@@ -72,6 +72,8 @@ install -D -m 0644 settings/base.toml                  %{buildroot}%{_sysconfdir
 install -D -m 0644 settings/prod.toml                  %{buildroot}%{_sysconfdir}/%{appname}/prod.toml
 install -D -m 0644 packaging/systemd/zm-api.env        %{buildroot}%{_sysconfdir}/%{appname}/zm-api.env
 install -D -m 0644 packaging/systemd/zm-api.service    %{buildroot}%{_unitdir}/%{appname}.service
+install -D -m 0644 packaging/systemd/zm-next@.service  %{buildroot}%{_unitdir}/zm-next@.service
+install -D -m 0644 packaging/systemd/50-zm-api-zm-next.rules %{buildroot}%{_datadir}/polkit-1/rules.d/50-zm-api-zm-next.rules
 install -D -m 0644 packaging/man/zm-api.8              %{buildroot}%{_mandir}/man8/%{appname}.8
 install -D -m 0644 packaging/man/zm-api-takeover.8     %{buildroot}%{_mandir}/man8/%{appname}-takeover.8
 install -D -m 0644 packaging/man/zm-api-db.8           %{buildroot}%{_mandir}/man8/%{appname}-db.8
@@ -106,6 +108,8 @@ fi
 %dir %{_datadir}/%{appname}
 %{_datadir}/%{appname}/setup-instance.sh
 %{_unitdir}/%{appname}.service
+%{_unitdir}/zm-next@.service
+%{_datadir}/polkit-1/rules.d/50-zm-api-zm-next.rules
 %dir %{_sysconfdir}/%{appname}
 %config(noreplace) %{_sysconfdir}/%{appname}/base.toml
 %config(noreplace) %{_sysconfdir}/%{appname}/prod.toml

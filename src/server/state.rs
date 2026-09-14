@@ -48,8 +48,20 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub async fn new(config: AppConfig) -> AppResult<Self> {
+    pub async fn new(mut config: AppConfig) -> AppResult<Self> {
         let db = Arc::new(DatabaseClient::build_from_config(&config).await?);
+
+        // zm-next is on only where it is installed: `enabled = "auto"` (the
+        // default) looks for the Monitors.UseZmNext column a zm-next-capable
+        // ZoneMinder adds.
+        let column = crate::repo::monitors::use_zmnext_column_exists(db.as_ref()).await;
+        config.zmnext.resolve(column);
+        tracing::info!(
+            "zm-next {} (enabled = {:?}, Monitors.UseZmNext {})",
+            if config.zmnext.enabled { "on" } else { "off" },
+            config.zmnext.setting,
+            if column { "present" } else { "absent" }
+        );
 
         // Apply zm-api-owned migrations (additive, IF NOT EXISTS; only our own
         // tables — never ZoneMinder's). Non-fatal: a failure degrades the owned
