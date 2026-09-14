@@ -3,7 +3,7 @@ use crate::server::state::AppState;
 use crate::util::middleware::auth_middleware;
 use axum::{
     middleware,
-    routing::{get, patch, post},
+    routing::{get, patch},
     Router,
 };
 use tracing::info;
@@ -33,7 +33,8 @@ pub fn add_monitor_routes(router: Router<AppState>) -> Router<AppState> {
         )
         .route(
             &format!("{}/monitors/{{id}}/zmnext", api_prefix),
-            post(monitor_pipeline::enable_monitor_zmnext)
+            get(monitor_pipeline::get_monitor_zmnext_status)
+                .post(monitor_pipeline::enable_monitor_zmnext)
                 .delete(monitor_pipeline::disable_monitor_zmnext),
         )
         .route(

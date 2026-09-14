@@ -202,3 +202,34 @@ async fn real_worker_answers_snapshot_now() {
 
     let _ = router.stop_reader(monitor_id).await;
 }
+
+/// The worker status endpoint reports a monitor that isn't on zm-next, on a
+/// server where zm-api doesn't supervise daemons (the test state has no manager).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn zmnext_status_reports_an_unsupervised_legacy_monitor() {
+    let app = TestApp::spawn().await;
+    let monitor = insert_monitor(&app.db, "zmnext_status").await.unwrap();
+    let _mon = RowGuard::monitor(monitor.id);
+
+    let resp = app
+        .get(
+            &format!("/api/v3/monitors/{}/zmnext", monitor.id),
+            &superuser_token(),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::OK, "{}", resp.text());
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["monitor_id"], monitor.id);
+    assert_eq!(body["use_zmnext"], false);
+    assert_eq!(body["supervised"], false);
+    assert!(body["worker"].is_null());
+
+    let missing = app
+        .get(
+            &format!("/api/v3/monitors/{MISSING_MONITOR_ID}/zmnext"),
+            &superuser_token(),
+        )
+        .await;
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+}

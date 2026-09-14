@@ -106,6 +106,28 @@ pub async fn delete_monitor_pipeline(
 }
 
 #[utoipa::path(
+    get,
+    path = "/api/v3/monitors/{id}/zmnext",
+    params(("id" = u32, Path, description = "Monitor identifier")),
+    responses(
+        (status = 200, description = "The monitor's zm-next worker state; `worker.failure_reason` says why supervision stopped restarting it", body = crate::dto::response::monitor_pipeline::ZmNextWorkerStatusResponse),
+        (status = 401, description = "Unauthorized", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "Monitors"
+)]
+pub async fn get_monitor_zmnext_status(
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+    scope: MonitorScope,
+) -> AppResult<Json<crate::dto::response::monitor_pipeline::ZmNextWorkerStatusResponse>> {
+    Ok(Json(
+        service::monitor_pipeline::worker_status(&state, id, &scope).await?,
+    ))
+}
+
+#[utoipa::path(
     post,
     path = "/api/v3/monitors/{id}/zmnext",
     params(("id" = u32, Path, description = "Monitor identifier")),

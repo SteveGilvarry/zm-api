@@ -34,3 +34,15 @@ impl From<monitor_pipeline::Model> for MonitorPipelineResponse {
         }
     }
 }
+
+/// A monitor's zm-next worker, as the daemon manager sees it.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ZmNextWorkerStatusResponse {
+    pub monitor_id: u32,
+    /// `UseZmNext` is set and `[zmnext].enabled` is on.
+    pub use_zmnext: bool,
+    /// zm-api supervises daemons on this server (not passive mode).
+    pub supervised: bool,
+    /// The worker's process entry; absent if it was never started.
+    pub worker: Option<crate::dto::response::daemon::DaemonStatusResponse>,
+}

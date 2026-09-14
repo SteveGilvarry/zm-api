@@ -7378,6 +7378,62 @@
       }
     },
     "/api/v3/monitors/{id}/zmnext": {
+      "get": {
+        "tags": [
+          "Monitors"
+        ],
+        "operationId": "get_monitor_zmnext_status",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The monitor's zm-next worker state; `worker.failure_reason` says why supervision stopped restarting it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ZmNextWorkerStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
       "post": {
         "tags": [
           "Monitors"
@@ -18628,9 +18684,24 @@
           "restart_count"
         ],
         "properties": {
+          "failure_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why supervision stopped restarting this daemon. It stays stopped until\nstarted again explicitly."
+          },
           "id": {
             "type": "string",
             "description": "Process identifier"
+          },
+          "last_exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Exit status of the most recent exit, when it exited normally"
           },
           "monitor_id": {
             "type": [
@@ -28785,6 +28856,41 @@
           "warm_start": {
             "type": "boolean",
             "description": "Reader was already hot at connect (no reader spin-up on the offer path)."
+          }
+        }
+      },
+      "ZmNextWorkerStatusResponse": {
+        "type": "object",
+        "description": "A monitor's zm-next worker, as the daemon manager sees it.",
+        "required": [
+          "monitor_id",
+          "use_zmnext",
+          "supervised"
+        ],
+        "properties": {
+          "monitor_id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "supervised": {
+            "type": "boolean",
+            "description": "zm-api supervises daemons on this server (not passive mode)."
+          },
+          "use_zmnext": {
+            "type": "boolean",
+            "description": "`UseZmNext` is set and `[zmnext].enabled` is on."
+          },
+          "worker": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DaemonStatusResponse",
+                "description": "The worker's process entry; absent if it was never started."
+              }
+            ]
           }
         }
       },

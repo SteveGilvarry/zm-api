@@ -130,6 +130,29 @@ pub async fn disable_zmnext(
     Ok(())
 }
 
+/// The monitor's zm-next worker state, including why supervision gave up on it.
+pub async fn worker_status(
+    state: &AppState,
+    monitor_id: u32,
+    scope: &MonitorScope,
+) -> AppResult<crate::dto::response::monitor_pipeline::ZmNextWorkerStatusResponse> {
+    crate::service::monitor::get_by_id(state, monitor_id, scope).await?;
+    let use_zmnext = state.config.zmnext.enabled
+        && crate::repo::monitors::use_zmnext(state.db(), monitor_id).await;
+    let worker = match &state.daemon_manager {
+        Some(mgr) => mgr.zmnext_worker_status(monitor_id).await.map(Into::into),
+        None => None,
+    };
+    Ok(
+        crate::dto::response::monitor_pipeline::ZmNextWorkerStatusResponse {
+            monitor_id,
+            use_zmnext,
+            supervised: state.daemon_manager.is_some(),
+            worker,
+        },
+    )
+}
+
 /// Best-effort: restart the monitor's worker so a graph change is applied now.
 /// Never fails the request — the change is already persisted and applies on the
 /// next (re)start regardless.

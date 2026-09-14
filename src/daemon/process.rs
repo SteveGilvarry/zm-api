@@ -86,6 +86,11 @@ pub struct ManagedProcess {
     /// crash-restart re-pipes the same config without regenerating it — exactly
     /// how a pipeline file used to persist across restarts.
     pub stdin_payload: Option<std::sync::Arc<Vec<u8>>>,
+    /// Recent exits, for deciding when a zm-next worker's restarts are futile.
+    pub exit_history: crate::daemon::exit_policy::ExitHistory,
+    /// Set when supervision gave up on this process, with the reason. Neither
+    /// the health check nor reconcile restarts it; an explicit start clears it.
+    pub gave_up: Option<String>,
 }
 
 impl ManagedProcess {
@@ -117,6 +122,8 @@ impl ManagedProcess {
             last_active_at: None,
             last_heartbeat_age: None,
             stdin_payload: None,
+            exit_history: Default::default(),
+            gave_up: None,
         }
     }
 

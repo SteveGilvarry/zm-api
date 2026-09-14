@@ -384,6 +384,11 @@ impl DaemonManager {
         process.args = daemon_args.clone();
         // Persist the payload so a future restart re-delivers it.
         process.stdin_payload = stdin_payload;
+        // Automatic restarts skip a given-up process, so reaching here with
+        // `gave_up` set means someone started it on purpose: count afresh.
+        if process.gave_up.take().is_some() {
+            process.exit_history = Default::default();
+        }
         process.set_child(child);
 
         // Update PID map
@@ -764,18 +769,7 @@ impl DaemonManager {
         let processes = self.processes.read().await;
         let running = *self.running.read().await;
 
-        let daemons: Vec<ProcessStatus> = processes
-            .values()
-            .map(|p| ProcessStatus {
-                id: p.id.clone(),
-                name: p.name.clone(),
-                state: p.state,
-                pid: p.pid,
-                uptime_seconds: p.uptime().map(|d| d.as_secs()),
-                restart_count: p.restart_count,
-                monitor_id: p.monitor_id,
-            })
-            .collect();
+        let daemons: Vec<ProcessStatus> = processes.values().map(ProcessStatus::from).collect();
 
         // Collect current system stats
         let stats: Option<SystemStats> = stats::collect_stats().ok();
@@ -790,15 +784,7 @@ impl DaemonManager {
     /// Get status of a specific daemon.
     pub async fn get_daemon_status(&self, id: &str) -> Option<ProcessStatus> {
         let processes = self.processes.read().await;
-        processes.get(id).map(|p| ProcessStatus {
-            id: p.id.clone(),
-            name: p.name.clone(),
-            state: p.state,
-            pid: p.pid,
-            uptime_seconds: p.uptime().map(|d| d.as_secs()),
-            restart_count: p.restart_count,
-            monitor_id: p.monitor_id,
-        })
+        processes.get(id).map(ProcessStatus::from)
     }
 
     /// Shutdown all daemons gracefully.
@@ -1722,6 +1708,10 @@ impl DaemonManager {
             // respawning a Restarting one every tick caps the documented
             // backoff at this loop's interval (#115).
             let state = self.monitor_daemon_state(monitor_id).await;
+            // Supervision gave up on this worker; only an explicit start retries.
+            if self.monitor_daemon_gave_up(monitor_id).await {
+                continue;
+            }
             let idle = matches!(
                 state,
                 None | Some(ProcessState::Stopped) | Some(ProcessState::Failed)
@@ -1885,6 +1875,7 @@ impl DaemonManager {
                 // first observe the exit, or each cycle would re-detect the
                 // same dead child, re-run prepare_restart (resetting the
                 // backoff clock) and never actually restart it.
+                let uptime = process.uptime().unwrap_or_default();
                 let wait_result = process.child_mut().map(|child| child.try_wait());
 
                 match wait_result {
@@ -1914,8 +1905,22 @@ impl DaemonManager {
 
                         // If the process was being stopped (Stopping state) or
                         // auto_restart is disabled, just mark it stopped
+                        // zm-next workers: give up on a status a restart can't
+                        // fix instead of restart-looping it forever.
+                        let decision = if id.starts_with("zm-core ") {
+                            process.exit_history.record(status.code(), uptime)
+                        } else {
+                            crate::daemon::exit_policy::Decision::Restart
+                        };
+
                         if was_stopping || !process.auto_restart {
                             process.set_state(ProcessState::Stopped);
+                        } else if let crate::daemon::exit_policy::Decision::GiveUp(reason) =
+                            decision
+                        {
+                            error!("Daemon {id}: {reason}; start it again once the cause is fixed");
+                            process.gave_up = Some(reason);
+                            process.set_state(ProcessState::Failed);
                         } else {
                             // Prepare for restart with backoff
                             process.prepare_restart(
@@ -2528,6 +2533,26 @@ impl DaemonManager {
     }
 
     /// State of the monitor's primary capture daemon, `None` if untracked.
+    /// Status of a monitor's zm-next worker entry, whether or not the monitor is
+    /// currently flagged for zm-next.
+    pub async fn zmnext_worker_status(&self, monitor_id: u32) -> Option<ProcessStatus> {
+        let processes = self.processes.read().await;
+        processes
+            .get(&zmnext_daemon_id(monitor_id))
+            .map(ProcessStatus::from)
+    }
+
+    /// Whether supervision gave up on this monitor's capture daemon.
+    async fn monitor_daemon_gave_up(&self, monitor_id: u32) -> bool {
+        let id = if self.use_zmnext(monitor_id).await {
+            zmnext_daemon_id(monitor_id)
+        } else {
+            self.zmc_id_for_monitor(monitor_id).await
+        };
+        let processes = self.processes.read().await;
+        processes.get(&id).is_some_and(|p| p.gave_up.is_some())
+    }
+
     async fn monitor_daemon_state(&self, monitor_id: u32) -> Option<ProcessState> {
         let id = if self.use_zmnext(monitor_id).await {
             zmnext_daemon_id(monitor_id)
@@ -2570,29 +2595,13 @@ impl DaemonManager {
 
         // Check zmc
         if let Some(p) = processes.get(&zmc_id) {
-            statuses.push(ProcessStatus {
-                id: p.id.clone(),
-                name: p.name.clone(),
-                state: p.state,
-                pid: p.pid,
-                uptime_seconds: p.uptime().map(|d| d.as_secs()),
-                restart_count: p.restart_count,
-                monitor_id: p.monitor_id,
-            });
+            statuses.push(ProcessStatus::from(p));
         }
 
         // Check zma
         let zma_id = format!("zma -m {}", monitor_id);
         if let Some(p) = processes.get(&zma_id) {
-            statuses.push(ProcessStatus {
-                id: p.id.clone(),
-                name: p.name.clone(),
-                state: p.state,
-                pid: p.pid,
-                uptime_seconds: p.uptime().map(|d| d.as_secs()),
-                restart_count: p.restart_count,
-                monitor_id: p.monitor_id,
-            });
+            statuses.push(ProcessStatus::from(p));
         }
 
         statuses
@@ -3510,6 +3519,59 @@ mod tests {
             process.pid.is_none(),
             "a dead pid may be reused; it must be forgotten so stop/kill never signal it (#81)"
         );
+    }
+
+    /// A zm-next worker that keeps failing to load its pipeline (exit 3) is
+    /// left Failed with a reason after three fast exits, instead of cycling
+    /// through backoff forever. A plain daemon with the same exits keeps
+    /// restarting.
+    #[tokio::test]
+    async fn a_worker_that_keeps_failing_to_load_is_given_up_on() {
+        async fn exited(code: i32) -> tokio::process::Child {
+            let mut child = Command::new("sh")
+                .arg("-c")
+                .arg(format!("exit {code}"))
+                .spawn()
+                .expect("spawn test child");
+            let _ = child.wait().await;
+            child
+        }
+
+        let manager = DaemonManager::new(DaemonConfig::default(), None);
+        let worker = "zm-core --monitor-id 9";
+        for (id, name) in [(worker, "worker"), ("other-daemon", "other")] {
+            manager
+                .register_daemon(ManagedProcess::new(id, name, "x", vec![], true, Some(9)))
+                .await;
+        }
+
+        for round in 1..=3 {
+            for id in [worker, "other-daemon"] {
+                let child = exited(3).await;
+                manager
+                    .processes
+                    .write()
+                    .await
+                    .get_mut(id)
+                    .unwrap()
+                    .set_child(child);
+            }
+            manager.check_daemons().await;
+            let processes = manager.processes.read().await;
+            let w = &processes[worker];
+            if round < 3 {
+                assert_eq!(w.state, ProcessState::Restarting, "round {round}");
+                assert!(w.gave_up.is_none());
+            } else {
+                assert_eq!(w.state, ProcessState::Failed);
+                let reason = w.gave_up.as_deref().expect("a reason");
+                assert!(reason.contains("pipeline failed to load"), "{reason}");
+                let status = ProcessStatus::from(w);
+                assert_eq!(status.last_exit_code, Some(3));
+                assert_eq!(status.failure_reason.as_deref(), Some(reason));
+            }
+            assert_eq!(processes["other-daemon"].state, ProcessState::Restarting);
+        }
     }
 
     /// Regression for #77: an entry that has been sent SIGTERM but whose exit

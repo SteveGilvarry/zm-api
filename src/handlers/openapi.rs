@@ -207,6 +207,7 @@ use crate::util::claim::UserClaims;
         crate::handlers::monitor_pipeline::get_monitor_pipeline,
         crate::handlers::monitor_pipeline::put_monitor_pipeline,
         crate::handlers::monitor_pipeline::delete_monitor_pipeline,
+        crate::handlers::monitor_pipeline::get_monitor_zmnext_status,
         crate::handlers::monitor_pipeline::enable_monitor_zmnext,
         crate::handlers::monitor_pipeline::disable_monitor_zmnext,
 
@@ -389,6 +390,7 @@ use crate::util::claim::UserClaims;
     ),
     components(
         schemas(
+            crate::dto::response::monitor_pipeline::ZmNextWorkerStatusResponse,
             // zm-next on-demand commands
             crate::dto::request::monitor_ondemand::DescribeNowRequest,
             crate::dto::response::monitor_ondemand::DescribeNowResponse,
