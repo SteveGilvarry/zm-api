@@ -254,6 +254,19 @@ impl SecretKey {
     }
 }
 
+/// The `secrets_salt` zm-api sends in a monitor's configure: derived from the
+/// secrets key and the monitor id, so it's stable without being stored and
+/// unguessable without the key file.
+pub fn secrets_salt(key_file: &Path, monitor_id: u32) -> AppResult<String> {
+    use sha2::{Digest, Sha256};
+    let key = SecretKey::load_or_create(key_file).map_err(|e| key_error(key_file, e))?;
+    let mut hasher = Sha256::new();
+    hasher.update(key.0.as_slice());
+    hasher.update(format!("zmnext-secrets-salt:{monitor_id}").as_bytes());
+    let digest = hasher.finalize();
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&digest[..16]))
+}
+
 fn key_error(path: &Path, e: std::io::Error) -> AppError {
     AppError::InternalServerError(format!(
         "zm-next secrets key {} is unusable: {e}",

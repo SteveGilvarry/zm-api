@@ -161,6 +161,14 @@ pub struct WorkerHello {
     /// Whether this connection may send commands and configure.
     #[serde(default)]
     pub control_peer: bool,
+    /// Salted hash of the active pipeline's secret values (control peers
+    /// only); tells zm-api whether the worker already has the secrets it
+    /// would send.
+    #[serde(default)]
+    pub secrets_fingerprint: Option<String>,
+    /// Present when the worker couldn't read its plugin manifest.
+    #[serde(default)]
+    pub catalog_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
@@ -184,10 +192,12 @@ pub struct HelloZmNext {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct HelloPlugin {
     pub kind: String,
+    /// `null` for a plugin without a schema.
     #[serde(default)]
-    pub version: String,
+    pub version: Option<String>,
+    /// `"sha256:…"`, or `null` for a plugin without a schema.
     #[serde(default)]
-    pub schema_sha256: String,
+    pub schema_sha256: Option<String>,
 }
 
 /// Parse a WorkerHello payload. `None` when it isn't the expected JSON.
@@ -897,6 +907,22 @@ mod tests {
         assert_eq!(hello.pipeline_hash.as_deref(), Some("sha256:4f1c"));
         assert_eq!(hello.plugins[1].kind, "tracker");
         assert!(hello.control_peer);
+        // zm-next's implemented hello: plugins without a schema report nulls.
+        let real = parse_worker_hello(
+            br#"{"protocol":{"canonical":1,"control":1},"zm_next":{"version":"0.1.0","commit":"525a391","plugin_abi":1},
+                 "monitor_id":21,"state":"failed","pipeline_hash":null,
+                 "plugins":[{"kind":"capture_rtsp_multi","version":"1.0.0","schema_sha256":"sha256:9ab2"},
+                            {"kind":"capture_file","version":null,"schema_sha256":null}],
+                 "hw":{"backends":["metal"]},"secrets_fingerprint":"sha256:8489","control_peer":true}"#,
+        )
+        .expect("nulls parse");
+        assert_eq!(real.plugins[1].schema_sha256, None);
+        assert_eq!(
+            real.plugins[0].schema_sha256.as_deref(),
+            Some("sha256:9ab2")
+        );
+        assert_eq!(real.state, "failed");
+        assert_eq!(real.secrets_fingerprint.as_deref(), Some("sha256:8489"));
         // Unknown fields and a minimal unconfigured hello are fine.
         let min = parse_worker_hello(br#"{"state":"unconfigured","future":1}"#).unwrap();
         assert_eq!(min.pipeline_hash, None);

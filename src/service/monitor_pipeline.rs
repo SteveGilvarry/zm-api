@@ -376,7 +376,18 @@ async fn apply_to_worker(state: &AppState, monitor_id: u32) -> WorkerApply {
             return WorkerApply::Restarted;
         }
     };
-    let command = configure_command(&pipeline, &secrets, "restart");
+    let salt = match crate::service::zmnext::secrets::secrets_salt(
+        &state.config.zmnext.secrets.key_file,
+        monitor_id,
+    ) {
+        Ok(salt) => salt,
+        Err(e) => {
+            tracing::warn!("monitor {monitor_id}: no secrets salt ({e}); restarting instead");
+            reload_worker(state, monitor_id).await;
+            return WorkerApply::Restarted;
+        }
+    };
+    let command = configure_command(&pipeline, &secrets, &salt, "restart");
     match router
         .send_control(monitor_id, command, std::time::Duration::from_secs(30))
         .await
