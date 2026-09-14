@@ -266,6 +266,7 @@ mod tests {
             request_id,
             ok,
             message: message.into(),
+            data: serde_json::Value::Null,
         }
     }
 
