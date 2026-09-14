@@ -2084,12 +2084,19 @@ impl DaemonManager {
         let id = zmnext_daemon_id(monitor_id);
         // Deliver the pipeline config in-memory over stdin ("--pipeline -") so
         // the worker's camera credentials never touch disk.
-        let extra = vec![
+        let mut extra = vec![
             "--pipeline".to_string(),
             "-".to_string(),
             "--socket".to_string(),
             socket_path,
         ];
+        // Name zm-api as the worker's control peer, when this zm-core knows the
+        // flag. An older one exits 1 on an unknown flag, so ask first.
+        let binary = self.config.resolve_daemon_path("zm-core");
+        if zmcore_supports_control_uid(&binary).await {
+            extra.push("--control-uid".to_string());
+            extra.push(nix::unistd::geteuid().as_raw().to_string());
+        }
         self.start_daemon_with_stdin(&id, &extra, Some(payload))
             .await
     }
@@ -2785,8 +2792,49 @@ fn validate_daemon_spec(command: &str, args: &[String]) -> Result<(), String> {
     result
 }
 
+/// Whether the `zm-core` at `binary` accepts `--control-uid` (zm-next's worker
+/// control protocol), from its `--help`. Cached per path and modification
+/// time, so an upgraded binary is asked again.
+async fn zmcore_supports_control_uid(binary: &std::path::Path) -> bool {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    use std::time::SystemTime;
+    static CACHE: std::sync::OnceLock<Mutex<HashMap<PathBuf, (SystemTime, bool)>>> =
+        std::sync::OnceLock::new();
+    let Ok(mtime) = std::fs::metadata(binary).and_then(|m| m.modified()) else {
+        return false;
+    };
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some((cached_mtime, supported)) = cache.lock().unwrap().get(binary) {
+        if *cached_mtime == mtime {
+            return *supported;
+        }
+    }
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        Command::new(binary).arg("--help").output(),
+    )
+    .await;
+    let supported = match output {
+        Ok(Ok(out)) => {
+            help_mentions_control_uid(&out.stdout) || help_mentions_control_uid(&out.stderr)
+        }
+        _ => false,
+    };
+    cache
+        .lock()
+        .unwrap()
+        .insert(binary.to_path_buf(), (mtime, supported));
+    supported
+}
+
+fn help_mentions_control_uid(text: &[u8]) -> bool {
+    String::from_utf8_lossy(text).contains("--control-uid")
+}
+
 /// Validate the `zm-core` worker arg list (order-independent). Requires exactly
-/// `--monitor-id`, `--pipeline` and `--socket`, each with a valid value. The
+/// `--monitor-id`, `--pipeline` and `--socket`, each with a valid value, and
+/// allows one `--control-uid <uid>`. The
 /// pipeline value is either an absolute path or `-` (read the config from stdin,
 /// which is how zm-api delivers it in-memory so credentials never touch disk).
 fn validate_zmnext_args(args: &[String]) -> Result<(), String> {
@@ -2798,8 +2846,12 @@ fn validate_zmnext_args(args: &[String]) -> Result<(), String> {
         return Err(format!("zm-core args must be flag/value pairs: {:?}", args));
     }
     let (mut have_monitor, mut have_pipeline, mut have_socket) = (false, false, false);
+    let mut have_control_uid = false;
     for pair in args.chunks(2) {
         match (pair[0].as_str(), pair[1].as_str()) {
+            ("--control-uid", v) if !have_control_uid && v.parse::<u32>().is_ok() => {
+                have_control_uid = true
+            }
             ("--monitor-id", v) if v.parse::<u32>().is_ok() => have_monitor = true,
             ("--pipeline", v) if v == "-" || safe_path(v) => have_pipeline = true,
             ("--socket", v) if safe_path(v) => have_socket = true,
@@ -3623,6 +3675,59 @@ mod tests {
             process.pid.is_none(),
             "a dead pid may be reused; it must be forgotten so stop/kill never signal it (#81)"
         );
+    }
+
+    #[test]
+    fn zm_core_args_accept_one_control_uid() {
+        let base = |extra: &[&str]| {
+            let mut v: Vec<String> = [
+                "--monitor-id",
+                "3",
+                "--pipeline",
+                "-",
+                "--socket",
+                "/run/zm/stream_3.sock",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+            v.extend(extra.iter().map(|s| s.to_string()));
+            v
+        };
+        assert!(validate_zmnext_args(&base(&[])).is_ok());
+        assert!(validate_zmnext_args(&base(&["--control-uid", "997"])).is_ok());
+        assert!(validate_zmnext_args(&base(&["--control-uid", "root"])).is_err());
+        assert!(
+            validate_zmnext_args(&base(&["--control-uid", "1", "--control-uid", "2"])).is_err()
+        );
+    }
+
+    /// The `--help` text zm-next's Phase 1 zm-core prints (dev box, 2026-09-14).
+    #[tokio::test]
+    async fn control_uid_support_is_read_from_help() {
+        let help = b"Options:\n  --socket <path>      Unix socket\n  --control-uid <uid>  Also accept commands from this uid";
+        assert!(help_mentions_control_uid(help));
+        assert!(!help_mentions_control_uid(
+            b"Usage: zm-core --pipeline <pipeline.json | ->"
+        ));
+
+        let dir = std::env::temp_dir().join(format!("zmcore_probe_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, text, want) in [
+            ("new", "  --control-uid <uid>  Also accept commands", true),
+            ("old", "  --socket <path>  Unix socket", false),
+        ] {
+            let bin = dir.join(name);
+            std::fs::write(&bin, format!("#!/bin/sh\necho '{text}'\n")).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            assert_eq!(zmcore_supports_control_uid(&bin).await, want, "{name}");
+        }
+        assert!(!zmcore_supports_control_uid(&dir.join("missing")).await);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A zm-next worker that keeps failing to load its pipeline (exit 3) is
