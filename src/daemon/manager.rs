@@ -2166,18 +2166,30 @@ impl DaemonManager {
         let mut value = match stored {
             Some(row) => match serde_json::from_str::<serde_json::Value>(&row.graph_json) {
                 Ok(graph) if crate::service::zmnext::graph::validate_graph(&graph).is_ok() => {
-                    pipeline::compose_pipeline(
-                        monitor_id,
-                        &clean_url,
-                        &username,
-                        &password,
-                        &graph,
-                        &zone_specs,
-                        &rt.config.pipeline,
-                        mode,
-                        &events_root,
-                    )
-                    .unwrap_or_else(default)
+                    // This worker reads a plain pipeline, so resolve the graph's
+                    // `$secret` references to their values here.
+                    match self.resolve_graph_secrets(monitor_id, rt, graph).await {
+                        Ok(graph) => pipeline::compose_pipeline(
+                            monitor_id,
+                            &clean_url,
+                            &username,
+                            &password,
+                            &graph,
+                            &zone_specs,
+                            &rt.config.pipeline,
+                            mode,
+                            &events_root,
+                        )
+                        .unwrap_or_else(default),
+                        Err(e) => {
+                            error!(
+                                "zm-next: monitor {monitor_id} stored pipeline graph needs \
+                                 secrets that can't be loaded ({e}); using the default \
+                                 generated pipeline"
+                            );
+                            default()
+                        }
+                    }
                 }
                 Ok(_) => {
                     warn!(
@@ -2213,6 +2225,28 @@ impl DaemonManager {
                 "Failed to serialize zm-next pipeline for monitor {monitor_id}: {e}"
             ))
         })
+    }
+
+    /// Replace a stored graph's `$secret` references with their decrypted values.
+    async fn resolve_graph_secrets(
+        &self,
+        monitor_id: u32,
+        rt: &ZmNextRuntime,
+        mut graph: serde_json::Value,
+    ) -> AppResult<serde_json::Value> {
+        use crate::service::zmnext::secrets;
+        if secrets::references(&graph).is_empty() {
+            return Ok(graph);
+        }
+        let db = self.db.as_ref().ok_or_else(|| {
+            crate::error::AppError::InternalServerError("no database for secrets".into())
+        })?;
+        let map =
+            secrets::load_secrets(db.as_ref(), &rt.config.secrets.key_file, monitor_id, &graph)
+                .await?;
+        secrets::resolve_in_place(&mut graph, &map)
+            .map_err(crate::error::AppError::InternalServerError)?;
+        Ok(graph)
     }
 
     /// Resolve the directory the worker's `store` plugin writes clips to:

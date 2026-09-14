@@ -24,15 +24,26 @@ pub async fn get(
 ) -> AppResult<MonitorPipelineResponse> {
     // Enforce monitor row ACL + existence (404 for unknown/forbidden monitor).
     crate::service::monitor::get_by_id(state, monitor_id, scope).await?;
-    repo::monitor_pipeline::find_by_monitor(state.db(), monitor_id)
-        .await?
-        .map(MonitorPipelineResponse::from)
-        .ok_or_else(|| {
-            AppError::NotFoundError(Resource {
-                details: vec![("monitor_id".into(), monitor_id.to_string())],
-                resource_type: ResourceType::Monitor,
-            })
+    let row = repo::monitor_pipeline::find_by_monitor(state.db(), monitor_id).await?;
+    let row = match row {
+        // A graph saved before secrets were split out: move them now, so the
+        // response never carries a secret value.
+        Some(row) => Some(
+            crate::service::zmnext::secrets::migrate_row(
+                state.db(),
+                &state.config.zmnext.secrets.key_file,
+                row,
+            )
+            .await?,
+        ),
+        None => None,
+    };
+    row.map(MonitorPipelineResponse::from).ok_or_else(|| {
+        AppError::NotFoundError(Resource {
+            details: vec![("monitor_id".into(), monitor_id.to_string())],
+            resource_type: ResourceType::Monitor,
         })
+    })
 }
 
 /// Validate and replace a monitor's processing graph, then best-effort restart
@@ -46,9 +57,22 @@ pub async fn replace(
 ) -> AppResult<MonitorPipelineResponse> {
     crate::service::monitor::get_by_id(state, monitor_id, scope).await?;
     graph::validate_graph(&graph_doc).map_err(AppError::BadRequestError)?;
+    // Secret values go to the encrypted store; the saved graph holds only
+    // `{"$secret": ...}` references.
+    let mut graph_doc = graph_doc;
+    let key_file = &state.config.zmnext.secrets.key_file;
+    crate::service::zmnext::secrets::stash_secrets(
+        state.db(),
+        key_file,
+        monitor_id,
+        &mut graph_doc,
+    )
+    .await?;
     let body = serde_json::to_string(&graph_doc)?;
     let now = chrono::Utc::now().naive_utc();
     let row = repo::monitor_pipeline::upsert(state.db(), monitor_id, body, 1, now).await?;
+    crate::service::zmnext::secrets::prune_secrets(state.db(), monitor_id, Some(&graph_doc))
+        .await?;
     reload_worker(state, monitor_id).await;
     Ok(MonitorPipelineResponse::from(row))
 }
@@ -58,6 +82,7 @@ pub async fn replace(
 pub async fn delete(state: &AppState, monitor_id: u32, scope: &MonitorScope) -> AppResult<()> {
     crate::service::monitor::get_by_id(state, monitor_id, scope).await?;
     repo::monitor_pipeline::delete_by_monitor(state.db(), monitor_id).await?;
+    crate::service::zmnext::secrets::prune_secrets(state.db(), monitor_id, None).await?;
     reload_worker(state, monitor_id).await;
     Ok(())
 }

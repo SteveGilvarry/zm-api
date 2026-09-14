@@ -12,6 +12,7 @@ pub mod graph;
 pub mod ingest;
 pub mod ondemand;
 pub mod pipeline;
+pub mod secrets;
 
 pub use ingest::EventIngestor;
 pub use pipeline::generate_pipeline;

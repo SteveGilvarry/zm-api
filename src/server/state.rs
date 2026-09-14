@@ -58,6 +58,13 @@ impl AppState {
         if let Err(e) = crate::client::database::migrate_database(db.as_ref()).await {
             tracing::warn!("zm-api owned-table migrations failed (features may degrade): {e}");
         }
+        // Stored zm-next graphs saved before secrets were split out still hold
+        // them in plain text; move them into the encrypted store now.
+        crate::service::zmnext::secrets::migrate_stored_graphs(
+            db.as_ref(),
+            &config.zmnext.secrets.key_file,
+        )
+        .await;
 
         let http = reqwest::Client::builder()
             .no_proxy()

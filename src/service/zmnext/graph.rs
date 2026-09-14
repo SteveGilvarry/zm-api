@@ -107,7 +107,20 @@ fn validate_node(node: &Value) -> Result<(), String> {
     // Reject capture/secret keys in either `cfg` or `config`.
     if let Some(cfg) = obj.get("cfg").or_else(|| obj.get("config")) {
         if let Some(cfg_obj) = cfg.as_object() {
-            for key in cfg_obj.keys() {
+            for (key, value) in cfg_obj {
+                if super::secrets::is_secret_key(kind, key) {
+                    // A literal is moved into the secret store on save; a
+                    // reference keeps the stored value.
+                    if !value.is_string() && super::secrets::reference_name(value).is_none() {
+                        return Err(format!(
+                            "`{kind}` `{key}` must be a string or a {{\"$secret\": \"<name>\"}} reference"
+                        ));
+                    }
+                    continue;
+                }
+                if kind == "output_mqtt" && key == "username" {
+                    continue;
+                }
                 if FORBIDDEN_CFG_KEYS.contains(&key.as_str()) {
                     return Err(format!(
                         "`{kind}` cfg may not contain `{key}` — capture/credentials are injected at spawn, never stored"
@@ -181,6 +194,23 @@ mod tests {
             actual,
             "refresh src/service/zmnext/zmnext_plugins.txt from {src}/plugins/CMakeLists.txt"
         );
+    }
+
+    #[test]
+    fn plugin_secrets_are_allowed_as_strings_or_references() {
+        let doc = json!({ "plugins": [ { "kind": "decode_detect", "children": [
+            { "kind": "output_mqtt", "cfg": { "username": "u", "password": "p" } },
+            { "kind": "output_webhook", "cfg": { "auth_header": { "$secret": "notify.auth_header" } } },
+            { "kind": "llm_event_review", "cfg": { "api_key": "sk" } }
+        ] } ] });
+        assert!(validate_graph(&doc).is_ok(), "{:?}", validate_graph(&doc));
+
+        let bad =
+            json!({ "plugins": [ { "kind": "output_webhook", "cfg": { "auth_header": 42 } } ] });
+        assert!(validate_graph(&bad).unwrap_err().contains("reference"));
+        // Camera-style credentials stay forbidden everywhere else.
+        let cam = json!({ "plugins": [ { "kind": "decode_detect", "cfg": { "password": "p" } } ] });
+        assert!(validate_graph(&cam).is_err());
     }
 
     #[test]

@@ -40,6 +40,7 @@ nothing changes for an existing MySQL install.
                   portable, one per upstream update)    latest vendored version,
                 m2026…_event_synopsis                   then stamp baseline +
                 m2026…_monitor_pipeline                  every m_1_39_x ≤ that version
+                m2026…_zmnext_secret
 ```
 
 1. **Baseline at 1.39.1.** `db/baseline-1.39.1/` holds `zm_create.sql.in` and

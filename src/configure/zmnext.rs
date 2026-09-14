@@ -25,6 +25,24 @@ pub struct ZmNextConfig {
     pub ingest: IngestConfig,
     pub share_inference: ShareInferenceConfig,
     pub commands: CommandsConfig,
+    pub secrets: SecretsConfig,
+}
+
+/// Where secrets taken out of stored pipeline graphs are encrypted. The key
+/// file is created (mode 0600) on first use; losing it makes the stored
+/// secrets unrecoverable, so back it up with the database.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct SecretsConfig {
+    pub key_file: PathBuf,
+}
+
+impl Default for SecretsConfig {
+    fn default() -> Self {
+        Self {
+            key_file: PathBuf::from("/var/lib/zm-api/zmnext-secrets.key"),
+        }
+    }
 }
 
 /// On-demand worker commands (`snapshot_now`, `describe_now`) sent over the
