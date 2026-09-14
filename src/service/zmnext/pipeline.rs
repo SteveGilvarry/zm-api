@@ -249,8 +249,9 @@ pub fn generate_pipeline(
     }
     if synopsis {
         // Export the synopsis ingredients: object cutouts/tubes (review_export →
-        // 0x0306 review_assets) and clean background plates (plate_export). Only
-        // synopsis-enabled cameras pay this; the rest never emit it.
+        // 0x0306 review_assets). Only synopsis-enabled cameras pay this. Background
+        // plates come from `motion_pixel_diff`'s `plate_export` option, not a
+        // plugin; this generator doesn't place that stage yet.
         capture_children.push(json!({
             "id": "review",
             "kind": "review_export",
@@ -260,15 +261,6 @@ pub fn generate_pipeline(
                 "mask_format": "polygon",
             },
             "queue_depth": 8,
-        }));
-        capture_children.push(json!({
-            "id": "plate",
-            "kind": "plate_export",
-            "cfg": {
-                "monitor_id": monitor_id,
-                "root": events_root.to_string_lossy(),
-            },
-            "queue_depth": 4,
         }));
     }
     if let Some((host, port)) = mqtt_host_port(cfg.mqtt_url.as_deref()) {
@@ -870,6 +862,58 @@ mod tests {
         assert!(!kinds.contains(&"store"), "kinds: {kinds:?}");
     }
 
+    /// Every plugin kind the generator can emit must exist in zm-next, or
+    /// zm-core refuses the whole pipeline. Covers each topology: plain,
+    /// synopsis, MQTT output, and the privacy transcode path.
+    #[test]
+    fn generated_kinds_exist_in_zm_next() {
+        fn collect<'a>(node: &'a Value, out: &mut Vec<&'a str>) {
+            if let Some(k) = node.get("kind").and_then(Value::as_str) {
+                out.push(k);
+            }
+            for key in ["plugins", "children"] {
+                if let Some(arr) = node.get(key).and_then(Value::as_array) {
+                    arr.iter().for_each(|c| collect(c, out));
+                }
+            }
+        }
+        let mqtt = PipelineConfig {
+            mqtt_url: Some("mqtt://localhost:1883".to_string()),
+            ..PipelineConfig::default()
+        };
+        let privacy = [ZoneSpec {
+            name: "Neighbour".to_string(),
+            coords: "10,10 50,10 50,50 10,50".to_string(),
+            zm_type: "Privacy".to_string(),
+            min_pixel_threshold: None,
+            max_pixel_threshold: None,
+        }];
+        let known = super::super::graph::zmnext_plugin_kinds();
+        for (zones, cfg, synopsis) in [(&[][..], &mqtt, true), (&privacy[..], &mqtt, false)] {
+            for mode in [StoreMode::Continuous, StoreMode::Event, StoreMode::None] {
+                let doc = generate_pipeline(
+                    1,
+                    "rtsp://c",
+                    "u",
+                    "p",
+                    zones,
+                    cfg,
+                    mode,
+                    Path::new("/e"),
+                    synopsis,
+                );
+                let mut kinds = Vec::new();
+                collect(&doc, &mut kinds);
+                for k in kinds {
+                    assert!(
+                        known.contains(k),
+                        "generator emits `{k}`, which zm-next doesn't build"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn mqtt_broker_adds_output_stage() {
         let cfg = PipelineConfig {
@@ -901,7 +945,7 @@ mod tests {
     }
 
     #[test]
-    fn synopsis_flag_adds_review_and_plate_export_with_polygon_masks() {
+    fn synopsis_flag_adds_review_export_with_polygon_masks() {
         let cfg = test_cfg();
         // synopsis disabled → plain detect+store, bbox-only detect (no mask_format).
         let plain = generate_pipeline(
@@ -919,8 +963,8 @@ mod tests {
         assert_eq!(plain_children.len(), 2);
         assert!(plain_children[0]["cfg"].get("mask_format").is_none());
 
-        // synopsis enabled → polygon masks + tracker on detect, plus review_export
-        // and plate_export siblings under capture.
+        // synopsis enabled → polygon masks + tracker on detect, plus a
+        // review_export sibling under capture.
         let syn = generate_pipeline(
             3,
             "rtsp://c",
@@ -943,7 +987,7 @@ mod tests {
             .map(|c| c["kind"].as_str().unwrap())
             .collect();
         assert!(kinds.contains(&"review_export"), "kinds: {kinds:?}");
-        assert!(kinds.contains(&"plate_export"), "kinds: {kinds:?}");
+        assert!(!kinds.contains(&"plate_export"), "kinds: {kinds:?}");
     }
 
     #[test]
