@@ -175,6 +175,7 @@ use crate::util::claim::UserClaims;
         crate::handlers::live::get_monitor_snapshot,
         crate::handlers::live::take_monitor_snapshot,
         crate::handlers::live::describe_monitor,
+        crate::handlers::live::stream_monitor_events,
         crate::handlers::live::webrtc_websocket_handler,
 
         // logs
@@ -393,6 +394,10 @@ use crate::util::claim::UserClaims;
         schemas(
             crate::dto::response::monitor_pipeline::ZmNextWorkerStatusResponse,
             crate::dto::response::monitor_pipeline::PipelineValidationResponse,
+            crate::streaming::source::worker_status::WorkerStatus,
+            crate::streaming::source::worker_status::StreamHealth,
+            crate::streaming::source::worker_status::StreamState,
+            crate::streaming::source::worker_status::StatusChange,
             crate::service::zmnext::control::PathError,
             // zm-next on-demand commands
             crate::dto::request::monitor_ondemand::DescribeNowRequest,

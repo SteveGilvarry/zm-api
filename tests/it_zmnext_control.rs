@@ -267,3 +267,92 @@ async fn validate_falls_back_to_builtin_kinds_without_a_worker() {
         .contains("unknown plugin kind"));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The SSE stream starts with the current status, then pushes each change as
+/// the worker reports it. Also checks `?token=` works, for EventSource.
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn monitor_events_stream_status_changes() {
+    use axum::body::Body;
+    use futures_util::StreamExt;
+    use tower::ServiceExt;
+
+    let db = get_test_db().await.unwrap();
+    let monitor = insert_monitor(&db, "zmnext_sse").await.unwrap();
+    let _mon = RowGuard::monitor(monitor.id);
+    let dir = sock_dir("sse");
+
+    // A worker that sends its hello, waits, then reports an auth failure.
+    let listener =
+        tokio::net::UnixListener::bind(dir.join(format!("stream_{}.sock", monitor.id))).unwrap();
+    let worker = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let hello = json!({"protocol": {"canonical": 1, "control": 1}, "state": "running",
+                           "zm_next": {"version": "0.1.0"}, "control_peer": true});
+        stream
+            .write_all(&frame(0x14, hello.to_string().as_bytes()))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let detail = br#"{"stream_id":0,"retry_in_sec":60}"#;
+        let mut payload = 0x0402u16.to_le_bytes().to_vec();
+        payload.push(0x10);
+        payload.extend_from_slice(&(detail.len() as u16).to_le_bytes());
+        payload.extend_from_slice(detail);
+        stream.write_all(&frame(0x06, &payload)).await.unwrap();
+        let mut sink = [0u8; 64];
+        while let Ok(n) = stream.read(&mut sink).await {
+            if n == 0 {
+                break;
+            }
+        }
+    });
+
+    let mut state = AppState::for_test_with_db(get_test_db().await.unwrap());
+    state.source_router = Some(Arc::new(SourceRouter::from_zoneminder_config(
+        zm_api::configure::streaming::ZoneMinderConfig {
+            socks_path: dir.to_string_lossy().into_owned(),
+            ..Default::default()
+        },
+    )));
+    let app = zm_api::routes::create_router_app(state);
+    let req = axum::http::Request::builder()
+        .uri(format!(
+            "/api/v3/monitors/{}/events?token={}",
+            monitor.id,
+            superuser_token()
+        ))
+        .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+            [127, 0, 0, 1],
+            1,
+        ))))
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(resp.headers()["content-type"], "text/event-stream");
+
+    let mut body = resp.into_body().into_data_stream();
+    let mut text = String::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while !text.contains("event: stream_auth_failed") {
+        let chunk = tokio::time::timeout_at(deadline, body.next())
+            .await
+            .expect("SSE events within 10s")
+            .expect("stream open")
+            .expect("chunk");
+        text.push_str(&String::from_utf8_lossy(&chunk));
+    }
+    assert!(text.starts_with("event: status"), "{text}");
+    let auth = text
+        .split("event: stream_auth_failed\ndata: ")
+        .nth(1)
+        .and_then(|rest| rest.lines().next())
+        .expect("auth failure data");
+    let change: Value = serde_json::from_str(auth).unwrap();
+    assert_eq!(change["monitor_id"], monitor.id);
+    assert_eq!(change["detail"]["retry_in_sec"], 60);
+
+    worker.abort();
+    let _ = std::fs::remove_dir_all(&dir);
+}

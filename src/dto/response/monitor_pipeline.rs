@@ -45,6 +45,10 @@ pub struct ZmNextWorkerStatusResponse {
     pub supervised: bool,
     /// The worker's process entry; absent if it was never started.
     pub worker: Option<crate::dto::response::daemon::DaemonStatusResponse>,
+    /// What the worker last reported over its socket (hello and status
+    /// events): state, pipeline hash, per-stream health, degraded components.
+    /// Absent until zm-api has read from the monitor's socket.
+    pub live: Option<crate::streaming::source::worker_status::WorkerStatus>,
 }
 
 /// Result of checking a pipeline graph without saving it.

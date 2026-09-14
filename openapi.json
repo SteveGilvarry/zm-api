@@ -7882,6 +7882,72 @@
         ]
       }
     },
+    "/api/v3/monitors/{monitor_id}/events": {
+      "get": {
+        "tags": [
+          "Live Streaming"
+        ],
+        "summary": "Stream a monitor's status changes (server-sent events)",
+        "description": "The first event, `status`, is the current state as a `WorkerStatus`. After\nthat, each event is named by what changed (`hello`, `worker_state`,\n`stream_auth_failed`, `worker_degraded`, `connection_failed`,\n`connection_restored`, `capture_failed`, `capture_resumed`, `disconnected`)\nand carries a `StatusChange`. Accepts `?token=` for `EventSource`.",
+        "operationId": "streamMonitorEvents",
+        "parameters": [
+          {
+            "name": "monitor_id",
+            "in": "path",
+            "description": "Monitor/Camera ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "text/event-stream of status changes",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Live streaming disabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/monitors/{monitor_id}/snapshot": {
       "get": {
         "tags": [
@@ -25045,6 +25111,35 @@
           }
         }
       },
+      "StatusChange": {
+        "type": "object",
+        "description": "One change, as sent to SSE subscribers.",
+        "required": [
+          "monitor_id",
+          "kind",
+          "detail",
+          "at_ms"
+        ],
+        "properties": {
+          "at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "detail": {
+            "type": "object",
+            "description": "The event's detail as the worker sent it (empty for hello/disconnect)."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`hello`, `worker_state`, `stream_auth_failed`, `worker_degraded`,\n`connection_failed`, `connection_restored`, `capture_failed`,\n`capture_resumed` or `disconnected`."
+          },
+          "monitor_id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "StorageResponse": {
         "type": "object",
         "required": [
@@ -25128,6 +25223,55 @@
             "type": "string"
           }
         }
+      },
+      "StreamHealth": {
+        "type": "object",
+        "required": [
+          "state",
+          "since_ms"
+        ],
+        "properties": {
+          "attempt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Consecutive failed attempts, when the worker reports it.",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "retry_in_sec": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "since_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix milliseconds of the event that set this state."
+          },
+          "state": {
+            "$ref": "#/components/schemas/StreamState"
+          }
+        }
+      },
+      "StreamState": {
+        "type": "string",
+        "description": "Health of one capture stream.",
+        "enum": [
+          "streaming",
+          "connection_failed",
+          "capture_failed",
+          "auth_failed"
+        ]
       },
       "SystemStatsResponse": {
         "type": "object",
@@ -29005,6 +29149,77 @@
           }
         }
       },
+      "WorkerStatus": {
+        "type": "object",
+        "description": "What zm-api knows about a worker right now.",
+        "required": [
+          "control_peer",
+          "streams",
+          "degraded"
+        ],
+        "properties": {
+          "control_peer": {
+            "type": "boolean"
+          },
+          "control_protocol": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Control protocol version from the hello; absent for a worker that\npredates it.",
+            "minimum": 0
+          },
+          "degraded": {
+            "type": "object",
+            "description": "Component → effect, for each dependency the worker reports as down.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "pipeline_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`unconfigured` | `configuring` | `running` | `stopping`, from the hello\nor the latest worker_state event."
+          },
+          "streams": {
+            "type": "object",
+            "description": "Keyed by the worker's stream id.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/StreamHealth"
+            },
+            "propertyNames": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "zm_next_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "zm-next version and commit from the hello."
+          }
+        }
+      },
       "ZmNextWorkerStatusResponse": {
         "type": "object",
         "description": "A monitor's zm-next worker, as the daemon manager sees it.",
@@ -29014,6 +29229,17 @@
           "supervised"
         ],
         "properties": {
+          "live": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkerStatus",
+                "description": "What the worker last reported over its socket (hello and status\nevents): state, pipeline hash, per-stream health, degraded components.\nAbsent until zm-api has read from the monitor's socket."
+              }
+            ]
+          },
           "monitor_id": {
             "type": "integer",
             "format": "int32",

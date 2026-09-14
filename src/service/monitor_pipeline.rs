@@ -197,6 +197,10 @@ pub async fn worker_status(
             use_zmnext,
             supervised: state.daemon_manager.is_some(),
             worker,
+            live: state
+                .source_router
+                .as_ref()
+                .and_then(|r| r.worker_status(monitor_id)),
         },
     )
 }

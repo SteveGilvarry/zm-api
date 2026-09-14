@@ -53,6 +53,12 @@ pub fn add_live_routes(router: Router<AppState>) -> Router<AppState> {
                         .route_layer(axum::middleware::from_fn(auth_middleware)),
                 ),
         )
+        // Status push for EventSource clients, so `?token=` is accepted.
+        .route(
+            "/api/v3/monitors/{monitor_id}/events",
+            get(live::stream_monitor_events)
+                .route_layer(axum::middleware::from_fn(media_auth_middleware)),
+        )
         .route(
             "/api/v3/monitors/{monitor_id}/describe",
             post(live::describe_monitor).route_layer(axum::middleware::from_fn(auth_middleware)),
