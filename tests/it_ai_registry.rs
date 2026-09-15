@@ -108,6 +108,17 @@ async fn dataset_model_and_class_round_trip() {
         "model listing resolves the dataset name"
     );
 
+    // `null` detaches the model from its dataset; it used to read as "not sent".
+    let resp = app
+        .request(Method::PATCH, &format!("/api/v3/ai/models/{}", model.id))
+        .bearer(&token)
+        .json(&json!({ "dataset_id": null }))
+        .send()
+        .await;
+    assert_status(&resp, StatusCode::OK);
+    let detached: AiModelResponse = resp.json();
+    assert_eq!(detached.dataset_id, None, "null clears dataset_id");
+
     // --- object class create + dataset-scoped listing
     let resp = app
         .post_json(

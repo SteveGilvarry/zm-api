@@ -622,7 +622,7 @@ use crate::util::claim::UserClaims;
             // servers
             crate::dto::request::servers::CreateServerRequest,
             crate::dto::response::servers::ServerResponse,
-            crate::handlers::servers::UpdateServerRequest,
+            crate::dto::request::servers::UpdateServerRequest,
 
             // sessions
             crate::dto::request::sessions::CreateSessionRequest,
@@ -691,7 +691,7 @@ use crate::util::claim::UserClaims;
             // zones
             crate::dto::request::zones::CreateZoneRequest,
             crate::dto::response::zones::ZoneResponse,
-            crate::handlers::zones::UpdateZoneRequest,
+            crate::dto::request::zones::UpdateZoneRequest,
         )
     ),
     tags(

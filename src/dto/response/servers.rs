@@ -22,6 +22,9 @@ pub struct ServerResponse {
     pub zmeventnotification: i8,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
+    /// Monitors assigned to this server (`Monitors.ServerId`).
+    #[serde(default)]
+    pub monitor_count: u64,
 }
 
 impl From<&crate::entity::servers::Model> for ServerResponse {
@@ -44,6 +47,7 @@ impl From<&crate::entity::servers::Model> for ServerResponse {
             zmeventnotification: m.zmeventnotification,
             latitude: m.latitude.and_then(|d| d.to_f64()),
             longitude: m.longitude.and_then(|d| d.to_f64()),
+            monitor_count: 0,
         }
     }
 }

@@ -127,3 +127,83 @@ async fn create_server_with_invalid_body_is_rejected() {
         resp.text()
     );
 }
+
+/// Create and update carry the configuration columns, `null` clears a
+/// nullable one, and responses count the monitors on each server (GH #25).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn servers_create_and_update_carry_the_full_row() {
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+
+    let create = app
+        .post_json(
+            "/api/v3/servers",
+            &token,
+            &json!({
+                "name": unique_name("SrvFull"), "hostname": "zm2.local", "port": 443,
+                "protocol": "https", "path_to_index": "/zm/index.php",
+                "path_to_zms": "/zm/cgi-bin/nph-zms", "path_to_api": "/zm/api",
+                "zmstats": true, "zmaudit": false, "zmtrigger": true, "zmeventnotification": false,
+                "latitude": -33.8688, "longitude": 151.2093
+            }),
+        )
+        .await;
+    assert_eq!(create.status(), StatusCode::CREATED, "{}", create.text());
+    let s: serde_json::Value = create.json();
+    let id = s["id"].as_u64().unwrap() as u32;
+    let _guard = RowGuard::server(id);
+    assert_eq!(s["protocol"], "https");
+    assert_eq!(s["path_to_zms"], "/zm/cgi-bin/nph-zms");
+    assert_eq!(s["zmstats"], 1);
+    assert_eq!(s["zmaudit"], 0);
+    assert_eq!(s["zmtrigger"], 1);
+    assert_eq!(s["latitude"], -33.8688);
+    assert_eq!(s["monitor_count"], 0);
+
+    // A monitor on this server shows up in the count.
+    let monitor = common::fixtures::insert_monitor(&app.db, "SrvCount")
+        .await
+        .unwrap();
+    let _mon = RowGuard::monitor(monitor.id);
+    let mut m: zm_api::entity::monitors::ActiveModel = monitor.into();
+    m.server_id = Set(Some(id));
+    m.update(&app.db).await.unwrap();
+
+    let patch = app
+        .patch_json(
+            &format!("/api/v3/servers/{id}"),
+            &token,
+            &json!({"path_to_api": "/api", "zmaudit": true, "latitude": null, "hostname": null}),
+        )
+        .await;
+    assert_eq!(patch.status(), StatusCode::OK, "{}", patch.text());
+    let s: serde_json::Value = patch.json();
+    assert_eq!(s["path_to_api"], "/api");
+    assert_eq!(s["zmaudit"], 1);
+    assert!(s["latitude"].is_null(), "null clears: {s}");
+    assert!(s["hostname"].is_null());
+    assert_eq!(s["longitude"], 151.2093, "fields not sent are unchanged");
+    assert_eq!(s["protocol"], "https");
+    assert_eq!(s["monitor_count"], 1);
+
+    let listed: PaginatedServersResponse = app.get("/api/v3/servers", &token).await.json();
+    let row = listed.items.iter().find(|r| r.id == id).expect("listed");
+    assert_eq!(row.monitor_count, 1);
+
+    for (body, why) in [
+        (json!({"latitude": 91.0}), "latitude is -90..90"),
+        (json!({"longitude": -180.5}), "longitude is -180..180"),
+        (json!({"protocol": "x".repeat(300)}), "length cap"),
+    ] {
+        let resp = app
+            .patch_json(&format!("/api/v3/servers/{id}"), &token, &body)
+            .await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "{why}: {}",
+            resp.text()
+        );
+    }
+}

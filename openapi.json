@@ -11565,7 +11565,7 @@
           "Servers"
         ],
         "summary": "Update server fields (partial update).",
-        "description": "- Applies provided fields; status string is mapped to the DB enum.\n- Requires a valid JWT.",
+        "description": "Fields left out are unchanged; `null` clears a nullable one (hostname, port,\nprotocol, paths, latitude, longitude). Daemon flags are booleans.",
         "operationId": "update_server",
         "parameters": [
           {
@@ -14143,8 +14143,8 @@
         "tags": [
           "Zones"
         ],
-        "summary": "Update a zone's name and/or polygon geometry for an existing zone.",
-        "description": "- Only `name` and `polygon` (coords) are supported for updates here.\n- Requires a valid JWT.",
+        "summary": "Update any of a zone's settings.",
+        "description": "Fields left out are unchanged; `null` clears a nullable threshold. `coords`\n(or its older name `polygon`) recomputes `num_coords` and `area`. Unknown\n`type`, `units` or `check_method` values, out-of-range thresholds and a\nminimum above its maximum are refused with 400 and change nothing.",
         "operationId": "update",
         "parameters": [
           {
@@ -18253,8 +18253,40 @@
               "null"
             ]
           },
+          "latitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "longitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
           "name": {
             "type": "string"
+          },
+          "path_to_api": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path_to_index": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path_to_zms": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "port": {
             "type": [
@@ -18264,9 +18296,42 @@
             "format": "int32",
             "minimum": 0
           },
+          "protocol": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`http` or `https`, as the legacy Servers modal offers."
+          },
           "status": {
             "type": [
               "string",
+              "null"
+            ],
+            "description": "`Unknown`, `NotRunning` or `Running`."
+          },
+          "zmaudit": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "zmeventnotification": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "zmstats": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Run this daemon on this server."
+          },
+          "zmtrigger": {
+            "type": [
+              "boolean",
               "null"
             ]
           }
@@ -18783,18 +18848,126 @@
           "name",
           "type",
           "units",
-          "coords",
-          "num_coords"
+          "coords"
         ],
         "properties": {
+          "alarm_rgb": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "check_method": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "`AlarmedPixels` (default), `FilteredPixels` or `Blobs`."
           },
           "coords": {
-            "type": "string"
+            "type": "string",
+            "description": "Polygon, `\"x1,y1 x2,y2 ...\"`. `Zones.Coords` is TINYTEXT (255 bytes)."
+          },
+          "extend_alarm_frames": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "filter_x": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "filter_y": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_alarm_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_blob_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_blobs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_filter_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_pixel_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_alarm_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_blob_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_blobs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_filter_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_pixel_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Pixel difference, 0-255.",
+            "minimum": 0
           },
           "name": {
             "type": "string"
@@ -18802,13 +18975,24 @@
           "num_coords": {
             "type": "integer",
             "format": "int32",
+            "description": "Ignored: the count is taken from `coords`. Kept so existing clients\nthat send it still validate.",
+            "minimum": 0
+          },
+          "overload_frames": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
             "minimum": 0
           },
           "type": {
-            "type": "string"
+            "type": "string",
+            "description": "`Active`, `Inclusive`, `Exclusive`, `Preclusive`, `Inactive` or `Privacy`."
           },
           "units": {
-            "type": "string"
+            "type": "string",
+            "description": "`Pixels` or `Percent`."
           }
         }
       },
@@ -24616,6 +24800,12 @@
             ],
             "format": "double"
           },
+          "monitor_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Monitors assigned to this server (`Monitors.ServerId`).",
+            "minimum": 0
+          },
           "name": {
             "type": "string"
           },
@@ -28175,6 +28365,7 @@
       },
       "UpdateServerRequest": {
         "type": "object",
+        "description": "Partial update: a field left out is unchanged; `null` clears a nullable one.",
         "properties": {
           "hostname": {
             "type": [
@@ -28182,7 +28373,39 @@
               "null"
             ]
           },
+          "latitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "longitude": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
           "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path_to_api": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path_to_index": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path_to_zms": {
             "type": [
               "string",
               "null"
@@ -28196,9 +28419,39 @@
             "format": "int32",
             "minimum": 0
           },
+          "protocol": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "status": {
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "zmaudit": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "zmeventnotification": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "zmstats": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "zmtrigger": {
+            "type": [
+              "boolean",
               "null"
             ]
           }
@@ -28640,14 +28893,155 @@
       },
       "UpdateZoneRequest": {
         "type": "object",
+        "description": "Partial update: a field left out is unchanged; `null` clears a nullable one.",
         "properties": {
+          "alarm_rgb": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "check_method": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "coords": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "New polygon; `num_coords` and `area` are recomputed from it."
+          },
+          "extend_alarm_frames": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "filter_x": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "filter_y": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_alarm_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_blob_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_blobs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_filter_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_pixel_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_alarm_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_blob_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_blobs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_filter_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_pixel_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "name": {
             "type": [
               "string",
               "null"
             ]
           },
+          "overload_frames": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "polygon": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Earlier name for `coords`, still accepted."
+          },
+          "type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "units": {
             "type": [
               "string",
               "null"

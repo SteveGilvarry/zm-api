@@ -56,6 +56,7 @@ async fn area_is_computed_on_create_and_recomputed_on_coord_change() {
         num_coords: 4,
         coords: "0,0 639,0 639,479 0,479".to_string(),
         check_method: None,
+        ..Default::default()
     };
     let created = zm_api::repo::zones::create_for_monitor(&db, mon, &req)
         .await
@@ -111,6 +112,7 @@ async fn malformed_coords_are_rejected_rather_than_stored_with_a_zero_area() {
         // old behaviour produced silently meaningless thresholds.
         coords: "0,0 100,0".to_string(),
         check_method: None,
+        ..Default::default()
     };
     let result = zm_api::repo::zones::create_for_monitor(&db, mon, &req).await;
     let err = result.expect_err("a non-polygon must be refused");
