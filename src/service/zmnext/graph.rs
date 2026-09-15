@@ -67,6 +67,12 @@ const FORBIDDEN_CFG_KEYS: &[&str] = &[
     "gpu_id",
 ];
 
+/// `(kind, key)` pairs exempt from [`FORBIDDEN_CFG_KEYS`] because the plugin's
+/// own schema declares the key: a webhook target and a broker login are not
+/// camera credentials. Taken from `zm-next/plugins/*/*.schema.json`.
+const DECLARED_CFG_KEYS: &[(&str, &str)] =
+    &[("output_webhook", "url"), ("output_mqtt", "username")];
+
 /// Validate a stored processing-graph document. Returns a human-readable reason
 /// on the first problem found.
 pub fn validate_graph(doc: &Value) -> Result<(), String> {
@@ -118,7 +124,7 @@ fn validate_node(node: &Value) -> Result<(), String> {
                     }
                     continue;
                 }
-                if kind == "output_mqtt" && key == "username" {
+                if DECLARED_CFG_KEYS.contains(&(kind, key.as_str())) {
                     continue;
                 }
                 if FORBIDDEN_CFG_KEYS.contains(&key.as_str()) {
@@ -211,6 +217,20 @@ mod tests {
         // Camera-style credentials stay forbidden everywhere else.
         let cam = json!({ "plugins": [ { "kind": "decode_detect", "cfg": { "password": "p" } } ] });
         assert!(validate_graph(&cam).is_err());
+    }
+
+    #[test]
+    fn plugins_accept_the_keys_their_schema_declares() {
+        let doc = json!({ "plugins": [ { "kind": "decode_detect", "children": [
+            { "kind": "output_webhook", "cfg": { "url": "https://hooks.example/zm" } },
+            { "kind": "output_mqtt", "cfg": { "username": "u" } }
+        ] } ] });
+        assert!(validate_graph(&doc).is_ok(), "{:?}", validate_graph(&doc));
+
+        // The exemption is per kind: `url` stays forbidden on other plugins.
+        let other =
+            json!({ "plugins": [ { "kind": "output_mqtt", "cfg": { "url": "rtsp://cam" } } ] });
+        assert!(validate_graph(&other).unwrap_err().contains("url"));
     }
 
     #[test]
