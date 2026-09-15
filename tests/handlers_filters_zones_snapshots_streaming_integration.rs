@@ -123,6 +123,7 @@ async fn test_api_zones_create_get_delete() {
         coords: "0,0 1,1 2,2 3,3".to_string(),
         num_coords: 4,
         check_method: None,
+        ..Default::default()
     })
     .expect("serialize zone");
 

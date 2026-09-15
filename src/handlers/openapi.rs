@@ -691,7 +691,7 @@ use crate::util::claim::UserClaims;
             // zones
             crate::dto::request::zones::CreateZoneRequest,
             crate::dto::response::zones::ZoneResponse,
-            crate::handlers::zones::UpdateZoneRequest,
+            crate::dto::request::zones::UpdateZoneRequest,
         )
     ),
     tags(

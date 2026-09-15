@@ -1,3 +1,4 @@
+use crate::dto::request::zones::UpdateZoneRequest;
 use crate::dto::request::CreateZoneRequest;
 use crate::dto::response::zones::PaginatedZonesResponse;
 use crate::dto::response::ZoneResponse;
@@ -67,19 +68,12 @@ pub async fn get(
     Ok(Json(zone))
 }
 
-#[derive(Debug, serde::Deserialize, utoipa::ToSchema, garde::Validate)]
-pub struct UpdateZoneRequest {
-    #[garde(inner(length(min = 1, max = 64)))]
-    pub name: Option<String>,
-    // Underlying column is `Zones.Coords` TINYTEXT (255).
-    #[garde(inner(length(max = 255)))]
-    pub polygon: Option<String>,
-}
-
-/// Update a zone's name and/or polygon geometry for an existing zone.
+/// Update any of a zone's settings.
 ///
-/// - Only `name` and `polygon` (coords) are supported for updates here.
-/// - Requires a valid JWT.
+/// Fields left out are unchanged; `null` clears a nullable threshold. `coords`
+/// (or its older name `polygon`) recomputes `num_coords` and `area`. Unknown
+/// `type`, `units` or `check_method` values, out-of-range thresholds and a
+/// minimum above its maximum are refused with 400 and change nothing.
 #[utoipa::path(
     put,
     path = "/api/v3/zones/{id}",
@@ -99,7 +93,7 @@ pub async fn update(
     Json(req): Json<UpdateZoneRequest>,
 ) -> AppResult<Json<ZoneResponse>> {
     req.validate().map_err(AppError::InvalidInputError)?;
-    let updated = crate::service::zones::update(&state, id, req.name, req.polygon, &scope).await?;
+    let updated = crate::service::zones::update(&state, id, req, &scope).await?;
     Ok(Json(updated))
 }
 

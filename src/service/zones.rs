@@ -58,8 +58,7 @@ pub async fn get_by_id(state: &AppState, id: u32, scope: &MonitorScope) -> AppRe
 pub async fn update(
     state: &AppState,
     id: u32,
-    name: Option<String>,
-    coords: Option<String>,
+    req: crate::dto::request::zones::UpdateZoneRequest,
     scope: &MonitorScope,
 ) -> AppResult<ZoneResponse> {
     // Fetch first so the zone's monitor can be ACL-checked before mutation.
@@ -69,7 +68,7 @@ pub async fn update(
     if !scope.allows(zone.monitor_id, Level::Edit) {
         return Err(zone_not_found(id));
     }
-    let updated = repo::zones::update_coords(state.db(), id, name, coords).await?;
+    let updated = repo::zones::update(state.db(), id, &req).await?;
     let updated = updated.ok_or_else(|| zone_not_found(id))?;
     Ok(ZoneResponse::from(&updated))
 }
@@ -188,8 +187,11 @@ mod tests {
         let out = update(
             &state_upd,
             5,
-            Some("new".into()),
-            Some("0,0 10,0 10,10".into()),
+            crate::dto::request::zones::UpdateZoneRequest {
+                name: Some("new".into()),
+                coords: Some("0,0 10,0 10,10".into()),
+                ..Default::default()
+            },
             &MonitorScope::All,
         )
         .await
@@ -212,6 +214,7 @@ mod tests {
             coords: "0,0 10,0 10,10".into(),
             num_coords: 4,
             check_method: None,
+            ..Default::default()
         };
         assert_eq!(
             create(&state_create, 1, req, &MonitorScope::All)
