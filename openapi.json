@@ -3104,6 +3104,70 @@
         ]
       }
     },
+    "/api/v3/events/{id}/frames/{fid}/image": {
+      "get": {
+        "tags": [
+          "Event Playback"
+        ],
+        "summary": "Get one frame of an event as a JPEG",
+        "operationId": "getEventFrameImage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Event ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "fid",
+            "in": "path",
+            "description": "Frame number (from 1), or `alarm`, `objdetect` or `snapshot`",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Frame image",
+            "content": {
+              "image/jpeg": {}
+            }
+          },
+          "400": {
+            "description": "Invalid fid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event or frame image not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/events/{id}/info": {
       "get": {
         "tags": [
@@ -4115,6 +4179,51 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FrameResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/frames/{id}/image": {
+      "get": {
+        "tags": [
+          "Frames"
+        ],
+        "summary": "Get a frame's image by its `Frames` row id",
+        "operationId": "getFrameImage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Frame row ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Frame image",
+            "content": {
+              "image/jpeg": {}
+            }
+          },
+          "404": {
+            "description": "Frame or frame image not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
                 }
               }
             }

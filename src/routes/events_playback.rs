@@ -8,7 +8,7 @@
 
 use axum::{routing::get, Router};
 
-use crate::handlers::{events_playback, synopsis};
+use crate::handlers::{events_playback, frame_images, synopsis};
 use crate::server::state::AppState;
 use crate::util::middleware::media_auth_middleware;
 
@@ -54,6 +54,17 @@ pub fn add_events_playback_routes(router: Router<AppState>) -> Router<AppState> 
         .route(
             "/api/v3/events/{id}/thumbnail",
             get(events_playback::get_event_thumbnail)
+                .route_layer(axum::middleware::from_fn(media_auth_middleware)),
+        )
+        // One frame of an event as a JPEG (GH #26)
+        .route(
+            "/api/v3/events/{id}/frames/{fid}/image",
+            get(frame_images::get_event_frame_image)
+                .route_layer(axum::middleware::from_fn(media_auth_middleware)),
+        )
+        .route(
+            "/api/v3/frames/{id}/image",
+            get(frame_images::get_frame_image)
                 .route_layer(axum::middleware::from_fn(media_auth_middleware)),
         )
         // Codec / dimensions / duration metadata

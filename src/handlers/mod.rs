@@ -10,6 +10,7 @@ pub mod event_data;
 pub mod event_summaries;
 pub mod events_tags;
 pub mod filters;
+pub mod frame_images;
 pub mod frames;
 pub mod groups;
 pub mod groups_monitors;

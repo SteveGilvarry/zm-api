@@ -97,7 +97,7 @@ fn is_video_container(name: &str) -> bool {
 /// `index.m3u8` for HLS-recorded events). The fallback name lets the
 /// alternative-name search in [`get_event_video_path`] locate the real
 /// `{event_id}-video.h264.mp4` on disk.
-fn select_video_filename(event_id: u64, default_video: &str) -> String {
+pub(crate) fn select_video_filename(event_id: u64, default_video: &str) -> String {
     if default_video.is_empty() {
         return format!("{}-video.mp4", event_id);
     }
