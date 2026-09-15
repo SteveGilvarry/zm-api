@@ -97,7 +97,7 @@ fn is_video_container(name: &str) -> bool {
 /// `index.m3u8` for HLS-recorded events). The fallback name lets the
 /// alternative-name search in [`get_event_video_path`] locate the real
 /// `{event_id}-video.h264.mp4` on disk.
-fn select_video_filename(event_id: u64, default_video: &str) -> String {
+pub(crate) fn select_video_filename(event_id: u64, default_video: &str) -> String {
     if default_video.is_empty() {
         return format!("{}-video.mp4", event_id);
     }
@@ -242,7 +242,7 @@ pub(crate) fn not_found_event(event_id: u64) -> AppError {
 /// close, so a NULL end means the event is in progress — there is no finalized
 /// `{id}-video.*.mp4` yet, only a growing `incomplete.*.mp4` plus ZoneMinder's
 /// live `index.m3u8`.
-fn event_is_in_progress(event: &EventModel) -> bool {
+pub(crate) fn event_is_in_progress(event: &EventModel) -> bool {
     event.end_date_time.is_none()
 }
 
@@ -263,7 +263,7 @@ async fn event_directory(
 }
 
 /// Locate the growing `incomplete.*.mp4` file an in-progress event records into.
-async fn find_incomplete_media(dir: &StdPath) -> Option<PathBuf> {
+pub(crate) async fn find_incomplete_media(dir: &StdPath) -> Option<PathBuf> {
     let mut rd = tokio::fs::read_dir(dir).await.ok()?;
     while let Ok(Some(entry)) = rd.next_entry().await {
         let name = entry.file_name();
