@@ -1,3 +1,4 @@
+use crate::dto::request::servers::UpdateServerRequest;
 use crate::dto::request::CreateServerRequest;
 use crate::dto::response::servers::PaginatedServersResponse;
 use crate::dto::response::ServerResponse;
@@ -9,7 +10,6 @@ use axum::{
     Json,
 };
 use garde::Validate;
-use serde::Deserialize;
 
 /// List registered ZoneMinder servers with pagination.
 ///
@@ -73,22 +73,10 @@ pub async fn create_server(
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema, Validate)]
-pub struct UpdateServerRequest {
-    #[garde(inner(length(chars, max = 64)))]
-    pub name: Option<String>,
-    #[garde(skip)]
-    pub hostname: Option<String>,
-    #[garde(skip)]
-    pub port: Option<u32>,
-    #[garde(skip)]
-    pub status: Option<String>,
-}
-
 /// Update server fields (partial update).
 ///
-/// - Applies provided fields; status string is mapped to the DB enum.
-/// - Requires a valid JWT.
+/// Fields left out are unchanged; `null` clears a nullable one (hostname, port,
+/// protocol, paths, latitude, longitude). Daemon flags are booleans.
 #[utoipa::path(
     patch,
     path = "/api/v3/servers/{id}",
@@ -104,9 +92,7 @@ pub async fn update_server(
     Json(req): Json<UpdateServerRequest>,
 ) -> AppResult<Json<ServerResponse>> {
     req.validate().map_err(AppError::InvalidInputError)?;
-    let item =
-        crate::service::servers::update(&state, id, req.name, req.hostname, req.port, req.status)
-            .await?;
+    let item = crate::service::servers::update(&state, id, req).await?;
     Ok(Json(item))
 }
 

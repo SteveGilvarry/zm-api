@@ -622,7 +622,7 @@ use crate::util::claim::UserClaims;
             // servers
             crate::dto::request::servers::CreateServerRequest,
             crate::dto::response::servers::ServerResponse,
-            crate::handlers::servers::UpdateServerRequest,
+            crate::dto::request::servers::UpdateServerRequest,
 
             // sessions
             crate::dto::request::sessions::CreateSessionRequest,

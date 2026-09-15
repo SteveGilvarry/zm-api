@@ -4,9 +4,25 @@ use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
 
+/// Responses for `items`, each with its monitor count.
+async fn with_counts(
+    state: &AppState,
+    items: &[crate::entity::servers::Model],
+) -> AppResult<Vec<ServerResponse>> {
+    let counts = repo::servers::monitor_counts(state.db()).await?;
+    Ok(items
+        .iter()
+        .map(|m| {
+            let mut r = ServerResponse::from(m);
+            r.monitor_count = counts.get(&m.id).copied().unwrap_or(0);
+            r
+        })
+        .collect())
+}
+
 pub async fn list_all(state: &AppState) -> AppResult<Vec<ServerResponse>> {
     let items = repo::servers::find_all(state.db()).await?;
-    Ok(items.iter().map(ServerResponse::from).collect())
+    with_counts(state, &items).await
 }
 
 pub async fn list_paginated(
@@ -14,7 +30,7 @@ pub async fn list_paginated(
     params: &PaginationParams,
 ) -> AppResult<PaginatedResponse<ServerResponse>> {
     let (items, total) = repo::servers::find_paginated(state.db(), params).await?;
-    let responses: Vec<ServerResponse> = items.iter().map(ServerResponse::from).collect();
+    let responses = with_counts(state, &items).await?;
     Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
@@ -26,7 +42,9 @@ pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<ServerResponse> {
             resource_type: ResourceType::Message,
         })
     })?;
-    Ok(ServerResponse::from(&item))
+    Ok(with_counts(state, std::slice::from_ref(&item))
+        .await?
+        .remove(0))
 }
 
 pub async fn create(
@@ -40,19 +58,18 @@ pub async fn create(
 pub async fn update(
     state: &AppState,
     id: u32,
-    name: Option<String>,
-    hostname: Option<String>,
-    port: Option<u32>,
-    status: Option<String>,
+    req: crate::dto::request::servers::UpdateServerRequest,
 ) -> AppResult<ServerResponse> {
-    let updated = repo::servers::update(state.db(), id, name, hostname, port, status).await?;
+    let updated = repo::servers::update(state.db(), id, &req).await?;
     let updated = updated.ok_or_else(|| {
         crate::error::AppError::NotFoundError(crate::error::Resource {
             details: vec![("id".into(), id.to_string())],
             resource_type: crate::error::ResourceType::Message,
         })
     })?;
-    Ok(ServerResponse::from(&updated))
+    Ok(with_counts(state, std::slice::from_ref(&updated))
+        .await?
+        .remove(0))
 }
 
 pub async fn delete(state: &AppState, id: u32) -> AppResult<()> {
@@ -75,6 +92,11 @@ mod tests {
     use crate::entity::sea_orm_active_enums::Status;
     use crate::entity::servers::Model as ServerModel;
     use sea_orm::{DatabaseBackend, MockDatabase, MockExecResult};
+
+    /// An empty monitor-count result, for the query every read now makes.
+    fn no_counts() -> Vec<std::collections::BTreeMap<String, sea_orm::Value>> {
+        vec![]
+    }
 
     fn mk(id: u32, name: &str) -> ServerModel {
         ServerModel {
@@ -111,12 +133,14 @@ mod tests {
     async fn test_list_get_ok() {
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<ServerModel, _, _>(vec![vec![mk(1, "s1"), mk(2, "s2")]])
+            .append_query_results(vec![no_counts()])
             .into_connection();
         let state = AppState::for_test_with_db(db);
         assert_eq!(list_all(&state).await.unwrap().len(), 2);
 
         let db2 = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<ServerModel, _, _>(vec![vec![mk(9, "x")]])
+            .append_query_results(vec![no_counts()])
             .into_connection();
         let state2 = AppState::for_test_with_db(db2);
         assert_eq!(get_by_id(&state2, 9).await.unwrap().id, 9);
@@ -139,10 +163,17 @@ mod tests {
             .into_connection();
         let state_none_upd = AppState::for_test_with_db(db_none_upd);
         assert!(matches!(
-            update(&state_none_upd, 1, Some("n".into()), None, None, None)
-                .await
-                .err()
-                .unwrap(),
+            update(
+                &state_none_upd,
+                1,
+                crate::dto::request::servers::UpdateServerRequest {
+                    name: Some("n".into()),
+                    ..Default::default()
+                }
+            )
+            .await
+            .err()
+            .unwrap(),
             AppError::NotFoundError(_)
         ));
 
@@ -174,15 +205,19 @@ mod tests {
                 rows_affected: 1,
             }])
             .append_query_results::<ServerModel, _, _>(vec![vec![after.clone()]])
+            .append_query_results(vec![no_counts()])
             .into_connection();
         let state = AppState::for_test_with_db(db);
         let out = update(
             &state,
             4,
-            Some("new".into()),
-            Some("host".into()),
-            Some(8080),
-            Some("running".into()),
+            crate::dto::request::servers::UpdateServerRequest {
+                name: Some("new".into()),
+                hostname: Some(Some("host".into())),
+                port: Some(Some(8080)),
+                status: Some("running".into()),
+                ..Default::default()
+            },
         )
         .await
         .unwrap();
@@ -203,6 +238,7 @@ mod tests {
             hostname: Some("h".into()),
             port: Some(80),
             status: Some("running".into()),
+            ..Default::default()
         };
         assert_eq!(create(&state_create, req).await.unwrap().name, "srv");
 
