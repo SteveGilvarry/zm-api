@@ -330,7 +330,10 @@ impl DaemonManager {
             )));
         }
 
-        let full_path = self.config.resolve_daemon_path(&command);
+        let full_path = match (command.as_str(), &self.zmnext) {
+            ("zm-core", Some(rt)) => self.zmcore_binary(rt),
+            _ => self.config.resolve_daemon_path(&command),
+        };
 
         info!("Starting daemon: {} {:?}", full_path.display(), daemon_args);
 
@@ -384,6 +387,11 @@ impl DaemonManager {
         process.args = daemon_args.clone();
         // Persist the payload so a future restart re-delivers it.
         process.stdin_payload = stdin_payload;
+        // Automatic restarts skip a given-up process, so reaching here with
+        // `gave_up` set means someone started it on purpose: count afresh.
+        if process.gave_up.take().is_some() {
+            process.exit_history = Default::default();
+        }
         process.set_child(child);
 
         // Update PID map
@@ -397,6 +405,26 @@ impl DaemonManager {
             "Started {} (PID: {:?})",
             id, pid
         )))
+    }
+
+    /// Where zm-core would be run from, and whether it's there. `None` when
+    /// zm-next isn't enabled.
+    pub fn zmcore_installed(&self) -> Option<(PathBuf, bool)> {
+        let rt = self.zmnext.as_ref()?;
+        let path = self.zmcore_binary(rt);
+        let present = path.is_file();
+        Some((path, present))
+    }
+
+    /// The zm-core binary: `[zmnext.worker].binary` when absolute, otherwise
+    /// looked up like any other daemon.
+    fn zmcore_binary(&self, rt: &ZmNextRuntime) -> PathBuf {
+        let configured = std::path::Path::new(&rt.config.worker.binary);
+        if configured.is_absolute() {
+            configured.to_path_buf()
+        } else {
+            self.config.resolve_daemon_path(&rt.config.worker.binary)
+        }
     }
 
     /// Stop a daemon process gracefully.
@@ -764,18 +792,7 @@ impl DaemonManager {
         let processes = self.processes.read().await;
         let running = *self.running.read().await;
 
-        let daemons: Vec<ProcessStatus> = processes
-            .values()
-            .map(|p| ProcessStatus {
-                id: p.id.clone(),
-                name: p.name.clone(),
-                state: p.state,
-                pid: p.pid,
-                uptime_seconds: p.uptime().map(|d| d.as_secs()),
-                restart_count: p.restart_count,
-                monitor_id: p.monitor_id,
-            })
-            .collect();
+        let daemons: Vec<ProcessStatus> = processes.values().map(ProcessStatus::from).collect();
 
         // Collect current system stats
         let stats: Option<SystemStats> = stats::collect_stats().ok();
@@ -790,15 +807,7 @@ impl DaemonManager {
     /// Get status of a specific daemon.
     pub async fn get_daemon_status(&self, id: &str) -> Option<ProcessStatus> {
         let processes = self.processes.read().await;
-        processes.get(id).map(|p| ProcessStatus {
-            id: p.id.clone(),
-            name: p.name.clone(),
-            state: p.state,
-            pid: p.pid,
-            uptime_seconds: p.uptime().map(|d| d.as_secs()),
-            restart_count: p.restart_count,
-            monitor_id: p.monitor_id,
-        })
+        processes.get(id).map(ProcessStatus::from)
     }
 
     /// Shutdown all daemons gracefully.
@@ -1722,6 +1731,10 @@ impl DaemonManager {
             // respawning a Restarting one every tick caps the documented
             // backoff at this loop's interval (#115).
             let state = self.monitor_daemon_state(monitor_id).await;
+            // Supervision gave up on this worker; only an explicit start retries.
+            if self.monitor_daemon_gave_up(monitor_id).await {
+                continue;
+            }
             let idle = matches!(
                 state,
                 None | Some(ProcessState::Stopped) | Some(ProcessState::Failed)
@@ -1885,6 +1898,7 @@ impl DaemonManager {
                 // first observe the exit, or each cycle would re-detect the
                 // same dead child, re-run prepare_restart (resetting the
                 // backoff clock) and never actually restart it.
+                let uptime = process.uptime().unwrap_or_default();
                 let wait_result = process.child_mut().map(|child| child.try_wait());
 
                 match wait_result {
@@ -1914,8 +1928,22 @@ impl DaemonManager {
 
                         // If the process was being stopped (Stopping state) or
                         // auto_restart is disabled, just mark it stopped
+                        // zm-next workers: give up on a status a restart can't
+                        // fix instead of restart-looping it forever.
+                        let decision = if id.starts_with("zm-core ") {
+                            process.exit_history.record(status.code(), uptime)
+                        } else {
+                            crate::daemon::exit_policy::Decision::Restart
+                        };
+
                         if was_stopping || !process.auto_restart {
                             process.set_state(ProcessState::Stopped);
+                        } else if let crate::daemon::exit_policy::Decision::GiveUp(reason) =
+                            decision
+                        {
+                            error!("Daemon {id}: {reason}; start it again once the cause is fixed");
+                            process.gave_up = Some(reason);
+                            process.set_state(ProcessState::Failed);
                         } else {
                             // Prepare for restart with backoff
                             process.prepare_restart(
@@ -2079,12 +2107,19 @@ impl DaemonManager {
         let id = zmnext_daemon_id(monitor_id);
         // Deliver the pipeline config in-memory over stdin ("--pipeline -") so
         // the worker's camera credentials never touch disk.
-        let extra = vec![
+        let mut extra = vec![
             "--pipeline".to_string(),
             "-".to_string(),
             "--socket".to_string(),
             socket_path,
         ];
+        // Name zm-api as the worker's control peer, when this zm-core knows the
+        // flag. An older one exits 1 on an unknown flag, so ask first.
+        let binary = self.zmcore_binary(&rt);
+        if zmcore_supports_control_uid(&binary).await {
+            extra.push("--control-uid".to_string());
+            extra.push(nix::unistd::geteuid().as_raw().to_string());
+        }
         self.start_daemon_with_stdin(&id, &extra, Some(payload))
             .await
     }
@@ -2100,7 +2135,57 @@ impl DaemonManager {
         monitor: &monitors::Model,
         rt: &ZmNextRuntime,
     ) -> AppResult<Vec<u8>> {
+        let (value, _) = self.build_zmnext_pipeline(monitor, rt, false).await?;
+        serde_json::to_vec(&value).map_err(|e| {
+            crate::error::AppError::InternalServerError(format!(
+                "Failed to serialize zm-next pipeline for monitor {}: {e}",
+                monitor.id
+            ))
+        })
+    }
+
+    /// The monitor's pipeline and its secrets, in the form a worker that
+    /// speaks the control protocol takes in `configure`: every secret, camera
+    /// credentials included, as a `$secret` reference with the values in the
+    /// map. `None` when zm-next isn't enabled or the monitor doesn't exist.
+    pub async fn zmnext_configure_pipeline(
+        &self,
+        monitor_id: u32,
+    ) -> AppResult<
+        Option<(
+            serde_json::Value,
+            crate::service::zmnext::secrets::SecretMap,
+        )>,
+    > {
+        let (Some(rt), Some(db)) = (self.zmnext.clone(), self.db.clone()) else {
+            return Ok(None);
+        };
+        let Some(monitor) = monitors::Entity::find_by_id(monitor_id)
+            .one(db.as_ref())
+            .await?
+        else {
+            return Ok(None);
+        };
+        self.build_zmnext_pipeline(&monitor, &rt, true)
+            .await
+            .map(Some)
+    }
+
+    /// Build the monitor's pipeline. With `configure_form` false, secrets are
+    /// resolved to their values in place (for a worker that reads its pipeline
+    /// from stdin) and the map is empty; with it true they stay references
+    /// and the map carries the values.
+    async fn build_zmnext_pipeline(
+        &self,
+        monitor: &monitors::Model,
+        rt: &ZmNextRuntime,
+        configure_form: bool,
+    ) -> AppResult<(
+        serde_json::Value,
+        crate::service::zmnext::secrets::SecretMap,
+    )> {
         let monitor_id = monitor.id;
+        let mut graph_secrets = crate::service::zmnext::secrets::SecretMap::new();
         let zones = match &self.db {
             Some(db) => {
                 zones::Entity::find()
@@ -2161,18 +2246,36 @@ impl DaemonManager {
         let mut value = match stored {
             Some(row) => match serde_json::from_str::<serde_json::Value>(&row.graph_json) {
                 Ok(graph) if crate::service::zmnext::graph::validate_graph(&graph).is_ok() => {
-                    pipeline::compose_pipeline(
-                        monitor_id,
-                        &clean_url,
-                        &username,
-                        &password,
-                        &graph,
-                        &zone_specs,
-                        &rt.config.pipeline,
-                        mode,
-                        &events_root,
-                    )
-                    .unwrap_or_else(default)
+                    // A worker that reads a plain pipeline gets the values in
+                    // place; a configure keeps the references.
+                    match self
+                        .graph_secrets(monitor_id, rt, graph, !configure_form)
+                        .await
+                    {
+                        Ok((graph, map)) => {
+                            graph_secrets = map;
+                            pipeline::compose_pipeline(
+                                monitor_id,
+                                &clean_url,
+                                &username,
+                                &password,
+                                &graph,
+                                &zone_specs,
+                                &rt.config.pipeline,
+                                mode,
+                                &events_root,
+                            )
+                            .unwrap_or_else(default)
+                        }
+                        Err(e) => {
+                            error!(
+                                "zm-next: monitor {monitor_id} stored pipeline graph needs \
+                                 secrets that can't be loaded ({e}); using the default \
+                                 generated pipeline"
+                            );
+                            default()
+                        }
+                    }
                 }
                 Ok(_) => {
                     warn!(
@@ -2203,11 +2306,47 @@ impl DaemonManager {
             pipeline::inject_shared_inference(&mut value, &endpoint, si.gpu_id);
         }
 
-        serde_json::to_vec(&value).map_err(|e| {
-            crate::error::AppError::InternalServerError(format!(
-                "Failed to serialize zm-next pipeline for monitor {monitor_id}: {e}"
-            ))
-        })
+        if configure_form {
+            let camera = crate::service::zmnext::control::split_camera_credentials(&mut value);
+            graph_secrets.extend(camera);
+        }
+        Ok((value, graph_secrets))
+    }
+
+    /// Load the secrets a stored graph references and, with `resolve`, put
+    /// their values in place of the references.
+    async fn graph_secrets(
+        &self,
+        monitor_id: u32,
+        rt: &ZmNextRuntime,
+        mut graph: serde_json::Value,
+        resolve: bool,
+    ) -> AppResult<(
+        serde_json::Value,
+        crate::service::zmnext::secrets::SecretMap,
+    )> {
+        use crate::service::zmnext::secrets;
+        if secrets::references(&graph).is_empty() {
+            return Ok((graph, secrets::SecretMap::new()));
+        }
+        let db = self.db.as_ref().ok_or_else(|| {
+            crate::error::AppError::InternalServerError("no database for secrets".into())
+        })?;
+        let map =
+            secrets::load_secrets(db.as_ref(), &rt.config.secrets.key_file, monitor_id, &graph)
+                .await?;
+        if resolve {
+            secrets::resolve_in_place(&mut graph, &map)
+                .map_err(crate::error::AppError::InternalServerError)?;
+        } else if let Some(missing) = secrets::references(&graph)
+            .into_iter()
+            .find(|n| !map.contains_key(n))
+        {
+            return Err(crate::error::AppError::InternalServerError(format!(
+                "secret `{missing}` is referenced but not stored"
+            )));
+        }
+        Ok((graph, map))
     }
 
     /// Resolve the directory the worker's `store` plugin writes clips to:
@@ -2528,6 +2667,26 @@ impl DaemonManager {
     }
 
     /// State of the monitor's primary capture daemon, `None` if untracked.
+    /// Status of a monitor's zm-next worker entry, whether or not the monitor is
+    /// currently flagged for zm-next.
+    pub async fn zmnext_worker_status(&self, monitor_id: u32) -> Option<ProcessStatus> {
+        let processes = self.processes.read().await;
+        processes
+            .get(&zmnext_daemon_id(monitor_id))
+            .map(ProcessStatus::from)
+    }
+
+    /// Whether supervision gave up on this monitor's capture daemon.
+    async fn monitor_daemon_gave_up(&self, monitor_id: u32) -> bool {
+        let id = if self.use_zmnext(monitor_id).await {
+            zmnext_daemon_id(monitor_id)
+        } else {
+            self.zmc_id_for_monitor(monitor_id).await
+        };
+        let processes = self.processes.read().await;
+        processes.get(&id).is_some_and(|p| p.gave_up.is_some())
+    }
+
     async fn monitor_daemon_state(&self, monitor_id: u32) -> Option<ProcessState> {
         let id = if self.use_zmnext(monitor_id).await {
             zmnext_daemon_id(monitor_id)
@@ -2570,29 +2729,13 @@ impl DaemonManager {
 
         // Check zmc
         if let Some(p) = processes.get(&zmc_id) {
-            statuses.push(ProcessStatus {
-                id: p.id.clone(),
-                name: p.name.clone(),
-                state: p.state,
-                pid: p.pid,
-                uptime_seconds: p.uptime().map(|d| d.as_secs()),
-                restart_count: p.restart_count,
-                monitor_id: p.monitor_id,
-            });
+            statuses.push(ProcessStatus::from(p));
         }
 
         // Check zma
         let zma_id = format!("zma -m {}", monitor_id);
         if let Some(p) = processes.get(&zma_id) {
-            statuses.push(ProcessStatus {
-                id: p.id.clone(),
-                name: p.name.clone(),
-                state: p.state,
-                pid: p.pid,
-                uptime_seconds: p.uptime().map(|d| d.as_secs()),
-                restart_count: p.restart_count,
-                monitor_id: p.monitor_id,
-            });
+            statuses.push(ProcessStatus::from(p));
         }
 
         statuses
@@ -2672,8 +2815,49 @@ fn validate_daemon_spec(command: &str, args: &[String]) -> Result<(), String> {
     result
 }
 
+/// Whether the `zm-core` at `binary` accepts `--control-uid` (zm-next's worker
+/// control protocol), from its `--help`. Cached per path and modification
+/// time, so an upgraded binary is asked again.
+async fn zmcore_supports_control_uid(binary: &std::path::Path) -> bool {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    use std::time::SystemTime;
+    static CACHE: std::sync::OnceLock<Mutex<HashMap<PathBuf, (SystemTime, bool)>>> =
+        std::sync::OnceLock::new();
+    let Ok(mtime) = std::fs::metadata(binary).and_then(|m| m.modified()) else {
+        return false;
+    };
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some((cached_mtime, supported)) = cache.lock().unwrap().get(binary) {
+        if *cached_mtime == mtime {
+            return *supported;
+        }
+    }
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        Command::new(binary).arg("--help").output(),
+    )
+    .await;
+    let supported = match output {
+        Ok(Ok(out)) => {
+            help_mentions_control_uid(&out.stdout) || help_mentions_control_uid(&out.stderr)
+        }
+        _ => false,
+    };
+    cache
+        .lock()
+        .unwrap()
+        .insert(binary.to_path_buf(), (mtime, supported));
+    supported
+}
+
+fn help_mentions_control_uid(text: &[u8]) -> bool {
+    String::from_utf8_lossy(text).contains("--control-uid")
+}
+
 /// Validate the `zm-core` worker arg list (order-independent). Requires exactly
-/// `--monitor-id`, `--pipeline` and `--socket`, each with a valid value. The
+/// `--monitor-id`, `--pipeline` and `--socket`, each with a valid value, and
+/// allows one `--control-uid <uid>`. The
 /// pipeline value is either an absolute path or `-` (read the config from stdin,
 /// which is how zm-api delivers it in-memory so credentials never touch disk).
 fn validate_zmnext_args(args: &[String]) -> Result<(), String> {
@@ -2685,8 +2869,12 @@ fn validate_zmnext_args(args: &[String]) -> Result<(), String> {
         return Err(format!("zm-core args must be flag/value pairs: {:?}", args));
     }
     let (mut have_monitor, mut have_pipeline, mut have_socket) = (false, false, false);
+    let mut have_control_uid = false;
     for pair in args.chunks(2) {
         match (pair[0].as_str(), pair[1].as_str()) {
+            ("--control-uid", v) if !have_control_uid && v.parse::<u32>().is_ok() => {
+                have_control_uid = true
+            }
             ("--monitor-id", v) if v.parse::<u32>().is_ok() => have_monitor = true,
             ("--pipeline", v) if v == "-" || safe_path(v) => have_pipeline = true,
             ("--socket", v) if safe_path(v) => have_socket = true,
@@ -3510,6 +3698,131 @@ mod tests {
             process.pid.is_none(),
             "a dead pid may be reused; it must be forgotten so stop/kill never signal it (#81)"
         );
+    }
+
+    #[test]
+    fn zm_core_args_accept_one_control_uid() {
+        let base = |extra: &[&str]| {
+            let mut v: Vec<String> = [
+                "--monitor-id",
+                "3",
+                "--pipeline",
+                "-",
+                "--socket",
+                "/run/zm/stream_3.sock",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+            v.extend(extra.iter().map(|s| s.to_string()));
+            v
+        };
+        assert!(validate_zmnext_args(&base(&[])).is_ok());
+        assert!(validate_zmnext_args(&base(&["--control-uid", "997"])).is_ok());
+        assert!(validate_zmnext_args(&base(&["--control-uid", "root"])).is_err());
+        assert!(
+            validate_zmnext_args(&base(&["--control-uid", "1", "--control-uid", "2"])).is_err()
+        );
+    }
+
+    /// The `--help` text zm-next's Phase 1 zm-core prints (dev box, 2026-09-14).
+    #[tokio::test]
+    async fn control_uid_support_is_read_from_help() {
+        let help = b"Options:\n  --socket <path>      Unix socket\n  --control-uid <uid>  Also accept commands from this uid";
+        assert!(help_mentions_control_uid(help));
+        assert!(!help_mentions_control_uid(
+            b"Usage: zm-core --pipeline <pipeline.json | ->"
+        ));
+
+        let dir = std::env::temp_dir().join(format!("zmcore_probe_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, text, want) in [
+            ("new", "  --control-uid <uid>  Also accept commands", true),
+            ("old", "  --socket <path>  Unix socket", false),
+        ] {
+            let bin = dir.join(name);
+            std::fs::write(&bin, format!("#!/bin/sh\necho '{text}'\n")).unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            assert_eq!(zmcore_supports_control_uid(&bin).await, want, "{name}");
+        }
+        assert!(!zmcore_supports_control_uid(&dir.join("missing")).await);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `[zmnext.worker].binary` as an absolute path is the one checked and
+    /// run; with zm-next off there's nothing to check.
+    #[test]
+    fn zmcore_binary_honours_an_absolute_path() {
+        let mut manager = DaemonManager::new(DaemonConfig::default(), None);
+        assert!(manager.zmcore_installed().is_none());
+
+        let mut cfg = crate::configure::zmnext::ZmNextConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        cfg.worker.binary = "/nonexistent/zm-next/zm-core".into();
+        manager.set_zmnext(cfg, "/run/zm".into(), Default::default());
+        assert_eq!(
+            manager.zmcore_installed(),
+            Some((PathBuf::from("/nonexistent/zm-next/zm-core"), false))
+        );
+    }
+
+    /// A zm-next worker that keeps failing to load its pipeline (exit 3) is
+    /// left Failed with a reason after three fast exits, instead of cycling
+    /// through backoff forever. A plain daemon with the same exits keeps
+    /// restarting.
+    #[tokio::test]
+    async fn a_worker_that_keeps_failing_to_load_is_given_up_on() {
+        async fn exited(code: i32) -> tokio::process::Child {
+            let mut child = Command::new("sh")
+                .arg("-c")
+                .arg(format!("exit {code}"))
+                .spawn()
+                .expect("spawn test child");
+            let _ = child.wait().await;
+            child
+        }
+
+        let manager = DaemonManager::new(DaemonConfig::default(), None);
+        let worker = "zm-core --monitor-id 9";
+        for (id, name) in [(worker, "worker"), ("other-daemon", "other")] {
+            manager
+                .register_daemon(ManagedProcess::new(id, name, "x", vec![], true, Some(9)))
+                .await;
+        }
+
+        for round in 1..=3 {
+            for id in [worker, "other-daemon"] {
+                let child = exited(3).await;
+                manager
+                    .processes
+                    .write()
+                    .await
+                    .get_mut(id)
+                    .unwrap()
+                    .set_child(child);
+            }
+            manager.check_daemons().await;
+            let processes = manager.processes.read().await;
+            let w = &processes[worker];
+            if round < 3 {
+                assert_eq!(w.state, ProcessState::Restarting, "round {round}");
+                assert!(w.gave_up.is_none());
+            } else {
+                assert_eq!(w.state, ProcessState::Failed);
+                let reason = w.gave_up.as_deref().expect("a reason");
+                assert!(reason.contains("pipeline failed to load"), "{reason}");
+                let status = ProcessStatus::from(w);
+                assert_eq!(status.last_exit_code, Some(3));
+                assert_eq!(status.failure_reason.as_deref(), Some(reason));
+            }
+            assert_eq!(processes["other-daemon"].state, ProcessState::Restarting);
+        }
     }
 
     /// Regression for #77: an entry that has been sent SIGTERM but whose exit

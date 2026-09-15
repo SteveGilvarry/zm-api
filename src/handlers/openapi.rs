@@ -175,6 +175,7 @@ use crate::util::claim::UserClaims;
         crate::handlers::live::get_monitor_snapshot,
         crate::handlers::live::take_monitor_snapshot,
         crate::handlers::live::describe_monitor,
+        crate::handlers::live::stream_monitor_events,
         crate::handlers::live::webrtc_websocket_handler,
 
         // logs
@@ -207,6 +208,8 @@ use crate::util::claim::UserClaims;
         crate::handlers::monitor_pipeline::get_monitor_pipeline,
         crate::handlers::monitor_pipeline::put_monitor_pipeline,
         crate::handlers::monitor_pipeline::delete_monitor_pipeline,
+        crate::handlers::monitor_pipeline::validate_monitor_pipeline,
+        crate::handlers::monitor_pipeline::get_monitor_zmnext_status,
         crate::handlers::monitor_pipeline::enable_monitor_zmnext,
         crate::handlers::monitor_pipeline::disable_monitor_zmnext,
 
@@ -389,6 +392,13 @@ use crate::util::claim::UserClaims;
     ),
     components(
         schemas(
+            crate::dto::response::monitor_pipeline::ZmNextWorkerStatusResponse,
+            crate::dto::response::monitor_pipeline::PipelineValidationResponse,
+            crate::streaming::source::worker_status::WorkerStatus,
+            crate::streaming::source::worker_status::StreamHealth,
+            crate::streaming::source::worker_status::StreamState,
+            crate::streaming::source::worker_status::StatusChange,
+            crate::service::zmnext::control::PathError,
             // zm-next on-demand commands
             crate::dto::request::monitor_ondemand::DescribeNowRequest,
             crate::dto::response::monitor_ondemand::DescribeNowResponse,

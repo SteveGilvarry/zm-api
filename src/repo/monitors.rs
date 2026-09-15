@@ -167,6 +167,20 @@ where
     }
 }
 
+/// Whether ZoneMinder's schema has `Monitors.UseZmNext`, the column a
+/// zm-next-capable ZoneMinder adds. Any error reads as absent.
+pub async fn use_zmnext_column_exists<C>(conn: &C) -> bool
+where
+    C: ConnectionTrait,
+{
+    use sea_orm::{DbBackend, Statement};
+    let stmt = Statement::from_string(
+        DbBackend::MySql,
+        "SELECT `UseZmNext` FROM `Monitors` LIMIT 0".to_string(),
+    );
+    conn.query_all(stmt).await.is_ok()
+}
+
 /// Set a monitor's `UseZmNext` flag. Raw UPDATE for the same reason
 /// [`use_zmnext`] is a raw SELECT (the column is owned by the ZoneMinder fork
 /// migration and is deliberately off the generated entity). Unlike the read,

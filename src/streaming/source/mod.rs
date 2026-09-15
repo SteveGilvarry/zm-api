@@ -3,6 +3,7 @@ pub mod media;
 pub mod protocol;
 pub mod router;
 pub mod stream_socket;
+pub mod worker_status;
 
 // Re-export media types and bitstream helpers
 pub use media::{

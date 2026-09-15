@@ -34,6 +34,12 @@ pub enum AppError {
     BadRequestError(String),
     #[error("{0}")]
     InvalidPayloadError(String),
+    /// A pipeline graph failed validation; each detail is `(path, message)`.
+    #[error("{message}")]
+    InvalidPipelineError {
+        message: String,
+        errors: Vec<(String, String)>,
+    },
     #[error("{0}")]
     HashError(String),
     #[error("internal server error: {0}")]
@@ -196,6 +202,12 @@ impl AppError {
                 "INVALID_PAYLOAD_ERROR".to_string(),
                 None,
                 vec![],
+                StatusCode::BAD_REQUEST,
+            ),
+            InvalidPipelineError { errors, .. } => (
+                "INVALID_PIPELINE_ERROR".to_string(),
+                None,
+                errors,
                 StatusCode::BAD_REQUEST,
             ),
             BadRequestError(_err) => (

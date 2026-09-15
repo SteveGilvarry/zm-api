@@ -8,6 +8,7 @@ pub mod backoff;
 pub mod commands;
 pub mod config;
 pub mod daemons;
+pub mod exit_policy;
 pub mod ipc;
 pub mod manager;
 #[cfg(feature = "onvif-events")]

@@ -45,12 +45,26 @@ pub enum CommandError {
     /// The connection closed before the result arrived.
     #[error("worker connection closed before the result arrived")]
     Disconnected,
+    /// A control command (answered in its Response) failed; `data` carries
+    /// the worker's detail, such as configure's `errors`.
+    #[error("worker refused the command: {message}")]
+    Refused { message: String, data: Value },
 }
 
 /// Outcome delivered to a waiting request: the result EVENT's JSON detail.
 type Outcome = Result<Value, CommandError>;
 
+/// What completes a request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResolveOn {
+    /// A result EVENT carrying the request id (`snapshot_now`, `describe_now`).
+    Event,
+    /// The Response itself (`describe_plugins`, `configure`).
+    Response,
+}
+
 struct Pending {
+    resolve_on: ResolveOn,
     monitor_id: u32,
     /// Connection the command went out on; a drop of that connection fails it.
     conn_id: u64,
@@ -101,6 +115,48 @@ impl CommandBroker {
         &self,
         monitor_id: u32,
         conn_id: u64,
+        command: Value,
+        timeout: Duration,
+        send: impl FnOnce(&str) -> bool,
+    ) -> Outcome {
+        self.send_and_wait(
+            ResolveOn::Event,
+            monitor_id,
+            conn_id,
+            command,
+            timeout,
+            send,
+        )
+        .await
+    }
+
+    /// Like [`Self::request`], for a command whose result is the Response
+    /// itself: `ok:true` yields its `data`, `ok:false` a
+    /// [`CommandError::Refused`] carrying the message and `data`.
+    pub async fn request_response(
+        &self,
+        monitor_id: u32,
+        conn_id: u64,
+        command: Value,
+        timeout: Duration,
+        send: impl FnOnce(&str) -> bool,
+    ) -> Outcome {
+        self.send_and_wait(
+            ResolveOn::Response,
+            monitor_id,
+            conn_id,
+            command,
+            timeout,
+            send,
+        )
+        .await
+    }
+
+    async fn send_and_wait(
+        &self,
+        resolve_on: ResolveOn,
+        monitor_id: u32,
+        conn_id: u64,
         mut command: Value,
         timeout: Duration,
         send: impl FnOnce(&str) -> bool,
@@ -112,6 +168,7 @@ impl CommandBroker {
         self.pending.insert(
             request_id,
             Pending {
+                resolve_on,
                 monitor_id,
                 conn_id,
                 dispatched: false,
@@ -152,6 +209,20 @@ impl CommandBroker {
     /// Feed a Response received on `conn_id`. A rejection resolves the request
     /// at once; an acceptance is noted and the wait for the result goes on.
     pub fn on_response(&self, conn_id: u64, resp: &CommandResponse) {
+        if let Some((_, p)) = self.pending.remove_if(&resp.request_id, |_, p| {
+            p.conn_id == conn_id && p.resolve_on == ResolveOn::Response
+        }) {
+            let outcome = if resp.ok {
+                Ok(resp.data_json())
+            } else {
+                Err(CommandError::Refused {
+                    message: resp.message.clone(),
+                    data: resp.data_json(),
+                })
+            };
+            let _ = p.tx.send(outcome);
+            return;
+        }
         if resp.ok {
             if let Some(mut p) = self.pending.get_mut(&resp.request_id) {
                 if p.conn_id == conn_id {
@@ -266,6 +337,7 @@ mod tests {
             request_id,
             ok,
             message: message.into(),
+            data: serde_json::Value::Null,
         }
     }
 
@@ -338,6 +410,48 @@ mod tests {
         );
 
         assert_eq!(handle.await.unwrap().unwrap()["text"], "a cat");
+    }
+
+    #[tokio::test]
+    async fn response_resolved_commands_return_data_or_refusal() {
+        let broker = Arc::new(CommandBroker::new());
+        let (sent_tx, mut sent) = mpsc::unbounded_channel::<Value>();
+        let b = broker.clone();
+        let ok = tokio::spawn(async move {
+            b.request_response(3, 1, json!({"cmd": "describe_plugins"}), LONG, move |s| {
+                sent_tx.send(serde_json::from_str(s).unwrap()).is_ok()
+            })
+            .await
+        });
+        let id = sent.recv().await.unwrap()["request_id"].as_u64().unwrap();
+        let mut resp = response(id, true, "");
+        resp.data = json!({"tracker": {"version": "1.2.0"}});
+        broker.on_response(1, &resp);
+        assert_eq!(ok.await.unwrap().unwrap()["tracker"]["version"], "1.2.0");
+
+        let (sent_tx, mut sent) = mpsc::unbounded_channel::<Value>();
+        let b = broker.clone();
+        let refused = tokio::spawn(async move {
+            b.request_response(3, 1, json!({"cmd": "configure"}), LONG, move |s| {
+                sent_tx.send(serde_json::from_str(s).unwrap()).is_ok()
+            })
+            .await
+        });
+        let id = sent.recv().await.unwrap()["request_id"].as_u64().unwrap();
+        // The configure rejection from zm-next docs/Worker_Control_Protocol.md.
+        let mut resp = response(id, false, "invalid pipeline");
+        resp.data = Value::String(
+            json!({"errors": [{"path": "plugins[0].children[1].cfg.iou_threshold", "message": "must be <= 1"}]})
+                .to_string(),
+        );
+        broker.on_response(1, &resp);
+        match refused.await.unwrap() {
+            Err(CommandError::Refused { message, data }) => {
+                assert_eq!(message, "invalid pipeline");
+                assert_eq!(data["errors"][0]["message"], "must be <= 1");
+            }
+            other => panic!("expected Refused, got {other:?}"),
+        }
     }
 
     #[tokio::test]

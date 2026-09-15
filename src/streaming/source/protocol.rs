@@ -118,6 +118,11 @@ pub const EVENT_RECORDING_OPENING: u16 = 0x0304; // a clip segment opened; await
                                                  // 0x0305 is reserved for a future `reasoning` event.
 pub const EVENT_REVIEW_ASSETS: u16 = 0x0306; // motion-synopsis ingredients: tube + plate manifest in json_detail
 pub const EVENT_SNAPSHOT_SAVED: u16 = 0x0307; // a JPEG snapshot was written (routine, or the snapshot_now result)
+                                              // zm-next worker status codes (reserved 0x04xx range; zm-next
+                                              // docs/Worker_Control_Protocol.md, "Status"):
+pub const EVENT_WORKER_STATE: u16 = 0x0401; // unconfigured / configuring / running / stopping
+pub const EVENT_STREAM_AUTH_FAILED: u16 = 0x0402; // camera answered 401/403; slow retry
+pub const EVENT_WORKER_DEGRADED: u16 = 0x0403; // a dependency is down and a stage is skipped
 
 /// Client→server control message type (the `0x11 Command` of zm-next's control
 /// extension). zm-api is the client; the canonical media producer (zmc) ignores
@@ -128,6 +133,77 @@ pub const MSG_TYPE_COMMAND: u8 = 0x11;
 /// Server→client reply to a `0x11 Command`, sent only to the connection that
 /// sent the command. Payload is UTF-8 JSON (see [`CommandResponse`]).
 pub const MSG_TYPE_RESPONSE: u8 = 0x12;
+
+/// zm-next worker hello, sent to every peer right after accept and before the
+/// cached HELLO/snapshot/keyframe replay. Payload is UTF-8 JSON (see
+/// [`WorkerHello`]). A worker that predates the control protocol never sends it.
+pub const MSG_TYPE_WORKER_HELLO: u8 = 0x14;
+
+/// A zm-next worker's hello: versions, installed plugins, hardware and state.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct WorkerHello {
+    #[serde(default)]
+    pub protocol: HelloProtocol,
+    #[serde(default)]
+    pub zm_next: HelloZmNext,
+    #[serde(default)]
+    pub monitor_id: Option<u32>,
+    /// `unconfigured` | `configuring` | `running` | `stopping`.
+    #[serde(default)]
+    pub state: String,
+    /// Hash of the active pipeline; absent while unconfigured.
+    #[serde(default)]
+    pub pipeline_hash: Option<String>,
+    #[serde(default)]
+    pub plugins: Vec<HelloPlugin>,
+    #[serde(default)]
+    pub hw: serde_json::Value,
+    /// Whether this connection may send commands and configure.
+    #[serde(default)]
+    pub control_peer: bool,
+    /// Salted hash of the active pipeline's secret values (control peers
+    /// only); tells zm-api whether the worker already has the secrets it
+    /// would send.
+    #[serde(default)]
+    pub secrets_fingerprint: Option<String>,
+    /// Present when the worker couldn't read its plugin manifest.
+    #[serde(default)]
+    pub catalog_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
+pub struct HelloProtocol {
+    #[serde(default)]
+    pub canonical: u32,
+    #[serde(default)]
+    pub control: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
+pub struct HelloZmNext {
+    #[serde(default)]
+    pub version: String,
+    #[serde(default)]
+    pub commit: String,
+    #[serde(default)]
+    pub plugin_abi: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct HelloPlugin {
+    pub kind: String,
+    /// `null` for a plugin without a schema.
+    #[serde(default)]
+    pub version: Option<String>,
+    /// `"sha256:…"`, or `null` for a plugin without a schema.
+    #[serde(default)]
+    pub schema_sha256: Option<String>,
+}
+
+/// Parse a WorkerHello payload. `None` when it isn't the expected JSON.
+pub fn parse_worker_hello(payload: &[u8]) -> Option<WorkerHello> {
+    serde_json::from_slice(payload).ok()
+}
 
 /// zm-core's immediate reply to a Command. `ok:true` with message `dispatched`
 /// only means the command was handed to the plugins; the result, if any plugin
@@ -141,6 +217,42 @@ pub struct CommandResponse {
     pub ok: bool,
     #[serde(default)]
     pub message: String,
+    /// Command-specific result: `describe_plugins` schemas, `configure`
+    /// errors. zm-core has sent this as a JSON-encoded string, and the control
+    /// protocol doc shows an object; [`CommandResponse::data_json`] accepts
+    /// both.
+    #[serde(default)]
+    pub data: serde_json::Value,
+}
+
+impl CommandResponse {
+    /// `data` as a JSON value: an object as-is, a string holding JSON parsed,
+    /// and an empty string or null as `Null`.
+    pub fn data_json(&self) -> serde_json::Value {
+        match &self.data {
+            serde_json::Value::String(s) if s.trim().is_empty() => serde_json::Value::Null,
+            serde_json::Value::String(s) => {
+                serde_json::from_str(s).unwrap_or_else(|_| self.data.clone())
+            }
+            other => other.clone(),
+        }
+    }
+}
+
+impl MonitorEvent {
+    /// The event's JSON detail object. zm-next puts it in the JSON detail TLV
+    /// for its own codes and in the message TLV for the canonical lifecycle
+    /// codes (zm-next `docs/Worker_Control_Protocol.md`, "Status"), so both
+    /// are tried.
+    pub fn detail_object(&self) -> Option<serde_json::Map<String, serde_json::Value>> {
+        [self.json_detail.as_deref(), self.message.as_deref()]
+            .into_iter()
+            .flatten()
+            .find_map(|text| match serde_json::from_str(text) {
+                Ok(serde_json::Value::Object(map)) => Some(map),
+                _ => None,
+            })
+    }
 }
 
 /// Parse a Response payload. `None` when it isn't a JSON object.
@@ -749,6 +861,7 @@ mod tests {
                 request_id: 7,
                 ok: true,
                 message: "dispatched".into(),
+                data: serde_json::Value::String(String::new()),
             }
         );
         let rejected = parse_command_response(
@@ -765,6 +878,97 @@ mod tests {
             0
         );
         assert!(parse_command_response(b"not json").is_none());
+    }
+
+    /// The hello example from zm-next `docs/Worker_Control_Protocol.md`
+    /// ("Worker hello"). Replace with `tests/contract/` transcripts once zm-next
+    /// publishes them.
+    #[test]
+    fn worker_hello_parses_the_doc_example() {
+        assert_eq!(MSG_TYPE_WORKER_HELLO, 0x14);
+        let doc = br#"{
+          "protocol": {"canonical": 1, "control": 1},
+          "zm_next": {"version": "0.1.0", "commit": "9217bdf", "plugin_abi": 1},
+          "monitor_id": 3,
+          "state": "running",
+          "pipeline_hash": "sha256:4f1c",
+          "plugins": [
+            {"kind": "capture_rtsp_multi", "version": "1.0.0", "schema_sha256": "9ab2"},
+            {"kind": "tracker", "version": "1.2.0", "schema_sha256": "77e0"}
+          ],
+          "hw": {"backends": ["metal"], "decoders": ["videotoolbox"]},
+          "control_peer": true
+        }"#;
+        let hello = parse_worker_hello(doc).expect("parses");
+        assert_eq!(hello.protocol.control, 1);
+        assert_eq!(hello.zm_next.commit, "9217bdf");
+        assert_eq!(hello.monitor_id, Some(3));
+        assert_eq!(hello.state, "running");
+        assert_eq!(hello.pipeline_hash.as_deref(), Some("sha256:4f1c"));
+        assert_eq!(hello.plugins[1].kind, "tracker");
+        assert!(hello.control_peer);
+        // zm-next's implemented hello: plugins without a schema report nulls.
+        let real = parse_worker_hello(
+            br#"{"protocol":{"canonical":1,"control":1},"zm_next":{"version":"0.1.0","commit":"525a391","plugin_abi":1},
+                 "monitor_id":21,"state":"failed","pipeline_hash":null,
+                 "plugins":[{"kind":"capture_rtsp_multi","version":"1.0.0","schema_sha256":"sha256:9ab2"},
+                            {"kind":"capture_file","version":null,"schema_sha256":null}],
+                 "hw":{"backends":["metal"]},"secrets_fingerprint":"sha256:8489","control_peer":true}"#,
+        )
+        .expect("nulls parse");
+        assert_eq!(real.plugins[1].schema_sha256, None);
+        assert_eq!(
+            real.plugins[0].schema_sha256.as_deref(),
+            Some("sha256:9ab2")
+        );
+        assert_eq!(real.state, "failed");
+        assert_eq!(real.secrets_fingerprint.as_deref(), Some("sha256:8489"));
+        // Unknown fields and a minimal unconfigured hello are fine.
+        let min = parse_worker_hello(br#"{"state":"unconfigured","future":1}"#).unwrap();
+        assert_eq!(min.pipeline_hash, None);
+        assert!(!min.control_peer);
+        assert!(parse_worker_hello(b"nope").is_none());
+    }
+
+    #[test]
+    fn response_data_accepts_object_or_encoded_string() {
+        let obj = parse_command_response(
+            br#"{"request_id":1,"ok":true,"message":"","data":{"tracker":{"version":"1"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(obj.data_json()["tracker"]["version"], "1");
+        let enc = parse_command_response(
+            br#"{"request_id":1,"ok":true,"message":"","data":"{\"tracker\":{\"version\":\"1\"}}"}"#,
+        )
+        .unwrap();
+        assert_eq!(enc.data_json()["tracker"]["version"], "1");
+        let empty = parse_command_response(
+            br#"{"request_id":1,"ok":true,"message":"dispatched","data":""}"#,
+        )
+        .unwrap();
+        assert!(empty.data_json().is_null());
+    }
+
+    #[test]
+    fn status_detail_is_read_from_either_tlv() {
+        let from_detail = MonitorEvent {
+            code: EVENT_STREAM_AUTH_FAILED,
+            json_detail: Some(r#"{"stream_id":0,"retry_in_sec":60}"#.into()),
+            ..MonitorEvent::default()
+        };
+        assert_eq!(from_detail.detail_object().unwrap()["retry_in_sec"], 60);
+        let from_message = MonitorEvent {
+            code: EVENT_CONNECTION_FAILED,
+            message: Some(r#"{"stream_id":0,"error":"timeout","attempt":2}"#.into()),
+            ..MonitorEvent::default()
+        };
+        assert_eq!(from_message.detail_object().unwrap()["attempt"], 2);
+        let plain = MonitorEvent {
+            code: EVENT_CONNECTION_FAILED,
+            message: Some("camera unreachable".into()),
+            ..MonitorEvent::default()
+        };
+        assert!(plain.detail_object().is_none());
     }
 
     #[test]

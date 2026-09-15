@@ -7289,6 +7289,75 @@
         ]
       }
     },
+    "/api/v3/monitors/{id}/pipeline/validate": {
+      "post": {
+        "tags": [
+          "Monitors"
+        ],
+        "operationId": "validate_monitor_pipeline",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "A processing graph, `{ \"plugins\": [...] }`",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Validation result; `errors` locate each problem by path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineValidationResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/monitors/{id}/state": {
       "patch": {
         "tags": [
@@ -7378,6 +7447,62 @@
       }
     },
     "/api/v3/monitors/{id}/zmnext": {
+      "get": {
+        "tags": [
+          "Monitors"
+        ],
+        "operationId": "get_monitor_zmnext_status",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The monitor's zm-next worker state; `worker.failure_reason` says why supervision stopped restarting it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ZmNextWorkerStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
       "post": {
         "tags": [
           "Monitors"
@@ -7741,6 +7866,72 @@
           },
           "503": {
             "description": "Worker unreachable, no describe_vlm in the pipeline, VLM failed, or timed out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/monitors/{monitor_id}/events": {
+      "get": {
+        "tags": [
+          "Live Streaming"
+        ],
+        "summary": "Stream a monitor's status changes (server-sent events)",
+        "description": "The first event, `status`, is the current state as a `WorkerStatus`. After\nthat, each event is named by what changed (`hello`, `worker_state`,\n`stream_auth_failed`, `worker_degraded`, `connection_failed`,\n`connection_restored`, `capture_failed`, `capture_resumed`, `disconnected`)\nand carries a `StatusChange`. Accepts `?token=` for `EventSource`.",
+        "operationId": "streamMonitorEvents",
+        "parameters": [
+          {
+            "name": "monitor_id",
+            "in": "path",
+            "description": "Monitor/Camera ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "text/event-stream of status changes",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Live streaming disabled",
             "content": {
               "application/json": {
                 "schema": {
@@ -14342,6 +14533,43 @@
           },
           {
             "type": "object",
+            "description": "A pipeline graph failed validation; each detail is `(path, message)`.",
+            "required": [
+              "InvalidPipelineError"
+            ],
+            "properties": {
+              "InvalidPipelineError": {
+                "type": "object",
+                "description": "A pipeline graph failed validation; each detail is `(path, message)`.",
+                "required": [
+                  "message",
+                  "errors"
+                ],
+                "properties": {
+                  "errors": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": false,
+                      "prefixItems": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    }
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
             "required": [
               "HashError"
             ],
@@ -18628,9 +18856,24 @@
           "restart_count"
         ],
         "properties": {
+          "failure_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why supervision stopped restarting this daemon. It stays stopped until\nstarted again explicitly."
+          },
           "id": {
             "type": "string",
             "description": "Process identifier"
+          },
+          "last_exit_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Exit status of the most recent exit, when it exited normally"
           },
           "monitor_id": {
             "type": [
@@ -23525,6 +23768,46 @@
           }
         }
       },
+      "PathError": {
+        "type": "object",
+        "description": "One validation or configure error, located by path, e.g.\n`plugins[0].children[1].cfg.iou_threshold`.",
+        "required": [
+          "path",
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "PipelineValidationResponse": {
+        "type": "object",
+        "description": "Result of checking a pipeline graph without saving it.",
+        "required": [
+          "valid",
+          "checked_against",
+          "errors"
+        ],
+        "properties": {
+          "checked_against": {
+            "type": "string",
+            "description": "`builtin` (zm-api's plugin list, for a worker that offers no schemas) or\nthe zm-next version whose plugin schemas were used."
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PathError"
+            }
+          },
+          "valid": {
+            "type": "boolean"
+          }
+        }
+      },
       "PowerCapabilities": {
         "type": "object",
         "description": "Power control capabilities",
@@ -24828,6 +25111,35 @@
           }
         }
       },
+      "StatusChange": {
+        "type": "object",
+        "description": "One change, as sent to SSE subscribers.",
+        "required": [
+          "monitor_id",
+          "kind",
+          "detail",
+          "at_ms"
+        ],
+        "properties": {
+          "at_ms": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "detail": {
+            "type": "object",
+            "description": "The event's detail as the worker sent it (empty for hello/disconnect)."
+          },
+          "kind": {
+            "type": "string",
+            "description": "`hello`, `worker_state`, `stream_auth_failed`, `worker_degraded`,\n`connection_failed`, `connection_restored`, `capture_failed`,\n`capture_resumed` or `disconnected`."
+          },
+          "monitor_id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "StorageResponse": {
         "type": "object",
         "required": [
@@ -24911,6 +25223,55 @@
             "type": "string"
           }
         }
+      },
+      "StreamHealth": {
+        "type": "object",
+        "required": [
+          "state",
+          "since_ms"
+        ],
+        "properties": {
+          "attempt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Consecutive failed attempts, when the worker reports it.",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "retry_in_sec": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "since_ms": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix milliseconds of the event that set this state."
+          },
+          "state": {
+            "$ref": "#/components/schemas/StreamState"
+          }
+        }
+      },
+      "StreamState": {
+        "type": "string",
+        "description": "Health of one capture stream.",
+        "enum": [
+          "streaming",
+          "connection_failed",
+          "capture_failed",
+          "auth_failed"
+        ]
       },
       "SystemStatsResponse": {
         "type": "object",
@@ -28785,6 +29146,123 @@
           "warm_start": {
             "type": "boolean",
             "description": "Reader was already hot at connect (no reader spin-up on the offer path)."
+          }
+        }
+      },
+      "WorkerStatus": {
+        "type": "object",
+        "description": "What zm-api knows about a worker right now.",
+        "required": [
+          "control_peer",
+          "streams",
+          "degraded"
+        ],
+        "properties": {
+          "control_peer": {
+            "type": "boolean"
+          },
+          "control_protocol": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Control protocol version from the hello; absent for a worker that\npredates it.",
+            "minimum": 0
+          },
+          "degraded": {
+            "type": "object",
+            "description": "Component → effect, for each dependency the worker reports as down.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "pipeline_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`unconfigured` | `configuring` | `running` | `stopping`, from the hello\nor the latest worker_state event."
+          },
+          "streams": {
+            "type": "object",
+            "description": "Keyed by the worker's stream id.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/StreamHealth"
+            },
+            "propertyNames": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "zm_next_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "zm-next version and commit from the hello."
+          }
+        }
+      },
+      "ZmNextWorkerStatusResponse": {
+        "type": "object",
+        "description": "A monitor's zm-next worker, as the daemon manager sees it.",
+        "required": [
+          "monitor_id",
+          "use_zmnext",
+          "supervised"
+        ],
+        "properties": {
+          "live": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkerStatus",
+                "description": "What the worker last reported over its socket (hello and status\nevents): state, pipeline hash, per-stream health, degraded components.\nAbsent until zm-api has read from the monitor's socket."
+              }
+            ]
+          },
+          "monitor_id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "supervised": {
+            "type": "boolean",
+            "description": "zm-api supervises daemons on this server (not passive mode)."
+          },
+          "use_zmnext": {
+            "type": "boolean",
+            "description": "`UseZmNext` is set and `[zmnext].enabled` is on."
+          },
+          "worker": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DaemonStatusResponse",
+                "description": "The worker's process entry; absent if it was never started."
+              }
+            ]
           }
         }
       },

@@ -34,3 +34,29 @@ impl From<monitor_pipeline::Model> for MonitorPipelineResponse {
         }
     }
 }
+
+/// A monitor's zm-next worker, as the daemon manager sees it.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ZmNextWorkerStatusResponse {
+    pub monitor_id: u32,
+    /// `UseZmNext` is set and `[zmnext].enabled` is on.
+    pub use_zmnext: bool,
+    /// zm-api supervises daemons on this server (not passive mode).
+    pub supervised: bool,
+    /// The worker's process entry; absent if it was never started.
+    pub worker: Option<crate::dto::response::daemon::DaemonStatusResponse>,
+    /// What the worker last reported over its socket (hello and status
+    /// events): state, pipeline hash, per-stream health, degraded components.
+    /// Absent until zm-api has read from the monitor's socket.
+    pub live: Option<crate::streaming::source::worker_status::WorkerStatus>,
+}
+
+/// Result of checking a pipeline graph without saving it.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct PipelineValidationResponse {
+    pub valid: bool,
+    /// `builtin` (zm-api's plugin list, for a worker that offers no schemas) or
+    /// the zm-next version whose plugin schemas were used.
+    pub checked_against: String,
+    pub errors: Vec<crate::service::zmnext::control::PathError>,
+}

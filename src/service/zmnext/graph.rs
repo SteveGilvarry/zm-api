@@ -20,9 +20,10 @@ use serde_json::Value;
 /// monitor's `Path`/creds, and `store` (recording) is built from `Function`.
 const FORBIDDEN_KINDS: &[&str] = &["capture_rtsp_multi", "capture_file", "store"];
 
-/// Known zm-next plugin kinds — mirrors the zm-next plugin catalog
-/// (`zm-next/plugins/*`). Unknown kinds are rejected here early; zm-next also
-/// fails to `dlopen` an unknown kind at spawn. Keep in sync as plugins are added.
+/// Plugin kinds a stored graph may use: every plugin zm-next builds, minus
+/// [`FORBIDDEN_KINDS`]. Unknown kinds are rejected here early, because zm-core
+/// refuses the whole pipeline when one plugin fails to load. A test checks this
+/// list against `zmnext_plugins.txt`, a copy of zm-next's plugin build list.
 const KNOWN_KINDS: &[&str] = &[
     "decode_ffmpeg",
     "decode_detect",
@@ -41,13 +42,10 @@ const KNOWN_KINDS: &[&str] = &[
     "audio_detect",
     "recognize_face",
     "lpr",
-    "output_webrtc",
-    "output_mse",
     "output_mqtt",
     "output_webhook",
     "store_snapshot",
     "review_export",
-    "plate_export",
     "overlay",
     "privacy_mask",
     "encode_ffmpeg",
@@ -109,7 +107,20 @@ fn validate_node(node: &Value) -> Result<(), String> {
     // Reject capture/secret keys in either `cfg` or `config`.
     if let Some(cfg) = obj.get("cfg").or_else(|| obj.get("config")) {
         if let Some(cfg_obj) = cfg.as_object() {
-            for key in cfg_obj.keys() {
+            for (key, value) in cfg_obj {
+                if super::secrets::is_secret_key(kind, key) {
+                    // A literal is moved into the secret store on save; a
+                    // reference keeps the stored value.
+                    if !value.is_string() && super::secrets::reference_name(value).is_none() {
+                        return Err(format!(
+                            "`{kind}` `{key}` must be a string or a {{\"$secret\": \"<name>\"}} reference"
+                        ));
+                    }
+                    continue;
+                }
+                if kind == "output_mqtt" && key == "username" {
+                    continue;
+                }
                 if FORBIDDEN_CFG_KEYS.contains(&key.as_str()) {
                     return Err(format!(
                         "`{kind}` cfg may not contain `{key}` — capture/credentials are injected at spawn, never stored"
@@ -130,10 +141,90 @@ fn validate_node(node: &Value) -> Result<(), String> {
     Ok(())
 }
 
+/// zm-next's plugin kinds, from the checked-in copy of its plugin build list.
+#[cfg(test)]
+pub(crate) fn zmnext_plugin_kinds() -> std::collections::BTreeSet<&'static str> {
+    include_str!("zmnext_plugins.txt")
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::collections::BTreeSet;
+
+    /// Fails when `KNOWN_KINDS` drifts from zm-next: a plugin was added or
+    /// removed there, or a kind here never existed.
+    #[test]
+    fn known_kinds_match_zm_next_plugins() {
+        let zmnext = zmnext_plugin_kinds();
+        let ours: BTreeSet<&str> = KNOWN_KINDS.iter().chain(FORBIDDEN_KINDS).copied().collect();
+        let missing: Vec<_> = zmnext.difference(&ours).collect();
+        let stale: Vec<_> = ours.difference(&zmnext).collect();
+        assert!(
+            missing.is_empty() && stale.is_empty(),
+            "KNOWN_KINDS + FORBIDDEN_KINDS out of sync with zmnext_plugins.txt: \
+             missing {missing:?}, not in zm-next {stale:?}"
+        );
+    }
+
+    /// Fails when `zmnext_plugins.txt` itself is stale. Runs only with
+    /// `ZMNEXT_SRC` pointing at a zm-next checkout.
+    #[test]
+    fn zmnext_plugins_copy_matches_zm_next() {
+        let Ok(src) = std::env::var("ZMNEXT_SRC") else {
+            return;
+        };
+        let cmake = std::fs::read_to_string(format!("{src}/plugins/CMakeLists.txt"))
+            .expect("read zm-next plugins/CMakeLists.txt");
+        let actual: BTreeSet<&str> = cmake
+            .lines()
+            .filter_map(|l| {
+                l.trim()
+                    .strip_prefix("add_subdirectory(")?
+                    .strip_suffix(')')
+            })
+            .collect();
+        assert_eq!(
+            zmnext_plugin_kinds(),
+            actual,
+            "refresh src/service/zmnext/zmnext_plugins.txt from {src}/plugins/CMakeLists.txt"
+        );
+    }
+
+    #[test]
+    fn plugin_secrets_are_allowed_as_strings_or_references() {
+        let doc = json!({ "plugins": [ { "kind": "decode_detect", "children": [
+            { "kind": "output_mqtt", "cfg": { "username": "u", "password": "p" } },
+            { "kind": "output_webhook", "cfg": { "auth_header": { "$secret": "notify.auth_header" } } },
+            { "kind": "llm_event_review", "cfg": { "api_key": "sk" } }
+        ] } ] });
+        assert!(validate_graph(&doc).is_ok(), "{:?}", validate_graph(&doc));
+
+        let bad =
+            json!({ "plugins": [ { "kind": "output_webhook", "cfg": { "auth_header": 42 } } ] });
+        assert!(validate_graph(&bad).unwrap_err().contains("reference"));
+        // Camera-style credentials stay forbidden everywhere else.
+        let cam = json!({ "plugins": [ { "kind": "decode_detect", "cfg": { "password": "p" } } ] });
+        assert!(validate_graph(&cam).is_err());
+    }
+
+    #[test]
+    fn rejects_kinds_zm_next_removed() {
+        for kind in ["output_webrtc", "output_mse", "plate_export"] {
+            let doc = json!({ "plugins": [ { "kind": kind } ] });
+            assert!(
+                validate_graph(&doc)
+                    .unwrap_err()
+                    .contains("unknown plugin kind"),
+                "{kind} should be rejected"
+            );
+        }
+    }
 
     #[test]
     fn accepts_a_valid_processing_graph() {

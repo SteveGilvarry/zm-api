@@ -44,7 +44,7 @@ pub struct SynopsisConfig {
     /// Mask edge feather radius in pixels (1–2) to suppress cutout halos.
     pub mask_feather_px: u32,
     /// Monitor ids whose zm-next pipeline should emit synopsis ingredients
-    /// (polygon masks + tracker + review_export + plate_export). Empty = none.
+    /// (polygon masks + tracker + review_export). Empty = none.
     /// Non-synopsis cameras pay none of this cost. This policy lives in zm-api
     /// (the only DB reader), consistent with the zm-next/zm-api split.
     pub enabled_monitors: Vec<u32>,

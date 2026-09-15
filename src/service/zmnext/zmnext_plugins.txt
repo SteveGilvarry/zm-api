@@ -1,0 +1,33 @@
+# zm-next plugin kinds, one per line: the add_subdirectory() entries of
+# zm-next/plugins/CMakeLists.txt at zm-next 405c18a (2026-09-13).
+# Source of truth for src/service/zmnext/graph.rs tests. Refresh when zm-next
+# adds or removes a plugin; ZMNEXT_SRC=<zm-next checkout> cargo test
+# zmnext_plugins_copy_matches_zm_next checks this copy against a checkout.
+hello
+capture_rtsp_multi
+decode_ffmpeg
+decode_detect
+encode_ffmpeg
+privacy_mask
+overlay
+zones
+motion_pixel_diff
+store
+capture_file
+motion_gate
+detect_onnx
+detect_openvocab
+detect_pose
+detect_seg
+recognize_face
+lpr
+tracker
+analytics_rules
+alert_policy
+audio_detect
+describe_vlm
+llm_event_review
+output_mqtt
+output_webhook
+store_snapshot
+review_export

@@ -55,6 +55,7 @@ pub mod tags;
 pub mod triggers_x10;
 pub mod user_preferences;
 pub mod users;
+pub mod zmnext_secret;
 pub mod zone_presets;
 pub mod zones;
 

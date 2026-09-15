@@ -26,6 +26,13 @@ pub struct DaemonStatusResponse {
     /// Associated monitor ID if applicable
     #[serde(skip_serializing_if = "Option::is_none")]
     pub monitor_id: Option<u32>,
+    /// Exit status of the most recent exit, when it exited normally
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_exit_code: Option<i32>,
+    /// Why supervision stopped restarting this daemon. It stays stopped until
+    /// started again explicitly.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failure_reason: Option<String>,
 }
 
 impl From<ProcessStatus> for DaemonStatusResponse {
@@ -38,6 +45,8 @@ impl From<ProcessStatus> for DaemonStatusResponse {
             uptime_seconds: status.uptime_seconds,
             restart_count: status.restart_count,
             monitor_id: status.monitor_id,
+            last_exit_code: status.last_exit_code,
+            failure_reason: status.failure_reason,
         }
     }
 }

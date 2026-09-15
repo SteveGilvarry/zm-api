@@ -1421,6 +1421,76 @@ pub async fn describe_monitor(
     ))
 }
 
+/// Stream a monitor's status changes (server-sent events)
+///
+/// The first event, `status`, is the current state as a `WorkerStatus`. After
+/// that, each event is named by what changed (`hello`, `worker_state`,
+/// `stream_auth_failed`, `worker_degraded`, `connection_failed`,
+/// `connection_restored`, `capture_failed`, `capture_resumed`, `disconnected`)
+/// and carries a `StatusChange`. Accepts `?token=` for `EventSource`.
+#[utoipa::path(
+    get,
+    path = "/api/v3/monitors/{monitor_id}/events",
+    operation_id = "streamMonitorEvents",
+    tag = "Live Streaming",
+    params(("monitor_id" = u32, Path, description = "Monitor/Camera ID")),
+    responses(
+        (status = 200, description = "text/event-stream of status changes", content_type = "text/event-stream"),
+        (status = 401, description = "Unauthorized", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError),
+        (status = 503, description = "Live streaming disabled", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+pub async fn stream_monitor_events(
+    State(state): State<AppState>,
+    Path(monitor_id): Path<u32>,
+    scope: crate::service::monitor_acl::MonitorScope,
+) -> AppResult<
+    axum::response::sse::Sse<
+        impl futures_util::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
+    >,
+> {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+    crate::service::monitor::get_by_id(&state, monitor_id, &scope).await?;
+    let router = state.source_router.clone().ok_or_else(|| {
+        AppError::ServiceUnavailableError("live streaming is disabled".to_string())
+    })?;
+    // Subscribe before reading the snapshot so no change falls between them,
+    // and make sure something is reading the monitor's socket.
+    let rx = router.subscribe_worker_status();
+    router.ensure_warm(monitor_id).await;
+    let snapshot = router.worker_status(monitor_id).unwrap_or_default();
+
+    let first = futures_util::stream::once(async move {
+        Ok(Event::default()
+            .event("status")
+            .json_data(&snapshot)
+            .unwrap_or_else(|_| Event::default().event("status")))
+    });
+    let changes = futures_util::stream::unfold(rx, move |mut rx| async move {
+        loop {
+            match rx.recv().await {
+                Ok(change) if change.monitor_id == monitor_id => {
+                    let event = Event::default()
+                        .event(change.kind.clone())
+                        .json_data(&change)
+                        .unwrap_or_else(|_| Event::default().event(change.kind.clone()));
+                    return Some((Ok(event), rx));
+                }
+                Ok(_) => continue,
+                // A slow subscriber missed changes: say so, then carry on.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    let event = Event::default().event("lagged").data(n.to_string());
+                    return Some((Ok(event), rx));
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
+            }
+        }
+    });
+    Ok(Sse::new(futures_util::StreamExt::chain(first, changes)).keep_alive(KeepAlive::default()))
+}
+
 // ============================================================================
 // Source Statistics
 // ============================================================================

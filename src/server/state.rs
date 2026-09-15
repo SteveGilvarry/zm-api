@@ -48,8 +48,20 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub async fn new(config: AppConfig) -> AppResult<Self> {
+    pub async fn new(mut config: AppConfig) -> AppResult<Self> {
         let db = Arc::new(DatabaseClient::build_from_config(&config).await?);
+
+        // zm-next is on only where it is installed: `enabled = "auto"` (the
+        // default) looks for the Monitors.UseZmNext column a zm-next-capable
+        // ZoneMinder adds.
+        let column = crate::repo::monitors::use_zmnext_column_exists(db.as_ref()).await;
+        config.zmnext.resolve(column);
+        tracing::info!(
+            "zm-next {} (enabled = {:?}, Monitors.UseZmNext {})",
+            if config.zmnext.enabled { "on" } else { "off" },
+            config.zmnext.setting,
+            if column { "present" } else { "absent" }
+        );
 
         // Apply zm-api-owned migrations (additive, IF NOT EXISTS; only our own
         // tables — never ZoneMinder's). Non-fatal: a failure degrades the owned
@@ -58,6 +70,13 @@ impl AppState {
         if let Err(e) = crate::client::database::migrate_database(db.as_ref()).await {
             tracing::warn!("zm-api owned-table migrations failed (features may degrade): {e}");
         }
+        // Stored zm-next graphs saved before secrets were split out still hold
+        // them in plain text; move them into the encrypted store now.
+        crate::service::zmnext::secrets::migrate_stored_graphs(
+            db.as_ref(),
+            &config.zmnext.secrets.key_file,
+        )
+        .await;
 
         let http = reqwest::Client::builder()
             .no_proxy()

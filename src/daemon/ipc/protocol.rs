@@ -303,6 +303,28 @@ pub struct ProcessStatus {
     /// Associated monitor ID if applicable
     #[serde(skip_serializing_if = "Option::is_none")]
     pub monitor_id: Option<u32>,
+    /// Exit status of the most recent exit, when it exited normally
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_exit_code: Option<i32>,
+    /// Why supervision stopped restarting this process, if it has
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_reason: Option<String>,
+}
+
+impl From<&crate::daemon::ManagedProcess> for ProcessStatus {
+    fn from(p: &crate::daemon::ManagedProcess) -> Self {
+        Self {
+            id: p.id.clone(),
+            name: p.name.clone(),
+            state: p.state,
+            pid: p.pid,
+            uptime_seconds: p.uptime().map(|d| d.as_secs()),
+            restart_count: p.restart_count,
+            monitor_id: p.monitor_id,
+            last_exit_code: p.exit_history.last_code,
+            failure_reason: p.gave_up.clone(),
+        }
+    }
 }
 
 /// System-wide status.

@@ -98,6 +98,26 @@ ZoneMinder's Perl *maintenance* daemons, which run inside zm-api rather than as
 supervised processes, and are independently switchable from `[daemon]`. They are
 documented in [Replacing the Perl maintenance daemons](maintenance.md).
 
+### zm-next workers
+
+A monitor with `UseZmNext` set captures through a zm-next worker (`zm-core`)
+instead of `zmc`. zm-api doesn't assume zm-next is installed:
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `zmnext.enabled` | `"auto"` | `"auto"` turns zm-next on when ZoneMinder's schema has the `Monitors.UseZmNext` column; `true` or `false` overrides that |
+| `zmnext.worker.binary` | `zm-core` | The worker executable: an absolute path, or a name looked up like the other daemons. Its directory must contain the `plugins/` it loads |
+
+zm-api supervises workers the way it supervises `zmc`, and the way zmdc.pl
+supervises `zma`: they are its children, receive their pipeline on stdin (so
+camera credentials never touch disk), and stop when zm-api stops. Switching a
+monitor to zm-next is refused when the worker binary isn't there.
+
+A worker that exits within 10 seconds with the same startup error three times
+in a row (a bad command line, a pipeline that won't load) isn't restarted
+again; `GET /api/v3/monitors/{id}/zmnext` shows why, and starting the monitor
+again clears it.
+
 ## Profiles
 
 `APP_PROFILE` selects which TOML loads alongside `base.toml`: `dev`, `test`,
