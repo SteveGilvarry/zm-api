@@ -17,7 +17,7 @@ use std::time::Duration;
 use axum::http::{Method, StatusCode};
 use common::fixtures::{insert_monitor, RowGuard};
 use common::harness::{superuser_token, TestApp};
-use common::test_db::get_test_db;
+use common::test_db::{get_test_db, migrate_test_db};
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zm_api::server::state::AppState;
@@ -112,7 +112,7 @@ fn sock_dir(tag: &str) -> PathBuf {
 
 async fn app_with_router(socks: &Path) -> TestApp {
     let db = get_test_db().await.expect("test database");
-    let _ = zm_api::client::database::migrate_database(&db).await;
+    migrate_test_db(&db).await;
     let mut state = AppState::for_test_with_db(db);
     let mut config = (*state.config).clone();
     config.zmnext.secrets.key_file = socks.join("key");

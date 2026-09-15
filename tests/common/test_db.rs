@@ -20,6 +20,30 @@ pub async fn get_test_db() -> Result<DatabaseConnection, DbErr> {
     Database::connect(&db_url).await
 }
 
+/// Apply zm-api's migrations to the test database, one process at a time.
+///
+/// nextest runs every test in its own process, so an in-process `OnceCell` does
+/// not stop two tests migrating at once; when a migration is pending they both
+/// apply it and one fails on a duplicate `seaql_migrations` key. A named
+/// MariaDB lock, held on a pinned connection, serializes them across processes.
+#[allow(dead_code)]
+pub async fn migrate_test_db(db: &DatabaseConnection) {
+    use sea_orm::TransactionTrait;
+
+    let pinned = db.begin().await.expect("pin a connection for the lock");
+    let lock = |sql: &str| Statement::from_string(sea_orm::DatabaseBackend::MySql, sql.to_string());
+    pinned
+        .execute(lock("SELECT GET_LOCK('zm_api_test_migrate', 120)"))
+        .await
+        .expect("take migration lock");
+    let result = zm_api::client::database::migrate_database(db).await;
+    let _ = pinned
+        .execute(lock("SELECT RELEASE_LOCK('zm_api_test_migrate')"))
+        .await;
+    let _ = pinned.rollback().await;
+    result.expect("apply zm-api migrations");
+}
+
 /// Stable identifier for the current test run.
 #[allow(dead_code)]
 pub fn test_run_id() -> &'static str {

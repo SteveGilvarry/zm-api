@@ -10,7 +10,7 @@ use std::sync::Arc;
 use axum::http::{Method, StatusCode};
 use common::fixtures::{insert_monitor, RowGuard};
 use common::harness::{superuser_token, TestApp};
-use common::test_db::get_test_db;
+use common::test_db::{get_test_db, migrate_test_db};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde_json::{json, Value};
 use zm_api::entity::{monitor_pipeline, zmnext_secret};
@@ -20,9 +20,7 @@ const SECRETS: [&str; 3] = ["Bearer t0k3n-zz", "hunter2-zz", "sk-live-zz"];
 
 async fn app_with_key(tag: &str) -> (TestApp, std::path::PathBuf) {
     let db = get_test_db().await.expect("test database");
-    // Tests run in parallel, so another may be applying the same migration;
-    // what matters is that the table exists afterwards.
-    let _ = zm_api::client::database::migrate_database(&db).await;
+    migrate_test_db(&db).await;
     zmnext_secret::Entity::find()
         .all(&db)
         .await
