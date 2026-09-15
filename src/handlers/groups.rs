@@ -62,8 +62,9 @@ pub struct UpdateGroupRequest {
     /// Re-parent the group. Omit to leave the parent unchanged; `null` clears
     /// it (top-level group); a group id nests under that group. Self-parenting
     /// and cycles are rejected (GH #28).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::dto::serde_helpers::double_option")]
     #[garde(skip)]
+    #[schema(value_type = Option<u32>)]
     pub parent_id: Option<Option<u32>>,
 }
 

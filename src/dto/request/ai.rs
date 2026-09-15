@@ -73,6 +73,8 @@ pub struct UpdateAiModelRequest {
     pub version: Option<String>,
     /// Set to re-point the model at another dataset. `null` clears it.
     #[garde(skip)]
+    #[serde(default, deserialize_with = "crate::dto::serde_helpers::double_option")]
+    #[schema(value_type = Option<u32>)]
     pub dataset_id: Option<Option<u32>>,
     #[garde(range(min = 0, max = 1))]
     pub enabled: Option<u8>,
