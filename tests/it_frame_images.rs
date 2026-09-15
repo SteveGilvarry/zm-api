@@ -160,39 +160,78 @@ async fn saved_jpegs_are_served_by_number_name_and_frame_row() {
     drop(f.tmp);
 }
 
+/// Two seconds at 10fps, black then white, into `path`. `extra` adds ffmpeg
+/// output flags. False when the ffmpeg binary isn't available.
+fn black_then_white_mp4(path: &std::path::Path, extra: &[&str]) -> bool {
+    std::process::Command::new("ffmpeg")
+        .args(["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i"])
+        .arg("color=c=black:s=64x64:r=10:d=1[b];color=c=white:s=64x64:r=10:d=1[w];[b][w]concat=n=2:v=1")
+        .args(["-c:v", "libx264", "-g", "20", "-pix_fmt", "yuv420p"])
+        .args(extra)
+        .arg(path)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn luma(jpeg: &[u8]) -> f64 {
+    let img = image::load_from_memory(jpeg).expect("jpeg").to_luma8();
+    img.pixels().map(|p| f64::from(p.0[0])).sum::<f64>() / f64::from(img.width() * img.height())
+}
+
+async fn is_white(f: &Fixture, fid: &str) -> bool {
+    let resp = f
+        .app
+        .get(
+            &format!("/api/v3/events/{}/frames/{fid}/image", f.event_id),
+            &f.token,
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::OK, "fid {fid}: {}", resp.text());
+    luma(&resp.body) > 128.0
+}
+
+async fn set_event(f: &Fixture, closed: bool, max_score_frame_id: u32) {
+    zm_api::entity::events::ActiveModel {
+        id: Set(f.event_id),
+        end_date_time: Set(closed.then(|| chrono::Utc::now().naive_utc())),
+        max_score_frame_id: Set(Some(max_score_frame_id)),
+        ..Default::default()
+    }
+    .update(&f.app.db)
+    .await
+    .expect("update event");
+}
+
 #[tokio::test]
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn video_only_events_decode_the_frame_from_the_mp4() {
     let f = fixture("FrameImgVideo").await;
-    // One second black, one second white, at 10fps: frame 15 is white.
-    let mp4 = f.dir.join(format!("{}-video.mp4", f.event_id));
-    let made = std::process::Command::new("ffmpeg")
-        .args(["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i"])
-        .arg("color=c=black:s=64x64:r=10:d=1[b];color=c=white:s=64x64:r=10:d=1[w];[b][w]concat=n=2:v=1")
-        .args(["-c:v", "libx264", "-g", "20", "-pix_fmt", "yuv420p"])
-        .arg(&mp4)
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-    if !made {
+    if !black_then_white_mp4(&f.dir.join(format!("{}-video.mp4", f.event_id)), &[]) {
         eprintln!("Skipping: ffmpeg binary not available to build fixture");
         return;
     }
-    let luma = |jpeg: &[u8]| {
-        let img = image::load_from_memory(jpeg).expect("jpeg").to_luma8();
-        img.pixels().map(|p| f64::from(p.0[0])).sum::<f64>() / f64::from(img.width() * img.height())
-    };
+    // A closed event whose best frame is in the white second.
+    set_event(&f, true, 15).await;
 
-    for (fid, white) in [(3, false), (15, true)] {
-        let resp = f
-            .app
-            .get(
-                &format!("/api/v3/events/{}/frames/{fid}/image", f.event_id),
-                &f.token,
-            )
-            .await;
-        assert_eq!(resp.status(), StatusCode::OK, "fid {fid}: {}", resp.text());
-        let l = luma(&resp.body);
-        assert_eq!(l > 128.0, white, "fid {fid} luma {l}");
+    assert!(!is_white(&f, "3").await, "frame 3 is in the black second");
+    assert!(is_white(&f, "15").await, "frame 15 is in the white second");
+    // No alarm.jpg or frame JPEGs: the best-scoring frame comes from the video.
+    assert!(is_white(&f, "alarm").await, "alarm is frame 15");
+}
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn recording_events_decode_from_the_growing_incomplete_mp4() {
+    let f = fixture("FrameImgLive").await;
+    // Fragmented, like the file ZoneMinder is still writing.
+    let live = f.dir.join("incomplete.0.mp4");
+    if !black_then_white_mp4(&live, &["-movflags", "frag_keyframe+empty_moov"]) {
+        eprintln!("Skipping: ffmpeg binary not available to build fixture");
+        return;
     }
+    set_event(&f, false, 15).await;
+
+    assert!(!is_white(&f, "3").await, "frame 3 is in the black second");
+    assert!(is_white(&f, "15").await, "frame 15 is in the white second");
 }

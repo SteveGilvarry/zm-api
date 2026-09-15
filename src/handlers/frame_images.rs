@@ -20,7 +20,8 @@ use tracing::{debug, warn};
 use crate::entity::events::Model as EventModel;
 use crate::error::{AppError, AppResponseError, AppResult, Resource, ResourceType};
 use crate::handlers::events_playback::{
-    get_event_entity, monitor_orientation, select_video_filename,
+    event_is_in_progress, find_incomplete_media, get_event_entity, monitor_orientation,
+    select_video_filename,
 };
 use crate::repo;
 use crate::server::state::AppState;
@@ -195,13 +196,20 @@ async fn serve_frame(state: &AppState, event: EventModel, fid: &str) -> AppResul
         event.length.to_f64().unwrap_or(0.0),
     );
 
-    let videos = [
-        select_video_filename(event_id, &event.default_video),
-        format!("{event_id}-video.mp4"),
-        format!("{event_id}-video.h264.mp4"),
-    ];
-    for name in &videos {
-        let path = dir.join(name);
+    // While recording, the only video is the growing `incomplete.*.mp4`.
+    let mut videos = Vec::with_capacity(4);
+    if event_is_in_progress(&event) {
+        videos.extend(find_incomplete_media(&dir).await);
+    }
+    videos.extend(
+        [
+            select_video_filename(event_id, &event.default_video),
+            format!("{event_id}-video.mp4"),
+            format!("{event_id}-video.h264.mp4"),
+        ]
+        .map(|name| dir.join(name)),
+    );
+    for path in videos {
         if tokio::fs::metadata(&path).await.is_err() {
             continue;
         }
