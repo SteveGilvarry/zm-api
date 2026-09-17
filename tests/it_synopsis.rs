@@ -25,9 +25,8 @@ use tokio::sync::mpsc;
 
 use common::fixtures::{insert_monitor, unique_name, RowGuard};
 use common::harness::{superuser_token, TestApp};
-use common::test_db::get_test_db;
+use common::test_db::{get_test_db, migrate_test_db};
 
-use zm_api::client::database::migrate_database;
 use zm_api::configure::synopsis::SynopsisConfig;
 use zm_api::configure::zmnext::IngestConfig;
 use zm_api::entity::event_synopsis;
@@ -42,14 +41,13 @@ const MISSING_EVENT_ID: u64 = 999_000_222;
 
 /// Apply the crate migrations to the test DB (creates `event_synopsis`).
 ///
-/// Serialized per test process: SeaORM's migrator is not safe to run
-/// concurrently against one database (its `seaql_migrations` bookkeeping races,
-/// which flaked the parallel synopsis tests). A `OnceCell` runs it exactly once.
+/// [`migrate_test_db`] serializes migrations across test processes; the
+/// `OnceCell` skips the repeat when tests share a process under `cargo test`.
 async fn ensure_schema(db: &sea_orm::DatabaseConnection) {
     static SCHEMA: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
     SCHEMA
         .get_or_init(|| async {
-            migrate_database(db).await.expect("apply zm-api migrations");
+            migrate_test_db(db).await;
         })
         .await;
 }
