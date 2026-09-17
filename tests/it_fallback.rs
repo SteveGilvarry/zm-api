@@ -27,7 +27,7 @@ async fn unknown_route_is_never_500() {
         "/api/v3/system/version",
         "/api/v3/discovery",
         "/nope",
-        "/api/v3/frames/1/image",
+        "/api/v3/frames/1/not-a-route",
     ] {
         let resp = app.request(Method::GET, path).send().await;
         assert_eq!(

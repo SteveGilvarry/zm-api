@@ -74,6 +74,25 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u64) -> AppResult<Option<Fr
     Ok(frame)
 }
 
+/// The event's `Frames` row with the highest `FrameId` at or below `frame_id`.
+///
+/// ZoneMinder writes a row for every frame only while alarmed; in between it
+/// writes one "Bulk" row every few frames, so an arbitrary frame number is
+/// located from the nearest row before it.
+pub async fn find_at_or_before(
+    db: &DatabaseConnection,
+    event_id: u64,
+    frame_id: u32,
+) -> AppResult<Option<FrameModel>> {
+    let frame = FrameEntity::find()
+        .filter(Column::EventId.eq(event_id))
+        .filter(Column::FrameId.lte(frame_id))
+        .order_by_desc(Column::FrameId)
+        .one(db)
+        .await?;
+    Ok(frame)
+}
+
 /// Create a new frame
 pub async fn create(db: &DatabaseConnection, req: &CreateFrameRequest) -> AppResult<FrameModel> {
     // Parse timestamp

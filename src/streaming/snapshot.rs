@@ -315,9 +315,25 @@ pub async fn extract_mp4_thumbnail(
     path: PathBuf,
     max_width: u32,
 ) -> Result<Vec<u8>, SnapshotError> {
-    tokio::task::spawn_blocking(move || extract_mp4_thumbnail_blocking(&path, max_width))
+    tokio::task::spawn_blocking(move || extract_mp4_thumbnail_blocking(&path, None, max_width))
         .await
         .map_err(|e| SnapshotError::DecodeFailed(format!("Task join error: {}", e)))?
+}
+
+/// Extract the frame shown `seconds` into an MP4 and encode it as JPEG.
+///
+/// Seeks to the keyframe at or before `seconds`, then decodes forward to the
+/// first frame at or past it. A time past the end yields the last frame.
+pub async fn extract_mp4_frame_at(
+    path: PathBuf,
+    seconds: f64,
+    max_width: u32,
+) -> Result<Vec<u8>, SnapshotError> {
+    tokio::task::spawn_blocking(move || {
+        extract_mp4_thumbnail_blocking(&path, Some(seconds.max(0.0)), max_width)
+    })
+    .await
+    .map_err(|e| SnapshotError::DecodeFailed(format!("Task join error: {}", e)))?
 }
 
 /// Blocking MP4 → JPEG keyframe extraction via libavformat + libavcodec.
@@ -328,7 +344,14 @@ pub async fn extract_mp4_thumbnail(
 /// significantly cheaper than spawning the ffmpeg binary because libav* is
 /// already loaded into the process — no fork, no per-call RSS spike, no moov
 /// re-parse for every request.
-fn extract_mp4_thumbnail_blocking(path: &Path, max_width: u32) -> Result<Vec<u8>, SnapshotError> {
+///
+/// With `at` set, seeks there first and decodes forward until a frame's
+/// timestamp reaches it (see [`extract_mp4_frame_at`]).
+fn extract_mp4_thumbnail_blocking(
+    path: &Path,
+    at: Option<f64>,
+    max_width: u32,
+) -> Result<Vec<u8>, SnapshotError> {
     use ffmpeg_next as ffmpeg;
 
     let mut ictx = ffmpeg::format::input(&path)
@@ -339,6 +362,8 @@ fn extract_mp4_thumbnail_blocking(path: &Path, max_width: u32) -> Result<Vec<u8>
         .best(ffmpeg::media::Type::Video)
         .ok_or_else(|| SnapshotError::DecodeFailed("No video stream in MP4".into()))?;
     let stream_index = video_stream.index();
+    let time_base = f64::from(video_stream.time_base());
+    let start_pts = video_stream.start_time();
 
     let decoder_ctx = ffmpeg::codec::context::Context::from_parameters(video_stream.parameters())
         .map_err(|e| {
@@ -355,21 +380,45 @@ fn extract_mp4_thumbnail_blocking(path: &Path, max_width: u32) -> Result<Vec<u8>
     let mut decoded = ffmpeg::frame::Video::empty();
     let mut got_frame = false;
     let mut packets_consumed = 0usize;
-    const MAX_PACKETS: usize = 16;
+    // A seek lands on the keyframe before the target, so allow a full GOP of
+    // decoding after it; the first-frame case needs only a few packets.
+    let max_packets: usize = if at.is_some() { 1_000 } else { 16 };
 
-    for (pkt_stream, packet) in ictx.packets() {
+    if let Some(seconds) = at {
+        // Container-level seek: timestamps in AV_TIME_BASE (microseconds).
+        let ts = (seconds * 1_000_000.0) as i64;
+        ictx.seek(ts, ..ts + 1)
+            .map_err(|e| SnapshotError::DecodeFailed(format!("seek failed: {}", e)))?;
+    }
+    // A frame's position in seconds from the start of the stream.
+    let frame_secs = |frame: &ffmpeg::frame::Video| {
+        frame
+            .timestamp()
+            .or(frame.pts())
+            .map(|pts| (pts - start_pts.max(0)) as f64 * time_base)
+    };
+
+    'packets: for (pkt_stream, packet) in ictx.packets() {
         if pkt_stream.index() != stream_index {
             continue;
         }
         decoder
             .send_packet(&packet)
             .map_err(|e| SnapshotError::DecodeFailed(format!("send_packet failed: {}", e)))?;
-        if decoder.receive_frame(&mut decoded).is_ok() {
+        let mut frame = ffmpeg::frame::Video::empty();
+        while decoder.receive_frame(&mut frame).is_ok() {
+            let reached = match (at, frame_secs(&frame)) {
+                (Some(target), Some(secs)) => secs + 1e-3 >= target,
+                _ => true,
+            };
+            decoded = frame.clone();
             got_frame = true;
-            break;
+            if reached {
+                break 'packets;
+            }
         }
         packets_consumed += 1;
-        if packets_consumed >= MAX_PACKETS {
+        if packets_consumed >= max_packets {
             break;
         }
     }
@@ -1003,6 +1052,51 @@ mod tests {
             &jpeg[jpeg.len() - 2..],
             &[0xFF, 0xD9],
             "Output must end with the JPEG EOI marker"
+        );
+    }
+
+    /// Average luma of a JPEG, 0–255.
+    fn mean_luma(jpeg: &[u8]) -> f64 {
+        let img = image::load_from_memory(jpeg)
+            .expect("decode jpeg")
+            .to_luma8();
+        img.pixels().map(|p| f64::from(p.0[0])).sum::<f64>() / f64::from(img.width() * img.height())
+    }
+
+    #[tokio::test]
+    async fn extract_mp4_frame_at_returns_the_frame_at_that_time() {
+        ffmpeg_next::init().ok();
+        let Ok(tmp) = tempfile::tempdir() else { return };
+        // Two seconds at 10fps with a 2s GOP: black, then white. Reaching the
+        // white half means decoding forward from the only keyframe.
+        let out = tmp.path().join("black-white.mp4");
+        let ok = std::process::Command::new("ffmpeg")
+            .args(["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i"])
+            .arg("color=c=black:s=64x64:r=10:d=1[b];color=c=white:s=64x64:r=10:d=1[w];[b][w]concat=n=2:v=1")
+            .args(["-c:v", "libx264", "-g", "20", "-pix_fmt", "yuv420p"])
+            .arg(&out)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !ok {
+            eprintln!("Skipping test: ffmpeg binary not available to build fixture");
+            return;
+        }
+
+        let early = extract_mp4_frame_at(out.clone(), 0.2, 64)
+            .await
+            .expect("frame at 0.2s");
+        let late = extract_mp4_frame_at(out.clone(), 1.5, 64)
+            .await
+            .expect("frame at 1.5s");
+        let past_end = extract_mp4_frame_at(out, 60.0, 64)
+            .await
+            .expect("frame past end");
+        assert!(mean_luma(&early) < 40.0, "0.2s should be black");
+        assert!(mean_luma(&late) > 215.0, "1.5s should be white");
+        assert!(
+            mean_luma(&past_end) > 215.0,
+            "past the end gives the last frame"
         );
     }
 
