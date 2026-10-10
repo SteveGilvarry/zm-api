@@ -8,9 +8,17 @@
 //! ZoneMinder uses memory-mapped files (typically in `/dev/shm/`) for IPC between
 //! its daemons. Each monitor has its own shared memory segment containing:
 //!
-//! - `SharedData` (864 bytes): Monitor state, FPS, timestamps, settings
-//! - `TriggerData` (560 bytes): External trigger state for forcing alarms
+//! - `SharedData`: Monitor state, FPS, timestamps, settings. Its size depends
+//!   on the ZoneMinder version (872 bytes on 1.38, 888 on 1.39/master, which
+//!   appended fields at the end); zmc records it in the struct's first field.
+//! - `TriggerData` (560 bytes): External trigger state for forcing alarms. It
+//!   starts right after `SharedData`, so its offset is `SharedData.size`.
 //! - `VideoStoreData` (4104 bytes): Video recording state
+//!
+//! zm-api reads only the first 872 bytes of `SharedData` (the layout every
+//! supported version shares) and finds `TriggerData` from the `size` zmc
+//! wrote, refusing a segment whose sizes it does not recognise rather than
+//! writing at a guessed offset.
 //!
 //! # Usage
 //!
@@ -61,6 +69,18 @@ pub enum ShmError {
 
     #[error("Shared memory size mismatch: expected at least {expected}, got {actual}")]
     SizeMismatch { expected: usize, actual: usize },
+
+    #[error(
+        "Monitor {monitor_id} shared memory has an unsupported layout: \
+         SharedData.size {shared_data}, TriggerData.size {trigger_data} \
+         (zm-api reads SharedData of at least {SHARED_DATA_SIZE} bytes and a \
+         {TRIGGER_DATA_SIZE}-byte TriggerData)"
+    )]
+    UnsupportedLayout {
+        monitor_id: u32,
+        shared_data: usize,
+        trigger_data: usize,
+    },
 
     #[error("String too long: {field} max {max} bytes, got {actual}")]
     StringTooLong {
@@ -150,9 +170,12 @@ pub struct MonitorStats {
     pub last_read_index: i32,
 }
 
-/// Shared memory layout for monitor data.
-///
-/// This must match the C++ `Monitor::SharedData` struct exactly.
+/// Shared memory layout for monitor data: the part of the C++
+/// `Monitor::SharedData` struct that every supported ZoneMinder version
+/// shares. 1.38's struct is exactly this; 1.39 renamed some reserved fields
+/// (`audio_level`/`audio_alarm` at +98, `stream_socket_path` at +680) and
+/// appended 16 bytes after `janus_pin`, so its struct is 888 bytes. The real
+/// size is read from `size` at runtime ([`MonitorShm::connect_with_path`]).
 /// Uses `#[repr(C)]` with explicit padding to match C++ alignment.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
@@ -204,9 +227,12 @@ struct SharedData {
     _reserved_path1: [u8; 64], // +680
     _reserved_path2: [u8; 64], // +744
     janus_pin: [u8; 64],       // +808
-                               // = 872 total
+                               // = 872 (1.39 appends 16 more bytes here)
 }
 
+/// Bytes of `SharedData` zm-api reads: the shared prefix, and the whole
+/// struct on ZoneMinder 1.38. Not where `TriggerData` starts on every
+/// version; that is `SharedData.size` (see [`trigger_offset`]).
 const SHARED_DATA_SIZE: usize = 872;
 
 // Verify struct size at compile time
@@ -260,11 +286,44 @@ struct VideoStoreData {
 /// SharedData + TriggerData + VideoStoreData + zone_scores
 const MIN_SHM_SIZE: usize = SHARED_DATA_SIZE + TRIGGER_DATA_SIZE;
 
+/// Where `TriggerData` starts in a monitor's segment: right after
+/// `SharedData`, whose size zmc writes into its first field
+/// (`shared_data->size = sizeof(SharedData)`). Checks the `size` zmc wrote
+/// into `TriggerData` as well, so a layout zm-api doesn't know is refused
+/// instead of written at a guessed offset.
+///
+/// Returns `Ok(None)` when the segment isn't initialised yet (size 0).
+fn trigger_offset(monitor_id: u32, shm: &[u8]) -> Result<Option<usize>> {
+    let read_u32 = |at: usize| -> Option<usize> {
+        shm.get(at..at + 4)
+            .map(|b| u32::from_ne_bytes([b[0], b[1], b[2], b[3]]) as usize)
+    };
+    let shared_data = read_u32(0).unwrap_or(0);
+    if shared_data == 0 {
+        return Ok(None);
+    }
+    let trigger_data = if shared_data >= SHARED_DATA_SIZE && shared_data % 8 == 0 {
+        read_u32(shared_data).unwrap_or(0)
+    } else {
+        0
+    };
+    if trigger_data != TRIGGER_DATA_SIZE || shared_data + TRIGGER_DATA_SIZE > shm.len() {
+        return Err(ShmError::UnsupportedLayout {
+            monitor_id,
+            shared_data,
+            trigger_data,
+        });
+    }
+    Ok(Some(shared_data))
+}
+
 /// Handle to a monitor's shared memory.
 pub struct MonitorShm {
     monitor_id: u32,
     mmap: MmapMut,
     shm_path: PathBuf,
+    /// Offset of `TriggerData`: the `SharedData.size` zmc wrote.
+    trigger_offset: usize,
 }
 
 impl MonitorShm {
@@ -319,10 +378,16 @@ impl MonitorShm {
         // The shared memory layout is well-defined by ZoneMinder.
         let mmap = unsafe { MmapMut::map_mut(&file)? };
 
+        // An uninitialised segment (zmc starting or gone) reads as not valid.
+        let Some(trigger_offset) = trigger_offset(monitor_id, &mmap)? else {
+            return Err(ShmError::Invalid);
+        };
+
         let shm = Self {
             monitor_id,
             mmap,
             shm_path,
+            trigger_offset,
         };
 
         // Verify the shared memory is valid
@@ -353,18 +418,19 @@ impl MonitorShm {
 
     /// Get a reference to the TriggerData structure.
     fn trigger_data(&self) -> &TriggerData {
-        // SAFETY: TriggerData follows SharedData in memory
+        // SAFETY: TriggerData follows SharedData in memory; connect() checked
+        // that trigger_offset + TRIGGER_DATA_SIZE lies within the mapping.
         unsafe {
-            let ptr = self.mmap.as_ptr().add(SHARED_DATA_SIZE);
+            let ptr = self.mmap.as_ptr().add(self.trigger_offset);
             &*(ptr as *const TriggerData)
         }
     }
 
     /// Get a mutable reference to the TriggerData structure.
     fn trigger_data_mut(&mut self) -> &mut TriggerData {
-        // SAFETY: TriggerData follows SharedData in memory
+        // SAFETY: as in trigger_data().
         unsafe {
-            let ptr = self.mmap.as_mut_ptr().add(SHARED_DATA_SIZE);
+            let ptr = self.mmap.as_mut_ptr().add(self.trigger_offset);
             &mut *(ptr as *mut TriggerData)
         }
     }
@@ -768,6 +834,100 @@ mod tests {
         assert_eq!(config.shm_path, "/dev/shm");
         assert_eq!(config.shm_prefix, "zm.mmap");
         assert_eq!(config.max_heartbeat_age, Duration::from_secs(60));
+    }
+
+    /// A segment as zmc lays it out: `SharedData` of `shared_data` bytes with
+    /// its `size` and `valid` set, then a `TriggerData` with its `size`, then
+    /// some of the rest of the segment.
+    fn fake_segment(dir: &std::path::Path, id: u32, shared_data: u32, trigger_data: u32) {
+        let mut buf = vec![0u8; shared_data as usize + 4096];
+        buf[0..4].copy_from_slice(&shared_data.to_ne_bytes());
+        buf[92] = 1; // valid
+        let t = shared_data as usize;
+        buf[t..t + 4].copy_from_slice(&trigger_data.to_ne_bytes());
+        std::fs::write(dir.join(format!("zm.mmap.{id}")), buf).unwrap();
+    }
+
+    fn read_segment(dir: &std::path::Path, id: u32) -> Vec<u8> {
+        std::fs::read(dir.join(format!("zm.mmap.{id}"))).unwrap()
+    }
+
+    /// ZoneMinder 1.39/master: SharedData is 888 bytes, so TriggerData starts
+    /// at 888. Writing at 872 put the trigger 16 bytes early, over the end of
+    /// SharedData and onto TriggerData.size (zmwatch then restarted zmc).
+    #[test]
+    fn trigger_lands_after_an_888_byte_shared_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().to_str().unwrap();
+        fake_segment(dir.path(), 1, 888, 560);
+        let mut shm = MonitorShm::connect_with_path(1, p, "zm.mmap").unwrap();
+        shm.trigger_alarm(100, "zmapi", "text").unwrap();
+        assert_eq!(shm.get_trigger_state(), TriggerState::On);
+        drop(shm);
+
+        let buf = read_segment(dir.path(), 1);
+        let td = |at: usize| u32::from_ne_bytes(buf[888 + at..888 + at + 4].try_into().unwrap());
+        assert_eq!(td(0), 560, "TriggerData.size untouched");
+        assert_eq!(td(4), TriggerState::On as u32);
+        assert_eq!(td(8), 100);
+        assert_eq!(&buf[888 + 16..888 + 21], b"zmapi");
+        assert!(
+            buf[872..888].iter().all(|&b| b == 0),
+            "SharedData tail untouched"
+        );
+    }
+
+    /// ZoneMinder 1.38: SharedData is 872 bytes.
+    #[test]
+    fn trigger_lands_after_an_872_byte_shared_data() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().to_str().unwrap();
+        fake_segment(dir.path(), 2, 872, 560);
+        let mut shm = MonitorShm::connect_with_path(2, p, "zm.mmap").unwrap();
+        shm.trigger_alarm(50, "API", "text").unwrap();
+        drop(shm);
+
+        let buf = read_segment(dir.path(), 2);
+        assert_eq!(u32::from_ne_bytes(buf[872..876].try_into().unwrap()), 560);
+        assert_eq!(u32::from_ne_bytes(buf[876..880].try_into().unwrap()), 1);
+        assert_eq!(&buf[872 + 16..872 + 19], b"API");
+    }
+
+    /// A layout zm-api doesn't recognise is refused, and nothing is written.
+    #[test]
+    fn unknown_layout_is_refused_without_writing() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().to_str().unwrap();
+        // TriggerData.size isn't 560 where SharedData.size says it starts.
+        fake_segment(dir.path(), 3, 904, 999);
+        let before = read_segment(dir.path(), 3);
+        match MonitorShm::connect_with_path(3, p, "zm.mmap") {
+            Err(ShmError::UnsupportedLayout {
+                shared_data,
+                trigger_data,
+                ..
+            }) => assert_eq!((shared_data, trigger_data), (904, 999)),
+            other => panic!("expected UnsupportedLayout, got {other:?}"),
+        }
+        // A SharedData smaller than the part zm-api reads.
+        fake_segment(dir.path(), 4, 864, 560);
+        assert!(matches!(
+            MonitorShm::connect_with_path(4, p, "zm.mmap"),
+            Err(ShmError::UnsupportedLayout { .. })
+        ));
+        assert_eq!(read_segment(dir.path(), 3), before);
+    }
+
+    /// A segment zmc hasn't initialised yet (size 0) is "not running".
+    #[test]
+    fn uninitialised_segment_is_invalid() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().to_str().unwrap();
+        fake_segment(dir.path(), 5, 0, 0);
+        assert!(matches!(
+            MonitorShm::connect_with_path(5, p, "zm.mmap"),
+            Err(ShmError::Invalid)
+        ));
     }
 
     // Integration tests would go here but require a running ZoneMinder instance
