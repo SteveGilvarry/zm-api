@@ -7,11 +7,9 @@ use utoipa::ToSchema;
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct FrameResponse {
-    /// Frame ID
-    pub id: u64,
-    /// Event ID this frame belongs to
+    /// Event ID this frame belongs to; with `frame_id`, the frame's key
     pub event_id: u64,
-    /// Frame sequence number within the event
+    /// Frame number within the event
     pub frame_id: u32,
     /// Frame type (Normal, Bulk, Alarm)
     #[schema(value_type = String)]
@@ -24,18 +22,21 @@ pub struct FrameResponse {
     pub delta: Decimal,
     /// Motion detection score
     pub score: u16,
+    /// Peak audio level since the previous frame row, 0-100 on the scale
+    /// `Monitors.AudioThreshold` uses; 0 means silence or no audio
+    pub audio_level: u8,
 }
 
 impl From<&FrameModel> for FrameResponse {
     fn from(model: &FrameModel) -> Self {
         Self {
-            id: model.id,
             event_id: model.event_id,
             frame_id: model.frame_id,
             r#type: model.r#type.clone(),
             time_stamp: model.time_stamp.to_string(),
             delta: model.delta,
             score: model.score,
+            audio_level: model.audio_level,
         }
     }
 }

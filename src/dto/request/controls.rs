@@ -8,8 +8,9 @@ use utoipa::ToSchema;
 pub struct CreateControlRequest {
     #[garde(length(min = 1, max = 64))]
     pub name: String,
-    #[serde(rename = "type")]
-    pub r#type: MonitorType,
+    /// Accepted and ignored: ZoneMinder 1.39.39 removed `Controls.Type`.
+    #[serde(rename = "type", default)]
+    pub r#type: Option<MonitorType>,
     #[garde(inner(length(max = 64)))]
     pub protocol: Option<String>,
     pub can_wake: Option<u8>,
@@ -115,6 +116,7 @@ pub struct CreateControlRequest {
 pub struct UpdateControlRequest {
     #[garde(inner(length(min = 1, max = 64)))]
     pub name: Option<String>,
+    /// Accepted and ignored: ZoneMinder 1.39.39 removed `Controls.Type`.
     #[serde(rename = "type")]
     pub r#type: Option<MonitorType>,
     #[garde(inner(length(max = 64)))]

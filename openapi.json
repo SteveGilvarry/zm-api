@@ -4091,23 +4091,34 @@
         ]
       }
     },
-    "/api/v3/frames/{id}": {
+    "/api/v3/frames/{event_id}/{frame_id}": {
       "get": {
         "tags": [
           "Frames"
         ],
-        "summary": "Get a frame by id.",
+        "summary": "Get a frame by event id and frame number.",
         "description": "- Requires a valid JWT; responds 404 if not found.",
         "operationId": "get_frame",
         "parameters": [
           {
-            "name": "id",
+            "name": "event_id",
             "in": "path",
-            "description": "Frame ID",
+            "description": "Event ID",
             "required": true,
             "schema": {
               "type": "integer",
               "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "frame_id",
+            "in": "path",
+            "description": "Frame number within the event",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
               "minimum": 0
             }
           }
@@ -4134,18 +4145,29 @@
         "tags": [
           "Frames"
         ],
-        "summary": "Delete a frame by id.",
+        "summary": "Delete a frame by event id and frame number.",
         "description": "- Responds 204 on success, 404 if not found.\n- Requires a valid JWT.",
         "operationId": "delete_frame",
         "parameters": [
           {
-            "name": "id",
+            "name": "event_id",
             "in": "path",
-            "description": "Frame ID",
+            "description": "Event ID",
             "required": true,
             "schema": {
               "type": "integer",
               "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "frame_id",
+            "in": "path",
+            "description": "Frame number within the event",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
               "minimum": 0
             }
           }
@@ -4170,13 +4192,24 @@
         "operationId": "update_frame",
         "parameters": [
           {
-            "name": "id",
+            "name": "event_id",
             "in": "path",
-            "description": "Frame ID",
+            "description": "Event ID",
             "required": true,
             "schema": {
               "type": "integer",
               "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "frame_id",
+            "in": "path",
+            "description": "Frame number within the event",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
               "minimum": 0
             }
           }
@@ -4198,51 +4231,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FrameResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "jwt": []
-          }
-        ]
-      }
-    },
-    "/api/v3/frames/{id}/image": {
-      "get": {
-        "tags": [
-          "Frames"
-        ],
-        "summary": "Get a frame's image by its `Frames` row id",
-        "operationId": "getFrameImage",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Frame row ID",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "format": "int64",
-              "minimum": 0
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Frame image",
-            "content": {
-              "image/jpeg": {}
-            }
-          },
-          "404": {
-            "description": "Frame or frame image not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AppResponseError"
                 }
               }
             }
@@ -15440,7 +15428,6 @@
         "required": [
           "id",
           "name",
-          "type",
           "can_wake",
           "can_sleep",
           "can_reset",
@@ -16108,7 +16095,15 @@
             "format": "int32"
           },
           "type": {
-            "$ref": "#/components/schemas/MonitorType"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MonitorType",
+                "description": "Always `null`: ZoneMinder 1.39.39 removed `Controls.Type`."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -16255,8 +16250,7 @@
       "CreateControlRequest": {
         "type": "object",
         "required": [
-          "name",
-          "type"
+          "name"
         ],
         "properties": {
           "can_auto_focus": {
@@ -17023,7 +17017,15 @@
             "format": "int32"
           },
           "type": {
-            "$ref": "#/components/schemas/MonitorType"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MonitorType",
+                "description": "Accepted and ignored: ZoneMinder 1.39.39 removed `Controls.Type`."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -20766,15 +20768,21 @@
       "FrameResponse": {
         "type": "object",
         "required": [
-          "id",
           "event_id",
           "frame_id",
           "type",
           "time_stamp",
           "delta",
-          "score"
+          "score",
+          "audio_level"
         ],
         "properties": {
+          "audio_level": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Peak audio level since the previous frame row, 0-100 on the scale\n`Monitors.AudioThreshold` uses; 0 means silence or no audio",
+            "minimum": 0
+          },
           "delta": {
             "type": "string",
             "description": "Time delta from previous frame",
@@ -20783,19 +20791,13 @@
           "event_id": {
             "type": "integer",
             "format": "int64",
-            "description": "Event ID this frame belongs to",
+            "description": "Event ID this frame belongs to; with `frame_id`, the frame's key",
             "minimum": 0
           },
           "frame_id": {
             "type": "integer",
             "format": "int32",
-            "description": "Frame sequence number within the event",
-            "minimum": 0
-          },
-          "id": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Frame ID",
+            "description": "Frame number within the event",
             "minimum": 0
           },
           "score": {
@@ -22533,7 +22535,6 @@
           "Remote",
           "File",
           "Ffmpeg",
-          "Libvlc",
           "cURL",
           "WebSite",
           "VNC"
@@ -27059,7 +27060,8 @@
           "type": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/MonitorType"
+                "$ref": "#/components/schemas/MonitorType",
+                "description": "Accepted and ignored: ZoneMinder 1.39.39 removed `Controls.Type`."
               },
               {
                 "type": "null"

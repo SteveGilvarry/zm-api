@@ -36,7 +36,7 @@ nothing changes for an existing MySQL install.
                 fresh MySQL / Postgres                existing MySQL install
                 ──────────────────────                ──────────────────────
  migrator up:   baseline (= zm_create @ 1.39.1)       migrator bridge:
-                m_1_39_2  … m_1_39_33  (SeaORM,         raw zm_update chain to the
+                m_1_39_2  … m_1_39_41  (SeaORM,         raw zm_update chain to the
                   portable, one per upstream update)    latest vendored version,
                 m2026…_event_synopsis                   then stamp baseline +
                 m2026…_monitor_pipeline                  every m_1_39_x ≤ that version
@@ -105,6 +105,7 @@ nothing changes for an existing MySQL install.
 | 3 | Version-aware stamping in `bridge` and `stamp.rs`; migrator records `ZM_DYN_DB_VERSION` | `upgrade-parity` matrix; unit tests on the stamp set for a given version | proven (MySQL) |
 | 4 | Backend-neutral `stamp.rs`; Postgres CI job | `postgres-schema` | proven locally (`postgres-schema.sh`: 729 columns match) |
 | 5 | Regenerate entities at 1.39.33; fix code for changed columns (`FrameSkip` gone, Janus fields non-null, new `Controls`/`Monitors` columns) | `cargo test`, DB suites | proven |
+| 6 | Mirror `zm_update-1.39.34…41` (#152): `Frames` keyed by `(EventId, FrameId)` with `AudioLevel`, `RTSPDescribe` and `Controls.Type` dropped, Libvlc/NVSocket removed from the `Type` enums (Postgres narrows by swapping the enum type), Reolink HTTP control | `schema-parity`, `upgrade-parity`, `postgres-schema` | in CI |
 
 Phase 5 is what closes #48. Phases 1–4 are the demonstration.
 

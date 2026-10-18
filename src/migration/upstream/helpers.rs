@@ -471,3 +471,118 @@ pub fn timestamp_on_update(m: &SchemaManager<'_>, col: &str) -> ColumnDef {
     }
     d
 }
+
+/// Remove variants from an enum. MySQL re-declares the column with the
+/// narrowed list (the caller passes the complete new definition). Postgres
+/// cannot drop a value from a type, so the column is moved onto a freshly
+/// created type and the old one dropped; skipped when the type already holds
+/// exactly `values`. Rows using a removed value must be rewritten first.
+pub async fn narrow_enum(
+    m: &SchemaManager<'_>,
+    table: &str,
+    column: &str,
+    type_name: &str,
+    values: &[&str],
+    default: &str,
+    def: ColumnDef,
+) -> Result<(), DbErr> {
+    if backend(m) != DatabaseBackend::Postgres {
+        return modify_column(m, table, def).await;
+    }
+    let conn = m.get_connection();
+    let labels: Vec<String> = conn
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT e.enumlabel AS label FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid \
+             WHERE t.typname = $1 ORDER BY e.enumsortorder",
+            [type_name.into()],
+        ))
+        .await?
+        .into_iter()
+        .filter_map(|r| r.try_get::<String>("", "label").ok())
+        .collect();
+    if labels.iter().map(String::as_str).eq(values.iter().copied()) {
+        return Ok(());
+    }
+    let tmp = format!("{type_name}__narrowed");
+    let list = values
+        .iter()
+        .map(|v| format!("'{v}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    for sql in [
+        format!("DROP TYPE IF EXISTS \"{tmp}\""),
+        format!("CREATE TYPE \"{tmp}\" AS ENUM ({list})"),
+        format!("ALTER TABLE \"{table}\" ALTER COLUMN \"{column}\" DROP DEFAULT"),
+        format!(
+            "ALTER TABLE \"{table}\" ALTER COLUMN \"{column}\" TYPE \"{tmp}\" \
+             USING \"{column}\"::text::\"{tmp}\""
+        ),
+        format!("DROP TYPE \"{type_name}\""),
+        format!("ALTER TYPE \"{tmp}\" RENAME TO \"{type_name}\""),
+        format!(
+            "ALTER TABLE \"{table}\" ALTER COLUMN \"{column}\" SET DEFAULT '{default}'::\"{type_name}\""
+        ),
+    ] {
+        conn.execute_raw(Statement::from_string(DatabaseBackend::Postgres, sql.clone()))
+            .await
+            .map_err(|e| DbErr::Custom(format!("{e}\n  while executing: {sql}")))?;
+    }
+    Ok(())
+}
+
+/// Drop every foreign key on `table` that references `referenced`. Upstream
+/// declares these unnamed, so the generated name differs by backend
+/// (`AI_Detections_ibfk_2` on MySQL, `AI_Detections_FrameId_fkey` on
+/// Postgres) and has to be looked up.
+pub async fn drop_foreign_keys_to(
+    m: &SchemaManager<'_>,
+    table: &str,
+    referenced: &str,
+) -> Result<(), DbErr> {
+    let conn = m.get_connection();
+    let stmt = match backend(m) {
+        DatabaseBackend::MySql => Statement::from_sql_and_values(
+            DatabaseBackend::MySql,
+            "SELECT CONSTRAINT_NAME AS name FROM information_schema.REFERENTIAL_CONSTRAINTS \
+             WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = ? AND REFERENCED_TABLE_NAME = ?",
+            [table.into(), referenced.into()],
+        ),
+        _ => Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT con.conname::text AS name FROM pg_constraint con \
+             JOIN pg_class rel ON rel.oid = con.conrelid \
+             JOIN pg_class ref ON ref.oid = con.confrelid \
+             JOIN pg_namespace ns ON ns.oid = rel.relnamespace \
+             WHERE con.contype = 'f' AND ns.nspname = current_schema() \
+             AND rel.relname = $1 AND ref.relname = $2",
+            [table.into(), referenced.into()],
+        ),
+    };
+    let names: Vec<String> = conn
+        .query_all_raw(stmt)
+        .await?
+        .into_iter()
+        .filter_map(|r| r.try_get::<String>("", "name").ok())
+        .collect();
+    for name in names {
+        run(
+            m,
+            &ForeignKey::drop()
+                .name(name.as_str())
+                .table(t(table))
+                .to_owned(),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// Run one backend-specific raw statement, naming it in any error.
+pub async fn run_raw(m: &SchemaManager<'_>, sql: &str) -> Result<(), DbErr> {
+    m.get_connection()
+        .execute_raw(Statement::from_string(backend(m), sql.to_string()))
+        .await
+        .map(|_| ())
+        .map_err(|e| DbErr::Custom(format!("{e}\n  while executing: {sql}")))
+}

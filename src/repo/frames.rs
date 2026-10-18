@@ -68,9 +68,15 @@ pub async fn find_paginated(
     Ok((items, total))
 }
 
-/// Find frame by id
-pub async fn find_by_id(db: &DatabaseConnection, id: u64) -> AppResult<Option<FrameModel>> {
-    let frame = FrameEntity::find_by_id(id).one(db).await?;
+/// Find a frame by its key: the event and the frame number within it.
+pub async fn find_by_key(
+    db: &DatabaseConnection,
+    event_id: u64,
+    frame_id: u32,
+) -> AppResult<Option<FrameModel>> {
+    let frame = FrameEntity::find_by_id((event_id, frame_id))
+        .one(db)
+        .await?;
     Ok(frame)
 }
 
@@ -114,16 +120,20 @@ pub async fn create(db: &DatabaseConnection, req: &CreateFrameRequest) -> AppRes
     Ok(result)
 }
 
-/// Update frame by id
+/// Update a frame by key
 pub async fn update(
     db: &DatabaseConnection,
-    id: u64,
+    event_id: u64,
+    frame_id: u32,
     req: &UpdateFrameRequest,
 ) -> AppResult<FrameModel> {
-    let frame = FrameEntity::find_by_id(id).one(db).await?.ok_or_else(|| {
+    let frame = find_by_key(db, event_id, frame_id).await?.ok_or_else(|| {
         crate::error::AppError::NotFoundError(crate::error::Resource {
             resource_type: crate::error::ResourceType::File,
-            details: vec![("id".to_string(), id.to_string())],
+            details: vec![
+                ("event_id".to_string(), event_id.to_string()),
+                ("frame_id".to_string(), frame_id.to_string()),
+            ],
         })
     })?;
 
@@ -140,8 +150,10 @@ pub async fn update(
     Ok(updated)
 }
 
-/// Delete frame by id
-pub async fn delete_by_id(db: &DatabaseConnection, id: u64) -> AppResult<()> {
-    FrameEntity::delete_by_id(id).exec(db).await?;
+/// Delete a frame by key
+pub async fn delete_by_key(db: &DatabaseConnection, event_id: u64, frame_id: u32) -> AppResult<()> {
+    FrameEntity::delete_by_id((event_id, frame_id))
+        .exec(db)
+        .await?;
     Ok(())
 }

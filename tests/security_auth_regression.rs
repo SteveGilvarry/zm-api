@@ -76,7 +76,7 @@ async fn frames_routes_require_auth() {
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(
-        status_of("GET", "/api/v3/frames/1").await,
+        status_of("GET", "/api/v3/frames/1/1").await,
         StatusCode::UNAUTHORIZED
     );
 }

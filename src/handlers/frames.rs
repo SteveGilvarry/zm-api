@@ -51,27 +51,28 @@ pub async fn list_frames(
     Ok(Json(PaginatedFramesResponse::from(result)))
 }
 
-/// Get frame by id
+/// Get a frame by event and frame number
 #[utoipa::path(
     get,
-    path = "/api/v3/frames/{id}",
+    path = "/api/v3/frames/{event_id}/{frame_id}",
     params(
-        ("id" = u64, Path, description = "Frame ID")
+        ("event_id" = u64, Path, description = "Event ID"),
+        ("frame_id" = u32, Path, description = "Frame number within the event")
     ),
     responses(
         (status = 200, description = "Frame detail", body = FrameResponse)
     ),
     tag = "Frames",
-    summary = "Get a frame by id.",
+    summary = "Get a frame by event id and frame number.",
     description = "- Requires a valid JWT; responds 404 if not found.",
     security(("jwt" = []))
 )]
 pub async fn get_frame(
     State(state): State<AppState>,
-    Path(id): Path<u64>,
+    Path((event_id, frame_id)): Path<(u64, u32)>,
     scope: MonitorScope,
 ) -> AppResult<Json<FrameResponse>> {
-    let frame = service::frames::get_by_id(&state, id, &scope).await?;
+    let frame = service::frames::get(&state, event_id, frame_id, &scope).await?;
     Ok(Json(frame))
 }
 
@@ -97,12 +98,13 @@ pub async fn create_frame(
     Ok((StatusCode::CREATED, Json(frame)))
 }
 
-/// Update frame by id
+/// Update a frame by event and frame number
 #[utoipa::path(
     patch,
-    path = "/api/v3/frames/{id}",
+    path = "/api/v3/frames/{event_id}/{frame_id}",
     params(
-        ("id" = u64, Path, description = "Frame ID")
+        ("event_id" = u64, Path, description = "Event ID"),
+        ("frame_id" = u32, Path, description = "Frame number within the event")
     ),
     request_body = UpdateFrameRequest,
     responses(
@@ -115,34 +117,35 @@ pub async fn create_frame(
 )]
 pub async fn update_frame(
     State(state): State<AppState>,
-    Path(id): Path<u64>,
+    Path((event_id, frame_id)): Path<(u64, u32)>,
     scope: MonitorScope,
     Json(req): Json<UpdateFrameRequest>,
 ) -> AppResult<Json<FrameResponse>> {
-    let frame = service::frames::update(&state, id, req, &scope).await?;
+    let frame = service::frames::update(&state, event_id, frame_id, req, &scope).await?;
     Ok(Json(frame))
 }
 
-/// Delete frame by id
+/// Delete a frame by event and frame number
 #[utoipa::path(
     delete,
-    path = "/api/v3/frames/{id}",
+    path = "/api/v3/frames/{event_id}/{frame_id}",
     params(
-        ("id" = u64, Path, description = "Frame ID")
+        ("event_id" = u64, Path, description = "Event ID"),
+        ("frame_id" = u32, Path, description = "Frame number within the event")
     ),
     responses(
         (status = 204, description = "Deleted frame")
     ),
     tag = "Frames",
-    summary = "Delete a frame by id.",
+    summary = "Delete a frame by event id and frame number.",
     description = "- Responds 204 on success, 404 if not found.\n- Requires a valid JWT.",
     security(("jwt" = []))
 )]
 pub async fn delete_frame(
     State(state): State<AppState>,
-    Path(id): Path<u64>,
+    Path((event_id, frame_id)): Path<(u64, u32)>,
     scope: MonitorScope,
 ) -> AppResult<StatusCode> {
-    service::frames::delete(&state, id, &scope).await?;
+    service::frames::delete(&state, event_id, frame_id, &scope).await?;
     Ok(StatusCode::NO_CONTENT)
 }

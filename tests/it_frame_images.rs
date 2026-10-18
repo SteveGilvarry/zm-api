@@ -1,5 +1,4 @@
-//! `GET /api/v3/events/{id}/frames/{fid}/image` and `GET /api/v3/frames/{id}/image`
-//! (GH #26).
+//! `GET /api/v3/events/{id}/frames/{fid}/image` (GH #26).
 //!
 //! Requires the test database — run with:
 //!   APP_PROFILE=test-db cargo nextest run --test it_frame_images --run-ignored all
@@ -11,7 +10,7 @@ use common::fixtures::{insert_monitor, insert_storage, unique_name, RowGuard};
 use common::harness::{superuser_token, TestApp};
 use rust_decimal::Decimal;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
-use zm_api::entity::sea_orm_active_enums::{FrameType, Scheme};
+use zm_api::entity::sea_orm_active_enums::Scheme;
 
 fn guard_event(id: u64) -> RowGuard {
     RowGuard::new(format!("Events#{id}"), move |db| async move {
@@ -126,32 +125,17 @@ async fn saved_jpegs_are_served_by_number_name_and_frame_row() {
         );
     }
 
-    // By Frames row id, with the token in the query string like other media.
-    let row = zm_api::entity::frames::ActiveModel {
-        event_id: Set(f.event_id),
-        frame_id: Set(3),
-        r#type: Set(FrameType::Normal),
-        time_stamp: Set(chrono::Utc::now()),
-        delta: Set(Decimal::new(30, 2)),
-        score: Set(0),
-        ..Default::default()
-    }
-    .insert(&f.app.db)
-    .await
-    .expect("frame row");
+    // The token in the query string, like other media.
     let resp = f
         .app
-        .request(
-            Method::GET,
-            &format!("/api/v3/frames/{}/image?token={}", row.id, f.token),
-        )
+        .request(Method::GET, &format!("{base}/3/image?token={}", f.token))
         .send()
         .await;
     assert_eq!(resp.status(), StatusCode::OK, "{}", resp.text());
     assert_eq!(resp.text(), "frame-three");
     assert_eq!(
         f.app
-            .request(Method::GET, &format!("/api/v3/frames/{}/image", row.id))
+            .request(Method::GET, &format!("{base}/3/image"))
             .send()
             .await
             .status(),

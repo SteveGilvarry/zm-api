@@ -583,9 +583,9 @@ async fn test_api_frames_list_get() {
     let frame = create_frame_db(&db, event.id)
         .await
         .expect("Failed to create frame");
-    let frame_id = frame.id;
-    let _g_frame = RowGuard::new(format!("Frames#{frame_id}"), move |db| async move {
-        let _ = frames::Entity::delete_by_id(frame_id).exec(&db).await;
+    let key = (frame.event_id, frame.frame_id);
+    let _g_frame = RowGuard::new(format!("Frames#{key:?}"), move |db| async move {
+        let _ = frames::Entity::delete_by_id(key).exec(&db).await;
     });
     let app = build_app(db);
 
@@ -605,11 +605,11 @@ async fn test_api_frames_list_get() {
         .await
         .unwrap();
     let body: PaginatedFramesResponse = serde_json::from_slice(&bytes).unwrap();
-    assert!(body.items.iter().any(|f| f.id == frame.id));
+    assert!(body.items.iter().any(|f| (f.event_id, f.frame_id) == key));
 
     let response = app
         .oneshot(
-            Request::get(&format!("/api/v3/frames/{}", frame.id))
+            Request::get(&format!("/api/v3/frames/{}/{}", key.0, key.1))
                 .header(header::AUTHORIZATION, auth_header())
                 .body(Body::empty())
                 .unwrap(),
@@ -622,7 +622,8 @@ async fn test_api_frames_list_get() {
         .await
         .unwrap();
     let body: FrameResponse = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(body.id, frame.id);
+    assert_eq!((body.event_id, body.frame_id), key);
+    assert_eq!(body.audio_level, 0, "AudioLevel defaults to 0");
 }
 
 #[tokio::test]

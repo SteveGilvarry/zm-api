@@ -7,10 +7,13 @@ use crate::server::state::AppState;
 use crate::service::monitor_acl::MonitorScope;
 use crate::util::authz::Level;
 
-fn frame_not_found(id: u64) -> AppError {
+fn frame_not_found(event_id: u64, frame_id: u32) -> AppError {
     AppError::NotFoundError(crate::error::Resource {
         resource_type: crate::error::ResourceType::File,
-        details: vec![("id".to_string(), id.to_string())],
+        details: vec![
+            ("event_id".to_string(), event_id.to_string()),
+            ("frame_id".to_string(), frame_id.to_string()),
+        ],
     })
 }
 
@@ -22,18 +25,18 @@ async fn ensure_event_monitor_visible(
     event_id: u64,
     required: Level,
     scope: &MonitorScope,
-    frame_id: u64,
+    frame_id: u32,
 ) -> AppResult<()> {
     if !scope.is_restricted() {
         return Ok(());
     }
     let event = repo::events::find_by_id(state, event_id)
         .await?
-        .ok_or_else(|| frame_not_found(frame_id))?;
+        .ok_or_else(|| frame_not_found(event_id, frame_id))?;
     if scope.allows(event.monitor_id, required) {
         Ok(())
     } else {
-        Err(frame_not_found(frame_id))
+        Err(frame_not_found(event_id, frame_id))
     }
 }
 
@@ -63,16 +66,17 @@ pub async fn list_paginated(
     Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
-/// Get frame by id
-pub async fn get_by_id(
+/// Get a frame by event and frame number
+pub async fn get(
     state: &AppState,
-    id: u64,
+    event_id: u64,
+    frame_id: u32,
     scope: &MonitorScope,
 ) -> AppResult<FrameResponse> {
-    let frame = repo::frames::find_by_id(state.db(), id)
+    let frame = repo::frames::find_by_key(state.db(), event_id, frame_id)
         .await?
-        .ok_or_else(|| frame_not_found(id))?;
-    ensure_event_monitor_visible(state, frame.event_id, Level::View, scope, id).await?;
+        .ok_or_else(|| frame_not_found(event_id, frame_id))?;
+    ensure_event_monitor_visible(state, event_id, Level::View, scope, frame_id).await?;
     Ok(FrameResponse::from(&frame))
 }
 
@@ -82,31 +86,37 @@ pub async fn create(
     req: CreateFrameRequest,
     scope: &MonitorScope,
 ) -> AppResult<FrameResponse> {
-    ensure_event_monitor_visible(state, req.event_id, Level::Edit, scope, 0).await?;
+    ensure_event_monitor_visible(state, req.event_id, Level::Edit, scope, req.frame_id).await?;
     let frame = repo::frames::create(state.db(), &req).await?;
     Ok(FrameResponse::from(&frame))
 }
 
-/// Update frame by id
+/// Update a frame by event and frame number
 pub async fn update(
     state: &AppState,
-    id: u64,
+    event_id: u64,
+    frame_id: u32,
     req: UpdateFrameRequest,
     scope: &MonitorScope,
 ) -> AppResult<FrameResponse> {
-    let frame = repo::frames::find_by_id(state.db(), id)
+    repo::frames::find_by_key(state.db(), event_id, frame_id)
         .await?
-        .ok_or_else(|| frame_not_found(id))?;
-    ensure_event_monitor_visible(state, frame.event_id, Level::Edit, scope, id).await?;
-    let frame = repo::frames::update(state.db(), id, &req).await?;
+        .ok_or_else(|| frame_not_found(event_id, frame_id))?;
+    ensure_event_monitor_visible(state, event_id, Level::Edit, scope, frame_id).await?;
+    let frame = repo::frames::update(state.db(), event_id, frame_id, &req).await?;
     Ok(FrameResponse::from(&frame))
 }
 
-/// Delete frame by id
-pub async fn delete(state: &AppState, id: u64, scope: &MonitorScope) -> AppResult<()> {
-    let frame = repo::frames::find_by_id(state.db(), id)
+/// Delete a frame by event and frame number
+pub async fn delete(
+    state: &AppState,
+    event_id: u64,
+    frame_id: u32,
+    scope: &MonitorScope,
+) -> AppResult<()> {
+    repo::frames::find_by_key(state.db(), event_id, frame_id)
         .await?
-        .ok_or_else(|| frame_not_found(id))?;
-    ensure_event_monitor_visible(state, frame.event_id, Level::Edit, scope, id).await?;
-    repo::frames::delete_by_id(state.db(), id).await
+        .ok_or_else(|| frame_not_found(event_id, frame_id))?;
+    ensure_event_monitor_visible(state, event_id, Level::Edit, scope, frame_id).await?;
+    repo::frames::delete_by_key(state.db(), event_id, frame_id).await
 }

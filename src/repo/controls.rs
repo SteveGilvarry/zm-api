@@ -31,7 +31,6 @@ pub async fn create(
     let am = ActiveModel {
         id: Default::default(),
         name: Set(req.name.clone()),
-        r#type: Set(req.r#type.clone()),
         protocol: Set(req.protocol.clone()),
         can_wake: Set(req.can_wake.unwrap_or(0)),
         can_sleep: Set(req.can_sleep.unwrap_or(0)),
@@ -153,9 +152,6 @@ pub async fn update(
 
     if let Some(v) = &req.name {
         am.name = Set(v.clone());
-    }
-    if let Some(v) = &req.r#type {
-        am.r#type = Set(v.clone());
     }
     if let Some(v) = &req.protocol {
         am.protocol = Set(Some(v.clone()));

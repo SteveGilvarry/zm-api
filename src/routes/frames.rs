@@ -12,9 +12,15 @@ pub fn add_frames_routes(router: Router<AppState>) -> Router<AppState> {
         Router::new()
             .route("/", get(handlers::frames::list_frames))
             .route("/", post(handlers::frames::create_frame))
-            .route("/{id}", get(handlers::frames::get_frame))
-            .route("/{id}", patch(handlers::frames::update_frame))
-            .route("/{id}", delete(handlers::frames::delete_frame))
+            .route("/{event_id}/{frame_id}", get(handlers::frames::get_frame))
+            .route(
+                "/{event_id}/{frame_id}",
+                patch(handlers::frames::update_frame),
+            )
+            .route(
+                "/{event_id}/{frame_id}",
+                delete(handlers::frames::delete_frame),
+            )
             .layer(from_fn_with_state(state, auth_middleware)),
     )
 }
