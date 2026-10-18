@@ -20,6 +20,7 @@ pub mod manufacturers;
 pub mod media_links;
 pub mod models;
 pub mod monitor;
+pub mod monitor_actions;
 pub mod monitor_ondemand;
 pub mod monitor_presets;
 pub mod monitor_status;

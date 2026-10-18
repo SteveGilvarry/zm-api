@@ -35,6 +35,7 @@ pub mod logs;
 pub mod manufacturers;
 pub mod menu_items;
 pub mod models;
+pub mod monitor_actions;
 pub mod monitor_pipeline;
 pub mod monitor_presets;
 pub mod monitor_status;

@@ -10,6 +10,17 @@ recognisable path forward.
 
 ### Added
 
+- **Monitor actions** (#179): `GET/POST /api/v3/monitors/{id}/actions`,
+  `GET/PATCH/DELETE /api/v3/monitors/{id}/actions/{action_id}` and
+  `GET /api/v3/monitors/{id}/actions/targets` cover ZoneMinder 1.39.30's
+  MonitorActions, the lights and sounds one monitor's events trigger on
+  another's device. An action type the target's control can't perform, or an
+  audio file outside its range, is a `400`. A change restarts the monitor's
+  daemons, since zmc reads the list at start. `POST
+  .../actions/{action_id}/run` runs an enabled `Manual` action. It needs
+  Control view on the monitor and the target, and builds the command from the
+  stored row.
+
 - **Config options say where their value comes from** (#183): each
   `/configs` entry carries `requires` (the option's dependency, as
   ZoneMinder stores it), `source` (`db` or `file`) and `source_file`. When

@@ -7726,6 +7726,429 @@
         ]
       }
     },
+    "/api/v3/monitors/{id}/actions": {
+      "get": {
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "List a monitor's actions",
+        "operationId": "listMonitorActions",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The monitor's actions, in sequence order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MonitorActionResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "Add a monitor action",
+        "description": "A type the target's control can't perform is a 400. zmc reads the list at\nstart, so the monitor's daemons restart.",
+        "operationId": "createMonitorAction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMonitorActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitorActionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The target can't perform it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/monitors/{id}/actions/targets": {
+      "get": {
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "Monitors an action can drive",
+        "description": "Each controllable monitor whose control can do at least one action type,\nwith those types and its audio file range (ZoneMinder's\n`MonitorAction::targetCandidates`).",
+        "operationId": "listMonitorActionTargets",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Action targets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ActionTargetResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/monitors/{id}/actions/{action_id}": {
+      "get": {
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "Get one monitor action",
+        "operationId": "getMonitorAction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "action_id",
+            "in": "path",
+            "description": "Action ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Monitor action",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitorActionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "Delete a monitor action",
+        "operationId": "deleteMonitorAction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "action_id",
+            "in": "path",
+            "description": "Action ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "Change a monitor action",
+        "operationId": "updateMonitorAction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "action_id",
+            "in": "path",
+            "description": "Action ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMonitorActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitorActionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The target can't perform it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/monitors/{id}/actions/{action_id}/run": {
+      "post": {
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "Run a Manual action",
+        "description": "Sends the stored action's command to the target's control. Needs Control\nview on the monitor and on the target; the command comes from the row,\nnot the request.",
+        "operationId": "runMonitorAction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "action_id",
+            "in": "path",
+            "description": "Action ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not an enabled Manual action, or the control can't do it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/monitors/{id}/alarm": {
       "patch": {
         "tags": [
@@ -15982,6 +16405,65 @@
   },
   "components": {
     "schemas": {
+      "ActionTargetResponse": {
+        "type": "object",
+        "description": "A monitor an action can drive, and what it can do (ZoneMinder's\n`MonitorAction::targetCandidates`).",
+        "required": [
+          "id",
+          "name",
+          "device_class",
+          "types"
+        ],
+        "properties": {
+          "device_class": {
+            "type": "string",
+            "description": "`Camera` or `Speaker`."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_audio_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_audio_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActionType"
+            },
+            "description": "The action types its control can perform."
+          }
+        }
+      },
+      "ActionType": {
+        "type": "string",
+        "description": "What the action does to the target monitor's device.",
+        "enum": [
+          "LightOn",
+          "LightOff",
+          "IndicatorLightOn",
+          "IndicatorLightOff",
+          "AudioPlay",
+          "AudioStop"
+        ]
+      },
       "AiDatasetResponse": {
         "type": "object",
         "required": [
@@ -19244,6 +19726,65 @@
           },
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "CreateMonitorActionRequest": {
+        "type": "object",
+        "required": [
+          "action_type",
+          "target_monitor_id"
+        ],
+        "properties": {
+          "action_type": {
+            "$ref": "#/components/schemas/ActionType"
+          },
+          "audio_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The sound to play, for `AudioPlay`; within the target control's\n`min_audio_file..=max_audio_file`.",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Defaults to true."
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sequence": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "target_monitor_id": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The monitor whose device is driven; often not this one.",
+            "minimum": 0
+          },
+          "trigger_on": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TriggerOn",
+                "description": "Defaults to `EventStart`, as in ZoneMinder."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -23771,6 +24312,74 @@
           },
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "MonitorActionResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "monitor_id",
+          "target_monitor_id",
+          "label",
+          "enabled",
+          "sequence"
+        ],
+        "properties": {
+          "action_type": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ActionType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "audio_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "label": {
+            "type": "string"
+          },
+          "monitor_id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "target_monitor_id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "trigger_on": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TriggerOn",
+                "description": "`null` for a value this build doesn't know (a newer ZoneMinder)."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -28721,6 +29330,17 @@
           "refresh"
         ]
       },
+      "TriggerOn": {
+        "type": "string",
+        "description": "When an action fires. zmc fires all but `Manual`, which a client runs\nwith `POST /monitors/{id}/actions/{action_id}/run`.",
+        "enum": [
+          "EventStart",
+          "EventEnd",
+          "Alarm",
+          "AlarmEnd",
+          "Manual"
+        ]
+      },
       "TriggerX10Response": {
         "type": "object",
         "required": [
@@ -30143,6 +30763,68 @@
             "type": [
               "string",
               "null"
+            ]
+          }
+        }
+      },
+      "UpdateMonitorActionRequest": {
+        "type": "object",
+        "properties": {
+          "action_type": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ActionType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "audio_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "`null` clears it; omit to leave it unchanged.",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sequence": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "target_monitor_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "trigger_on": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TriggerOn"
+              },
+              {
+                "type": "null"
+              }
             ]
           }
         }

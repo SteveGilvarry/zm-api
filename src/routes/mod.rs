@@ -42,6 +42,7 @@ pub mod live; // Live streaming (unified)
 pub mod logs; // Logs
 pub mod manufacturers; // Manufacturers
 pub mod models; // Models
+pub mod monitor_actions; // MonitorActions (#179)
 pub mod monitor_presets; // Monitor Presets
 pub mod monitor_status; // Monitor Status
 pub mod monitors;
@@ -550,6 +551,23 @@ pub fn create_router_app(state: AppState) -> Router {
         settings_tables::add_settings_table_routes(Router::new()),
         Feature::System,
     );
+    // MonitorActions: editing is the monitor's (row-level guarded); running a
+    // Manual action needs only Control view, checked on both monitors inside.
+    let monitor_action_routes = protect(
+        monitor_actions::add_monitor_action_routes(Router::new()).route_layer(
+            axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::service::monitor_acl::monitor_path_guard,
+            ),
+        ),
+        Feature::Monitors,
+    );
+    let monitor_action_run_route = authz::protect_at(
+        monitor_actions::add_monitor_action_run_route(Router::new()),
+        Feature::Control,
+        authz::Level::View,
+        state.clone(),
+    );
     let user_preference_routes = protect(
         user_preferences::add_user_preference_routes(Router::new()),
         Feature::System,
@@ -598,6 +616,8 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(role_routes)
         .merge(event_audit_routes)
         .merge(settings_table_routes)
+        .merge(monitor_action_routes)
+        .merge(monitor_action_run_route)
         .merge(settings_tables::add_navbar_route(Router::new()))
         .merge(group_routes)
         .merge(server_info_routes)
