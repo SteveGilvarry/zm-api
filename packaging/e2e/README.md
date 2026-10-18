@@ -51,7 +51,7 @@ master package gets the full flow against it. The others get the package flow.
 | `zoneminder` | yes | | ZoneMinder master from zmrepo, a synthetic RTSP camera, one monitor recording continuously |
 | `layout` | | yes | The web account, an empty database and a `zm.conf` with upstream's ownership, no ZoneMinder daemons |
 | `install` | yes | yes | Files, the account drop-in, keys, service up in passive mode, ZoneMinder's processes and sockets untouched |
-| `passive` | yes | yes | Login, monitors, events, a snapshot and live HLS off the stream socket, a restart that leaves ZoneMinder's sockets alone |
+| `passive` | yes | yes | Login, monitors, events, a snapshot and live HLS off the stream socket, a restart that leaves ZoneMinder's sockets alone; on Debian, a headless Chromium plays the live WebRTC stream |
 | `takeover` | yes | | A takeover that fails is rolled back; a real one moves `zmc` under zm-api, still recording, files still owned by ZoneMinder's account |
 | `revert` | yes | | `zmdc.pl` supervises again, still recording |
 | `upgrade` | yes | yes | Reinstall keeps keys and mode; an install from the old fixed `zoneminder` account moves to ZoneMinder's |
@@ -61,6 +61,14 @@ master package gets the full flow against it. The others get the package flow.
 The camera is `mediamtx` serving a 20 second H.264 and AAC clip that `ffmpeg`
 loops without re-encoding, so `zmc` has an encoded stream to put on its stream
 socket.
+
+The WebRTC check (`guest/webrtc/play.html`, run by `webrtc_plays` in
+`guest/lib.sh`) is a browser peer: headless Chromium opens the signaling
+WebSocket with the login token, answers zm-api's offer, and must decode frames
+from the stream within 25 seconds. Chromium's own WebRTC stack is the other
+end, so the check does not move when zm-api's `webrtc` crate does. It runs
+where the host image has `chromium` (Debian; Ubuntu's package is a snap stub)
+and leaves `webrtc-chromium.log` in the artifacts.
 
 ## Adding a distro
 
