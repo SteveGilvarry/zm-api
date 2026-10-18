@@ -17786,94 +17786,14 @@
         "type": "object",
         "required": [
           "name",
-          "deleted",
-          "storage_id",
-          "type",
-          "function",
-          "capturing",
-          "decoding_enabled",
-          "decoding",
-          "rtsp2_web_enabled",
-          "rtsp2_web_type",
-          "janus_enabled",
-          "janus_audio_enabled",
-          "restream",
-          "triggers",
-          "event_start_command",
-          "event_end_command",
-          "onvif_url",
-          "onvif_events_path",
-          "onvif_username",
-          "onvif_password",
-          "onvif_options",
-          "onvif_event_listener",
-          "use_amcrest_api",
-          "device",
-          "channel",
-          "format",
-          "port",
-          "sub_path",
-          "width",
-          "height",
-          "colours",
-          "palette",
-          "orientation",
-          "deinterlacing",
-          "save_jpe_gs",
-          "video_writer",
-          "record_audio",
-          "recording_source",
-          "brightness",
-          "contrast",
-          "hue",
-          "colour",
-          "event_prefix",
-          "label_x",
-          "label_y",
-          "label_size",
-          "image_buffer_count",
-          "max_image_buffer_count",
-          "warmup_count",
-          "pre_event_count",
-          "post_event_count",
-          "stream_replay_buffer",
-          "alarm_frame_count",
-          "section_length",
-          "section_length_warn",
-          "event_close_mode",
-          "min_section_length",
-          "motion_frame_skip",
-          "analysis_update_delay",
-          "fps_report_interval",
-          "ref_blend_perc",
-          "alarm_ref_blend_perc",
-          "controllable",
-          "track_motion",
-          "return_location",
-          "modect_during_ptz",
-          "default_rate",
-          "default_scale",
-          "default_codec",
-          "signal_check_points",
-          "signal_check_colour",
-          "web_colour",
-          "exif",
-          "zone_count",
-          "rtsp_server",
-          "rtsp_stream_name",
-          "soap_wsa_compl",
-          "importance",
-          "mqtt_enabled",
-          "mqtt_subscriptions",
-          "startup_delay",
-          "analysing",
-          "analysis_source",
-          "analysis_image",
-          "recording"
+          "type"
         ],
         "properties": {
           "alarm_frame_count": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -17885,12 +17805,22 @@
             "format": "double"
           },
           "alarm_ref_blend_perc": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "analysing": {
-            "$ref": "#/components/schemas/Analysing"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Analysing"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "analysis_fps_limit": {
             "type": [
@@ -17900,13 +17830,39 @@
             "format": "double"
           },
           "analysis_image": {
-            "$ref": "#/components/schemas/AnalysisImage"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisImage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "analysis_image_opacity": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Alpha applied when compositing the analysis image over the frame.",
+            "minimum": 0
           },
           "analysis_source": {
-            "$ref": "#/components/schemas/AnalysisSource"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "analysis_update_delay": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -17945,28 +17901,50 @@
             "format": "double"
           },
           "brightness": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "capturing": {
-            "$ref": "#/components/schemas/Capturing"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Capturing"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "channel": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "colour": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "colours": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "contrast": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "control_address": {
@@ -17990,7 +17968,10 @@
             "minimum": 0
           },
           "controllable": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -18013,34 +17994,73 @@
             ]
           },
           "decoding": {
-            "$ref": "#/components/schemas/Decoding"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Decoding"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "decoding_enabled": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "default_codec": {
-            "$ref": "#/components/schemas/DefaultCodec"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DefaultCodec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "default_player": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Player the web UI uses for this monitor by default."
           },
           "default_rate": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "default_scale": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "deinterlacing": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "deleted": {
-            "type": "boolean"
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "device": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "device_class": {
             "oneOf": [
@@ -18068,6 +18088,20 @@
               "null"
             ]
           },
+          "encoder_hw_accel_device": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Hardware encoder device (`EncoderHWAccelDevice`)."
+          },
+          "encoder_hw_accel_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Hardware encoder (`EncoderHWAccelName`)."
+          },
           "encoder_parameters": {
             "type": [
               "string",
@@ -18075,37 +18109,80 @@
             ]
           },
           "event_close_mode": {
-            "$ref": "#/components/schemas/EventCloseMode"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EventCloseMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "event_end_command": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "event_prefix": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "event_start_command": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "exif": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "format": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "fps_report_interval": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "function": {
-            "$ref": "#/components/schemas/Function"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Function"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "go2rtc_enabled": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Serve the monitor through go2rtc."
           },
           "height": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -18116,23 +18193,42 @@
             ]
           },
           "hue": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "image_buffer_count": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "importance": {
-            "$ref": "#/components/schemas/Importance"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Importance"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "janus_audio_enabled": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "janus_enabled": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "janus_profile_override": {
@@ -18155,17 +18251,26 @@
             ]
           },
           "label_size": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "label_x": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "label_y": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -18205,7 +18310,10 @@
             "format": "double"
           },
           "max_image_buffer_count": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -18216,12 +18324,18 @@
             ]
           },
           "min_section_length": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "modect_during_ptz": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -18234,16 +18348,25 @@
             "minimum": 0
           },
           "motion_frame_skip": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "mqtt_enabled": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "mqtt_subscriptions": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "name": {
             "type": "string"
@@ -18254,6 +18377,36 @@
               "null"
             ]
           },
+          "object_detection": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Detector to use, or `none` to disable object detection."
+          },
+          "object_detection_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name of the AI model used for object detection."
+          },
+          "object_detection_nms_threshold": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Non-maximum-suppression threshold (0.0-1.0)."
+          },
+          "object_detection_object_threshold": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Object confidence threshold (0.0-1.0)."
+          },
           "onvif_alarm_text": {
             "type": [
               "string",
@@ -18261,23 +18414,41 @@
             ]
           },
           "onvif_event_listener": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "onvif_events_path": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "onvif_options": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "onvif_password": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "onvif_url": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "onvif_username": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "options": {
             "type": [
@@ -18286,7 +18457,14 @@
             ]
           },
           "orientation": {
-            "$ref": "#/components/schemas/Orientation"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Orientation"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "output_codec": {
             "type": [
@@ -18307,7 +18485,10 @@
             ]
           },
           "palette": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -18324,15 +18505,24 @@
             ]
           },
           "port": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "post_event_count": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "pre_event_count": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -18343,18 +18533,38 @@
             ]
           },
           "record_audio": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "description": "Boolean. The old `min = -1` accepted a value the column has no meaning for."
           },
           "recording": {
-            "$ref": "#/components/schemas/Recording"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Recording"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "recording_source": {
-            "$ref": "#/components/schemas/RecordingSource"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RecordingSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "ref_blend_perc": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -18367,7 +18577,10 @@
             "minimum": 0
           },
           "restream": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "return_delay": {
@@ -18379,15 +18592,28 @@
             "minimum": 0
           },
           "return_location": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "rtsp2_web_enabled": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "rtsp2_web_type": {
-            "$ref": "#/components/schemas/Rtsp2WebType"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Rtsp2WebType"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "rtsp_describe": {
             "type": [
@@ -18399,11 +18625,17 @@
             "minimum": 0
           },
           "rtsp_server": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "rtsp_stream_name": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "rtsp_user": {
             "type": [
@@ -18413,7 +18645,10 @@
             "format": "int32"
           },
           "save_jpe_gs": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "description": "`Monitors.SaveJPEGs` is a two-bit mask, not a flag: bit 0 saves\ncaptured frames and bit 1 saves analysis images, so 3 means both — and\n3 is the column default, which the old `max = 1` rejected (GH #39)."
           },
@@ -18424,12 +18659,18 @@
             ]
           },
           "section_length": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "section_length_warn": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "sequence": {
@@ -18449,33 +18690,65 @@
             "minimum": 0
           },
           "signal_check_colour": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "signal_check_points": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "soap_wsa_compl": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "startup_delay": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "storage_id": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
+          "stream_channel": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StreamChannel",
+                "description": "Stream source channel."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "stream_replay_buffer": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "sub_path": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "track_delay": {
             "type": [
@@ -18486,18 +18759,27 @@
             "minimum": 0
           },
           "track_motion": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "triggers": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "type": {
             "$ref": "#/components/schemas/MonitorType"
           },
           "use_amcrest_api": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "user": {
@@ -18523,25 +18805,59 @@
             "minimum": 0
           },
           "video_writer": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "description": "0 disabled, 1 encode, 2 camera passthrough."
           },
+          "wall_clock_timestamps": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Stamp events with wall-clock rather than stream timestamps."
+          },
           "warmup_count": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "web_colour": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "what_display": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WhatDisplay",
+                "description": "What the live view renders: video, audio visualization, or both."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "width": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "zone_count": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           }
         }
@@ -25901,6 +26217,14 @@
           }
         }
       },
+      "StreamChannel": {
+        "type": "string",
+        "enum": [
+          "Restream",
+          "CameraDirectPrimary",
+          "CameraDirectSecondary"
+        ]
+      },
       "StreamEndpoints": {
         "type": "object",
         "required": [
@@ -27972,6 +28296,13 @@
               }
             ]
           },
+          "default_player": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Player the web UI uses for this monitor by default."
+          },
           "default_rate": {
             "type": [
               "integer",
@@ -28030,6 +28361,20 @@
               "string",
               "null"
             ]
+          },
+          "encoder_hw_accel_device": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Hardware encoder device (`EncoderHWAccelDevice`)."
+          },
+          "encoder_hw_accel_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Hardware encoder (`EncoderHWAccelName`)."
           },
           "encoder_parameters": {
             "type": [
@@ -28098,6 +28443,14 @@
                 "type": "null"
               }
             ]
+          },
+          "go2rtc_enabled": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Serve the monitor through go2rtc."
           },
           "height": {
             "type": [
@@ -28649,6 +29002,17 @@
             "format": "int32",
             "minimum": 0
           },
+          "stream_channel": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StreamChannel",
+                "description": "Stream source channel."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "stream_replay_buffer": {
             "type": [
               "integer",
@@ -28732,6 +29096,14 @@
             "format": "int32",
             "description": "0 disabled, 1 encode, 2 camera passthrough."
           },
+          "wall_clock_timestamps": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Stamp events with wall-clock rather than stream timestamps."
+          },
           "warmup_count": {
             "type": [
               "integer",
@@ -28744,6 +29116,17 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "what_display": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WhatDisplay",
+                "description": "What the live view renders: video, audio visualization, or both."
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "width": {
@@ -30062,6 +30445,14 @@
             "description": "Reader was already hot at connect (no reader spin-up on the offer path)."
           }
         }
+      },
+      "WhatDisplay": {
+        "type": "string",
+        "enum": [
+          "OnlyVideo",
+          "OnlyAudioVisualization",
+          "VideoAudioVisualization"
+        ]
       },
       "WorkerStatus": {
         "type": "object",

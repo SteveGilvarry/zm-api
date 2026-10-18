@@ -213,6 +213,16 @@ recognisable path forward.
   change answered 200 and did nothing, edits waited for something else to
   restart `zmc`, and a delete left `zmc` running. An edit in takeover mode
   restarts the monitor's daemons too.
+- **A monitor can be created with only the fields that matter** (#159).
+  `CreateMonitorRequest` required 84 of its fields with no server-side
+  defaults; now only `name` and `type` are required, and an omitted field
+  takes ZoneMinder's column default (`PreEventCount` 10, `SaveJPEGs` 3, and
+  so on), so a monitor created through v3 starts out the way one created in
+  ZoneMinder does. Columns the response already returned but no request
+  could set are now settable on create and update: `go2rtc_enabled`,
+  `wall_clock_timestamps`, `default_player`, `encoder_hw_accel_name`,
+  `encoder_hw_accel_device`, `stream_channel`, `what_display`, and on create
+  the object-detection fields.
 - **Daemon and system status work in passive mode** (#156).
   `/api/v3/daemons*` and `/api/v3/system/status` answered 503; they now read
   what `zmdc.pl` supervises from its `zmdc.sock`, with this host's load,
