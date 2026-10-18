@@ -1936,6 +1936,215 @@
         ]
       }
     },
+    "/api/v3/encoder-templates": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "List encoder templates",
+        "operationId": "list_encoder_templates",
+        "responses": {
+          "200": {
+            "description": "Encoder templates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EncoderTemplateResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Create a encoder template",
+        "operationId": "create_encoder_template",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEncoderTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncoderTemplateResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/encoder-templates/{id}": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Get one encoder template",
+        "operationId": "get_encoder_template",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Encoder template ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Encoder template",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncoderTemplateResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Update a encoder template",
+        "operationId": "update_encoder_template",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Encoder template ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEncoderTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncoderTemplateResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Delete a encoder template",
+        "operationId": "delete_encoder_template",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Encoder template ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/event-data": {
       "get": {
         "tags": [
@@ -6159,6 +6368,215 @@
           },
           "401": {
             "description": "Unauthorized or current password incorrect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/menu-items": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "List menu items",
+        "operationId": "list_menu_items",
+        "responses": {
+          "200": {
+            "description": "Menu items",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MenuItemResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Create a menu item",
+        "operationId": "create_menu_item",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMenuItemRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MenuItemResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/menu-items/{id}": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Get one menu item",
+        "operationId": "get_menu_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Menu item ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Menu item",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MenuItemResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Update a menu item",
+        "operationId": "update_menu_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Menu item ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMenuItemRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MenuItemResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Delete a menu item",
+        "operationId": "delete_menu_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Menu item ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -13479,6 +13897,36 @@
         ]
       }
     },
+    "/api/v3/system/menu": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "The navbar: enabled menu items in order",
+        "description": "- Needs a login but no feature permission: every user's navbar renders it.",
+        "operationId": "get_navbar",
+        "responses": {
+          "200": {
+            "description": "Enabled menu items, in order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MenuItemResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/system/restart": {
       "post": {
         "tags": [
@@ -17417,6 +17865,33 @@
           }
         }
       },
+      "CreateEncoderTemplateRequest": {
+        "type": "object",
+        "required": [
+          "encoder",
+          "name",
+          "params"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "encoder": {
+            "type": "string",
+            "description": "The encoder the parameters are for, e.g. `libx264`."
+          },
+          "name": {
+            "type": "string"
+          },
+          "params": {
+            "type": "string",
+            "description": "`key=value` lines handed to the encoder."
+          }
+        }
+      },
       "CreateEventDataRequest": {
         "type": "object",
         "required": [
@@ -17835,6 +18310,55 @@
             "format": "int64",
             "description": "Lifetime in seconds, 60 to 31536000 (365 days). Default 2592000\n(30 days).",
             "minimum": 0
+          }
+        }
+      },
+      "CreateMenuItemRequest": {
+        "type": "object",
+        "required": [
+          "menu_key"
+        ],
+        "properties": {
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "menu_key": {
+            "type": "string",
+            "description": "The navbar entry this row configures, e.g. `Console`."
+          },
+          "sort_order": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -20239,6 +20763,37 @@
           "X10"
         ]
       },
+      "EncoderTemplateResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "encoder",
+          "name",
+          "params"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "encoder": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "params": {
+            "type": "string"
+          }
+        }
+      },
       "EventCloseMode": {
         "type": "string",
         "enum": [
@@ -22182,6 +22737,56 @@
           "token": {
             "type": "string",
             "description": "The signature alone (`st`), for building other URLs of the same\nmonitor or event."
+          }
+        }
+      },
+      "MenuItemResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "menu_key",
+          "enabled",
+          "sort_order",
+          "icon_type"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon_type": {
+            "type": "string",
+            "description": "`material`, `fontawesome`, `image` or `none`."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Label to show instead of the entry's default one."
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "menu_key": {
+            "type": "string"
+          },
+          "sort_order": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -28006,6 +28611,36 @@
           }
         }
       },
+      "UpdateEncoderTemplateRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`null` clears it; omit to leave it unchanged."
+          },
+          "encoder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "params": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "UpdateEventDataRequest": {
         "type": "object",
         "properties": {
@@ -28289,6 +28924,49 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "UpdateMenuItemRequest": {
+        "type": "object",
+        "description": "Partial update. For `label`, `icon` and `link`, `null` clears the value.",
+        "properties": {
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sort_order": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
           }
         }
       },

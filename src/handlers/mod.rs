@@ -51,4 +51,5 @@ pub mod monitor_pipeline;
 pub mod roles;
 pub mod search;
 pub mod server;
+pub mod settings_tables;
 pub mod synopsis;

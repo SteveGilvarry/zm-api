@@ -55,6 +55,7 @@ pub mod server;
 pub mod server_stats; // Server Stats
 pub mod servers; // Server info list
 pub mod sessions; // Sessions
+pub mod settings_tables; // EncoderTemplates, Menu_Items
 pub mod snapshots; // Snapshots
 pub mod snapshots_events; // Snapshots Events
 pub mod states; // States
@@ -540,6 +541,10 @@ pub fn create_router_app(state: AppState) -> Router {
     };
     let user_routes = protect(users::add_user_routes(Router::new()), Feature::System);
     let role_routes = protect(roles::add_role_routes(Router::new()), Feature::System);
+    let settings_table_routes = protect(
+        settings_tables::add_settings_table_routes(Router::new()),
+        Feature::System,
+    );
     let user_preference_routes = protect(
         user_preferences::add_user_preference_routes(Router::new()),
         Feature::System,
@@ -586,6 +591,8 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(filter_routes)
         .merge(user_routes)
         .merge(role_routes)
+        .merge(settings_table_routes)
+        .merge(settings_tables::add_navbar_route(Router::new()))
         .merge(group_routes)
         .merge(server_info_routes)
         .merge(log_routes)

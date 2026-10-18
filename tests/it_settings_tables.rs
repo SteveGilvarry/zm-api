@@ -1,0 +1,121 @@
+//! EncoderTemplates and Menu_Items (#144).
+//!
+//! Requires the test database:
+//!   APP_PROFILE=test-db cargo nextest run --test it_settings_tables --run-ignored all
+
+mod common;
+
+use axum::http::StatusCode;
+use common::fixtures::{unique_name, RowGuard};
+use common::harness::{superuser_token, token_with, TestApp};
+use serde_json::json;
+use zm_api::dto::response::settings_tables::{EncoderTemplateResponse, MenuItemResponse};
+use zm_api::util::authz::UserPermissions;
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn encoder_templates_round_trip_and_the_seeds_are_listed() {
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let list: Vec<EncoderTemplateResponse> =
+        app.get("/api/v3/encoder-templates", &token).await.json();
+    assert!(
+        list.iter().any(|t| t.encoder == "libx264"),
+        "seeded templates listed"
+    );
+
+    let resp = app
+        .post_json(
+            "/api/v3/encoder-templates",
+            &token,
+            &json!({ "encoder": "libx265", "name": unique_name("Tmpl"), "params": "crf=28" }),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::CREATED, "{}", resp.text());
+    let t: EncoderTemplateResponse = resp.json();
+    let id = t.id;
+    let _g = RowGuard::new(format!("EncoderTemplates#{id}"), move |db| async move {
+        use sea_orm::EntityTrait;
+        let _ = zm_api::entity::encoder_templates::Entity::delete_by_id(id)
+            .exec(&db)
+            .await;
+    });
+    let resp = app
+        .put_json(
+            &format!("/api/v3/encoder-templates/{id}"),
+            &token,
+            &json!({ "params": "crf=30" }),
+        )
+        .await;
+    assert_eq!(resp.json::<EncoderTemplateResponse>().params, "crf=30");
+    let del = app
+        .delete(&format!("/api/v3/encoder-templates/{id}"), &token)
+        .await;
+    assert_eq!(del.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn the_navbar_shows_enabled_items_in_order_to_any_user() {
+    let app = TestApp::spawn().await;
+    let admin = superuser_token();
+    let key = unique_name("Nav");
+    let key = &key[key.len().saturating_sub(32)..];
+    let resp = app
+        .post_json(
+            "/api/v3/menu-items",
+            &admin,
+            &json!({ "menu_key": key, "enabled": false, "sort_order": -100, "label": "Hidden" }),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::CREATED, "{}", resp.text());
+    let item: MenuItemResponse = resp.json();
+    let id = item.id;
+    let _g = RowGuard::new(format!("Menu_Items#{id}"), move |db| async move {
+        use sea_orm::EntityTrait;
+        let _ = zm_api::entity::menu_items::Entity::delete_by_id(id)
+            .exec(&db)
+            .await;
+    });
+
+    // A user with no permissions at all still gets the navbar.
+    let nobody = token_with(UserPermissions::default());
+    let nav = app.get("/api/v3/system/menu", &nobody).await;
+    assert_eq!(nav.status(), StatusCode::OK, "{}", nav.text());
+    let nav: Vec<MenuItemResponse> = nav.json();
+    assert!(
+        !nav.iter().any(|m| m.id == id),
+        "disabled items are left out"
+    );
+    assert!(nav.windows(2).all(|w| w[0].sort_order <= w[1].sort_order));
+    // ...but not the admin CRUD.
+    assert_eq!(
+        app.get("/api/v3/menu-items", &nobody).await.status(),
+        StatusCode::FORBIDDEN
+    );
+
+    let resp = app
+        .put_json(
+            &format!("/api/v3/menu-items/{id}"),
+            &admin,
+            &json!({ "enabled": true, "label": null }),
+        )
+        .await;
+    let updated: MenuItemResponse = resp.json();
+    assert!(updated.enabled && updated.label.is_none());
+    let nav: Vec<MenuItemResponse> = app.get("/api/v3/system/menu", &nobody).await.json();
+    assert_eq!(
+        nav.first().map(|m| m.id),
+        Some(id),
+        "sort_order -100 comes first"
+    );
+
+    let bad = app
+        .put_json(
+            &format!("/api/v3/menu-items/{id}"),
+            &admin,
+            &json!({ "icon_type": "emoji" }),
+        )
+        .await;
+    assert!(bad.status().is_client_error());
+}

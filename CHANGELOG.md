@@ -230,6 +230,11 @@ recognisable path forward.
   `alarm`, `alert`), `alarms_disabled` and `analysing` from the monitor's
   shared memory while zmc runs, and `PATCH /api/v3/monitors/{id}/alarm` takes
   `disable_alarms` and `enable_alarms`, ZoneMinder's `zmu -n` and `zmu -c`.
+- **Encoder templates and menu items** (#144). `/api/v3/encoder-templates`
+  and `/api/v3/menu-items` are CRUD over ZoneMinder 1.39's `EncoderTemplates`
+  and `Menu_Items` (System-gated), and `GET /api/v3/system/menu` returns the
+  enabled menu items in order for any logged-in user, so a client can render
+  the navbar the operator configured instead of a hard-coded one.
 - **ZoneMinder 1.39 roles** (#143). `GET/POST /api/v3/roles` and
   `GET/PUT/DELETE /api/v3/roles/{id}` manage `User_Roles`, and users gain
   `role_id`. A user's permissions are now, per feature, the higher of their
