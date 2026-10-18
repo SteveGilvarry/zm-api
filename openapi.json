@@ -1657,10 +1657,10 @@
               "schema": {
                 "oneOf": [
                   {
-                    "type": "null"
+                    "$ref": "#/components/schemas/StartDaemonRequest"
                   },
                   {
-                    "$ref": "#/components/schemas/StartDaemonRequest"
+                    "type": "null"
                   }
                 ]
               }
@@ -16174,10 +16174,10 @@
           "framework": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Framework"
               },
               {
-                "$ref": "#/components/schemas/Framework"
+                "type": "null"
               }
             ]
           },
@@ -17289,11 +17289,11 @@
           "filter": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/FilterQuery",
                 "description": "Structured, SQLi-safe filter AST. When present it is validated and\ntranslated to ZoneMinder's flat `query_json` for storage."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -17911,11 +17911,11 @@
           "device_class": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/DeviceClass",
                 "description": "Whether this monitor is a camera or an IP speaker (1.39.30). Defaults to Camera."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -18165,10 +18165,10 @@
           "output_container": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/OutputContainer"
               },
               {
-                "$ref": "#/components/schemas/OutputContainer"
+                "type": "null"
               }
             ]
           },
@@ -19591,10 +19591,10 @@
           "end_date_time": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DateTimeWrapper"
               },
               {
-                "$ref": "#/components/schemas/DateTimeWrapper"
+                "type": "null"
               }
             ]
           },
@@ -19639,10 +19639,10 @@
           "start_date_time": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DateTimeWrapper"
               },
               {
-                "$ref": "#/components/schemas/DateTimeWrapper"
+                "type": "null"
               }
             ]
           },
@@ -19741,21 +19741,21 @@
           "direction": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/SortDirection",
                 "description": "Sort direction (default: desc)"
+              },
+              {
+                "type": "null"
               }
             ]
           },
           "end_time": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DateTimeWrapper"
               },
               {
-                "$ref": "#/components/schemas/DateTimeWrapper"
+                "type": "null"
               }
             ]
           },
@@ -19804,21 +19804,21 @@
           "sort": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/EventSortField",
                 "description": "Field to sort results by (default: start_time)"
+              },
+              {
+                "type": "null"
               }
             ]
           },
           "start_time": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DateTimeWrapper"
               },
               {
-                "$ref": "#/components/schemas/DateTimeWrapper"
+                "type": "null"
               }
             ]
           },
@@ -19843,11 +19843,11 @@
           "tag_op": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/TagOp",
                 "description": "`in` (default) keeps what `tag_id` matches, `not_in` keeps the rest."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -19933,10 +19933,10 @@
           "end_date_time": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DateTimeWrapper"
               },
               {
-                "$ref": "#/components/schemas/DateTimeWrapper"
+                "type": "null"
               }
             ]
           },
@@ -19967,10 +19967,10 @@
           "latitude": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DecimalWrapper"
               },
               {
-                "$ref": "#/components/schemas/DecimalWrapper"
+                "type": "null"
               }
             ]
           },
@@ -19985,10 +19985,10 @@
           "longitude": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DecimalWrapper"
               },
               {
-                "$ref": "#/components/schemas/DecimalWrapper"
+                "type": "null"
               }
             ]
           },
@@ -20050,10 +20050,10 @@
           "start_date_time": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DateTimeWrapper"
               },
               {
-                "$ref": "#/components/schemas/DateTimeWrapper"
+                "type": "null"
               }
             ]
           },
@@ -20155,10 +20155,10 @@
           "start_date_time": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DateTimeWrapper"
               },
               {
-                "$ref": "#/components/schemas/DateTimeWrapper"
+                "type": "null"
               }
             ]
           }
@@ -20368,10 +20368,10 @@
           "orientation": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Orientation"
               },
               {
-                "$ref": "#/components/schemas/Orientation"
+                "type": "null"
               }
             ]
           },
@@ -20556,11 +20556,11 @@
           "sort": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/FilterSort",
                 "description": "Optional sort column + direction."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -20709,11 +20709,11 @@
           "filter": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/FilterQuery",
                 "description": "The stored `query_json` parsed into the structured AST, when it maps to\nour vocabulary. `None` for legacy/unmodelled filters. Populated by the\nservice layer (the `From<&Model>` conversion leaves it `None`)."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -20989,11 +20989,11 @@
           "webrtc_startup": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/WebRtcStartupView",
                 "description": "Most-recent WebRTC startup profile (connect→offer→first-RTP), when a\nsession has run since boot. Lets you confirm cold-vs-warm empirically."
+              },
+              {
+                "type": "null"
               }
             ]
           }
@@ -21100,11 +21100,11 @@
           "min_level": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/LogLevel",
                 "description": "Filter to this severity **or worse** (`fatal` < `error` < `warning` <\n`info` < `debug`). E.g. `min_level=error` returns errors and fatals.\nPreferred over the raw numeric `level`."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -21149,22 +21149,22 @@
           "sort": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/LogSort",
                 "description": "Sort direction: `asc` or `desc` (default). With the default `sort_by`\nthat is oldest or newest first."
+              },
+              {
+                "type": "null"
               }
             ]
           },
           "sort_by": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/LogSortField",
                 "description": "Column to sort on (default `time`)."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -24775,11 +24775,11 @@
           "position": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/PtzPositionResponse",
                 "description": "Current position (if available)"
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -25918,11 +25918,11 @@
           "stats": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/SystemStatsResponse",
                 "description": "System statistics"
+              },
+              {
+                "type": "null"
               }
             ]
           }
@@ -26205,10 +26205,10 @@
           "framework": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Framework"
               },
               {
-                "$ref": "#/components/schemas/Framework"
+                "type": "null"
               }
             ]
           },
@@ -27059,10 +27059,10 @@
           "type": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/MonitorType"
               },
               {
-                "$ref": "#/components/schemas/MonitorType"
+                "type": "null"
               }
             ]
           }
@@ -27086,10 +27086,10 @@
           "type": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DeviceType"
               },
               {
-                "$ref": "#/components/schemas/DeviceType"
+                "type": "null"
               }
             ]
           }
@@ -27271,11 +27271,11 @@
           "filter": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/FilterQuery",
                 "description": "Structured filter AST; when present it is translated to `query_json`."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -27552,10 +27552,10 @@
           "type": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/MonitorType"
               },
               {
-                "$ref": "#/components/schemas/MonitorType"
+                "type": "null"
               }
             ]
           },
@@ -27598,10 +27598,10 @@
           "analysing": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Analysing"
               },
               {
-                "$ref": "#/components/schemas/Analysing"
+                "type": "null"
               }
             ]
           },
@@ -27615,10 +27615,10 @@
           "analysis_image": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/AnalysisImage"
               },
               {
-                "$ref": "#/components/schemas/AnalysisImage"
+                "type": "null"
               }
             ]
           },
@@ -27634,10 +27634,10 @@
           "analysis_source": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/AnalysisSource"
               },
               {
-                "$ref": "#/components/schemas/AnalysisSource"
+                "type": "null"
               }
             ]
           },
@@ -27690,10 +27690,10 @@
           "capturing": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Capturing"
               },
               {
-                "$ref": "#/components/schemas/Capturing"
+                "type": "null"
               }
             ]
           },
@@ -27776,10 +27776,10 @@
           "decoding": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Decoding"
               },
               {
-                "$ref": "#/components/schemas/Decoding"
+                "type": "null"
               }
             ]
           },
@@ -27794,10 +27794,10 @@
           "default_codec": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DefaultCodec"
               },
               {
-                "$ref": "#/components/schemas/DefaultCodec"
+                "type": "null"
               }
             ]
           },
@@ -27838,10 +27838,10 @@
           "device_class": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DeviceClass"
               },
               {
-                "$ref": "#/components/schemas/DeviceClass"
+                "type": "null"
               }
             ]
           },
@@ -27869,10 +27869,10 @@
           "event_close_mode": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/EventCloseMode"
               },
               {
-                "$ref": "#/components/schemas/EventCloseMode"
+                "type": "null"
               }
             ]
           },
@@ -27921,10 +27921,10 @@
           "function": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Function"
               },
               {
-                "$ref": "#/components/schemas/Function"
+                "type": "null"
               }
             ]
           },
@@ -27960,10 +27960,10 @@
           "importance": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Importance"
               },
               {
-                "$ref": "#/components/schemas/Importance"
+                "type": "null"
               }
             ]
           },
@@ -28212,10 +28212,10 @@
           "orientation": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Orientation"
               },
               {
-                "$ref": "#/components/schemas/Orientation"
+                "type": "null"
               }
             ]
           },
@@ -28230,10 +28230,10 @@
           "output_container": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/OutputContainer"
               },
               {
-                "$ref": "#/components/schemas/OutputContainer"
+                "type": "null"
               }
             ]
           },
@@ -28296,20 +28296,20 @@
           "recording": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Recording"
               },
               {
-                "$ref": "#/components/schemas/Recording"
+                "type": "null"
               }
             ]
           },
           "recording_source": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/RecordingSource"
               },
               {
-                "$ref": "#/components/schemas/RecordingSource"
+                "type": "null"
               }
             ]
           },
@@ -28361,10 +28361,10 @@
           "rtsp2_web_type": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Rtsp2WebType"
               },
               {
-                "$ref": "#/components/schemas/Rtsp2WebType"
+                "type": "null"
               }
             ]
           },
@@ -28517,10 +28517,10 @@
           "type": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/MonitorType"
               },
               {
-                "$ref": "#/components/schemas/MonitorType"
+                "type": "null"
               }
             ]
           },
@@ -29975,11 +29975,11 @@
           "live": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/WorkerStatus",
                 "description": "What the worker last reported over its socket (hello and status\nevents): state, pipeline hash, per-stream health, degraded components.\nAbsent until zm-api has read from the monitor's socket."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -29999,11 +29999,11 @@
           "worker": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/DaemonStatusResponse",
                 "description": "The worker's process entry; absent if it was never started."
+              },
+              {
+                "type": "null"
               }
             ]
           }
