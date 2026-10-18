@@ -171,6 +171,11 @@ use crate::util::claim::UserClaims;
         crate::handlers::live::list_live_sessions,
         crate::handlers::live::get_live_master_playlist,
         crate::handlers::media_links::create_live_link,
+        crate::handlers::roles::list_roles,
+        crate::handlers::roles::get_role,
+        crate::handlers::roles::create_role,
+        crate::handlers::roles::update_role,
+        crate::handlers::roles::delete_role,
         crate::handlers::live::get_live_media_playlist,
         crate::handlers::live::get_live_init_segment,
         crate::handlers::live::get_live_segment,
@@ -550,6 +555,10 @@ use crate::util::claim::UserClaims;
             MonitorStateRequest,
             crate::dto::request::CreateMediaLinkRequest,
             crate::dto::response::MediaLinkResponse,
+            crate::dto::request::roles::CreateRoleRequest,
+            crate::dto::request::roles::UpdateRoleRequest,
+            crate::dto::response::roles::RoleResponse,
+            crate::dto::response::roles::PaginatedRolesResponse,
 
             // monitor presets
             crate::dto::request::monitor_presets::CreateMonitorPresetRequest,

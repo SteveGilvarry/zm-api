@@ -116,6 +116,16 @@ impl TestApp {
             .await
     }
 
+    /// Authenticated `PUT` with a JSON body.
+    #[allow(dead_code)]
+    pub async fn put_json<T: Serialize>(&self, path: &str, token: &str, body: &T) -> TestResponse {
+        self.request(Method::PUT, path)
+            .bearer(token)
+            .json(body)
+            .send()
+            .await
+    }
+
     /// Authenticated `PATCH` with a JSON body.
     pub async fn patch_json<T: Serialize>(
         &self,

@@ -11375,6 +11375,238 @@
         ]
       }
     },
+    "/api/v3/roles": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "List roles",
+        "operationId": "list_roles",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number (1-indexed)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "example": 1
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "description": "Items per page (max 1000)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "example": 25
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of roles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedRolesResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Create a role",
+        "operationId": "create_role",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/roles/{id}": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Get a role",
+        "operationId": "get_role",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Role ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Role not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Update a role",
+        "operationId": "update_role",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Role ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Role not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Delete a role. Its users keep their own permission levels.",
+        "operationId": "delete_role",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Role ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Role not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/search": {
       "get": {
         "tags": [
@@ -18957,6 +19189,31 @@
           }
         }
       },
+      "CreateRoleRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/UserPermissionsInput"
+          },
+          {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "Create a role: a named permission set users hold through `role_id`.\nOmitted permission levels default to `None` (a role grants only what it\nnames)."
+      },
       "CreateServerRequest": {
         "type": "object",
         "required": [
@@ -19527,6 +19784,15 @@
                   "string",
                   "null"
                 ]
+              },
+              "role_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "The user's role (`GET /api/v3/roles`); its permissions add to the\nuser's own.",
+                "minimum": 0
               },
               "username": {
                 "type": "string"
@@ -24168,6 +24434,44 @@
           }
         }
       },
+      "PaginatedRolesResponse": {
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "per_page",
+          "current_page",
+          "last_page"
+        ],
+        "properties": {
+          "current_page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoleResponse"
+            }
+          },
+          "last_page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "per_page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "PaginatedServerStatsResponse": {
         "type": "object",
         "description": "Paginated response for server stats",
@@ -25450,6 +25754,62 @@
           "EventSummary",
           "Event"
         ]
+      },
+      "RoleResponse": {
+        "type": "object",
+        "description": "A ZoneMinder 1.39 role. A user holding it (`role_id`) gets, per feature,\nthe higher of their own level and the role's.",
+        "required": [
+          "id",
+          "name",
+          "stream",
+          "events",
+          "control",
+          "monitors",
+          "groups",
+          "devices",
+          "snapshots",
+          "system"
+        ],
+        "properties": {
+          "control": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "devices": {
+            "type": "string"
+          },
+          "events": {
+            "type": "string"
+          },
+          "groups": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "monitors": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "snapshots": {
+            "type": "string"
+          },
+          "stream": {
+            "type": "string"
+          },
+          "system": {
+            "type": "string"
+          }
+        }
       },
       "Rtsp2WebType": {
         "type": "string",
@@ -29290,6 +29650,32 @@
           }
         }
       },
+      "UpdateRoleRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/UserPermissionsInput"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "`null` clears it; omit to leave it unchanged."
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Partial update of a role."
+      },
       "UpdateServerRequest": {
         "type": "object",
         "description": "Partial update: a field left out is unchanged; `null` clears a nullable one.",
@@ -29775,6 +30161,15 @@
                   "null"
                 ]
               },
+              "role_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "The user's role; `null` removes it. Omit to leave it unchanged.",
+                "minimum": 0
+              },
               "token_min_expiry": {
                 "type": [
                   "integer",
@@ -30209,6 +30604,15 @@
           },
           "phone": {
             "type": "string"
+          },
+          "role_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The user's role, whose permissions add to the levels above.",
+            "minimum": 0
           },
           "snapshots": {
             "type": "string"

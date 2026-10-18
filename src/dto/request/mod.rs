@@ -30,6 +30,7 @@ pub mod ptz;
 pub mod reports;
 #[allow(clippy::module_inception)]
 mod request;
+pub mod roles;
 pub mod search;
 pub mod server_stats;
 pub mod servers;

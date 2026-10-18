@@ -213,6 +213,13 @@ recognisable path forward.
   change answered 200 and did nothing, edits waited for something else to
   restart `zmc`, and a delete left `zmc` running. An edit in takeover mode
   restarts the monitor's daemons too.
+- **ZoneMinder 1.39 roles** (#143). `GET/POST /api/v3/roles` and
+  `GET/PUT/DELETE /api/v3/roles/{id}` manage `User_Roles`, and users gain
+  `role_id`. A user's permissions are now, per feature, the higher of their
+  own level and their role's, as ZoneMinder computes them, at login, on
+  refresh and for signed media links; and the role's per-monitor and
+  per-group grants feed the monitor ACL beneath the user's own. A user
+  whose access came from a role was gated on their own levels alone.
 - **`GET /events/{id}` carries the event's directory** as `path` (#140),
   resolved from its storage and scheme the way ZoneMinder's event page shows
   it, so a client need not reimplement the Deep/Medium/Shallow layout.

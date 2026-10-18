@@ -23,7 +23,7 @@ use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::server::state::AppState;
 use crate::service::monitor_acl::{self, MonitorScope};
 use crate::streaming::hls::signed_playlist::UriSigner;
-use crate::util::authz::{Feature, Level, UserPermissions};
+use crate::util::authz::{Feature, Level};
 use crate::util::claim::UserClaims;
 use crate::util::media_url::{self, MediaResource};
 
@@ -128,7 +128,11 @@ pub async fn authorize(
         .filter(|u| u.enabled != 0)
         .ok_or_else(|| unauthorized("Signed URL has been revoked"))?;
     let feature = feature_for(signed.resource);
-    if UserPermissions::from(&user).level(feature) < Level::View {
+    if crate::util::authz::effective_permissions(state.db(), &user)
+        .await?
+        .level(feature)
+        < Level::View
+    {
         return Err(AppError::PermissionDeniedError(format!(
             "View access to {feature:?} required"
         )));

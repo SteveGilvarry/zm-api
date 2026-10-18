@@ -53,6 +53,10 @@ pub struct Model {
     pub api_enabled: u8,
     #[sea_orm(column_name = "HomeView")]
     pub home_view: String,
+    /// The user's role (ZoneMinder 1.39 `User_Roles`); its permissions add
+    /// to the user's own.
+    #[sea_orm(column_name = "RoleId")]
+    pub role_id: Option<u32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

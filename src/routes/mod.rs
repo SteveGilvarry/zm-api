@@ -49,6 +49,7 @@ pub mod montage_layouts; // Montage Layouts
 pub mod object_types; // Object Types
 pub mod ptz; // PTZ control
 pub mod reports; // Reports
+pub mod roles; // Roles (ZoneMinder 1.39)
 pub mod search; // Natural-language / semantic event search
 pub mod server;
 pub mod server_stats; // Server Stats
@@ -538,6 +539,7 @@ pub fn create_router_app(state: AppState) -> Router {
         Router::new()
     };
     let user_routes = protect(users::add_user_routes(Router::new()), Feature::System);
+    let role_routes = protect(roles::add_role_routes(Router::new()), Feature::System);
     let user_preference_routes = protect(
         user_preferences::add_user_preference_routes(Router::new()),
         Feature::System,
@@ -583,6 +585,7 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(zone_routes)
         .merge(filter_routes)
         .merge(user_routes)
+        .merge(role_routes)
         .merge(group_routes)
         .merge(server_info_routes)
         .merge(log_routes)

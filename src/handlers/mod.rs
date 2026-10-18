@@ -48,6 +48,7 @@ pub mod live;
 pub mod media_links;
 pub mod monitor;
 pub mod monitor_pipeline;
+pub mod roles;
 pub mod search;
 pub mod server;
 pub mod synopsis;

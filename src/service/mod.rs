@@ -41,6 +41,7 @@ pub mod polygon;
 pub mod ptz;
 pub mod reports;
 pub mod retention;
+pub mod roles;
 pub mod search;
 pub mod server;
 pub mod server_stats;
