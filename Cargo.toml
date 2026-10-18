@@ -109,8 +109,8 @@ sha2 = "0.11"
 strum = { version = "0.28", features = ["derive"] }
 url = "2"
 urlencoding = "2"
-utoipa = { version = "5", features = ["axum_extras"] }
-utoipa-swagger-ui = { version = "9", features = ["axum"] }
+utoipa = { version = "6", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "10", features = ["axum"] }
 uuid = { version = "1", features = ["v4"] }
 tower = "0.5"
 tower-http = { version = "0.7", features = [
