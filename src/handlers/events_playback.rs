@@ -39,7 +39,13 @@ pub struct EventPlaybackPath {
 #[derive(Debug, Deserialize)]
 pub struct EventSegmentPath {
     pub id: u64,
-    pub seq: usize,
+    /// `N.m4s` as the playlist lists it, or a bare `N` (earlier playlists).
+    pub seq: String,
+}
+
+/// The segment index from `N.m4s` or `N`.
+fn segment_index(seq: &str) -> Option<usize> {
+    seq.strip_suffix(".m4s").unwrap_or(seq).parse().ok()
 }
 
 /// Response for event video metadata
@@ -490,7 +496,7 @@ pub async fn get_event_init(
     path = "/api/v3/events/{id}/stream/segment/{seq}",
     params(
         ("id" = u64, Path, description = "Event ID"),
-        ("seq" = usize, Path, description = "Zero-based segment index")
+        ("seq" = String, Path, description = "Zero-based segment index with its `.m4s` extension, as the playlist lists it; a bare index is also accepted")
     ),
     responses(
         (status = 200, description = "fMP4 media segment", content_type = "video/mp4"),
@@ -504,8 +510,11 @@ pub async fn get_event_segment(
     Path(path): Path<EventSegmentPath>,
     scope: MonitorScope,
 ) -> Result<Response, AppError> {
+    let index = segment_index(&path.seq).ok_or_else(|| {
+        AppError::BadRequestError(format!("invalid segment `{}`", path.seq))
+    })?;
     let assets = event_vod_assets(&state, path.id, &scope).await?;
-    let segment = assets.segments.get(path.seq).ok_or_else(|| {
+    let segment = assets.segments.get(index).ok_or_else(|| {
         AppError::NotFoundError(crate::error::Resource {
             resource_type: crate::error::ResourceType::Event,
             details: vec![
@@ -879,6 +888,16 @@ pub async fn get_event_thumbnail(
 mod tests {
     use super::*;
     use crate::service::event_storage::is_default_storage;
+
+    #[test]
+    fn segment_index_takes_the_listed_name_and_the_bare_index() {
+        assert_eq!(segment_index("0.m4s"), Some(0));
+        assert_eq!(segment_index("12.m4s"), Some(12));
+        assert_eq!(segment_index("3"), Some(3));
+        for bad in ["", ".m4s", "x.m4s", "1.ts", "-1", "1.m4s.m4s"] {
+            assert_eq!(segment_index(bad), None, "{bad}");
+        }
+    }
 
     // ------------------------------------------------------------------
     // parse_range_header

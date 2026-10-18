@@ -168,11 +168,13 @@ fn build_playlist(segments: &[FMP4Segment], target: Duration) -> String {
     p.push_str("#EXT-X-PLAYLIST-TYPE:VOD\n");
     p.push_str("#EXT-X-INDEPENDENT-SEGMENTS\n");
     // URIs are relative to the playlist URL (…/stream/): "init.mp4" -> the
-    // static init route; "segment/N" -> the parameterized segment route.
+    // static init route; "segment/N.m4s" -> the parameterized segment route.
+    // The extension matters: FFmpeg's HLS demuxer refuses segment URIs whose
+    // extension it doesn't recognise (#154).
     p.push_str("#EXT-X-MAP:URI=\"init.mp4\"\n");
     for (i, s) in segments.iter().enumerate() {
         p.push_str(&format!(
-            "#EXTINF:{:.3},\nsegment/{i}\n",
+            "#EXTINF:{:.3},\nsegment/{i}.m4s\n",
             s.duration.as_secs_f64()
         ));
     }
@@ -380,9 +382,9 @@ mod tests {
         // Init segment is referenced via a relative MAP URI.
         assert!(p.contains("#EXT-X-MAP:URI=\"init.mp4\""));
         // Per-segment EXTINF + relative segment URIs, in order.
-        assert!(p.contains("#EXTINF:4.000,\nsegment/0"));
-        assert!(p.contains("#EXTINF:3.500,\nsegment/1"));
-        assert!(p.contains("#EXTINF:1.200,\nsegment/2"));
+        assert!(p.contains("#EXTINF:4.000,\nsegment/0.m4s\n"));
+        assert!(p.contains("#EXTINF:3.500,\nsegment/1.m4s\n"));
+        assert!(p.contains("#EXTINF:1.200,\nsegment/2.m4s\n"));
         // VOD playlists must terminate with ENDLIST.
         assert!(p.trim_end().ends_with("#EXT-X-ENDLIST"));
         // Exactly one URI per segment.
