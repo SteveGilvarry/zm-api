@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use super::streaming::ZoneMinderConfig;
 use crate::daemon::config::DaemonConfig;
