@@ -175,7 +175,7 @@ impl PtzCapabilities {
 /// Convert from database Controls model to PtzCapabilities
 impl From<&ControlModel> for PtzCapabilities {
     fn from(m: &ControlModel) -> Self {
-        Self {
+        let caps = Self {
             control_id: m.id,
             name: m.name.clone(),
             protocol: m.protocol.clone(),
@@ -339,13 +339,41 @@ impl From<&ControlModel> for PtzCapabilities {
                 can_auto_scan: m.can_auto_scan != 0,
                 num_scan_paths: m.num_scan_paths,
             },
-        }
+        };
+        caps.without_uninvocable()
+    }
+}
+
+impl PtzCapabilities {
+    /// Report only what a client can invoke (#146). `PtzCommand` has no gain,
+    /// white-balance or auto-scan commands, and none of ZoneMinder's control
+    /// modules implement them, so advertising them from the `Controls` row
+    /// only drew dead controls in clients. They read as unsupported until a
+    /// command exists.
+    pub fn without_uninvocable(mut self) -> Self {
+        self.gain = AxisCapabilities::default();
+        self.white_balance = AxisCapabilities::default();
+        self.scan = ScanCapabilities::default();
+        self
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capabilities_with_no_command_are_not_advertised() {
+        let mut caps = PtzCapabilities::default();
+        caps.gain.can = true;
+        caps.white_balance.can_auto = true;
+        caps.scan.can_auto_scan = true;
+        caps.iris.can = true;
+        let caps = caps.without_uninvocable();
+        assert!(!caps.gain.can && !caps.white_balance.can_auto && !caps.scan.can_auto_scan);
+        // Iris has commands, so it is kept.
+        assert!(caps.iris.can);
+    }
 
     #[test]
     fn test_default_capabilities_has_no_ptz() {

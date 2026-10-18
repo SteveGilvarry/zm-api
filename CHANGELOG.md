@@ -204,6 +204,10 @@ recognisable path forward.
 - **Takeover knows `zm_rtsp_server`** (#161), and starts it when
   `ZM_MIN_RTSP_PORT` is set, as `zmpkg.pl` does. `zmdc.pl start
   zm_rtsp_server` failed as an invalid daemon spec.
+- **PTZ capabilities no longer advertise gain, white balance or auto-scan**
+  (#146). No command exists for them (and no ZoneMinder control module
+  implements them), so clients drew controls that did nothing. They read as
+  unsupported until a command exists.
 - **`migrator bridge` leaves triggers alone on a database past its cutover**
   (#162), where they are upstream's newer ones.
 - **The synopsis pipeline produces cutouts and plates** (#128). For a
