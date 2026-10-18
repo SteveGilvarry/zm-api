@@ -51,6 +51,9 @@ if has_zoneminder; then
   section "Daemons through zmdc.sock"
   check "daemon status is read from zmdc.sock" api_json GET /api/v3/system/status \
     '.running and ([.daemons[] | select(.id | startswith("zmc"))] | length > 0)'
+  check "live alarm state is read from shared memory" \
+    api_json GET "/api/v3/monitor-status/${mid}" '.alarm_state | IN("idle","prealarm","alarm","alert")'
+  check "alarms can be disabled and re-enabled" alarms_toggle_through_shm
   check "stopping the monitor through the API stops zmc" monitor_stop_stops_zmc
   check "starting it again starts zmc" monitor_start_starts_zmc
   check_eq "zmc is supervised by zmdc.pl again" "$(zmdc_pid)" "$(zmc_parent)"

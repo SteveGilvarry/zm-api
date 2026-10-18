@@ -213,6 +213,11 @@ recognisable path forward.
   change answered 200 and did nothing, edits waited for something else to
   restart `zmc`, and a delete left `zmc` running. An edit in takeover mode
   restarts the monitor's daemons too.
+- **The live alarm state, and Disable/Enable Alarms** (#139).
+  `GET /api/v3/monitor-status/{id}` adds `alarm_state` (`idle`, `prealarm`,
+  `alarm`, `alert`), `alarms_disabled` and `analysing` from the monitor's
+  shared memory while zmc runs, and `PATCH /api/v3/monitors/{id}/alarm` takes
+  `disable_alarms` and `enable_alarms`, ZoneMinder's `zmu -n` and `zmu -c`.
 - **ZoneMinder 1.39 roles** (#143). `GET/POST /api/v3/roles` and
   `GET/PUT/DELETE /api/v3/roles/{id}` manage `User_Roles`, and users gain
   `role_id`. A user's permissions are now, per feature, the higher of their

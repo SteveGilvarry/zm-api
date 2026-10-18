@@ -117,6 +117,19 @@ monitor_state() {
   api PATCH "/api/v3/monitors/$(monitor_id)/state" -H 'content-type: application/json' \
     -d "{\"state\":\"$1\"}" >/dev/null
 }
+# The live alarm state and Disable/Enable Alarms (zmu -n / -c) go through
+# zmc's shared memory (#139).
+alarm_action() {
+  api PATCH "/api/v3/monitors/$(monitor_id)/alarm" -H 'content-type: application/json' \
+    -d "{\"action\":\"$1\"}" >/dev/null
+}
+alarms_disabled_is() {
+  api_json GET "/api/v3/monitor-status/$(monitor_id)" ".alarms_disabled == $1"
+}
+alarms_toggle_through_shm() {
+  alarm_action disable_alarms && wait_until 10 alarms_disabled_is true \
+    && alarm_action enable_alarms && wait_until 10 alarms_disabled_is false
+}
 monitor_stop_stops_zmc()   { monitor_state stop && wait_until 30 no_zmc; }
 monitor_start_starts_zmc() { monitor_state start && wait_until 30 zmc_pid; }
 

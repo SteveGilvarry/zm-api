@@ -46,7 +46,33 @@ pub async fn get_by_monitor_id(
     }
     let item = repo::monitor_status::find_by_monitor_id(state.db(), monitor_id).await?;
     let item = item.ok_or_else(|| status_not_found(monitor_id))?;
-    Ok(MonitorStatusResponse::from(&item))
+    let mut response = MonitorStatusResponse::from(&item);
+    // The live alarm state lives in zmc's shared memory (#139). The mmap is
+    // blocking; absent while zmc isn't running.
+    if let Ok(Ok(live)) = tokio::task::spawn_blocking(move || {
+        crate::zm_shm::MonitorShm::connect(monitor_id)
+            .map(|shm| (shm.get_state(), shm.get_trigger_state(), shm.is_analysing()))
+    })
+    .await
+    {
+        let (alarm, trigger, analysing) = live;
+        response.alarm_state = alarm_state_name(alarm).map(str::to_string);
+        response.alarms_disabled = Some(trigger == crate::zm_shm::TriggerState::Off);
+        response.analysing = Some(analysing);
+    }
+    Ok(response)
+}
+
+/// `zmu -s`'s names for the shared-memory state.
+fn alarm_state_name(state: crate::zm_shm::State) -> Option<&'static str> {
+    use crate::zm_shm::State;
+    match state {
+        State::Idle => Some("idle"),
+        State::PreAlarm => Some("prealarm"),
+        State::Alarm => Some("alarm"),
+        State::Alert => Some("alert"),
+        State::Unknown => None,
+    }
 }
 
 pub async fn update(
@@ -61,4 +87,19 @@ pub async fn update(
     let updated = repo::monitor_status::update(state.db(), monitor_id, &req).await?;
     let updated = updated.ok_or_else(|| status_not_found(monitor_id))?;
     Ok(MonitorStatusResponse::from(&updated))
+}
+
+#[cfg(test)]
+mod alarm_state_tests {
+    use super::alarm_state_name;
+    use crate::zm_shm::State;
+
+    #[test]
+    fn states_are_named_as_zmu_names_them() {
+        assert_eq!(alarm_state_name(State::Idle), Some("idle"));
+        assert_eq!(alarm_state_name(State::PreAlarm), Some("prealarm"));
+        assert_eq!(alarm_state_name(State::Alarm), Some("alarm"));
+        assert_eq!(alarm_state_name(State::Alert), Some("alert"));
+        assert_eq!(alarm_state_name(State::Unknown), None);
+    }
 }

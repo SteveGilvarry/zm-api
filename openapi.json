@@ -14973,7 +14973,7 @@
         "properties": {
           "action": {
             "type": "string",
-            "description": "Action to perform: \"on\" (trigger), \"off\"/\"cancel\" (cancel), \"status\" (get status)"
+            "description": "Action to perform: \"on\" (force an alarm), \"off\"/\"cancel\" (cancel a\nforced alarm), \"disable_alarms\" (force alarms off until\n\"enable_alarms\", ZoneMinder's `zmu -n` / `zmu -c`), \"status\""
           },
           "cause": {
             "type": [
@@ -23280,6 +23280,27 @@
           "updated_on"
         ],
         "properties": {
+          "alarm_state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Live alarm state from the monitor's shared memory: `idle`,\n`prealarm`, `alarm` or `alert` (what `zmu -s` reports). Only on\n`GET /monitor-status/{id}`, and only while zmc is running."
+          },
+          "alarms_disabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether alarms are forced off (`zmu -n`, or `disable_alarms` on the\nalarm endpoint). Same availability as `alarm_state`."
+          },
+          "analysing": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the monitor is analysing right now. Same availability."
+          },
           "analysis_fps": {
             "type": "string"
           },

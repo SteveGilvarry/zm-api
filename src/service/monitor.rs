@@ -853,6 +853,35 @@ pub async fn control_alarm(
 
             info!("Cancelled alarm on monitor {}", id);
         }
+        // ZoneMinder's Disable/Enable Alarms (`zmu -n` / `zmu -c`, #139):
+        // TRIGGER_OFF holds alarms off until a cancel returns to normal.
+        "disable_alarms" | "enable_alarms" => {
+            let disable = req.action == "disable_alarms";
+            tokio::task::spawn_blocking(move || -> zm_shm::Result<()> {
+                let mut shm = MonitorShm::connect(id)?;
+                if disable {
+                    shm.disable_triggers()
+                } else {
+                    shm.cancel_alarm()
+                }
+            })
+            .await
+            .map_err(|e| {
+                AppError::ServiceUnavailableError(format!(
+                    "Alarm task failed for monitor {id}: {e}"
+                ))
+            })?
+            .map_err(|e| {
+                AppError::ServiceUnavailableError(format!(
+                    "Failed to {} alarms for monitor {id}: {e}",
+                    if disable { "disable" } else { "enable" }
+                ))
+            })?;
+            info!(
+                "{} alarms on monitor {id}",
+                if disable { "Disabled" } else { "Enabled" }
+            );
+        }
         "status" => {
             // Get current alarm status from shared memory
             match MonitorShm::connect(id) {
@@ -871,7 +900,8 @@ pub async fn control_alarm(
         }
         _ => {
             return Err(AppError::BadRequestError(format!(
-                "Invalid alarm action: {}. Valid actions: on, off, cancel, status",
+                "Invalid alarm action: {}. Valid actions: on, off, cancel, status, \
+                 disable_alarms, enable_alarms",
                 req.action
             )));
         }

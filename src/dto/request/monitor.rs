@@ -27,9 +27,10 @@ pub fn is_valid_state(value: &str, _ctx: &()) -> garde::Result {
 // request ever reached the service.
 pub fn is_valid_alarm_action(value: &str, _ctx: &()) -> garde::Result {
     match value {
-        "on" | "off" | "cancel" | "status" => Ok(()),
+        "on" | "off" | "cancel" | "status" | "disable_alarms" | "enable_alarms" => Ok(()),
         _ => Err(garde::Error::new(
-            "invalid alarm action; must be 'on', 'off', 'cancel', or 'status'",
+            "invalid alarm action; must be 'on', 'off', 'cancel', 'status', \
+             'disable_alarms' or 'enable_alarms'",
         )),
     }
 }
@@ -1200,7 +1201,9 @@ pub struct MonitorStateRequest {
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct AlarmControlRequest {
-    /// Action to perform: "on" (trigger), "off"/"cancel" (cancel), "status" (get status)
+    /// Action to perform: "on" (force an alarm), "off"/"cancel" (cancel a
+    /// forced alarm), "disable_alarms" (force alarms off until
+    /// "enable_alarms", ZoneMinder's `zmu -n` / `zmu -c`), "status"
     #[garde(custom(is_valid_alarm_action))]
     pub action: String,
 
