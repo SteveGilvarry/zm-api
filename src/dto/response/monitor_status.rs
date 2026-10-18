@@ -62,3 +62,16 @@ impl From<PaginatedResponse<MonitorStatusResponse>> for PaginatedMonitorStatuses
         }
     }
 }
+
+/// A monitor's live audio level, for the monitor editor's meter (#180).
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AudioLevelResponse {
+    /// 0-100, the scale `audio_threshold` uses; null while zmc isn't running.
+    pub level: Option<u8>,
+    /// Whether the level is over the threshold; null while zmc isn't running.
+    pub alarm: Option<bool>,
+    /// The monitor's `AudioThreshold`.
+    pub threshold: u8,
+    /// Whether audio detection scores (`AudioDetection`).
+    pub detection: bool,
+}

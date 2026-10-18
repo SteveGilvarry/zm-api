@@ -54,6 +54,8 @@ if has_zoneminder; then
   check "live alarm state is read from shared memory" \
     api_json GET "/api/v3/monitor-status/${mid}" '.alarm_state | IN("idle","prealarm","alarm","alert")'
   check "alarms can be disabled and re-enabled" alarms_toggle_through_shm
+  check "live audio level is read from shared memory" \
+    api_json GET "/api/v3/monitors/${mid}/audio-level" '.level != null'
   check "stopping the monitor through the API stops zmc" monitor_stop_stops_zmc
   check "starting it again starts zmc" monitor_start_starts_zmc
   check_eq "zmc is supervised by zmdc.pl again" "$(zmdc_pid)" "$(zmc_parent)"

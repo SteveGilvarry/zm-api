@@ -49,6 +49,10 @@ pub fn add_monitor_routes(router: Router<AppState>) -> Router<AppState> {
             &format!("{}/monitors/{{id}}/alarm", api_prefix),
             patch(monitor::alarm_control),
         )
+        .route(
+            &format!("{}/monitors/{{id}}/audio-level", api_prefix),
+            get(monitor::get_audio_level),
+        )
         .layer(middleware::from_fn(auth_middleware));
 
     router.merge(protected_routes)

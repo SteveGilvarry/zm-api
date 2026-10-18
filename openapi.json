@@ -7814,6 +7814,56 @@
         ]
       }
     },
+    "/api/v3/monitors/{id}/audio-level": {
+      "get": {
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "The monitor's live audio level",
+        "description": "- What the monitor editor's level meter polls once a second. Each call asks\n  zmc to keep measuring for ten more seconds, even with audio detection\n  off. `level` and `alarm` are null while zmc isn't running.",
+        "operationId": "get_audio_level",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Live audio level",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioLevelResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/monitors/{id}/pipeline": {
       "get": {
         "tags": [
@@ -16045,6 +16095,42 @@
           "state_name": {
             "type": "string",
             "description": "Name of the state to apply"
+          }
+        }
+      },
+      "AudioLevelResponse": {
+        "type": "object",
+        "description": "A monitor's live audio level, for the monitor editor's meter (#180).",
+        "required": [
+          "threshold",
+          "detection"
+        ],
+        "properties": {
+          "alarm": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the level is over the threshold; null while zmc isn't running."
+          },
+          "detection": {
+            "type": "boolean",
+            "description": "Whether audio detection scores (`AudioDetection`)."
+          },
+          "level": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "0-100, the scale `audio_threshold` uses; null while zmc isn't running.",
+            "minimum": 0
+          },
+          "threshold": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The monitor's `AudioThreshold`.",
+            "minimum": 0
           }
         }
       },

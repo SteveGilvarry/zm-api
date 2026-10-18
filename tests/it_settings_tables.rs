@@ -264,3 +264,30 @@ async fn the_privacy_answer_is_recorded() {
         .await;
     assert_eq!(r.json::<serde_json::Value>()["telemetry"], false);
 }
+
+/// `GET /monitors/{id}/audio-level` without a running zmc: level unknown,
+/// threshold and detection from the row (#180).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn audio_level_is_null_without_zmc() {
+    use common::fixtures::insert_monitor;
+    use sea_orm::{ActiveModelTrait, Set};
+    let app = TestApp::spawn().await;
+    let m = insert_monitor(&app.db, "AudioLvl").await.unwrap();
+    let _g = RowGuard::monitor(m.id);
+    let mut am: zm_api::entity::monitors::ActiveModel = m.clone().into();
+    am.audio_threshold = Set(35);
+    am.audio_detection = Set(1);
+    am.update(&app.db).await.unwrap();
+    let r = app
+        .get(
+            &format!("/api/v3/monitors/{}/audio-level", m.id),
+            &superuser_token(),
+        )
+        .await;
+    assert_eq!(r.status(), StatusCode::OK, "{}", r.text());
+    let body: serde_json::Value = r.json();
+    assert!(body["level"].is_null() && body["alarm"].is_null(), "{body}");
+    assert_eq!(body["threshold"], 35);
+    assert_eq!(body["detection"], true);
+}

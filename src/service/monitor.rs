@@ -779,6 +779,36 @@ pub async fn update_state(
     Ok(MonitorResponse::from(monitor_model))
 }
 
+/// The live audio level from zmc's shared memory, renewing the request that
+/// keeps zmc measuring it for another ten seconds even with AudioDetection
+/// off, as ZoneMinder's monitor editor does on each poll (#180).
+pub async fn audio_level(
+    state: &AppState,
+    id: u32,
+    scope: &MonitorScope,
+) -> AppResult<crate::dto::response::monitor_status::AudioLevelResponse> {
+    ensure_visible(scope, id, Level::View)?;
+    let monitor = repo::monitors::find_by_id(state.db(), id)
+        .await?
+        .ok_or_else(|| monitor_not_found(id))?;
+    let until = (chrono::Utc::now().timestamp() + 10) as u32;
+    let live = tokio::task::spawn_blocking(move || {
+        crate::zm_shm::MonitorShm::connect(id).ok().map(|mut shm| {
+            let _ = shm.request_audio_level(until);
+            (shm.get_audio_level(), shm.get_audio_alarm())
+        })
+    })
+    .await
+    .ok()
+    .flatten();
+    Ok(crate::dto::response::monitor_status::AudioLevelResponse {
+        level: live.map(|(l, _)| l),
+        alarm: live.map(|(_, a)| a),
+        threshold: monitor.audio_threshold,
+        detection: monitor.audio_detection != 0,
+    })
+}
+
 pub async fn control_alarm(
     state: &AppState,
     id: u32,

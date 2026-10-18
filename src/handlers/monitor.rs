@@ -241,6 +241,32 @@ pub async fn update_state(
     }
 }
 
+/// The monitor's live audio level
+///
+/// - What the monitor editor's level meter polls once a second. Each call asks
+///   zmc to keep measuring for ten more seconds, even with audio detection
+///   off. `level` and `alarm` are null while zmc isn't running.
+#[utoipa::path(
+    get,
+    path = "/api/v3/monitors/{id}/audio-level",
+    params(("id" = u32, Path, description = "Monitor identifier")),
+    responses(
+        (status = 200, description = "Live audio level", body = crate::dto::response::monitor_status::AudioLevelResponse),
+        (status = 404, description = "Monitor not found", body = AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "Monitors"
+)]
+pub async fn get_audio_level(
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+    scope: MonitorScope,
+) -> AppResult<Json<crate::dto::response::monitor_status::AudioLevelResponse>> {
+    Ok(Json(
+        service::monitor::audio_level(&state, id, &scope).await?,
+    ))
+}
+
 #[utoipa::path(
     patch,
     path = "/api/v3/monitors/{id}/alarm",

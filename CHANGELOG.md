@@ -190,6 +190,11 @@ recognisable path forward.
   compared against ZoneMinder's local-time columns, so on any server not on
   UTC the window was off by the offset. They now convert to server-local
   time, the inverse of what responses already do.
+- **`GET /api/v3/monitors/{id}/audio-level`**, the live audio level for the
+  monitor editor's meter (#180): `level` (0-100) and `alarm` from zmc's
+  shared memory, null while zmc isn't running, with the monitor's
+  `threshold` and `detection`. Each call asks zmc to keep measuring for ten
+  more seconds even with audio detection off, as ZoneMinder's editor does.
 - **`POST /api/v3/system/privacy`** records the answer to the privacy
   statement as ZoneMinder's privacy page does (#189): `ZM_SHOW_PRIVACY` off,
   `ZM_TELEMETRY_DATA` following the answer. System edit.
