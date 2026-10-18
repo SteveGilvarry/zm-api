@@ -6,7 +6,9 @@ use crate::dto::request::settings_tables::{
     CreateEncoderTemplateRequest, CreateMenuItemRequest, UpdateEncoderTemplateRequest,
     UpdateMenuItemRequest,
 };
-use crate::dto::response::settings_tables::{EncoderTemplateResponse, MenuItemResponse};
+use crate::dto::response::settings_tables::{
+    EncoderTemplateResponse, MenuItemResponse, PrivacyResponse,
+};
 use crate::entity::{encoder_templates, menu_items};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::server::state::AppState;
@@ -175,4 +177,25 @@ pub async fn delete_menu_item(state: &AppState, id: u32) -> AppResult<()> {
         return Err(not_found("menu_item", id));
     }
     Ok(())
+}
+
+// ---- Privacy statement ---------------------------------------------------------
+
+/// What legacy's `actions/privacy.php` does with an answer: the statement is
+/// no longer shown, and telemetry follows the answer. `ZM_SHOW_PRIVACY` is
+/// read-only on the Options page, so this is the only way to write it (#189).
+pub async fn record_privacy(state: &AppState, accept: bool) -> AppResult<PrivacyResponse> {
+    let db = state.db();
+    crate::repo::config::update_value(db, "ZM_SHOW_PRIVACY", "0").await?;
+    crate::repo::config::update_value(db, "ZM_TELEMETRY_DATA", if accept { "1" } else { "0" })
+        .await?;
+    let read = |name: &'static str| async move {
+        crate::repo::config::get_config_value(db, name)
+            .await
+            .map(|v| v.map(|v| v.trim() == "1"))
+    };
+    Ok(PrivacyResponse {
+        show_privacy: read("ZM_SHOW_PRIVACY").await?,
+        telemetry: read("ZM_TELEMETRY_DATA").await?,
+    })
 }

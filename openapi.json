@@ -13995,6 +13995,43 @@
         ]
       }
     },
+    "/api/v3/system/privacy": {
+      "post": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Record the answer to the privacy statement",
+        "description": "- What ZoneMinder's privacy page does: the statement stops being shown,\n  and telemetry (`ZM_TELEMETRY_DATA`) follows the answer.\n- Requires System edit.",
+        "operationId": "record_privacy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrivacyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Privacy settings now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivacyResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/system/restart": {
       "post": {
         "tags": [
@@ -26114,6 +26151,39 @@
             "format": "int32",
             "description": "Number of presets supported",
             "minimum": 0
+          }
+        }
+      },
+      "PrivacyRequest": {
+        "type": "object",
+        "description": "Record the answer to the privacy statement (#189).",
+        "required": [
+          "accept"
+        ],
+        "properties": {
+          "accept": {
+            "type": "boolean",
+            "description": "Accept (send telemetry) or decline."
+          }
+        }
+      },
+      "PrivacyResponse": {
+        "type": "object",
+        "description": "The privacy settings after recording an answer.",
+        "properties": {
+          "show_privacy": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "`ZM_SHOW_PRIVACY`: whether the statement is still to be shown."
+          },
+          "telemetry": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "`ZM_TELEMETRY_DATA`: whether telemetry is sent."
           }
         }
       },

@@ -216,3 +216,23 @@ pub async fn delete_menu_item(
 pub async fn get_navbar(State(state): State<AppState>) -> AppResult<Json<Vec<MenuItemResponse>>> {
     Ok(Json(svc::navbar(&state).await?))
 }
+
+/// Record the answer to the privacy statement
+///
+/// - What ZoneMinder's privacy page does: the statement stops being shown,
+///   and telemetry (`ZM_TELEMETRY_DATA`) follows the answer.
+/// - Requires System edit.
+#[utoipa::path(
+    post,
+    path = "/api/v3/system/privacy",
+    request_body = PrivacyRequest,
+    responses((status = 200, description = "Privacy settings now", body = PrivacyResponse)),
+    tag = "System",
+    security(("jwt" = []))
+)]
+pub async fn record_privacy(
+    State(state): State<AppState>,
+    Json(req): Json<PrivacyRequest>,
+) -> AppResult<Json<PrivacyResponse>> {
+    Ok(Json(svc::record_privacy(&state, req.accept).await?))
+}

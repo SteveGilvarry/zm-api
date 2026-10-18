@@ -190,6 +190,9 @@ recognisable path forward.
   compared against ZoneMinder's local-time columns, so on any server not on
   UTC the window was off by the offset. They now convert to server-local
   time, the inverse of what responses already do.
+- **`POST /api/v3/system/privacy`** records the answer to the privacy
+  statement as ZoneMinder's privacy page does (#189): `ZM_SHOW_PRIVACY` off,
+  `ZM_TELEMETRY_DATA` following the answer. System edit.
 - **Controls carry their light and audio capabilities** (#177):
   `can_light`, `can_indicator_light`, `can_audio_play`, `min_audio_file`,
   `max_audio_file` and `can_audio_volume`, on the response and on create and

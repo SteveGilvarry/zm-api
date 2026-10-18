@@ -1,7 +1,11 @@
 use crate::handlers::settings_tables as h;
 use crate::server::state::AppState;
 use crate::util::middleware::auth_middleware;
-use axum::{middleware, routing::get, Router};
+use axum::{
+    middleware,
+    routing::{get, post},
+    Router,
+};
 
 /// EncoderTemplates and Menu_Items CRUD (System-gated by the caller).
 pub fn add_settings_table_routes(router: Router<AppState>) -> Router<AppState> {
@@ -16,6 +20,7 @@ pub fn add_settings_table_routes(router: Router<AppState>) -> Router<AppState> {
                 .put(h::update_encoder_template)
                 .delete(h::delete_encoder_template),
         )
+        .route("/api/v3/system/privacy", post(h::record_privacy))
         .route(
             "/api/v3/menu-items",
             get(h::list_menu_items).post(h::create_menu_item),

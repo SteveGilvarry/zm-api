@@ -54,3 +54,12 @@ impl From<&menu_items::Model> for MenuItemResponse {
         }
     }
 }
+
+/// The privacy settings after recording an answer.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PrivacyResponse {
+    /// `ZM_SHOW_PRIVACY`: whether the statement is still to be shown.
+    pub show_privacy: Option<bool>,
+    /// `ZM_TELEMETRY_DATA`: whether telemetry is sent.
+    pub telemetry: Option<bool>,
+}

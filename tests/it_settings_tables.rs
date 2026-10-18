@@ -189,3 +189,78 @@ async fn storage_do_delete_can_be_changed() {
         .await;
     assert!(bad.status().is_client_error());
 }
+
+/// `POST /system/privacy` records the answer as legacy's privacy page does
+/// (#189), and needs System edit.
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn the_privacy_answer_is_recorded() {
+    use sea_orm::{ActiveModelTrait, EntityTrait, Set};
+    let app = TestApp::spawn().await;
+    // The test database may not carry these Config rows; add any missing.
+    let mut added = Vec::new();
+    for (name, value) in [("ZM_SHOW_PRIVACY", "1"), ("ZM_TELEMETRY_DATA", "0")] {
+        if zm_api::entity::config::Entity::find_by_id(name.to_string())
+            .one(&app.db)
+            .await
+            .unwrap()
+            .is_none()
+        {
+            zm_api::entity::config::ActiveModel {
+                id: Set(0),
+                name: Set(name.into()),
+                value: Set(value.into()),
+                r#type: Set("boolean".into()),
+                category: Set("system".into()),
+                readonly: Set(1),
+                private: Set(0),
+                system: Set(1),
+                ..Default::default()
+            }
+            .insert(&app.db)
+            .await
+            .unwrap();
+            added.push(name.to_string());
+        }
+    }
+    let _g = RowGuard::new("privacy config rows", move |db| async move {
+        for name in added {
+            let _ = zm_api::entity::config::Entity::delete_by_id(name)
+                .exec(&db)
+                .await;
+        }
+    });
+
+    let viewer = token_with(UserPermissions {
+        system: zm_api::util::authz::Level::View,
+        ..Default::default()
+    });
+    let r = app
+        .post_json(
+            "/api/v3/system/privacy",
+            &viewer,
+            &json!({ "accept": true }),
+        )
+        .await;
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+
+    let r = app
+        .post_json(
+            "/api/v3/system/privacy",
+            &superuser_token(),
+            &json!({ "accept": true }),
+        )
+        .await;
+    assert_eq!(r.status(), StatusCode::OK, "{}", r.text());
+    let body: serde_json::Value = r.json();
+    assert_eq!(body["show_privacy"], false);
+    assert_eq!(body["telemetry"], true);
+    let r = app
+        .post_json(
+            "/api/v3/system/privacy",
+            &superuser_token(),
+            &json!({ "accept": false }),
+        )
+        .await;
+    assert_eq!(r.json::<serde_json::Value>()["telemetry"], false);
+}

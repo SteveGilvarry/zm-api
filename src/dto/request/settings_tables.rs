@@ -83,3 +83,11 @@ pub struct UpdateMenuItemRequest {
     #[garde(skip)]
     pub link: Option<Option<String>>,
 }
+
+/// Record the answer to the privacy statement (#189).
+#[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
+pub struct PrivacyRequest {
+    /// Accept (send telemetry) or decline.
+    #[garde(skip)]
+    pub accept: bool,
+}
