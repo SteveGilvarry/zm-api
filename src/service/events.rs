@@ -407,7 +407,6 @@ mod tests {
             messaged: 0,
             executed: 0,
             notes: None,
-            q: None,
             state_id: 1,
             orientation: Orientation::Rotate0,
             disk_space: None,
@@ -477,7 +476,6 @@ mod tests {
             height: 720,
             length: DecimalWrapper(Decimal::new(0, 0)),
             notes: None,
-            q: None,
             orientation: Orientation::Rotate0,
         };
         let out = create(&state_create, req, &MonitorScope::All)
@@ -505,7 +503,6 @@ mod tests {
                 name: Some("new".into()),
                 cause: None,
                 notes: None,
-                q: None,
                 orientation: None,
                 archived: None,
                 locked: None,
