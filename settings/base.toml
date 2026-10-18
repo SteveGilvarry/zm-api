@@ -139,6 +139,7 @@ prewarm_interval_seconds = 30
 enabled = true
 # Directory holding zmc's per-monitor stream sockets (ZM_PATH_SOCKS):
 # {socks_path}/stream_{monitor_id}.sock
+# Left at /run/zm, ZM_PATH_SOCKS from /etc/zm/zm.conf is used when it is set.
 socks_path = "/run/zm"
 read_timeout_ms = 10000
 reconnect_delay_ms = 1000
@@ -213,10 +214,13 @@ image_embed = false    # also embed on-disk crop JPEGs (off = text-only)
 # zoneminder.service) when ready — or use packaging/zm-api-takeover.sh, which
 # sequences both services correctly in either direction.
 enabled = false
+# socket_path and bin_path left at these defaults follow ZM_PATH_SOCKS and
+# ZM_PATH_BIN from /etc/zm/zm.conf, which differ by distribution.
 socket_path = "/run/zm"
 socket_name = "zmdc.sock"
 # Group zmdc.sock is chgrp'd to so ZoneMinder's web user can reach it. Unset =
-# ZM_WEB_GROUP from zm.conf. The zm-api service user must belong to it.
+# ZM_WEB_GROUP from zm.conf. The zm-api service user must belong to it, which
+# it does when it runs as ZoneMinder's account (the packaged default).
 # socket_group = "www-data"
 # On Ubuntu/Debian, both binaries and scripts are in /usr/bin
 bin_path = "/usr/bin"

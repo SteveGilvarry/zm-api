@@ -9,9 +9,12 @@ case "$1" in
     fi
     ;;
   purge)
-    # Remove generated state (JWT keys) and logs. The shared `zoneminder`
-    # user/group is intentionally left in place — it may belong to ZoneMinder.
+    # Remove generated state (JWT keys), logs, and the account drop-in that
+    # setup-instance.sh wrote. No account is removed: the service ran as
+    # ZoneMinder's own, or as a `zoneminder` account ZoneMinder may now use.
     rm -rf /var/lib/zm-api /var/log/zm-api
+    rm -f /etc/systemd/system/zm-api.service.d/10-account.conf
+    rmdir /etc/systemd/system/zm-api.service.d 2>/dev/null || true
     if [ -d /run/systemd/system ]; then
       systemctl daemon-reload || true
     fi

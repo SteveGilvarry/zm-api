@@ -51,16 +51,22 @@ no manager is constructed, so none of these values are read. See
 | Key | Default | Notes |
 | --- | --- | --- |
 | `enabled` | `false` | Passive vs. takeover. Prefer `zm-api-takeover` over setting it by hand |
-| `socket_path` | `/run/zm` | Directory holding the legacy IPC socket |
+| `socket_path` | `ZM_PATH_SOCKS` from `zm.conf`, else `/run/zm` | Directory holding the legacy IPC socket |
 | `socket_name` | `zmdc.sock` | Speaks the `zmdc.pl` wire protocol |
 | `enable_socket_ipc` | `true` | Bind that socket at all |
 | `enable_rest_api` | `true` | Expose `/api/v3/daemons*` and `/api/v3/system/*` |
-| `bin_path` | `/usr/bin` | Where `zmc` and `zma` live |
+| `bin_path` | `ZM_PATH_BIN` from `zm.conf`, else `/usr/bin` | Where `zmc` and `zma` live |
 | `script_path` | `/usr/bin` | Where the Perl daemons live |
 | `min_backoff_seconds` | `5` | First restart delay after a crash |
 | `max_backoff_seconds` | `900` | Backoff ceiling, and the stability threshold |
 | `shutdown_timeout_seconds` | `30` | SIGTERM, then SIGKILL after this |
 | `stats_update_interval_seconds` | `60` | How often process stats are written to the database |
+
+`socket_path` and `bin_path` follow `zm.conf` while they are left at `/run/zm`
+and `/usr/bin`, because that is where ZoneMinder's own daemons read them from
+and the Red Hat family keeps its sockets in `/var/lib/zoneminder/sock`. The
+same goes for `streaming.zoneminder.socks_path`. Any other value you set is
+kept.
 
 `bin_path` and `script_path` are hints, not requirements. If the command is not
 found where you point, the standard per-distribution locations are searched:

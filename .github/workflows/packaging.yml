@@ -1,0 +1,127 @@
+name: Packaging
+
+# Builds the package for each distro, installs it on a host running systemd,
+# and walks the install process: passive beside a running ZoneMinder, takeover,
+# revert, upgrade, removal. See packaging/e2e/README.md.
+#
+# Where upstream publishes a ZoneMinder master package (Debian, Ubuntu, EL) the
+# test runs against it, recording from a synthetic camera. That is also what
+# the nightly run is for: upstream master moves daily, and a schema or
+# stream-socket change there should show up here the next morning, not on a
+# user's machine.
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'packaging/**'
+      - 'scripts/package.sh'
+      - 'settings/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/configure/**'
+      - 'src/daemon/**'
+      - 'src/migration/**'
+      - 'src/streaming/source/**'
+      - '.github/workflows/packaging.yml'
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: packaging-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  shellcheck:
+    name: Shell scripts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      # The scripts that ship in the package, and the test drivers.
+      - run: |
+          shellcheck -x -S warning \
+            packaging/setup-instance.sh packaging/zm-api-takeover.sh packaging/install.sh \
+            packaging/debian/postinst packaging/debian/prerm packaging/debian/postrm \
+            packaging/e2e/build.sh packaging/e2e/run.sh
+      # The stages share variables through guest/lib.sh, which is mounted at
+      # /e2e inside the test container and cannot be followed from here:
+      # SC1091 is that source, SC2034/SC2154 the variables it carries.
+      - run: |
+          shellcheck -S warning -e SC1091,SC2034,SC2154 \
+            packaging/e2e/distros.sh packaging/e2e/guest/lib.sh packaging/e2e/guest/stages/*.sh
+
+  e2e:
+    name: ${{ matrix.distro }} ${{ matrix.arch }} (${{ matrix.flow }})
+    runs-on: ${{ matrix.runner }}
+    # A distro marked unproven reports its result without failing the workflow.
+    continue-on-error: ${{ matrix.unproven || false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Against ZoneMinder master.
+          - { distro: ubuntu-24.04, arch: amd64, runner: ubuntu-24.04, flow: zoneminder master }
+          - { distro: ubuntu-24.04, arch: arm64, runner: ubuntu-24.04-arm, flow: zoneminder master }
+          - { distro: debian-13, arch: amd64, runner: ubuntu-24.04, flow: zoneminder master }
+          # Has never run green: zmrepo's EL builds are x86_64 only at master,
+          # so this flow could not be tried before it reached CI.
+          - { distro: rocky-9, arch: amd64, runner: ubuntu-24.04, flow: zoneminder master, unproven: true }
+          # No upstream master package: install, accounts, upgrade, removal.
+          - { distro: fedora-41, arch: amd64, runner: ubuntu-24.04, flow: package }
+          - { distro: opensuse-tumbleweed, arch: amd64, runner: ubuntu-24.04, flow: package }
+          - { distro: arch, arch: amd64, runner: ubuntu-24.04, flow: package }
+    steps:
+      - uses: actions/checkout@v6
+
+      # The cargo registry and the target directory of the in-container build.
+      # Saved from the default branch only, so pull requests read a warm cache
+      # without each one writing its own multi-gigabyte copy.
+      - name: Restore build cache
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ runner.temp }}/e2e-cache
+          key: packaging-${{ matrix.distro }}-${{ matrix.arch }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            packaging-${{ matrix.distro }}-${{ matrix.arch }}-
+
+      - name: Build the package inside ${{ matrix.distro }}
+        env:
+          E2E_CACHE_DIR: ${{ runner.temp }}/e2e-cache
+        run: packaging/e2e/build.sh ${{ matrix.distro }}
+
+      - name: Install it and walk the install process
+        run: packaging/e2e/run.sh ${{ matrix.distro }}
+
+      # ZoneMinder master ahead of the schema zm-api mirrors is expected for a
+      # few days after an upstream change. It is worth a notice, not a failure.
+      - name: Report ZoneMinder schema drift
+        if: always()
+        run: |
+          zm="target/e2e/${{ matrix.distro }}/logs/zoneminder-version"
+          [ -f "$zm" ] || exit 0
+          ours="$(grep -o 'CUTOVER_ZM_VERSION: &str = "[^"]*"' src/migration/legacy_bridge/chain.rs | cut -d'"' -f2)"
+          theirs="$(cat "$zm")"
+          echo "ZoneMinder master schema: $theirs, mirrored by zm-api: $ours" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$ours" != "$theirs" ]; then
+            echo "::warning title=ZoneMinder schema drift::upstream master is at $theirs, zm-api mirrors $ours (docs/DB_VERSIONING_PLAN.md, step 4)"
+          fi
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaging-logs-${{ matrix.distro }}-${{ matrix.arch }}
+          path: target/e2e/${{ matrix.distro }}/logs
+          if-no-files-found: ignore
+
+      - name: Save build cache
+        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ runner.temp }}/e2e-cache
+          key: packaging-${{ matrix.distro }}-${{ matrix.arch }}-${{ hashFiles('Cargo.lock') }}

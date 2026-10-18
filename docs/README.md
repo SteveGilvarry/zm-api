@@ -56,7 +56,8 @@ before relying on any specific phase verdict.
 
 | Doc | Scope |
 |---|---|
-| [deployment.md](deployment.md) | Packaging, profiles, upgrading an existing ZM database, passive/active mode, distro matrix, release flow. |
+| [deployment.md](deployment.md) | Packaging, profiles, the service account per distribution, upgrading an existing ZM database, passive/active mode, distro matrix, install testing, release flow. |
+| [`packaging/e2e/README.md`](../packaging/e2e/README.md) | The install tests: the package on a systemd host beside ZoneMinder master, through passive, takeover, revert, upgrade and removal. How to run and extend them. |
 | [tls.md](tls.md) | Pointer — the page now lives in [`book/src/guide/tls.md`](../book/src/guide/tls.md) and is published on the docs site. |
 
 ## Archive (kept for history)

@@ -51,18 +51,15 @@ first. Not needed when both sit behind one hostname; see
 
 ## If live streaming does not work
 
-zmc's per-monitor stream sockets are mode 0660, owned by ZoneMinder's
-`ZM_STREAM_SOCKET_GROUP`. If that group is not `zoneminder`, add it:
+zmc's per-monitor stream sockets are mode 0660, owned by ZoneMinder's account
+and its `ZM_STREAM_SOCKET_GROUP`. zm-api runs as that account, so this works
+without configuration. If ZoneMinder was installed after zm-api, or switched
+web servers since, the account may be stale:
 
 ```bash
-sudo systemctl edit zm-api
-```
-
-```ini
-[Service]
-SupplementaryGroups=<value of ZM_STREAM_SOCKET_GROUP>
+sudo /usr/share/zm-api/setup-instance.sh
+sudo systemctl restart zm-api
 ```
 
 The log says `permission denied opening stream socket …` when this is the
-problem. Do not add the group to the shipped unit file directly — naming a
-group that does not exist makes systemd refuse to start the service entirely.
+problem.

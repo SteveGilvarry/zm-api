@@ -91,6 +91,7 @@ config.
 
 ## When streams fail
 
-`permission denied opening stream socket …` in the log means the service user
-is not in ZoneMinder's `ZM_STREAM_SOCKET_GROUP`. The sockets are mode 0660. Fix
-with a systemd drop-in — see [Troubleshooting](../reference/troubleshooting.md).
+`permission denied opening stream socket …` in the log means zm-api is not
+running as ZoneMinder's account and is not in its `ZM_STREAM_SOCKET_GROUP`
+either. The sockets are mode 0660. See
+[Troubleshooting](../reference/troubleshooting.md).

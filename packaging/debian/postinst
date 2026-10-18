@@ -5,19 +5,40 @@ set -e
 
 case "$1" in
   configure)
-    # User, dirs, and JWT keys (idempotent; never overwrites existing keys).
-    [ -x /usr/share/zm-api/setup-instance.sh ] && /usr/share/zm-api/setup-instance.sh || true
+    # Service account, drop-in, dirs, and JWT keys (idempotent; never
+    # overwrites existing keys). A failure here leaves a unit that cannot
+    # start, so say so rather than hide it.
+    if [ -x /usr/share/zm-api/setup-instance.sh ]; then
+      /usr/share/zm-api/setup-instance.sh \
+        || echo "zm-api: setup-instance.sh failed; fix the cause and re-run it before starting zm-api" >&2
+    fi
 
     if [ -d /run/systemd/system ]; then
       systemctl daemon-reload || true
-      # Enable + start in passive (REST-only) mode. A start failure here is
-      # non-fatal (e.g. DB not yet configured); the unit will retry.
-      systemctl enable zm-api.service || true
-      systemctl start zm-api.service || true
+      # deb-systemd-invoke honours policy-rc.d, so an image build or a chroot
+      # that forbids starting services is respected.
+      if command -v deb-systemd-invoke >/dev/null 2>&1; then
+        invoke="deb-systemd-invoke"
+      else
+        invoke="systemctl"
+      fi
+      if [ -z "$2" ]; then
+        # Fresh install: enable + start in passive (REST-only) mode. A start
+        # failure here is non-fatal (e.g. DB not yet configured); the unit
+        # will retry.
+        systemctl enable zm-api.service || true
+        $invoke start zm-api.service || true
+      else
+        # Upgrade: run the new binary, under the account just resolved. Left
+        # alone if the admin had stopped it.
+        $invoke try-restart zm-api.service || true
+      fi
     fi
 
-    echo "zm-api installed in passive mode (REST API only)."
-    echo "To have zm-api take over ZoneMinder daemon supervision: sudo zm-api-takeover"
+    if [ -z "$2" ]; then
+      echo "zm-api installed in passive mode (REST API only)."
+      echo "To have zm-api take over ZoneMinder daemon supervision: sudo zm-api-takeover"
+    fi
     ;;
   abort-upgrade|abort-remove|abort-deconfigure)
     ;;

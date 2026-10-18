@@ -153,13 +153,15 @@ blocked, and the browser reports it only in its own console. Set
 to the dashboard's origin.
 .TP
 .B "permission denied opening stream socket"
-The service user is not a member of ZoneMinder's
-.BR ZM_STREAM_SOCKET_GROUP .
-The per-monitor stream sockets are mode 0660; add the group with
-.B systemctl edit zm-api
-and a
-.B SupplementaryGroups=
-line.
+zm-api is not running as ZoneMinder's account
+.RB ( ZM_WEB_USER
+in
+.IR /etc/zm/zm.conf )
+and is not in its
+.B ZM_STREAM_SOCKET_GROUP
+either. The per-monitor stream sockets are mode 0660. Run
+.I /usr/share/zm-api/setup-instance.sh
+to re-resolve the account, then restart the service.
 .SH SEE ALSO
 .BR zm-api.env (5),
 .BR zm-api-takeover (8),

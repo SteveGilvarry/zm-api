@@ -5,6 +5,13 @@ set -e
 case "$1" in
   remove|deconfigure)
     if [ -d /run/systemd/system ]; then
+      # In takeover mode zm-api is the only thing running the capture daemons
+      # and zoneminder.service is disabled. Removing the package must not
+      # leave the host recording nothing, so hand control back first.
+      if grep -qE '^APP_DAEMON__ENABLED=true' /etc/zm-api/zm-api.env 2>/dev/null \
+          && [ -x /usr/bin/zm-api-takeover ]; then
+        /usr/bin/zm-api-takeover --revert --yes || true
+      fi
       systemctl stop zm-api.service || true
       systemctl disable zm-api.service || true
     fi

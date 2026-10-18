@@ -68,9 +68,62 @@ sudo zm-api-takeover --revert # hand control back to ZoneMinder
 Equivalent manual steps: `systemctl disable --now zoneminder`, set
 `APP_DAEMON__ENABLED=true` in `/etc/zm-api/zm-api.env`, `systemctl restart zm-api`.
 
+## Service account
+zm-api runs as the account ZoneMinder's daemons run as. ZoneMinder has no
+account of its own: `zmdc.pl`, `zmc` and the rest run as the web server's user,
+which upstream's packaging picks per distribution and records in `zm.conf`.
+
+| Distribution | `ZM_WEB_USER`:`ZM_WEB_GROUP` | `zm.conf` | Sockets (`ZM_PATH_SOCKS`) |
+| --- | --- | --- | --- |
+| Debian, Ubuntu | `www-data:www-data` | `www-data:root` 0640 | `/run/zm` |
+| Fedora, RHEL family | `apache:apache` (`nginx:nginx` variant) | `root:apache` 0640 | `/var/lib/zoneminder/sock` |
+| openSUSE | `wwwrun:www` | not checked | not checked |
+| Arch (AUR) | `http:http` | not checked | not checked |
+
+The Debian row is what upstream's master package produces on Ubuntu 24.04,
+observed in the install test. The Red Hat row is read from upstream's
+`distros/redhat/zoneminder.spec`. The openSUSE and Arch accounts are upstream's
+CMake defaults and the Arch `http` convention.
+
+Earlier packages ran zm-api as a fixed `zoneminder` account and joined it to
+the web group. That fails against upstream's own packages: on Debian `zm.conf`
+is readable by `www-data` alone, so zm-api could not read the database password
+and crash-looped on install; and after takeover `zmc` could not write the
+events tree (0755, owned by the web user). A second account also makes revert
+lossy, because recordings written under zm-api would belong to an account
+ZoneMinder cannot delete as.
+
+`packaging/setup-instance.sh` therefore resolves the account on every install
+and upgrade and writes it to a systemd drop-in,
+`/etc/systemd/system/zm-api.service.d/10-account.conf`:
+
+1. `ZM_WEB_USER`/`ZM_WEB_GROUP` from `/etc/zm/zm.conf` and `conf.d`, when that
+   user exists.
+2. Otherwise the account a previous run settled on.
+3. Otherwise a dedicated `zoneminder` account, created here. This is the host
+   with no ZoneMinder (zm-next only, or zm-api installed first).
+
+Rules the script keeps:
+
+- It never modifies an account it did not create. Extra groups (`video`,
+  `ssl-cert`, `ZM_STREAM_SOCKET_GROUP`) go in the drop-in as
+  `SupplementaryGroups=`, and only groups that exist are named, because systemd
+  refuses to start a unit that lists a missing one.
+- The state and log directories are `StateDirectory=`/`LogsDirectory=`, so
+  systemd re-owns them when the account changes.
+- An admin's own drop-in (`systemctl edit zm-api`) sorts after `10-account.conf`
+  and wins.
+- When the account changes on upgrade, the script says so and prints the
+  `chown --from=` command for recordings made under the old account. It does
+  not chown the events tree itself.
+
+Socket and binary directories follow `zm.conf` too: zm-api reads
+`ZM_PATH_SOCKS` and `ZM_PATH_BIN` when `daemon.socket_path`,
+`streaming.zoneminder.socks_path` and `daemon.bin_path` are at their defaults.
+
 ## Recommended deployment flow
-1. Install the package (see matrix below). It creates the `zoneminder` user (if
-   absent), provisions `/var/lib/zm-api/keys` with generated JWT keys, installs
+1. Install the package (see matrix below). It resolves the service account
+   (above), provisions `/var/lib/zm-api/keys` with generated JWT keys, installs
    the unit, and starts zm-api in **passive** mode.
 2. Confirm DB connectivity — zm-api falls back to `/etc/zm/zm.conf` when the
    `[db]` placeholders are unchanged; otherwise set `APP_DB__*` in `zm-api.env`.
@@ -80,12 +133,13 @@ Equivalent manual steps: `systemctl disable --now zoneminder`, set
    common day-one failure: the dashboard loads and every request is
    CORS-blocked, visible only in the browser console. Not needed when both sit
    behind one hostname — see the docs site.
-5. Add the service user to ZoneMinder's `ZM_STREAM_SOCKET_GROUP` if it is not
-   `zoneminder`, or live streaming fails on socket permissions:
-   `systemctl edit zm-api` → `[Service]` → `SupplementaryGroups=<group>`.
+5. If ZoneMinder is installed, or moved to a different web server, after
+   zm-api: `sudo /usr/share/zm-api/setup-instance.sh && sudo systemctl restart zm-api`.
 6. Validate health with `/swagger-ui` and a smoke test against `/api-docs/openapi.json`.
-7. When ready, run `sudo zm-api-takeover` to assume daemon supervision
-   (prerequisites, verification, and rollback: `man 8 zm-api-takeover`).
+7. When ready, run `sudo zm-api-takeover` to assume daemon supervision. It
+   checks the host first (`--check` runs only the checks) and rolls back if
+   zm-api does not stay up or capture does not resume
+   (`man 8 zm-api-takeover`).
 
 JWT keys are generated automatically on install by `setup-instance.sh`. For a
 manual/source install, run `scripts/generate-jwt-keys.sh /var/lib/zm-api/keys`
@@ -138,12 +192,42 @@ lineage and uses SemVer pre-releases while it stabilises:
 - **Bumping the version** touches four spots, kept in sync by hand: `Cargo.toml`,
   the spec `Version`/`Release` + changelog, and the PKGBUILD `pkgver`/`_pkgtag`.
 
+## Install testing (CI)
+`packaging/e2e/` installs the built package on a container running systemd and
+walks the whole process. `.github/workflows/packaging.yml` runs it on pull
+requests that touch packaging, on `master`, and nightly. The `Release` workflow
+runs it on the exact artifacts it is about to publish, and a package that fails
+is held back while the rest go out.
+
+| Distro | ZoneMinder under test | Flow |
+| --- | --- | --- |
+| Ubuntu 24.04 (amd64, arm64), Debian 13 | upstream master, from zmrepo | database → zoneminder → install → passive → takeover → revert → upgrade → remove |
+| Rocky 9 | upstream master, from zmrepo (amd64 only) | same; not yet proven, reported without failing the workflow |
+| Fedora 41, openSUSE Tumbleweed, Arch | none published | database → layout → install → passive → upgrade → remove → standalone |
+
+With ZoneMinder present, a synthetic RTSP camera feeds a monitor that records
+continuously, and each stage checks that capture and recording carried on:
+passive leaves ZoneMinder's processes and sockets untouched, takeover moves
+`zmc` under zm-api with the same owner on the recordings, revert moves it back,
+and removing the package in takeover mode hands control back first. The
+nightly run is the early warning for upstream changes to the schema or the
+stream socket.
+
+```bash
+packaging/e2e/build.sh ubuntu-24.04    # package built inside the target distro
+packaging/e2e/run.sh ubuntu-24.04      # logs in target/e2e/ubuntu-24.04/logs
+```
+
+See `packaging/e2e/README.md`.
+
 ## Testing and release checklist
 - `cargo fmt --all -- --check`
 - `cargo clippy --all-targets --all-features -- -D warnings`
 - `cargo test --all-features`
 - Integration tests: `APP_PROFILE=test-db cargo test --test '*' -- --include-ignored`
 - Build packages in CI or a clean builder container
+- Packaging change: `packaging/e2e/run.sh <distro>` for at least one distro of
+  the family you touched
 
 ## Notes for end users
 - Only edit `prod.toml` or override via environment variables.

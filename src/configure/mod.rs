@@ -93,6 +93,10 @@ impl AppConfig {
 
         // Apply ZoneMinder zm.conf as fallback for database config
         app_config.db.apply_zmconf_fallback();
+        // ...and for where ZoneMinder keeps its sockets and binaries, which
+        // its packaging decides differently on each distribution.
+        zmconf::ZmConfig::load()
+            .apply_paths(&mut app_config.daemon, &mut app_config.streaming.zoneminder);
 
         Ok(app_config)
     }

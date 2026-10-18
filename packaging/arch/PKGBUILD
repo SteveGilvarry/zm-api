@@ -13,7 +13,8 @@ pkgdesc="ZoneMinder REST API and daemon supervisor"
 arch=('x86_64' 'aarch64')
 url="https://github.com/SteveGilvarry/zm-api"
 license=('AGPL-3.0-or-later')
-depends=('openssl' 'systemd-libs')
+# procps-ng: pgrep, used by zm-api-takeover.
+depends=('openssl' 'systemd-libs' 'procps-ng')
 makedepends=('cargo' 'clang')
 # Arch enables LTO by default, which breaks ring's symbols in the sqlx_macros
 # proc-macro dylib ("undefined symbol: ring_core_*_x25519_sc_mask"). Disable it.
@@ -37,9 +38,11 @@ build() {
 
 package() {
   cd "${_srcdir}"
-  install -Dm755 "target/release/${_appname}"         "${pkgdir}/usr/bin/${_appname}"
+  # CARGO_TARGET_DIR lets a CI or test build keep its cache outside srcdir.
+  local target="${CARGO_TARGET_DIR:-target}"
+  install -Dm755 "${target}/release/${_appname}"      "${pkgdir}/usr/bin/${_appname}"
   # Built as `migrator`; installed prefixed, that name is too generic for /usr/bin.
-  install -Dm755 target/release/migrator               "${pkgdir}/usr/bin/${_appname}-db"
+  install -Dm755 "${target}/release/migrator"          "${pkgdir}/usr/bin/${_appname}-db"
   install -Dm755 packaging/zm-api-takeover.sh          "${pkgdir}/usr/bin/${_appname}-takeover"
   install -Dm755 packaging/setup-instance.sh           "${pkgdir}/usr/share/${_appname}/setup-instance.sh"
   install -Dm644 settings/base.toml                    "${pkgdir}/etc/${_appname}/base.toml"

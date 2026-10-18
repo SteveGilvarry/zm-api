@@ -1,16 +1,34 @@
 # Arch post-(un)install scriptlets for zm-api. Ships in passive mode.
 
 post_install() {
-  [ -x /usr/share/zm-api/setup-instance.sh ] && /usr/share/zm-api/setup-instance.sh || true
+  /usr/share/zm-api/setup-instance.sh \
+    || echo "zm-api: setup-instance.sh failed; fix the cause and re-run it before starting zm-api" >&2
+  systemctl daemon-reload 2>/dev/null || true
   echo "zm-api installed in passive mode (REST API only)."
   echo "To take over ZoneMinder daemon supervision: sudo zm-api-takeover"
   echo "Enable the service with: systemctl enable --now zm-api.service"
 }
 
 post_upgrade() {
-  [ -x /usr/share/zm-api/setup-instance.sh ] && /usr/share/zm-api/setup-instance.sh || true
+  /usr/share/zm-api/setup-instance.sh \
+    || echo "zm-api: setup-instance.sh failed; fix the cause and re-run it" >&2
+  systemctl daemon-reload 2>/dev/null || true
+  systemctl try-restart zm-api.service 2>/dev/null || true
 }
 
 pre_remove() {
+  # In takeover mode zm-api is the only thing running the capture daemons.
+  # Hand control back so removal cannot leave the host recording nothing.
+  if grep -qE '^APP_DAEMON__ENABLED=true' /etc/zm-api/zm-api.env 2>/dev/null; then
+    /usr/bin/zm-api-takeover --revert --yes || true
+  fi
   systemctl disable --now zm-api.service 2>/dev/null || true
+}
+
+post_remove() {
+  # The account drop-in setup-instance.sh wrote. Keys and logs are left, as
+  # pacman leaves any state a package did not ship.
+  rm -f /etc/systemd/system/zm-api.service.d/10-account.conf
+  rmdir /etc/systemd/system/zm-api.service.d 2>/dev/null || true
+  systemctl daemon-reload 2>/dev/null || true
 }
