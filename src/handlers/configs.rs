@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
-    Json,
+    Extension, Json,
 };
 use garde::Validate;
 use tracing::info;
@@ -11,6 +11,8 @@ use crate::dto::{request::config::UpdateConfigRequest, response::config::ConfigR
 use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use crate::service;
+use crate::util::authz::{Feature, Level};
+use crate::util::claim::UserClaims;
 
 /// List all configuration key/value entries from the ZoneMinder `Config` table.
 ///
@@ -36,12 +38,29 @@ use crate::service;
 )]
 pub async fn list_configs(
     State(state): State<AppState>,
+    Extension(claims): Extension<UserClaims>,
     Query(params): Query<ConfigQueryParams>,
 ) -> AppResult<Json<PaginatedConfigsResponse>> {
     info!("Listing config entries with pagination");
     params.validate().map_err(AppError::InvalidInputError)?;
-    let result = service::config::list_filtered(&state, &params).await?;
+    let mut result = service::config::list_filtered(&state, &params).await?;
+    if !can_see_private(&claims) {
+        result.items.iter_mut().for_each(mask_private);
+    }
     Ok(Json(PaginatedConfigsResponse::from(result)))
+}
+
+/// A `Private` option's value (`ZM_AUTH_HASH_SECRET` signs tokens) is for
+/// System editors only, as ZoneMinder's Options page shows it (#184,
+/// ZoneMinder GHSA-7g3f-93q8-fhwj).
+fn can_see_private(claims: &UserClaims) -> bool {
+    claims.perms.level(Feature::System) >= Level::Edit
+}
+
+fn mask_private(c: &mut ConfigResponse) {
+    if c.private != 0 {
+        c.value = String::new();
+    }
 }
 
 /// List distinct config categories with their entry counts.
@@ -85,10 +104,14 @@ pub async fn list_categories(
 )]
 pub async fn get_config(
     State(state): State<AppState>,
+    Extension(claims): Extension<UserClaims>,
     Path(name): Path<String>,
 ) -> AppResult<Json<ConfigResponse>> {
     info!("Get config by name: {}", name);
-    let item = service::config::get_by_name(&state, &name).await?;
+    let mut item = service::config::get_by_name(&state, &name).await?;
+    if !can_see_private(&claims) {
+        mask_private(&mut item);
+    }
     Ok(Json(item))
 }
 

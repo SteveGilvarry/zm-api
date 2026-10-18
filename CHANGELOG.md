@@ -591,6 +591,12 @@ recognisable path forward.
 
 ### Security
 
+- **Private config values are hidden below System Edit** (#184).
+  `GET /api/v3/configs` and `GET /api/v3/configs/{name}` returned `Private`
+  options in clear to anyone with System View, `ZM_AUTH_HASH_SECRET`
+  included, which is enough to sign an admin token (ZoneMinder fixed the same
+  in 1.39.41, GHSA-7g3f-93q8-fhwj). Their `value` is now empty unless the
+  caller can edit System.
 - **Media responses to URL-credentialed requests are no longer cacheable by
   shared caches** (`Cache-Control: private`) and send
   `Referrer-Policy: no-referrer`, so a proxy can't replay a segment fetched
