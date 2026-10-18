@@ -467,3 +467,28 @@ async fn the_event_audit_finds_gaps_and_missing_or_empty_media() {
     assert_eq!(m["zero_size"], serde_json::json!([ids[1]]));
     assert_eq!(m["missing_files"], serde_json::json!([ids[2]]));
 }
+
+/// `EventResponse` carries `MaxScoreFrameId` (#176).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn an_event_carries_its_max_score_frame() {
+    let app = TestApp::spawn().await;
+    let monitor = insert_monitor(&app.db, "MaxFrame").await.expect("monitor");
+    let _m = RowGuard::monitor(monitor.id);
+    let e = zm_api::entity::events::ActiveModel {
+        monitor_id: Set(monitor.id),
+        state_id: Set(1),
+        name: Set(unique_name("MaxFrame")),
+        max_score_frame_id: Set(Some(42)),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("event");
+    let _e = guard_event(e.id);
+    let body: serde_json::Value = app
+        .get(&format!("/api/v3/events/{}", e.id), &superuser_token())
+        .await
+        .json();
+    assert_eq!(body["max_score_frame_id"], 42);
+}

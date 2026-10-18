@@ -79,8 +79,11 @@ pub struct LoginRequest {
     #[garde(length(min = 3, max = 64))]
     #[garde(pattern("^[a-zA-Z0-9_.-]+$"))]
     pub username: String,
+    /// Whatever the account's password is. ZoneMinder sets no minimum (its
+    /// default login is `admin`/`admin`), so a minimum here only locked
+    /// existing users out (#174); setting a password still enforces one.
     #[dummy(faker = "Password(8..64)")]
-    #[garde(length(min = 6))]
+    #[garde(length(min = 1))]
     pub password: String,
 }
 
@@ -181,6 +184,21 @@ impl std::fmt::Debug for UpdateProfileRequest {
 #[cfg(test)]
 mod redaction_tests {
     use super::*;
+
+    #[test]
+    fn login_accepts_a_short_password_but_not_an_empty_one() {
+        // Regression (#174): ZoneMinder's default admin/admin was rejected.
+        let ok = LoginRequest {
+            username: "admin".into(),
+            password: "admin".into(),
+        };
+        assert!(ok.validate().is_ok());
+        let empty = LoginRequest {
+            username: "admin".into(),
+            password: String::new(),
+        };
+        assert!(empty.validate().is_err());
+    }
 
     #[test]
     fn login_request_debug_redacts_password() {

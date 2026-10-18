@@ -184,6 +184,12 @@ recognisable path forward.
 
 ### Fixed
 
+- **Login accepts short passwords** (#174). `POST /auth/login` rejected any
+  password under 6 characters before checking it, so ZoneMinder users with
+  short passwords, the default `admin`/`admin` included, couldn't log in.
+  Setting a password still enforces a minimum.
+- **`EventResponse` carries `max_score_frame_id`** (#176), the frame a client
+  reports as the match (pyzm's `snapshot` frame resolves through it).
 - **Live and recorded HLS play in header-less players** (#153). Playlists
   fetched with a URL credential listed bare URIs, so FFmpeg and Home Assistant
   got the playlist and then a 401 on the init segment and every segment. They

@@ -62,6 +62,11 @@ pub struct EventResponse {
     #[schema(example = 100, nullable = true)]
     pub max_score: Option<u16>,
 
+    /// The frame with the highest score (`MaxScoreFrameId`): what a client
+    /// reports as the matching frame (#176).
+    #[schema(example = 42, nullable = true)]
+    pub max_score_frame_id: Option<u32>,
+
     #[schema(example = 0)]
     pub archived: u8,
 
@@ -146,6 +151,7 @@ impl From<EventModel> for EventResponse {
             tot_score: model.tot_score,
             avg_score: model.avg_score,
             max_score: model.max_score,
+            max_score_frame_id: model.max_score_frame_id,
             archived: model.archived,
             videoed: model.videoed,
             uploaded: model.uploaded,

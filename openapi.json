@@ -21393,6 +21393,16 @@
             "example": 100,
             "minimum": 0
           },
+          "max_score_frame_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The frame with the highest score (`MaxScoreFrameId`): what a client\nreports as the matching frame (#176).",
+            "example": 42,
+            "minimum": 0
+          },
           "messaged": {
             "type": "integer",
             "format": "int32",
@@ -22697,7 +22707,8 @@
         ],
         "properties": {
           "password": {
-            "type": "string"
+            "type": "string",
+            "description": "Whatever the account's password is. ZoneMinder sets no minimum (its\ndefault login is `admin`/`admin`), so a minimum here only locked\nexisting users out (#174); setting a password still enforces one."
           },
           "username": {
             "type": "string"
