@@ -336,3 +336,51 @@ async fn a_single_event_carries_its_directory() {
     let body: serde_json::Value = r.json();
     assert!(body["items"][0].get("path").is_none());
 }
+
+/// `GET /events/counts/{hours}?monitor_id=` is one monitor's hourly
+/// histogram (#36).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn hourly_counts_can_be_for_one_monitor() {
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let a = insert_monitor(&app.db, "HistA").await.expect("monitor a");
+    let _ma = RowGuard::monitor(a.id);
+    let b = insert_monitor(&app.db, "HistB").await.expect("monitor b");
+    let _mb = RowGuard::monitor(b.id);
+    let now = chrono::Utc::now().naive_utc();
+    let mut guards = Vec::new();
+    for (mid, n) in [(a.id, 2), (b.id, 3)] {
+        for _ in 0..n {
+            let e = zm_api::entity::events::ActiveModel {
+                monitor_id: Set(mid),
+                state_id: Set(1),
+                name: Set(unique_name("Hist")),
+                start_date_time: Set(Some(now)),
+                ..Default::default()
+            }
+            .insert(&app.db)
+            .await
+            .expect("event");
+            guards.push(guard_event(e.id));
+        }
+    }
+    let total = |mid: u32| {
+        let app = &app;
+        let token = token.clone();
+        async move {
+            let r = app
+                .get(&format!("/api/v3/events/counts/2?monitor_id={mid}"), &token)
+                .await;
+            assert_eq!(r.status(), StatusCode::OK, "{}", r.text());
+            r.json::<serde_json::Value>()["counts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c["count"].as_u64().unwrap())
+                .sum::<u64>()
+        }
+    };
+    assert_eq!(total(a.id).await, 2);
+    assert_eq!(total(b.id).await, 3);
+}

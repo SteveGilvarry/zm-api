@@ -328,9 +328,16 @@ pub async fn delete(state: &AppState, id: u32, scope: &MonitorScope) -> AppResul
 pub async fn get_event_counts(
     state: &AppState,
     hours: i64,
+    monitor_id: Option<u32>,
     scope: &MonitorScope,
 ) -> AppResult<EventCountsResponse> {
-    let filter = scope.visible_ids(Level::View);
+    // One monitor's histogram (#36), or every monitor the caller can see. A
+    // monitor outside the caller's scope counts nothing.
+    let filter = match monitor_id {
+        Some(id) if scope.allows(id, Level::View) => Some(vec![id]),
+        Some(_) => Some(Vec::new()),
+        None => scope.visible_ids(Level::View),
+    };
     let counts = events_repo::get_counts_by_hour(state, hours, filter.as_deref()).await?;
 
     let event_counts = counts

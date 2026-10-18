@@ -233,6 +233,9 @@ recognisable path forward.
   refresh and for signed media links; and the role's per-monitor and
   per-group grants feed the monitor ACL beneath the user's own. A user
   whose access came from a role was gated on their own levels alone.
+- **`GET /events/counts/{hours}?monitor_id=`** gives one monitor's hourly
+  event counts, for the console's per-monitor sparkline (#36), instead of
+  paging up to a thousand events per monitor to bucket them.
 - **`GET /events/{id}` carries the event's directory** as `path` (#140),
   resolved from its storage and scheme the way ZoneMinder's event page shows
   it, so a client need not reimplement the Deep/Medium/Shallow layout.

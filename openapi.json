@@ -2875,6 +2875,17 @@
               "type": "integer",
               "format": "int64"
             }
+          },
+          {
+            "name": "monitor_id",
+            "in": "query",
+            "description": "Count only this monitor's events (a per-monitor hourly histogram)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
           }
         ],
         "responses": {

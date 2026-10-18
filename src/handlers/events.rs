@@ -196,6 +196,12 @@ pub async fn delete_event(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// `GET /events/counts/{hours}` query.
+#[derive(Debug, serde::Deserialize)]
+pub struct EventCountsQuery {
+    pub monitor_id: Option<u32>,
+}
+
 /// Get event counts grouped by hour
 #[utoipa::path(
     get,
@@ -203,7 +209,8 @@ pub async fn delete_event(
     operation_id = "getEventCounts",
     tag = "Events",
     params(
-        ("hours" = i64, Path, description = "Number of hours to count back from now")
+        ("hours" = i64, Path, description = "Number of hours to count back from now"),
+        ("monitor_id" = Option<u32>, Query, description = "Count only this monitor's events (a per-monitor hourly histogram)")
     ),
     responses(
         (status = 200, description = "Event counts grouped by hour", body = EventCountsResponse),
@@ -219,9 +226,10 @@ pub async fn delete_event(
 pub async fn get_event_counts(
     State(state): State<AppState>,
     Path(hours): Path<i64>,
+    Query(query): Query<EventCountsQuery>,
     scope: MonitorScope,
 ) -> AppResult<Json<EventCountsResponse>> {
-    let counts = service::events::get_event_counts(&state, hours, &scope).await?;
+    let counts = service::events::get_event_counts(&state, hours, query.monitor_id, &scope).await?;
 
     Ok(Json(counts))
 }
