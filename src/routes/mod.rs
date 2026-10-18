@@ -590,6 +590,12 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(events_playback_routes) // Event playback
         .merge(snapshot_routes)
         .merge(snapshot_event_routes)
+        .merge(crate::util::authz::protect_at(
+            events_playback::add_event_export_route(Router::new()),
+            Feature::Events,
+            crate::util::authz::Level::View,
+            state.clone(),
+        ))
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             crate::service::media_grant::media_grant_layer,

@@ -9,6 +9,7 @@ pub mod devices;
 pub mod discovery;
 pub mod event_audit;
 pub mod event_data;
+pub mod event_export;
 pub mod event_storage;
 pub mod event_summaries;
 pub mod events;

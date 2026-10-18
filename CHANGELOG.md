@@ -10,6 +10,14 @@ recognisable path forward.
 
 ### Added
 
+- **Event export** (#30): `POST /api/v3/events/export {ids, include}`
+  streams a zip, built as it goes, with a `{event_id}/` folder per event.
+  `include` picks from `details` (`event.json`), `frames` (`frames.json`),
+  `images`, `video` and `misc`, and defaults to details and video. Up to 500
+  ids; each is checked before anything is sent, so an id that doesn't exist
+  or isn't visible is a `404`. Media files are stored as they are and the
+  JSON is deflated.
+
 - **Push token registrations** (#175): `/api/v3/notifications` lists, reads,
   registers, changes and removes the Notifications rows that
   zmeventnotification-style push uses, as ZoneMinder's `notifications.json`

@@ -3146,6 +3146,68 @@
         ]
       }
     },
+    "/api/v3/events/export": {
+      "post": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Export events as a zip",
+        "description": "Streams a zip, built as it goes, with a `{event_id}/` folder per event\nholding the parts asked for: `details` (`event.json`), `frames`\n(`frames.json`), `images`, `video` and `misc` (the event directory's other\nfiles). Every id is checked first: one that doesn't exist or isn't\nvisible to the caller is a 404 and nothing is sent.",
+        "operationId": "exportEvents",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The zip",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No ids, or more than 500",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "An event doesn't exist or isn't visible",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/events/{id}": {
       "get": {
         "tags": [
@@ -22761,6 +22823,33 @@
           }
         }
       },
+      "EventExportRequest": {
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "description": "The events to export, at most 500."
+          },
+          "include": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ExportPart"
+            },
+            "description": "Defaults to `details` and `video`."
+          }
+        }
+      },
       "EventQueryParams": {
         "type": "object",
         "properties": {
@@ -23518,6 +23607,17 @@
             "minimum": 0
           }
         }
+      },
+      "ExportPart": {
+        "type": "string",
+        "description": "What goes into each event's folder in the zip.",
+        "enum": [
+          "details",
+          "frames",
+          "images",
+          "video",
+          "misc"
+        ]
       },
       "FilterExpr": {
         "oneOf": [

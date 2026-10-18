@@ -25,6 +25,17 @@ pub fn add_event_link_route(router: Router<AppState>) -> Router<AppState> {
     )
 }
 
+/// `POST /api/v3/events/export` (#30): a zip, so it sits with the streaming
+/// routes, outside the compression layer. Events-gated at View by the caller.
+pub fn add_event_export_route(router: Router<AppState>) -> Router<AppState> {
+    router.route(
+        "/api/v3/events/export",
+        post(crate::handlers::event_export::export_events).route_layer(axum::middleware::from_fn(
+            crate::util::middleware::auth_middleware,
+        )),
+    )
+}
+
 use crate::handlers::{events_playback, frame_images, synopsis};
 use crate::server::state::AppState;
 use crate::util::middleware::media_auth_middleware;
