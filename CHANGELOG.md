@@ -433,6 +433,15 @@ recognisable path forward.
   baseline instead of removing it. It now converges on the database's own
   default, and any other table that drifts is logged by name.
 
+### Security
+
+- Dependency bumps for RUSTSEC-2026-0338 to 0342 (`quinn-proto` 0.11.19),
+  RUSTSEC-2026-0346 to 0349 (`rustls` 0.23.46), and `async-trait` 0.1.92,
+  whose generated code tripped clippy's `double_must_use` on current stable.
+  The `zip` 3 advisories (RUSTSEC-2026-0367 to 0369) remain: it is a
+  build-time dependency of `utoipa-swagger-ui` 9, and moving to 10 is a
+  separate change.
+
 ### Removed
 
 - `frame_skip` from the monitor create/update requests and response:
