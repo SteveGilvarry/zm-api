@@ -296,3 +296,43 @@ async fn q_searches_across_columns() {
     assert!(found(event.id.to_string()).await.contains(&event.id));
     assert!(found("no-such-text-anywhere".into()).await.is_empty());
 }
+
+/// `GET /events/{id}` carries the event's directory as the server resolves
+/// it; lists don't (#140).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn a_single_event_carries_its_directory() {
+    use zm_api::entity::sea_orm_active_enums::Scheme;
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let monitor = insert_monitor(&app.db, "EvPath").await.expect("monitor");
+    let _m = RowGuard::monitor(monitor.id);
+    let event = zm_api::entity::events::ActiveModel {
+        monitor_id: Set(monitor.id),
+        state_id: Set(1),
+        name: Set(unique_name("EvPath")),
+        scheme: Set(Scheme::Shallow),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("event");
+    let _e = guard_event(event.id);
+
+    let r = app
+        .get(&format!("/api/v3/events/{}", event.id), &token)
+        .await;
+    assert_eq!(r.status(), StatusCode::OK, "{}", r.text());
+    let body: serde_json::Value = r.json();
+    let path = body["path"].as_str().expect("path present");
+    assert!(
+        path.ends_with(&format!("/{}/{}", monitor.id, event.id)),
+        "shallow layout: {path}"
+    );
+
+    let r = app
+        .get(&format!("/api/v3/events?monitor_id={}", monitor.id), &token)
+        .await;
+    let body: serde_json::Value = r.json();
+    assert!(body["items"][0].get("path").is_none());
+}

@@ -191,7 +191,13 @@ pub async fn get_by_id(
         return Err(event_not_found(id));
     }
     let tag_summaries: Vec<TagSummary> = tags.iter().map(TagSummary::from).collect();
-    Ok(EventResponse::with_tags(event, tag_summaries))
+    let path = crate::service::event_storage::event_directory(state, &event)
+        .await
+        .ok()
+        .map(|p| p.display().to_string());
+    let mut response = EventResponse::with_tags(event, tag_summaries);
+    response.path = path;
+    Ok(response)
 }
 
 /// Create a new event

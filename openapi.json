@@ -20494,6 +20494,13 @@
           "orientation": {
             "$ref": "#/components/schemas/Orientation"
           },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The event's directory, as the server resolves it from its storage and\nscheme (what ZoneMinder's event page shows as Path). Only on\n`GET /events/{id}`; whether the media is still there is what\n`GET /events/{id}/info` answers (#140)."
+          },
           "save_jpe_gs": {
             "type": [
               "integer",

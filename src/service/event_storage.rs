@@ -29,6 +29,18 @@ use crate::server::state::AppState;
 /// malicious or mistaken admin entry like `/var/cache/zm/events/..` could let
 /// an otherwise-permitted operation resolve outside the events tree. Reject
 /// those at the DB-read boundary.
+/// The event's own directory: its storage root laid out by its scheme.
+pub(crate) async fn event_directory(state: &AppState, event: &EventModel) -> AppResult<PathBuf> {
+    let storage = resolve_event_storage_path(state, event).await?;
+    Ok(build_event_directory_path(
+        &storage,
+        event.monitor_id,
+        event.id,
+        event.start_date_time,
+        &event.scheme,
+    ))
+}
+
 pub(crate) async fn resolve_event_storage_path(
     state: &AppState,
     event: &EventModel,

@@ -213,6 +213,9 @@ recognisable path forward.
   change answered 200 and did nothing, edits waited for something else to
   restart `zmc`, and a delete left `zmc` running. An edit in takeover mode
   restarts the monitor's daemons too.
+- **`GET /events/{id}` carries the event's directory** as `path` (#140),
+  resolved from its storage and scheme the way ZoneMinder's event page shows
+  it, so a client need not reimplement the Deep/Medium/Shallow layout.
 - **`GET /events?q=` searches the way legacy's events search box does**
   (#136): a substring match over id, monitor, storage, name, cause, start and
   end time, length, frame counts, scores, archived, emailed, notes and disk

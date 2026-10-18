@@ -108,6 +108,13 @@ pub struct EventResponse {
     /// Tags associated with this event
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<TagSummary>>,
+
+    /// The event's directory, as the server resolves it from its storage and
+    /// scheme (what ZoneMinder's event page shows as Path). Only on
+    /// `GET /events/{id}`; whether the media is still there is what
+    /// `GET /events/{id}/info` answers (#140).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 impl From<EventModel> for EventResponse {
@@ -154,6 +161,7 @@ impl From<EventModel> for EventResponse {
             latitude: model.latitude.map(DecimalWrapper::from),
             longitude: model.longitude.map(DecimalWrapper::from),
             tags: None,
+            path: None,
         }
     }
 }
