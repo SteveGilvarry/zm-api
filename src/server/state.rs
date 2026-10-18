@@ -18,16 +18,12 @@ use crate::streaming::hls::HlsSessionManager;
 use crate::streaming::live::LiveStreamCoordinator;
 use crate::streaming::snapshot::SnapshotService;
 use crate::streaming::source::SourceRouter;
-use crate::streaming::webrtc::{session::SessionManager, WebRtcEngine};
 
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<AppConfig>,
     pub db: Arc<DatabaseClient>,
     pub http: HttpClient,
-    // Native WebRTC (Phase 2)
-    pub native_webrtc_engine: Option<Arc<WebRtcEngine>>,
-    pub native_session_manager: Option<Arc<SessionManager>>,
     // HLS Streaming (Phase 3)
     pub hls_session_manager: Option<Arc<HlsSessionManager>>,
     // Live Streaming Coordinator
@@ -90,25 +86,6 @@ impl AppState {
         let search_service = Some(Arc::new(
             SearchService::new(http.clone(), db.clone(), config.search.clone()).await,
         ));
-
-        // Initialize native WebRTC engine (Phase 2). Pass the configured
-        // `[streaming.webrtc]` block, not the defaults: the engine turns
-        // `stun_servers`/`turn` into its ICE server list, so defaulting here
-        // silently discarded any configured TURN server and left clients behind
-        // symmetric NAT unable to connect.
-        let native_webrtc_engine = match WebRtcEngine::new(config.streaming.webrtc.clone()) {
-            Ok(engine) => {
-                tracing::info!("Native WebRTC engine initialized successfully");
-                Some(Arc::new(engine))
-            }
-            Err(e) => {
-                tracing::warn!("Failed to initialize native WebRTC engine: {}", e);
-                None
-            }
-        };
-
-        // Initialize native session manager with default max sessions
-        let native_session_manager = Some(Arc::new(SessionManager::new(100)));
 
         // Initialize HLS session manager (Phase 3)
         let hls_session_manager = if config.streaming.hls.enabled {
@@ -330,8 +307,6 @@ impl AppState {
             config: Arc::new(config),
             db,
             http,
-            native_webrtc_engine,
-            native_session_manager,
             hls_session_manager,
             source_router,
             live_coordinator,
@@ -369,8 +344,6 @@ impl AppState {
             config: std::sync::Arc::new(config),
             db,
             http,
-            native_webrtc_engine: None,
-            native_session_manager: None,
             hls_session_manager: None,
             source_router: None,
             live_coordinator: None,

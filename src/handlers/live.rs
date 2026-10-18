@@ -919,7 +919,7 @@ async fn handle_webrtc_websocket(
                             match signaling_msg {
                                 WebRtcSignalingMessage::Answer { session_id: sid, sdp }
                                     if sid == session_id => {
-                                        let answer = match webrtc::peer_connection::sdp::session_description::RTCSessionDescription::answer(sdp) {
+                                        let answer = match webrtc::peer_connection::RTCSessionDescription::answer(sdp) {
                                             Ok(a) => a,
                                             Err(e) => {
                                                 error!("Invalid SDP answer from client: {}", e);
@@ -951,7 +951,7 @@ async fn handle_webrtc_websocket(
                                             // where DTLS completes very quickly (e.g. on LAN).
                                             let current_state = *pc_state_rx.borrow_and_update();
                                             match current_state {
-                                                webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState::Connected => {
+                                                webrtc::peer_connection::RTCPeerConnectionState::Connected => {
                                                     streaming_started = true;
                                                     source_router.record_webrtc_connected(monitor_id, connect_at.elapsed().as_millis() as u64);
                                                     // Inject the freshest keyframe for instant video start
@@ -971,7 +971,7 @@ async fn handle_webrtc_websocket(
                                                     }
                                                     info!("WebRTC session {} already connected, streaming started", session_id);
                                                 }
-                                                webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState::Failed => {
+                                                webrtc::peer_connection::RTCPeerConnectionState::Failed => {
                                                     error!("WebRTC peer connection already failed for session {}", session_id);
                                                     let error_msg = WebRtcSignalingMessage::Error {
                                                         message: "Peer connection failed".to_string(),
@@ -1025,7 +1025,7 @@ async fn handle_webrtc_websocket(
                     Ok(()) => {
                         let state = *pc_state_rx.borrow_and_update();
                         match state {
-                            webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState::Connected => {
+                            webrtc::peer_connection::RTCPeerConnectionState::Connected => {
                                 streaming_started = true;
                                 source_router.record_webrtc_connected(monitor_id, connect_at.elapsed().as_millis() as u64);
                                 // Inject the freshest keyframe for instant video start
@@ -1046,7 +1046,7 @@ async fn handle_webrtc_websocket(
                                 }
                                 info!("WebRTC session {} connected (DTLS complete), streaming started", session_id);
                             }
-                            webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState::Failed => {
+                            webrtc::peer_connection::RTCPeerConnectionState::Failed => {
                                 error!("WebRTC peer connection failed for session {}", session_id);
                                 let error_msg = WebRtcSignalingMessage::Error {
                                     message: "Peer connection failed".to_string(),
@@ -1056,8 +1056,8 @@ async fn handle_webrtc_websocket(
                                 }
                                 break;
                             }
-                            webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState::Disconnected
-                            | webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState::Closed => {
+                            webrtc::peer_connection::RTCPeerConnectionState::Disconnected
+                            | webrtc::peer_connection::RTCPeerConnectionState::Closed => {
                                 warn!("WebRTC session {} peer connection state: {:?}", session_id, state);
                                 let error_msg = WebRtcSignalingMessage::Error {
                                     message: format!("Peer connection {:?}", state),

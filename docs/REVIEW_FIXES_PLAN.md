@@ -52,9 +52,9 @@ These were review claims that turned out to be false positives. Leave them alone
    `protect(Feature::System)` at `src/routes/mod.rs:321`.
 4. **`repo::users::update` does not handle passwords** (only email/enabled), so only the
    create path needs hashing (Phase 1.1).
-5. **`src/streaming/webrtc/{engine,session}.rs`** ("native WebRTC Phase 2") are wired into
-   `AppState` but not used by the live WS path. Leave them in place — planned future work,
-   protected by the CLAUDE.md streaming guardrail.
+5. **`src/streaming/webrtc/{engine,session}.rs`** ("native WebRTC Phase 2") were wired into
+   `AppState` but never used by the live WS path. Removed in the webrtc 0.21 port (#165)
+   rather than ported; the live path is `src/streaming/live/webrtc.rs`.
 
 ---
 
@@ -422,8 +422,7 @@ existing max-page-size clamp instead. Update the OpenAPI annotation accordingly.
   `grep -rn 'webrtc_ffi' src/ tests/` to confirm nothing else references it; also check
   `Cargo.toml` for now-unused deps (`libloading`?) and remove them only if nothing else
   uses them (`cargo build` will confirm).
-- Do NOT touch `src/zm_shm.rs` (used by `service/monitor.rs`) or
-  `src/streaming/webrtc/` (planned native engine).
+- Do NOT touch `src/zm_shm.rs` (used by `service/monitor.rs`).
 
 ### 5.2 Initialize ffmpeg once at startup
 
