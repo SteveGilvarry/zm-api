@@ -98,6 +98,13 @@ RUN rm -f /usr/sbin/policy-rc.d \
          systemd systemd-sysv dbus ca-certificates curl gnupg jq procps iproute2 \
     && rm -rf /var/lib/apt/lists/*
 EOF
+      case "$distro" in
+        debian-*)
+          # The WebRTC browser check (lib.sh webrtc_plays). Debian's chromium
+          # is a real package; Ubuntu's is a snap stub that cannot run here.
+          echo "RUN apt-get update && apt-get install -y --no-install-recommends chromium && rm -rf /var/lib/apt/lists/*"
+          ;;
+      esac
       ;;
     rpm)
       if [[ "$distro" == opensuse-* ]]; then

@@ -1,0 +1,105 @@
+<!doctype html>
+<!--
+  Headless-browser peer for the install test: plays a monitor's live WebRTC
+  stream from zm-api and reports through the console, which chromium writes to
+  stderr with --enable-logging=stderr. lib.sh's webrtc_plays() reads the
+  E2E_WEBRTC_OK / E2E_WEBRTC_FAIL line.
+
+  Query: api=http://host:port  token=<access token>  mid=<monitor id>
+  Protocol: the server sends {type:"offer"} on connect; we answer, exchange
+  {type:"icecandidate"} (sdpMid / sdpMLineIndex camelCase), and wait for
+  decoded frames. Mirrors zm-web's webrtcManager.ts.
+-->
+<meta charset="utf-8">
+<title>zm-api WebRTC e2e</title>
+<video id="v" autoplay muted playsinline></video>
+<script>
+(() => {
+  const q = new URLSearchParams(location.search);
+  const api = q.get('api'), token = q.get('token'), mid = q.get('mid');
+  const deadlineMs = Number(q.get('deadline_ms') || 25000);
+  const needFrames = Number(q.get('frames') || 5);
+  const log = (m) => console.log(`E2E ${m}`);
+  const video = document.getElementById('v');
+  let pc = null, remoteReady = false, pending = [], finished = false;
+  let last = { state: 'new', ice: 'new', framesDecoded: 0, framesReceived: 0, bytes: 0, ready: false };
+
+  const finish = (ok, why) => {
+    if (finished) return;
+    finished = true;
+    const s = last;
+    log(`${ok ? 'E2E_WEBRTC_OK' : 'E2E_WEBRTC_FAIL'} ${why} connection=${s.state} ice=${s.ice} ` +
+        `framesDecoded=${s.framesDecoded} framesReceived=${s.framesReceived} bytesReceived=${s.bytes} ready=${s.ready}`);
+  };
+
+  if (!api || !token || !mid) { finish(false, 'missing api, token or mid'); return; }
+  const wsUrl = api.replace(/^http/, 'ws') + `/api/v3/live/${mid}/webrtc/ws?token=${encodeURIComponent(token)}`;
+  const ws = new WebSocket(wsUrl);
+  ws.onerror = () => finish(false, 'websocket error');
+  ws.onclose = (e) => { if (!finished) finish(false, `websocket closed code=${e.code}`); };
+
+  ws.onmessage = async (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    switch (msg.type) {
+      case 'offer': {
+        log(`offer session=${msg.session_id}`);
+        pc = new RTCPeerConnection({ iceServers: [] });
+        pc.ontrack = (t) => {
+          video.srcObject = t.streams[0] ?? new MediaStream([t.track]);
+          log(`track kind=${t.track.kind}`);
+        };
+        pc.onicecandidate = (e) => {
+          if (e.candidate && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'icecandidate', session_id: msg.session_id,
+              candidate: e.candidate.candidate, sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex,
+            }));
+          }
+        };
+        pc.onconnectionstatechange = () => { last.state = pc.connectionState; log(`connection=${pc.connectionState}`); };
+        pc.oniceconnectionstatechange = () => { last.ice = pc.iceConnectionState; };
+        try {
+          await pc.setRemoteDescription({ type: 'offer', sdp: msg.sdp });
+          remoteReady = true;
+          for (const c of pending) { try { await pc.addIceCandidate(c); } catch {} }
+          pending = [];
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          ws.send(JSON.stringify({ type: 'answer', session_id: msg.session_id, sdp: answer.sdp }));
+        } catch (err) {
+          finish(false, `negotiation: ${err && err.message}`);
+        }
+        break;
+      }
+      case 'icecandidate': {
+        const c = { candidate: msg.candidate, sdpMid: msg.sdpMid, sdpMLineIndex: msg.sdpMLineIndex };
+        if (remoteReady && pc) { try { await pc.addIceCandidate(c); } catch {} } else { pending.push(c); }
+        break;
+      }
+      case 'ready': last.ready = true; log(`ready has_audio=${msg.has_audio}`); break;
+      case 'error': finish(false, `server error: ${msg.message}`); break;
+      default: break;
+    }
+  };
+
+  const started = performance.now();
+  const poll = setInterval(async () => {
+    if (finished) { clearInterval(poll); return; }
+    if (pc) {
+      try {
+        const stats = await pc.getStats();
+        stats.forEach((r) => {
+          if (r.type === 'inbound-rtp' && (r.kind === 'video' || r.mediaType === 'video')) {
+            last.framesDecoded = r.framesDecoded || 0;
+            last.framesReceived = r.framesReceived || 0;
+            last.bytes = r.bytesReceived || 0;
+          }
+        });
+      } catch {}
+      if (last.framesDecoded >= needFrames) { clearInterval(poll); finish(true, `decoded ${last.framesDecoded} frames in ${Math.round(performance.now() - started)} ms`); return; }
+    }
+    if (performance.now() - started > deadlineMs) { clearInterval(poll); finish(false, `no ${needFrames} decoded frames within ${deadlineMs} ms`); }
+  }, 500);
+})();
+</script>

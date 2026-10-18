@@ -193,6 +193,26 @@ hls_has_segments() {
   return $rc
 }
 
+# Live WebRTC: a headless Chromium answers zm-api's offer over the signaling
+# WebSocket and must decode frames. Chromium's own WebRTC stack is the peer,
+# so this does not depend on the webrtc crate zm-api is built with. Debian
+# hosts only: Ubuntu's chromium package is a snap stub.
+has_chromium() { command -v chromium >/dev/null 2>&1; }
+webrtc_plays() {
+  local id log="$ARTIFACTS/webrtc-chromium.log"
+  id="$(monitor_id)"
+  local url="file:///e2e/webrtc/play.html?api=${API}&mid=${id}&token=${TOKEN}"
+  : >"$log"
+  timeout 60 chromium --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+    --autoplay-policy=no-user-gesture-required --enable-logging=stderr --v=0 \
+    --user-data-dir="$STATE/chromium" "$url" >/dev/null 2>>"$log" &
+  local pid=$!
+  wait_until 45 grep -q 'E2E_WEBRTC_' "$log"
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  note "$(grep -o 'E2E_WEBRTC_[A-Z]* .*' "$log" | head -1 || echo 'chromium printed no result')"
+  grep -q 'E2E_WEBRTC_OK' "$log"
+}
+
 # zm-api's own tables exist, which means its startup migrations ran.
 own_tables_exist() {
   [[ "$(db "SELECT COUNT(*) FROM information_schema.TABLES
