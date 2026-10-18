@@ -5717,12 +5717,12 @@
           {
             "name": "component",
             "in": "query",
-            "description": "Filter by component (e.g., 'zmc', 'zma', 'zmdc', 'web')",
+            "description": "Component name, or a comma list of them (e.g. 'zmc,zma')",
             "required": false,
             "schema": {
               "type": "string"
             },
-            "example": "zmc"
+            "example": "zmc,zma"
           },
           {
             "name": "min_level",
@@ -5884,7 +5884,7 @@
           {
             "name": "component",
             "in": "query",
-            "description": "Only clear logs from this component",
+            "description": "Only clear logs from this component, or a comma list of them",
             "required": false,
             "schema": {
               "type": "string"
@@ -22478,8 +22478,8 @@
               "string",
               "null"
             ],
-            "description": "Filter by component name (e.g., \"zmc\", \"zma\", \"zmdc\", \"web\")",
-            "example": "zmc"
+            "description": "Exact component name, or a comma list of them (`zmc,zma`).",
+            "example": "zmc,zma"
           },
           "end": {
             "type": [

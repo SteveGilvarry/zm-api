@@ -358,3 +358,56 @@ async fn unfiltered_total_is_opt_in() {
     assert_eq!(body["total"], 1);
     assert!(body["total_unfiltered"].as_u64().expect("a count") >= 1);
 }
+
+/// `component` takes a comma list on GET and DELETE (#186).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn component_takes_a_comma_list() {
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let rid = test_run_id();
+    let tag = &rid[rid.len().saturating_sub(10)..];
+    let (a, b, c) = (
+        format!("cla{tag}"),
+        format!("clb{tag}"),
+        format!("clc{tag}"),
+    );
+    let _ga = logs_guard(a.clone());
+    let _gb = logs_guard(b.clone());
+    let _gc = logs_guard(c.clone());
+    for comp in [&a, &b, &c] {
+        insert_log(&app.db, comp, 0, "list me", 0).await;
+    }
+
+    let list: PaginatedLogsResponse = app
+        .get(
+            &format!("/api/v3/logs?component={a},{b}&page_size=100"),
+            &token,
+        )
+        .await
+        .json();
+    let mut comps: Vec<String> = list.items.iter().map(|l| l.component.clone()).collect();
+    comps.sort();
+    assert_eq!(comps, vec![a.clone(), b.clone()]);
+
+    let del = app
+        .request(Method::DELETE, &format!("/api/v3/logs?component={a},{b}"))
+        .bearer(&token)
+        .send()
+        .await;
+    assert_eq!(del.status(), StatusCode::OK, "{}", del.text());
+    let db = get_test_db().await.expect("db");
+    let left: Vec<String> = zm_api::entity::logs::Entity::find()
+        .filter(zm_api::entity::logs::Column::Component.is_in([a.as_str(), b.as_str(), c.as_str()]))
+        .all(&db)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|l| l.component)
+        .collect();
+    assert_eq!(
+        left,
+        vec![c.clone()],
+        "only the unselected component is left"
+    );
+}

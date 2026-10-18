@@ -101,8 +101,8 @@ pub struct LogQueryParams {
     #[garde(range(min = 1, max = 1000))]
     pub page_size: Option<u64>,
 
-    /// Filter by component name (e.g., "zmc", "zma", "zmdc", "web")
-    #[schema(example = "zmc")]
+    /// Exact component name, or a comma list of them (`zmc,zma`).
+    #[schema(example = "zmc,zma")]
     #[garde(skip)]
     pub component: Option<String>,
 

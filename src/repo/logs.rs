@@ -5,7 +5,8 @@ use sea_orm::*;
 /// Query options for filtering logs.
 #[derive(Debug, Default, Clone)]
 pub struct LogQueryOptions {
-    pub component: Option<String>,
+    /// Exact `Component` match against any of these.
+    pub components: Option<Vec<String>>,
     /// Exact `Level` match against any of these.
     pub levels: Option<Vec<i8>>,
     /// Only these row ids.
@@ -34,8 +35,8 @@ impl LogQueryOptions {
         use rust_decimal::Decimal;
 
         let mut cond = Condition::all();
-        if let Some(ref component) = self.component {
-            cond = cond.add(logs::Column::Component.eq(component.clone()));
+        if let Some(ref components) = self.components {
+            cond = cond.add(logs::Column::Component.is_in(components.iter().cloned()));
         }
         if let Some(ref levels) = self.levels {
             cond = cond.add(logs::Column::Level.is_in(levels.iter().copied()));
