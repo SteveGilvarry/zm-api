@@ -11,6 +11,11 @@
 # (zm-api) — %{appname} carries that everywhere paths/files are referenced.
 %global appname zm-api
 
+# Rust debuginfo refers to cargo's registry and the build tree, so
+# find-debuginfo leaves debugsourcefiles.list empty and rpm on EL9 fails the
+# build on it ("Empty %files file"). The debuginfo subpackage is unaffected.
+%undefine _debugsource_packages
+
 Name:           zm-api
 Version:        3.0.0
 # Pre-release ordering: 0.N.prerel sorts before the stable release.

@@ -317,7 +317,8 @@ pub struct CreateMonitorRequest {
     #[garde(skip)]
     pub recording_source: RecordingSource,
 
-    #[garde(skip)] // Option<u8> can be None
+    /// Accepted and ignored: ZoneMinder 1.39.37 removed `RTSPDescribe`.
+    #[garde(skip)]
     pub rtsp_describe: Option<u8>,
 
     // -1 is ZoneMinder's "leave the camera setting alone" sentinel (GH #19).
@@ -908,6 +909,7 @@ pub struct UpdateMonitorRequest {
     #[garde(skip)]
     pub recording_source: Option<RecordingSource>,
 
+    /// Accepted and ignored: ZoneMinder 1.39.37 removed `RTSPDescribe`.
     #[garde(skip)]
     pub rtsp_describe: Option<u8>,
 

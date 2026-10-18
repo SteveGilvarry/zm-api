@@ -161,6 +161,19 @@ recognisable path forward.
 
 ### Fixed
 
+- **`GET /monitors` and `GET /monitors/{id}` work on ZoneMinder 1.39.37 and
+  later.** Upstream dropped `Monitors.RTSPDescribe` (the install tests against
+  master caught it as a 500: `Unknown column 'Monitors.RTSPDescribe'`). The
+  column is gone from the entity; `rtsp_describe` stays in the request and
+  response bodies, ignored on the way in and always `null` on the way out, so
+  existing clients keep working. Reported by zm-holodeck's review as well.
+- **The Arch package depends on `ffmpeg`.** The binary links the FFmpeg
+  libraries, and pacman has no automatic shared-library dependencies, so on a
+  host without FFmpeg the service failed to start with "libavutil.so.61:
+  cannot open shared object file".
+- **The RPM builds on EL9.** The debugsource subpackage was always empty for a
+  Rust binary, which rpm on Rocky 9 treats as a build error; it is no longer
+  generated.
 - **The package now runs zm-api as ZoneMinder's own account, and the previous
   fixed `zoneminder` account is gone from the unit.** ZoneMinder's daemons run
   as the web server's user (`www-data`, `apache`, `wwwrun`, `http`, by

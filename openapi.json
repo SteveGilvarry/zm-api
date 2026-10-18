@@ -18261,6 +18261,7 @@
               "null"
             ],
             "format": "int32",
+            "description": "Accepted and ignored: ZoneMinder 1.39.37 removed `RTSPDescribe`.",
             "minimum": 0
           },
           "rtsp_server": {
@@ -22330,6 +22331,7 @@
               "null"
             ],
             "format": "int32",
+            "description": "Always `null`: ZoneMinder 1.39.37 removed `RTSPDescribe`.",
             "minimum": 0
           },
           "rtsp_server": {
@@ -28372,6 +28374,7 @@
               "null"
             ],
             "format": "int32",
+            "description": "Accepted and ignored: ZoneMinder 1.39.37 removed `RTSPDescribe`.",
             "minimum": 0
           },
           "rtsp_server": {

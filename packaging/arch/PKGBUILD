@@ -14,7 +14,9 @@ arch=('x86_64' 'aarch64')
 url="https://github.com/SteveGilvarry/zm-api"
 license=('AGPL-3.0-or-later')
 # procps-ng: pgrep, used by zm-api-takeover.
-depends=('openssl' 'systemd-libs' 'procps-ng')
+# ffmpeg: the binary links libav* at the version it was built against, and
+# pacman has no automatic soname dependencies.
+depends=('ffmpeg' 'openssl' 'systemd-libs' 'procps-ng')
 makedepends=('cargo' 'clang')
 # Arch enables LTO by default, which breaks ring's symbols in the sqlx_macros
 # proc-macro dylib ("undefined symbol: ring_core_*_x25519_sc_mask"). Disable it.

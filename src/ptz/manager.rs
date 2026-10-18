@@ -634,7 +634,6 @@ mod tests {
             wall_clock_timestamps: 0,
             record_audio: 0,
             recording_source: RecordingSource::Primary,
-            rtsp_describe: None,
             brightness: None,
             contrast: None,
             hue: None,
