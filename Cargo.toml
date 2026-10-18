@@ -127,14 +127,10 @@ tower-http = { version = "0.7", features = [
 tower_governor = "0.8"
 
 # WebRTC native implementation
-webrtc = "0.17"
-webrtc-util = "0.17"
-interceptor = "0.17"
-webrtc-media = "0.17"
-# Self-signed DTLS certificate generation. Pinned to the same version webrtc
-# 0.17 uses transitively so `RTCCertificate::from_key_pair` accepts our KeyPair;
-# lets us generate one cert at startup and reuse it across all peer connections.
-rcgen = "0.13"
+webrtc = "0.21"
+# Sans-I/O protocol core under webrtc 0.21: media samples, track and codec
+# types. Keep it on the same minor as webrtc so the types unify.
+rtc = "0.21"
 
 # RTSP client for stream sources
 retina = "0.4"

@@ -1,37 +1,33 @@
 //! WebRTC live streaming from per-monitor stream-socket sources
 //!
-//! This module provides WebRTC streaming using the webrtc-rs crate.
-//! It uses `TrackLocalStaticSample` which handles RTP packetization,
-//! SRTP encryption, and interceptor integration automatically via
-//! `write_sample()`.
+//! This module provides WebRTC streaming using the webrtc-rs crate (0.21,
+//! an async layer over the Sans-I/O `rtc` core). It uses
+//! `TrackLocalStaticSample`, which handles RTP packetization, SRTP
+//! encryption and interceptor integration via `write_sample()`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
-use interceptor::registry::Registry;
+use rtc::media::Sample;
+use rtc::media_stream::MediaStreamTrack;
+use rtc::rtp_transceiver::rtp_sender::{
+    RTCRtpCodec, RTCRtpCodecParameters, RTCRtpCodingParameters, RTCRtpEncodingParameters,
+    RtpCodecKind,
+};
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 use uuid::Uuid;
-use webrtc::api::interceptor_registry::register_default_interceptors;
-use webrtc::api::media_engine::MediaEngine;
-use webrtc::api::setting_engine::SettingEngine;
-use webrtc::api::APIBuilder;
-use webrtc::dtls_transport::dtls_transport_state::RTCDtlsTransportState;
-use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
-use webrtc::ice_transport::ice_connection_state::RTCIceConnectionState;
-use webrtc::ice_transport::ice_server::RTCIceServer;
-use webrtc::peer_connection::configuration::RTCConfiguration;
-use webrtc::peer_connection::peer_connection_state::RTCPeerConnectionState;
-use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
-use webrtc::peer_connection::RTCPeerConnection;
-use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
-use webrtc::rtp_transceiver::rtp_transceiver_direction::RTCRtpTransceiverDirection;
-use webrtc::rtp_transceiver::RTCRtpTransceiverInit;
-use webrtc::track::track_local::track_local_static_sample::TrackLocalStaticSample;
-use webrtc::track::track_local::TrackLocal;
-use webrtc_media::Sample;
+use webrtc::media_stream::track_local::static_sample::TrackLocalStaticSample;
+use webrtc::media_stream::track_local::TrackLocal;
+use webrtc::peer_connection::{
+    register_default_interceptors, MediaEngine, PeerConnection, PeerConnectionBuilder,
+    PeerConnectionEventHandler, RTCConfigurationBuilder, RTCIceCandidateInit,
+    RTCIceConnectionState, RTCIceServer, RTCPeerConnectionIceEvent, RTCPeerConnectionState,
+    RTCSessionDescription, Registry, SettingEngineBuilder,
+};
+use webrtc::rtp_transceiver::{RTCRtpTransceiverDirection, RTCRtpTransceiverInit, RtpSender};
 
 use crate::streaming::source::{
     h264_nal_type, h265_nal_type, slice_starts_picture, VideoCodec, VideoPacket,
@@ -269,23 +265,23 @@ pub enum AudioTrackKind {
 }
 
 impl AudioTrackKind {
-    fn capability(&self) -> RTCRtpCodecCapability {
+    fn capability(&self) -> RTCRtpCodec {
         match self {
-            AudioTrackKind::Pcmu => RTCRtpCodecCapability {
+            AudioTrackKind::Pcmu => RTCRtpCodec {
                 mime_type: "audio/PCMU".to_string(),
                 clock_rate: 8000,
                 channels: 1,
                 sdp_fmtp_line: String::new(),
                 rtcp_feedback: vec![],
             },
-            AudioTrackKind::Pcma => RTCRtpCodecCapability {
+            AudioTrackKind::Pcma => RTCRtpCodec {
                 mime_type: "audio/PCMA".to_string(),
                 clock_rate: 8000,
                 channels: 1,
                 sdp_fmtp_line: String::new(),
                 rtcp_feedback: vec![],
             },
-            AudioTrackKind::Opus => RTCRtpCodecCapability {
+            AudioTrackKind::Opus => RTCRtpCodec {
                 mime_type: "audio/opus".to_string(),
                 clock_rate: 48000,
                 channels: 2,
@@ -330,16 +326,120 @@ pub struct WebRtcSessionStats {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// One outgoing media track and what `write_sample` needs to address it.
+///
+/// webrtc 0.21 stamps each packet with an explicit SSRC and payload type
+/// instead of binding a codec by mime type. The SSRC is chosen when the track
+/// is built; the payload type is the one the browser's answer settled on, read
+/// from the sender once the answer is applied.
+pub struct SendTrack {
+    pub track: Arc<TrackLocalStaticSample>,
+    sender: Arc<dyn RtpSender>,
+    ssrc: u32,
+    payload_type: OnceLock<u8>,
+}
+
+impl SendTrack {
+    /// Build a single-encoding sendonly track and attach it to `pc`.
+    async fn attach(
+        pc: &Arc<dyn PeerConnection>,
+        kind: RtpCodecKind,
+        codec: RTCRtpCodec,
+        track_id: &str,
+        stream_id: &str,
+    ) -> Result<Self, WebRtcLiveError> {
+        let ssrc = rand::random::<u32>();
+        let track = Arc::new(
+            TrackLocalStaticSample::new(
+                Instant::now(),
+                MediaStreamTrack::new(
+                    stream_id.to_string(),
+                    track_id.to_string(),
+                    track_id.to_string(),
+                    kind,
+                    vec![RTCRtpEncodingParameters {
+                        rtp_coding_parameters: RTCRtpCodingParameters {
+                            ssrc: Some(ssrc),
+                            ..Default::default()
+                        },
+                        codec,
+                        ..Default::default()
+                    }],
+                ),
+            )
+            .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?,
+        );
+        let transceiver = pc
+            .add_transceiver_from_track(
+                Arc::clone(&track) as Arc<dyn TrackLocal>,
+                Some(RTCRtpTransceiverInit {
+                    direction: RTCRtpTransceiverDirection::Sendonly,
+                    ..Default::default()
+                }),
+            )
+            .await
+            .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
+        let sender = transceiver
+            .sender()
+            .await
+            .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?
+            .ok_or_else(|| {
+                WebRtcLiveError::WebRtcError("sendonly transceiver has no sender".to_string())
+            })?;
+        Ok(Self {
+            track,
+            sender,
+            ssrc,
+            payload_type: OnceLock::new(),
+        })
+    }
+
+    /// Record the payload type the answer negotiated for this sender. The
+    /// first codec in the sender's parameters is the one the browser chose.
+    async fn resolve_payload_type(&self) -> Result<(), WebRtcLiveError> {
+        let params = self
+            .sender
+            .get_parameters()
+            .await
+            .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
+        let pt = params
+            .rtp_parameters
+            .codecs
+            .first()
+            .map(|c| c.payload_type)
+            .ok_or_else(|| {
+                WebRtcLiveError::WebRtcError("answer negotiated no codec for track".to_string())
+            })?;
+        let _ = self.payload_type.set(pt);
+        Ok(())
+    }
+
+    async fn write(&self, data: &[u8], duration: Duration) -> Result<(), String> {
+        let Some(&pt) = self.payload_type.get() else {
+            return Err("no negotiated payload type (answer not applied)".to_string());
+        };
+        let sample = Sample {
+            data: bytes::Bytes::copy_from_slice(data),
+            duration,
+            ..Sample::new(Instant::now())
+        };
+        self.track
+            .write_sample(self.ssrc, pt, &sample, &[])
+            .await
+            .map_err(|e| e.to_string())
+    }
+}
+
 /// A WebRTC streaming session
 pub struct WebRtcLiveSession {
     pub id: Uuid,
     pub monitor_id: u32,
     pub state: RwLock<WebRtcSessionState>,
-    pub peer_connection: Arc<RTCPeerConnection>,
-    pub video_track: Arc<TrackLocalStaticSample>,
+    pub peer_connection: Arc<dyn PeerConnection>,
+    pub video_track: SendTrack,
     /// Audio track — present when the monitor delivers audio the session
     /// can carry (G.711 pass-through or transcoded Opus)
-    pub audio_track: Option<Arc<TrackLocalStaticSample>>,
+    pub audio_track: Option<SendTrack>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     packets_sent: AtomicU64,
     bytes_sent: AtomicU64,
@@ -385,14 +485,8 @@ impl WebRtcLiveSession {
         // ~30fps default; the packetizer uses duration to compute RTP timestamps
         let duration = Duration::from_millis(33);
 
-        let sample = Sample {
-            data: bytes::Bytes::copy_from_slice(&au.data),
-            duration,
-            ..Default::default()
-        };
-
         self.video_track
-            .write_sample(&sample)
+            .write(&au.data, duration)
             .await
             .map_err(|e| WebRtcLiveError::WebRtcError(format!("Failed to write sample: {}", e)))?;
 
@@ -417,13 +511,7 @@ impl WebRtcLiveSession {
             return Ok(());
         }
 
-        let sample = Sample {
-            data: bytes::Bytes::copy_from_slice(data),
-            duration,
-            ..Default::default()
-        };
-
-        track.write_sample(&sample).await.map_err(|e| {
+        track.write(data, duration).await.map_err(|e| {
             WebRtcLiveError::WebRtcError(format!("Failed to write audio sample: {}", e))
         })?;
 
@@ -503,6 +591,73 @@ impl WebRtcLiveConfig {
             turn_username,
             turn_password,
             max_sessions: cfg.max_connections as usize,
+        }
+    }
+}
+
+/// The UDP wildcards each peer connection binds: IPv4 always, IPv6 when the
+/// host can open an IPv6 socket.
+///
+/// A failed bind fails the whole peer connection in webrtc 0.21, and hosts
+/// and containers with IPv6 switched off reject `[::]`, so IPv6 is probed
+/// once rather than assumed.
+fn udp_bind_addrs() -> Vec<String> {
+    static IPV6: OnceLock<bool> = OnceLock::new();
+    let ipv6 = *IPV6.get_or_init(|| std::net::UdpSocket::bind("[::]:0").is_ok());
+    let mut addrs = vec!["0.0.0.0:0".to_string()];
+    if ipv6 {
+        addrs.push("[::]:0".to_string());
+    }
+    addrs
+}
+
+/// Relays peer-connection events to the signaling handler's channels.
+struct LiveEventHandler {
+    monitor_id: u32,
+    pc_state_tx: tokio::sync::watch::Sender<RTCPeerConnectionState>,
+    ice_connected_tx: tokio::sync::watch::Sender<bool>,
+    candidate_tx: tokio::sync::mpsc::UnboundedSender<RTCIceCandidateInit>,
+}
+
+#[async_trait::async_trait]
+impl PeerConnectionEventHandler for LiveEventHandler {
+    async fn on_connection_state_change(&self, state: RTCPeerConnectionState) {
+        info!(
+            monitor_id = self.monitor_id,
+            state = ?state,
+            "WebRTC peer connection state changed"
+        );
+        let _ = self.pc_state_tx.send(state);
+    }
+
+    async fn on_ice_connection_state_change(&self, state: RTCIceConnectionState) {
+        info!(
+            monitor_id = self.monitor_id,
+            state = ?state,
+            "WebRTC ICE connection state changed"
+        );
+        // Mark ICE connected so the handler can time the ICE→DTLS split.
+        // DTLS can only start once a candidate pair is usable, so this is
+        // the lower bound of the offer→connected gap.
+        if matches!(
+            state,
+            RTCIceConnectionState::Connected | RTCIceConnectionState::Completed
+        ) {
+            let _ = self.ice_connected_tx.send(true);
+        }
+    }
+
+    async fn on_ice_candidate(&self, event: RTCPeerConnectionIceEvent) {
+        match event.candidate.to_json() {
+            Ok(init) => {
+                let _ = self.candidate_tx.send(init);
+            }
+            Err(e) => {
+                debug!(
+                    "monitor {}: failed to serialize ICE candidate: {e}",
+                    self.monitor_id
+                );
+            }
         }
     }
 }
@@ -623,7 +778,7 @@ impl WebRtcLiveManager {
         // Build the codec capabilities to advertise. For H.264 the offer
         // advertises browser-universal pass-through profiles, *not* the
         // camera's native one — see `h264_offer_profile_level_ids`.
-        let codec_capabilities: Vec<RTCRtpCodecCapability> = match codec {
+        let codec_capabilities: Vec<RTCRtpCodec> = match codec {
             VideoCodec::H264 => {
                 debug!(
                     "Monitor {monitor_id}: camera H.264 profile {}; advertising \
@@ -632,7 +787,7 @@ impl WebRtcLiveManager {
                 );
                 h264_offer_profile_level_ids()
                     .into_iter()
-                    .map(|variant| RTCRtpCodecCapability {
+                    .map(|variant| RTCRtpCodec {
                         mime_type: "video/H264".to_string(),
                         clock_rate: 90000,
                         channels: 0,
@@ -651,7 +806,7 @@ impl WebRtcLiveManager {
             // decoders handle the camera's true level regardless. Adjust
             // against Safari's actual answer when the browser test loop
             // exists (HEVC_WEBRTC_TASKS §1.3).
-            VideoCodec::H265 => vec![RTCRtpCodecCapability {
+            VideoCodec::H265 => vec![RTCRtpCodec {
                 mime_type: "video/H265".to_string(),
                 clock_rate: 90000,
                 channels: 0,
@@ -673,12 +828,11 @@ impl WebRtcLiveManager {
         for (i, capability) in codec_capabilities.into_iter().enumerate() {
             media_engine
                 .register_codec(
-                    webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecParameters {
-                        capability,
+                    RTCRtpCodecParameters {
+                        rtp_codec: capability,
                         payload_type: 96 + i as u8,
-                        ..Default::default()
                     },
-                    webrtc::rtp_transceiver::rtp_codec::RTPCodecType::Video,
+                    RtpCodecKind::Video,
                 )
                 .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
         }
@@ -687,35 +841,27 @@ impl WebRtcLiveManager {
         if let Some(kind) = audio {
             media_engine
                 .register_codec(
-                    webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecParameters {
-                        capability: kind.capability(),
+                    RTCRtpCodecParameters {
+                        rtp_codec: kind.capability(),
                         payload_type: kind.payload_type(),
-                        ..Default::default()
                     },
-                    webrtc::rtp_transceiver::rtp_codec::RTPCodecType::Audio,
+                    RtpCodecKind::Audio,
                 )
                 .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
         }
 
         // Register default interceptors (RTCP feedback, NACK, etc.)
-        let mut registry = Registry::new();
-        registry = register_default_interceptors(registry, &mut media_engine)
+        let registry = register_default_interceptors(Registry::new(), &mut media_engine)
             .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
 
-        // Configure ICE/DTLS settings
-        let mut setting_engine = SettingEngine::default();
-        setting_engine.set_lite(false);
-        setting_engine.set_ice_timeouts(
-            Some(std::time::Duration::from_secs(5)),
-            Some(std::time::Duration::from_secs(10)),
-            Some(std::time::Duration::from_millis(200)),
-        );
-
-        // Build API with full interceptor + settings stack
-        let api = APIBuilder::new()
-            .with_media_engine(media_engine)
-            .with_interceptor_registry(registry)
-            .with_setting_engine(setting_engine)
+        // Configure ICE settings
+        let setting_engine = SettingEngineBuilder::new()
+            .with_lite(false)
+            .with_ice_timeouts(
+                Some(Duration::from_secs(5)),
+                Some(Duration::from_secs(10)),
+                Some(Duration::from_millis(200)),
+            )
             .build();
 
         // Create ICE servers configuration
@@ -736,156 +882,76 @@ impl WebRtcLiveManager {
             });
         }
 
-        let rtc_config = RTCConfiguration {
-            ice_servers,
-            ..Default::default()
-        };
-
-        // Create peer connection
-        let peer_connection = api
-            .new_peer_connection(rtc_config)
-            .await
-            .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
+        let rtc_config = RTCConfigurationBuilder::new()
+            .with_ice_servers(ice_servers)
+            .build();
 
         // Watch channel for peer connection state — lets the handler wait for
         // DTLS completion ("connected" state) before streaming media.
-        // Wrapped in Arc because both the peer connection state callback and
-        // the DTLS transport state callback need to send on it.
         let (pc_state_tx, pc_state_rx) = tokio::sync::watch::channel(RTCPeerConnectionState::New);
-        let pc_state_tx = Arc::new(pc_state_tx);
 
         // Separate watch for ICE-connected, so the handler can split the
         // ICE-connect cost from the DTLS-handshake cost (offer→ice_connected vs
         // ice_connected→connected). Flips `true` once and stays.
         let (ice_connected_tx, ice_connected_rx) = tokio::sync::watch::channel(false);
 
-        // Register connection state callbacks for diagnostics + state channel
-        let tx_for_pc = Arc::clone(&pc_state_tx);
-        let pc_monitor_id = monitor_id;
-        peer_connection.on_peer_connection_state_change(Box::new(move |state| {
-            info!(
-                monitor_id = pc_monitor_id,
-                state = ?state,
-                "WebRTC peer connection state changed"
-            );
-            let _ = tx_for_pc.send(state);
-            Box::pin(async move {})
-        }));
-
-        // Workaround for webrtc-rs 0.12 bug: the library does NOT register a
-        // DTLS transport state change callback to update the aggregate peer
-        // connection state. When DTLS completes after ICE, the peer connection
-        // state stays at Connecting forever. We register our own DTLS callback
-        // and synthesize the Connected state (DTLS Connected implies ICE is
-        // already connected since DTLS runs over ICE).
-        let tx_for_dtls = Arc::clone(&pc_state_tx);
-        let dtls_monitor_id = monitor_id;
-        peer_connection
-            .dtls_transport()
-            .on_state_change(Box::new(move |state| {
-                info!(
-                    monitor_id = dtls_monitor_id,
-                    state = ?state,
-                    "WebRTC DTLS transport state changed"
-                );
-                match state {
-                    RTCDtlsTransportState::Connected => {
-                        let _ = tx_for_dtls.send(RTCPeerConnectionState::Connected);
-                    }
-                    RTCDtlsTransportState::Failed => {
-                        let _ = tx_for_dtls.send(RTCPeerConnectionState::Failed);
-                    }
-                    _ => {}
-                }
-                Box::pin(async move {})
-            }));
-
-        let ice_monitor_id = monitor_id;
-        let ice_tx = ice_connected_tx.clone();
-        peer_connection.on_ice_connection_state_change(Box::new(move |state| {
-            info!(
-                monitor_id = ice_monitor_id,
-                state = ?state,
-                "WebRTC ICE connection state changed"
-            );
-            // Mark ICE connected so the handler can time the ICE→DTLS split.
-            // DTLS can only start once a candidate pair is usable, so this is
-            // the lower bound of the offer→connected gap.
-            if matches!(
-                state,
-                RTCIceConnectionState::Connected | RTCIceConnectionState::Completed
-            ) {
-                let _ = ice_tx.send(true);
-            }
-            Box::pin(async move {})
-        }));
-
-        // Trickle ICE: forward each locally-gathered candidate to the handler,
-        // which relays it to the browser over the signaling channel. Registered
-        // before `set_local_description` (which starts gathering) so no early
-        // candidate is missed. The browser already trickles its candidates back.
+        // Trickle ICE: the event handler forwards each locally-gathered
+        // candidate to the signaling handler, which relays it to the browser.
+        // The handler is installed at build time, before
+        // `set_local_description` starts gathering, so no early candidate is
+        // missed. The browser already trickles its candidates back.
         let (candidate_tx, candidate_rx) =
             tokio::sync::mpsc::unbounded_channel::<RTCIceCandidateInit>();
-        let cand_monitor_id = monitor_id;
-        peer_connection.on_ice_candidate(Box::new(move |candidate| {
-            let candidate_tx = candidate_tx.clone();
-            Box::pin(async move {
-                // `None` signals end-of-candidates; nothing to relay.
-                if let Some(c) = candidate {
-                    match c.to_json() {
-                        Ok(init) => {
-                            let _ = candidate_tx.send(init);
-                        }
-                        Err(e) => {
-                            debug!(
-                                "monitor {cand_monitor_id}: failed to serialize ICE candidate: {e}"
-                            );
-                        }
-                    }
-                }
-            })
-        }));
 
-        // Create video track using TrackLocalStaticSample which handles
-        // RTP packetization, SRTP, and interceptors automatically
-        let video_track = Arc::new(TrackLocalStaticSample::new(
+        let events = Arc::new(LiveEventHandler {
+            monitor_id,
+            pc_state_tx,
+            ice_connected_tx,
+            candidate_tx,
+        });
+
+        // Each wildcard binds one UDP socket per non-loopback interface of
+        // its family, which is what yields usable host candidates.
+        let peer_connection: Arc<dyn PeerConnection> = Arc::new(
+            PeerConnectionBuilder::new()
+                .with_configuration(rtc_config)
+                .with_media_engine(media_engine)
+                .with_interceptor_registry(registry)
+                .with_setting_engine(setting_engine)
+                .with_handler(events)
+                .with_udp_addrs(udp_bind_addrs())
+                .build()
+                .await
+                .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?,
+        );
+
+        let stream_id = format!("zm-live-{}", monitor_id);
+
+        // Video track (sendonly; one-way surveillance stream). The
+        // pass-through track packetizes by mime type, so any advertised
+        // capability works; the first is used.
+        let video_track = SendTrack::attach(
+            &peer_connection,
+            RtpCodecKind::Video,
             codec_capability,
-            "video".to_string(),
-            format!("zm-live-{}", monitor_id),
-        ));
-
-        // Add track with sendonly direction (one-way surveillance stream)
-        peer_connection
-            .add_transceiver_from_track(
-                Arc::clone(&video_track) as Arc<dyn TrackLocal + Send + Sync>,
-                Some(RTCRtpTransceiverInit {
-                    direction: RTCRtpTransceiverDirection::Sendonly,
-                    send_encodings: vec![],
-                }),
-            )
-            .await
-            .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
+            "video",
+            &stream_id,
+        )
+        .await?;
 
         // Audio track (sendonly), when the monitor has audio
-        let audio_track = if let Some(kind) = audio {
-            let track = Arc::new(TrackLocalStaticSample::new(
-                kind.capability(),
-                "audio".to_string(),
-                format!("zm-live-{}", monitor_id),
-            ));
-            peer_connection
-                .add_transceiver_from_track(
-                    Arc::clone(&track) as Arc<dyn TrackLocal + Send + Sync>,
-                    Some(RTCRtpTransceiverInit {
-                        direction: RTCRtpTransceiverDirection::Sendonly,
-                        send_encodings: vec![],
-                    }),
+        let audio_track = match audio {
+            Some(kind) => Some(
+                SendTrack::attach(
+                    &peer_connection,
+                    RtpCodecKind::Audio,
+                    kind.capability(),
+                    "audio",
+                    &stream_id,
                 )
-                .await
-                .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
-            Some(track)
-        } else {
-            None
+                .await?,
+            ),
+            None => None,
         };
 
         // Create offer
@@ -932,7 +998,7 @@ impl WebRtcLiveManager {
             id: session_id,
             monitor_id,
             state: RwLock::new(WebRtcSessionState::New),
-            peer_connection: Arc::new(peer_connection),
+            peer_connection,
             video_track,
             audio_track,
             created_at: chrono::Utc::now(),
@@ -982,6 +1048,12 @@ impl WebRtcLiveManager {
             .await
             .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
 
+        // The answer fixes each sender's payload type; samples need it.
+        session.video_track.resolve_payload_type().await?;
+        if let Some(audio) = &session.audio_track {
+            audio.resolve_payload_type().await?;
+        }
+
         // Update state to connecting
         session.set_state(WebRtcSessionState::Connecting).await;
 
@@ -1008,7 +1080,7 @@ impl WebRtcLiveManager {
             candidate: candidate.to_string(),
             sdp_mid,
             sdp_mline_index,
-            username_fragment: None,
+            ..Default::default()
         };
 
         session
@@ -1285,6 +1357,14 @@ mod tests {
             "trickled value is an ICE candidate line; got: {}",
             cand.candidate
         );
+    }
+
+    #[test]
+    fn udp_bind_addrs_always_binds_ipv4_and_ipv6_only_when_available() {
+        let addrs = udp_bind_addrs();
+        assert_eq!(addrs[0], "0.0.0.0:0");
+        let ipv6 = std::net::UdpSocket::bind("[::]:0").is_ok();
+        assert_eq!(addrs.contains(&"[::]:0".to_string()), ipv6);
     }
 
     // --- AccessUnitAssembler tests ---

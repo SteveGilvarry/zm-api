@@ -471,6 +471,10 @@ recognisable path forward.
 
 ### Removed
 
+- The unused "native WebRTC" engine and session manager
+  (`src/streaming/webrtc/`). `AppState` built them at startup, but no
+  handler used them; live WebRTC has always gone through
+  `src/streaming/live/webrtc.rs`.
 - `frame_skip` from the monitor create/update requests and response:
   upstream dropped `Monitors.FrameSkip` in 1.39.24. `motion_frame_skip`
   remains. `User_Preferences.Name` is required on create (NOT NULL and unique
@@ -535,8 +539,17 @@ recognisable path forward.
   11, base64 0.23, tower-http 0.7, garde 0.23, sentry 0.49, jemalloc 0.7,
   itertools 0.15, tokio-tungstenite 0.30 and axum-test 21. The unused mockall
   and rstest dev-dependencies and the unused direct rand_core dependency are
-  gone. Not moved: webrtc 0.17 (0.20 rewrote the crate on a new core, #165)
-  and rcgen 0.13, which webrtc 0.17 requires.
+  gone.
+- **webrtc 0.17 → 0.21** (#165). 0.20 rebuilt the crate as an async layer
+  over a Sans-I/O core (`rtc`), so the live WebRTC session was rewritten
+  against it: peer connections come from `PeerConnectionBuilder`, events
+  arrive through one `PeerConnectionEventHandler` instead of per-event
+  closures, and each track writes samples with its own SSRC and the payload
+  type the browser's answer negotiated. Host candidates now come from one UDP
+  socket per interface, IPv4 always and IPv6 when the host can open an IPv6
+  socket. The 0.12-era workaround that synthesised "connected" from the DTLS
+  transport state is gone. The interceptor, webrtc-media, webrtc-util and
+  rcgen dependencies are dropped. The signaling protocol is unchanged.
 - **The crate declares `rust-version = "1.94"`**, which sea-orm 2 and sqlx 0.9
   need. Debian, Ubuntu, Arch and openSUSE builds already use a toolchain at
   or past it. EL9's rust-toolset is 1.92, so the RPM builder for Rocky now
