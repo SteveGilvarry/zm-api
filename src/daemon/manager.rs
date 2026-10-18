@@ -3935,9 +3935,11 @@ mod tests {
         let max = Duration::from_secs(30);
         let dir = tempfile::tempdir().unwrap();
         let write_segment = |heartbeat_age: u64| {
-            // SharedData: `valid` at +92, `heartbeat_time` at +128; the file
-            // must be at least SharedData + TriggerData long.
+            // SharedData: `size` at +0, `valid` at +92, `heartbeat_time` at
+            // +128; then TriggerData with its `size`, as zmc writes them.
             let mut bytes = vec![0u8; 872 + 560];
+            bytes[0..4].copy_from_slice(&872u32.to_ne_bytes());
+            bytes[872..876].copy_from_slice(&560u32.to_ne_bytes());
             bytes[92] = 1;
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)

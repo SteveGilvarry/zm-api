@@ -256,6 +256,39 @@ async fn set_config(conn: &DatabaseConnection, name: &str, value: &str) -> Resul
     Ok(())
 }
 
+/// Whether a version Config row holding `current` should be raised to
+/// `target`: when it is missing, empty or lower. Never lowers it.
+fn should_raise_version(current: Option<&str>, target: &str) -> bool {
+    match current.map(str::trim) {
+        None | Some("") => true,
+        Some(c) => version_lt(c, target),
+    }
+}
+
+/// Set a ZoneMinder version Config row to `target` unless it already holds
+/// that version or a newer one.
+async fn raise_config_version(
+    conn: &DatabaseConnection,
+    name: &str,
+    target: &str,
+) -> Result<(), DbErr> {
+    let current = scalar(
+        conn,
+        "SELECT Value FROM Config WHERE Name = ?",
+        vec![name.into()],
+    )
+    .await?;
+    if should_raise_version(current.as_deref(), target) {
+        set_config(conn, name, target).await
+    } else {
+        info!(
+            "{name} is {} (newer than {target}); leaving it",
+            current.as_deref().unwrap_or_default()
+        );
+        Ok(())
+    }
+}
+
 /// Run the full bridge. Errors are surfaced verbatim from the failing
 /// statement so the operator can see exactly which legacy patch broke.
 pub async fn run(conn: &DatabaseConnection) -> Result<(), DbErr> {
@@ -336,8 +369,12 @@ async fn run_locked(conn: &DatabaseConnection) -> Result<(), DbErr> {
     // The database now embodies the baseline and every mirrored update.
     super::stamp::record_through_version(conn, chain::CUTOVER_ZM_VERSION).await?;
 
-    set_config(conn, "ZM_DYN_DB_VERSION", chain::CUTOVER_ZM_VERSION).await?;
-    set_config(conn, "ZM_DYN_CURR_VERSION", chain::CUTOVER_ZM_VERSION).await?;
+    // Record the version reached, but never lower one ZoneMinder wrote: a
+    // database already past the cutover (zmupdate.pl ran a newer update) is
+    // still at its own version, and stamping the cutover over it would make
+    // ZoneMinder report an older schema and re-run the newer updates.
+    raise_config_version(conn, "ZM_DYN_DB_VERSION", chain::CUTOVER_ZM_VERSION).await?;
+    raise_config_version(conn, "ZM_DYN_CURR_VERSION", chain::CUTOVER_ZM_VERSION).await?;
 
     info!("running remaining migrations");
     Migrator::up(conn, None).await
@@ -667,6 +704,21 @@ mod tests {
                 w[1].0
             );
         }
+    }
+
+    /// A database ZoneMinder already moved past the cutover keeps its version
+    /// (it was stamped back to the cutover, 1.39.33, over a 1.39.36 database).
+    #[test]
+    fn version_stamp_only_ever_raises() {
+        let cut = chain::CUTOVER_ZM_VERSION;
+        assert!(should_raise_version(None, cut));
+        assert!(should_raise_version(Some(""), cut));
+        assert!(should_raise_version(Some("1.38.3"), cut));
+        assert!(should_raise_version(Some("1.39.9"), "1.39.33"));
+        assert!(!should_raise_version(Some(cut), cut));
+        assert!(!should_raise_version(Some("1.39.36"), "1.39.33"));
+        assert!(!should_raise_version(Some("1.40.0"), "1.39.33"));
+        assert!(!should_raise_version(Some(" 1.39.36 "), "1.39.33"));
     }
 
     #[test]
