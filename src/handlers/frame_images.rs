@@ -34,11 +34,6 @@ pub struct EventFrameImagePath {
     pub fid: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct FrameImagePath {
-    pub id: u64,
-}
-
 /// Which frame of an event to serve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FrameSelector {
@@ -255,40 +250,6 @@ pub async fn get_event_frame_image(
 ) -> AppResult<Response> {
     let event = get_event_entity(&state, path.id, &scope).await?;
     serve_frame(&state, event, &path.fid).await
-}
-
-/// Get a frame's image by its `Frames` row id
-#[utoipa::path(
-    get,
-    path = "/api/v3/frames/{id}/image",
-    operation_id = "getFrameImage",
-    tag = "Frames",
-    params(("id" = u64, Path, description = "Frame row ID")),
-    responses(
-        (status = 200, description = "Frame image", content_type = "image/jpeg"),
-        (status = 404, description = "Frame or frame image not found", body = AppResponseError)
-    ),
-    security(("jwt" = []))
-)]
-pub async fn get_frame_image(
-    State(state): State<AppState>,
-    Path(path): Path<FrameImagePath>,
-    scope: MonitorScope,
-) -> AppResult<Response> {
-    let not_found = || {
-        AppError::NotFoundError(Resource {
-            resource_type: ResourceType::Event,
-            details: vec![("frame_id".to_string(), path.id.to_string())],
-        })
-    };
-    let frame = repo::frames::find_by_id(state.db(), path.id)
-        .await?
-        .ok_or_else(not_found)?;
-    // A frame in an event the caller can't see is reported as missing.
-    let event = get_event_entity(&state, frame.event_id, &scope)
-        .await
-        .map_err(|_| not_found())?;
-    serve_frame(&state, event, &frame.frame_id.to_string()).await
 }
 
 #[cfg(test)]

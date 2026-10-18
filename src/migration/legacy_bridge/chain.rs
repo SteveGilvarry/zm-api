@@ -5,7 +5,7 @@
 /// ZM_VERSION of the vendored schema snapshot: the version whose
 /// schema equals the baseline migration. The bridge records this in
 /// ZM_DYN_DB_VERSION / ZM_DYN_CURR_VERSION after stamping.
-pub(crate) const CUTOVER_ZM_VERSION: &str = "1.39.33";
+pub(crate) const CUTOVER_ZM_VERSION: &str = "1.39.41";
 
 /// (version, sql) in ascending version order.
 pub(super) const CHAIN: &[(&str, &str)] = &[
@@ -596,5 +596,37 @@ pub(super) const CHAIN: &[(&str, &str)] = &[
     (
         "1.39.33",
         include_str!("../../../db/legacy/zm_update-1.39.33.sql"),
+    ),
+    (
+        "1.39.34",
+        include_str!("../../../db/legacy/zm_update-1.39.34.sql"),
+    ),
+    (
+        "1.39.35",
+        include_str!("../../../db/legacy/zm_update-1.39.35.sql"),
+    ),
+    (
+        "1.39.36",
+        include_str!("../../../db/legacy/zm_update-1.39.36.sql"),
+    ),
+    (
+        "1.39.37",
+        include_str!("../../../db/legacy/zm_update-1.39.37.sql"),
+    ),
+    (
+        "1.39.38",
+        include_str!("../../../db/legacy/zm_update-1.39.38.sql"),
+    ),
+    (
+        "1.39.39",
+        include_str!("../../../db/legacy/zm_update-1.39.39.sql"),
+    ),
+    (
+        "1.39.40",
+        include_str!("../../../db/legacy/zm_update-1.39.40.sql"),
+    ),
+    (
+        "1.39.41",
+        include_str!("../../../db/legacy/zm_update-1.39.41.sql"),
     ),
 ];

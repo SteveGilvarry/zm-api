@@ -12,13 +12,11 @@ use common::harness::{superuser_token, TestApp};
 use sea_orm::{ActiveModelTrait, Set};
 use serde_json::json;
 use zm_api::dto::response::{ControlResponse, PaginatedControlsResponse};
-use zm_api::entity::sea_orm_active_enums::MonitorType;
 
 /// Insert a `Controls` row directly and return its id.
 async fn insert_control(db: &sea_orm::DatabaseConnection, label: &str) -> u32 {
     zm_api::entity::controls::ActiveModel {
         name: Set(unique_name(label)),
-        r#type: Set(MonitorType::Ffmpeg),
         ..Default::default()
     }
     .insert(db)
@@ -88,6 +86,8 @@ async fn create_then_delete_control_round_trips() {
     );
     let created: ControlResponse = create.json();
     let _guard = RowGuard::control(created.id);
+    // ZoneMinder 1.39.39 dropped Controls.Type: still accepted, never stored.
+    assert!(created.r#type.is_none());
 
     let delete = app
         .delete(&format!("/api/v3/controls/{}", created.id), &token)

@@ -153,8 +153,13 @@ async fn detect_version(conn: &DatabaseConnection) -> Result<Option<String>, DbE
     if let Some(v) = config_value(conn, "ZM_DYN_DB_VERSION").await? {
         return Ok(Some(v));
     }
+    // 1.39.36 dropped Frames.Id and 1.39.39 Controls.Type; 1.39.35 added
+    // Frames.AudioLevel.
     let latest = table_exists(conn, "MonitorActions").await?
-        && column_exists(conn, "Monitors", "AudioAlarmScore").await?;
+        && column_exists(conn, "Monitors", "AudioAlarmScore").await?
+        && column_exists(conn, "Frames", "AudioLevel").await?
+        && !column_exists(conn, "Frames", "Id").await?
+        && !column_exists(conn, "Controls", "Type").await?;
     Ok(latest.then(|| CUTOVER_ZM_VERSION.to_string()))
 }
 

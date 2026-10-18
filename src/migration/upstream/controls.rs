@@ -26,12 +26,28 @@ pub(super) async fn add_control_keyed(
     protocol: &str,
     cols: &[(&str, i32)],
 ) -> Result<bool, DbErr> {
-    let mut columns = vec![c("Name"), c("Type"), c("Protocol")];
-    let mut values: Vec<SimpleExpr> = vec![
-        name.into(),
-        enum_val("controls_type", control_type),
-        protocol.into(),
-    ];
+    insert_control(m, key_col, key, name, Some(control_type), protocol, cols).await
+}
+
+/// Insert a Controls row keyed by `key_col` unless one exists. `control_type`
+/// is `None` from 1.39.39 on, when `Controls.Type` no longer exists.
+pub(super) async fn insert_control(
+    m: &SchemaManager<'_>,
+    key_col: &str,
+    key: &str,
+    name: &str,
+    control_type: Option<&str>,
+    protocol: &str,
+    cols: &[(&str, i32)],
+) -> Result<bool, DbErr> {
+    let mut columns = vec![c("Name")];
+    let mut values: Vec<SimpleExpr> = vec![name.into()];
+    if let Some(control_type) = control_type {
+        columns.push(c("Type"));
+        values.push(enum_val("controls_type", control_type));
+    }
+    columns.push(c("Protocol"));
+    values.push(protocol.into());
     for (col, v) in cols {
         columns.push(c(col));
         values.push((*v).into());

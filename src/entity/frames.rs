@@ -6,11 +6,9 @@ use sea_orm::entity::prelude::*;
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "Frames")]
 pub struct Model {
-    #[sea_orm(column_name = "Id", primary_key)]
-    pub id: u64,
-    #[sea_orm(column_name = "EventId")]
+    #[sea_orm(column_name = "EventId", primary_key, auto_increment = false)]
     pub event_id: u64,
-    #[sea_orm(column_name = "FrameId")]
+    #[sea_orm(column_name = "FrameId", primary_key, auto_increment = false)]
     pub frame_id: u32,
     #[sea_orm(column_name = "Type")]
     pub r#type: FrameType,
@@ -20,6 +18,8 @@ pub struct Model {
     pub delta: Decimal,
     #[sea_orm(column_name = "Score")]
     pub score: u16,
+    #[sea_orm(column_name = "AudioLevel")]
+    pub audio_level: u8,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

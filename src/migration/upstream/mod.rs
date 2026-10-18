@@ -38,7 +38,15 @@ mod zm_1_39_30;
 mod zm_1_39_31;
 mod zm_1_39_32;
 mod zm_1_39_33;
+mod zm_1_39_34;
+mod zm_1_39_35;
+mod zm_1_39_36;
+mod zm_1_39_37;
+mod zm_1_39_38;
+mod zm_1_39_39;
 mod zm_1_39_4;
+mod zm_1_39_40;
+mod zm_1_39_41;
 mod zm_1_39_5;
 mod zm_1_39_8;
 mod zm_1_39_9;
@@ -48,7 +56,8 @@ pub const VERSIONS: &[&str] = &[
     "1.39.2", "1.39.3", "1.39.4", "1.39.5", "1.39.8", "1.39.9", "1.39.10", "1.39.12", "1.39.13",
     "1.39.14", "1.39.15", "1.39.16", "1.39.17", "1.39.18", "1.39.19", "1.39.20", "1.39.21",
     "1.39.22", "1.39.23", "1.39.24", "1.39.25", "1.39.26", "1.39.27", "1.39.28", "1.39.29",
-    "1.39.30", "1.39.31", "1.39.32", "1.39.33",
+    "1.39.30", "1.39.31", "1.39.32", "1.39.33", "1.39.34", "1.39.35", "1.39.36", "1.39.37",
+    "1.39.38", "1.39.39", "1.39.40", "1.39.41",
 ];
 
 /// Migration name for a version: `1.39.2` → `zm_1_39_2` (the module file stem,
@@ -95,6 +104,14 @@ pub fn migrations() -> Vec<Box<dyn MigrationTrait>> {
         Box::new(zm_1_39_31::Migration),
         Box::new(zm_1_39_32::Migration),
         Box::new(zm_1_39_33::Migration),
+        Box::new(zm_1_39_34::Migration),
+        Box::new(zm_1_39_35::Migration),
+        Box::new(zm_1_39_36::Migration),
+        Box::new(zm_1_39_37::Migration),
+        Box::new(zm_1_39_38::Migration),
+        Box::new(zm_1_39_39::Migration),
+        Box::new(zm_1_39_40::Migration),
+        Box::new(zm_1_39_41::Migration),
     ]
 }
 

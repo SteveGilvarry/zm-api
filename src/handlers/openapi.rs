@@ -110,7 +110,6 @@ use crate::util::claim::UserClaims;
         crate::handlers::events_playback::get_event_stream_media,
         crate::handlers::events_playback::get_event_thumbnail,
         crate::handlers::frame_images::get_event_frame_image,
-        crate::handlers::frame_images::get_frame_image,
         crate::handlers::events_playback::get_event_info,
         crate::handlers::events_playback::get_event_init,
         crate::handlers::events_playback::get_event_segment,

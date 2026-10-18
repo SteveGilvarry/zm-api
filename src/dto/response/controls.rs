@@ -8,8 +8,9 @@ use utoipa::ToSchema;
 pub struct ControlResponse {
     pub id: u32,
     pub name: String,
+    /// Always `null`: ZoneMinder 1.39.39 removed `Controls.Type`.
     #[serde(rename = "type")]
-    pub r#type: MonitorType,
+    pub r#type: Option<MonitorType>,
     pub protocol: Option<String>,
     pub can_wake: u8,
     pub can_sleep: u8,
@@ -114,7 +115,9 @@ impl From<&ControlModel> for ControlResponse {
         Self {
             id: model.id,
             name: model.name.clone(),
-            r#type: model.r#type.clone(),
+            // ZoneMinder 1.39.39 dropped Controls.Type; kept in the response,
+            // always null, so existing clients keep deserialising.
+            r#type: None,
             protocol: model.protocol.clone(),
             can_wake: model.can_wake,
             can_sleep: model.can_sleep,

@@ -565,16 +565,13 @@ async fn converge_schema(conn: &DatabaseConnection) -> Result<(), DbErr> {
             "Units",
             "ALTER TABLE `ZonePresets` MODIFY `Units` enum('Pixels','Percent') NOT NULL default 'Percent'",
         ),
-        // 1.34-era enums never gained 'VNC' via the chain
-        (
-            "Controls",
-            "Type",
-            "ALTER TABLE `Controls` MODIFY `Type` enum('Local','Remote','File','Ffmpeg','Libvlc','cURL','WebSite','NVSocket','VNC') NOT NULL default 'Local'",
-        ),
+        // 1.34-era enums never gained 'VNC' via the chain. 1.39.38 re-declares
+        // MonitorPresets.Type in full, and 1.39.39 drops Controls.Type, so
+        // this only restates the current definition.
         (
             "MonitorPresets",
             "Type",
-            "ALTER TABLE `MonitorPresets` MODIFY `Type` enum('Local','Remote','File','Ffmpeg','Libvlc','cURL','WebSite','NVSocket','VNC') NOT NULL default 'Local'",
+            "ALTER TABLE `MonitorPresets` MODIFY `Type` enum('Local','Remote','File','Ffmpeg','cURL','WebSite','VNC') NOT NULL default 'Local'",
         ),
         // 1.34-era defaults the chain never updated to match zm_create
         (

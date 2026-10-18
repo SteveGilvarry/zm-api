@@ -10,14 +10,25 @@ recognisable path forward.
 
 ### Added
 
+- **The schema follows ZoneMinder to 1.39.41** (#152). Eight more upstream
+  updates are mirrored as migrations, vendored into the raw chain for
+  `migrator bridge`, and the entities follow. `FrameResponse` gains
+  `audio_level`, the peak audio level since the previous frame row (0-100, the
+  scale `Monitors.AudioThreshold` uses; 0 means silence or no audio).
+  Upgrading also does what upstream's updates do to data: Remote/rtsp
+  monitors become Ffmpeg with the equivalent url, Libvlc monitors become
+  Ffmpeg, NVSocket monitors become Ffmpeg with capturing off, `onvif` controls
+  move to `ONVIF`, the duplicated Pelco-D/Pelco-P controls are merged, and a
+  Reolink HTTP control is added.
+
 - **Fresh databases start at ZoneMinder 1.39.1 and are upgraded by one portable
   migration per upstream `zm_update-1.39.x`** (docs/DB_VERSIONING_PLAN.md).
   `migrator up` on an empty MySQL/MariaDB *or* Postgres produces the 1.39.1
   create script, then every upgrade upstream has shipped since (currently
-  through 1.39.33), the way `zmupdate.pl` does for MySQL alone. Stored
+  through 1.39.41), the way `zmupdate.pl` does for MySQL alone. Stored
   procedures in the upstream updates (zone-coordinate conversions) are Rust
   loops; MySQL-only trigger rewrites are skipped on Postgres and logged. The
-  `schema-parity` CI job now proves the 32 migrations reproduce upstream's
+  `schema-parity` CI job now proves the mirrored migrations reproduce upstream's
   create script exactly; a new `postgres-schema` job proves the Postgres
   schema has every table and column MySQL has. Existing MySQL installs are
   unchanged: `migrator bridge` walks the raw chain to the latest vendored
@@ -567,6 +578,19 @@ recognisable path forward.
   looking live. Pass `include_deleted=true` to list them; each row's `deleted`
   says which is which. `GET /api/v3/monitors/{id}` still returns a soft-deleted
   monitor, so its page loads while its events exist.
+- **BREAKING: frames are addressed by event and frame number.** ZoneMinder
+  1.39.36 drops `Frames.Id` and makes `(EventId, FrameId)` the primary key,
+  so `FrameResponse.id` is gone and `GET`/`PATCH`/`DELETE
+  /api/v3/frames/{id}` become `/api/v3/frames/{event_id}/{frame_id}`.
+  `GET /api/v3/frames/{id}/image` is removed; `GET
+  /api/v3/events/{id}/frames/{fid}/image` serves the same image.
+- **BREAKING: `Libvlc` is no longer a monitor, preset or control type.**
+  ZoneMinder 1.39.38 removes the Libvlc and NVSocket capture methods and
+  converts existing rows to Ffmpeg.
+- **`type` on controls is accepted and ignored.** ZoneMinder 1.39.39 drops
+  `Controls.Type`, which nothing ever read. Create and update still accept the
+  field, so existing clients keep working, and `ControlResponse.type` is
+  always `null`.
 - **BREAKING: `frame_skip` is gone from monitor requests and responses.**
   ZoneMinder 1.39.24 drops `Monitors.FrameSkip`, and zm-api now mirrors that
   update, so `MonitorResponse` no longer carries the field and create/update

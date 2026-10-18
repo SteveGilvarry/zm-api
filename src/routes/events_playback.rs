@@ -62,11 +62,6 @@ pub fn add_events_playback_routes(router: Router<AppState>) -> Router<AppState> 
             get(frame_images::get_event_frame_image)
                 .route_layer(axum::middleware::from_fn(media_auth_middleware)),
         )
-        .route(
-            "/api/v3/frames/{id}/image",
-            get(frame_images::get_frame_image)
-                .route_layer(axum::middleware::from_fn(media_auth_middleware)),
-        )
         // Codec / dimensions / duration metadata
         .route(
             "/api/v3/events/{id}/info",

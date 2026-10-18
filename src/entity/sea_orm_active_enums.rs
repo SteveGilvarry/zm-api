@@ -538,8 +538,6 @@ pub enum MonitorType {
     File,
     #[sea_orm(string_value = "Ffmpeg")]
     Ffmpeg,
-    #[sea_orm(string_value = "Libvlc")]
-    Libvlc,
     #[sea_orm(string_value = "cURL")]
     #[serde(rename = "cURL", alias = "Curl")]
     Curl,
