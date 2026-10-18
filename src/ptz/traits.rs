@@ -201,6 +201,23 @@ pub enum PtzCommand {
     Sleep,
     Reset,
     Reboot,
+
+    // Light and audio commands (ZoneMinder 1.39.13+, #190)
+    LightOn,
+    LightOff,
+    IndicatorLightOn,
+    IndicatorLightOff,
+    /// Play one of the device's sounds, numbered as its firmware numbers them.
+    AudioPlay {
+        file: u32,
+    },
+    AudioStop,
+    AudioVolumeUp,
+    AudioVolumeDown,
+    /// Ask the control module for the white light's state (a reply is read).
+    LightStatus,
+    /// Ask for the indicator light's state (a reply is read).
+    IndicatorLightStatus,
 }
 
 impl PtzCommand {
@@ -237,6 +254,16 @@ impl PtzCommand {
             Self::Sleep => "sleep",
             Self::Reset => "reset",
             Self::Reboot => "reboot",
+            Self::LightOn => "lightOn",
+            Self::LightOff => "lightOff",
+            Self::IndicatorLightOn => "indicatorLightOn",
+            Self::IndicatorLightOff => "indicatorLightOff",
+            Self::AudioPlay { .. } => "audioPlay",
+            Self::AudioStop => "audioStop",
+            Self::AudioVolumeUp => "audioVolumeUp",
+            Self::AudioVolumeDown => "audioVolumeDown",
+            Self::LightStatus => "lightStatus",
+            Self::IndicatorLightStatus => "indicatorLightStatus",
         }
     }
 }

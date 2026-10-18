@@ -110,6 +110,43 @@ pub fn add_ptz_routes(router: Router<AppState>) -> Router<AppState> {
             &format!("{}/ptz/monitors/{{id}}/iris/stop", api_prefix),
             post(ptz::iris_stop),
         )
+        // Light and audio (#190)
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/light/on", api_prefix),
+            post(ptz::light_on),
+        )
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/light/off", api_prefix),
+            post(ptz::light_off),
+        )
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/indicator-light/on", api_prefix),
+            post(ptz::indicator_light_on),
+        )
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/indicator-light/off", api_prefix),
+            post(ptz::indicator_light_off),
+        )
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/audio/stop", api_prefix),
+            post(ptz::audio_stop),
+        )
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/audio/volume/up", api_prefix),
+            post(ptz::audio_volume_up),
+        )
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/audio/volume/down", api_prefix),
+            post(ptz::audio_volume_down),
+        )
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/audio/play/{{file}}", api_prefix),
+            post(ptz::audio_play),
+        )
+        .route(
+            &format!("{}/ptz/monitors/{{id}}/light", api_prefix),
+            get(ptz::light_status),
+        )
         // Camera power
         .route(
             &format!("{}/ptz/monitors/{{id}}/power/wake", api_prefix),

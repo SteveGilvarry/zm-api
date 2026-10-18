@@ -136,6 +136,13 @@ impl PerlControlProxy {
                     options.insert("zoomstep".to_string(), json!(zoom));
                 }
             }
+            PtzCommand::AudioPlay { file } => {
+                options.insert("file".to_string(), json!(file));
+            }
+            // zmcontrol.pl writes a reply only when asked (`{result: ...}`).
+            PtzCommand::LightStatus | PtzCommand::IndicatorLightStatus => {
+                options.insert("wants_response".to_string(), json!(1));
+            }
             _ => {}
         }
 
@@ -281,6 +288,10 @@ impl PerlControlProxy {
                     args.push("--zoomstep".to_string());
                     args.push(zoom.to_string());
                 }
+            }
+            PtzCommand::AudioPlay { file } => {
+                args.push("--file".to_string());
+                args.push(file.to_string());
             }
             _ => {}
         }

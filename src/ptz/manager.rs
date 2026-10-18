@@ -518,6 +518,16 @@ impl PtzControl for CachedControlRef {
                 can_auto_scan: false,
                 num_scan_paths: 0,
             },
+            light: super::capabilities::LightCapabilities {
+                can_light: false,
+                can_indicator_light: false,
+            },
+            audio: super::capabilities::AudioCapabilities {
+                can_play: false,
+                min_file: None,
+                max_file: None,
+                can_volume: false,
+            },
         };
         &EMPTY
     }

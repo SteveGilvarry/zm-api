@@ -190,6 +190,14 @@ recognisable path forward.
   compared against ZoneMinder's local-time columns, so on any server not on
   UTC the window was off by the offset. They now convert to server-local
   time, the inverse of what responses already do.
+- **PTZ light and audio commands** (#190), following the iris and power
+  routes: `POST /ptz/monitors/{id}/light/{on|off}` and
+  `/indicator-light/{on|off}`, `GET /ptz/monitors/{id}/light` (each light
+  `on`, `off` or null, from the control module's status reply),
+  `POST .../audio/play/{file}` (checked against the control's sound range),
+  `/audio/stop` and `/audio/volume/{up|down}`. Each answers 400 when the
+  monitor's control can't do it, and `PtzCapabilities` gains `light` and
+  `audio` so a client shows only what it can invoke.
 - **`GET /api/v3/monitors/{id}/audio-level`**, the live audio level for the
   monitor editor's meter (#180): `level` (0-100) and `alarm` from zmc's
   shared memory, null while zmc isn't running, with the monitor's

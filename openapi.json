@@ -9373,6 +9373,254 @@
         ]
       }
     },
+    "/api/v3/ptz/monitors/{id}/audio/play/{file}": {
+      "post": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "Play one of the device's sounds",
+        "description": "- `file` must be within the control's `min_audio_file..=max_audio_file`.",
+        "operationId": "ptzAudioPlay",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "file",
+            "in": "path",
+            "description": "Sound number, as the device numbers them",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Out of range, or the control can't play audio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/ptz/monitors/{id}/audio/stop": {
+      "post": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "Stop audio playback",
+        "operationId": "ptzAudioStop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The control can't do this",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/ptz/monitors/{id}/audio/volume/down": {
+      "post": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "Turn the audio volume down",
+        "operationId": "ptzAudioVolumeDown",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The control can't do this",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/ptz/monitors/{id}/audio/volume/up": {
+      "post": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "Turn the audio volume up",
+        "operationId": "ptzAudioVolumeUp",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The control can't do this",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/ptz/monitors/{id}/capabilities": {
       "get": {
         "tags": [
@@ -9767,6 +10015,124 @@
         ]
       }
     },
+    "/api/v3/ptz/monitors/{id}/indicator-light/off": {
+      "post": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "Turn the indicator light off",
+        "operationId": "ptzIndicatorLightOff",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The control can't do this",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/ptz/monitors/{id}/indicator-light/on": {
+      "post": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "Turn the indicator light on",
+        "operationId": "ptzIndicatorLightOn",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The control can't do this",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/ptz/monitors/{id}/iris/auto": {
       "post": {
         "tags": [
@@ -10027,6 +10393,174 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/ptz/monitors/{id}/light": {
+      "get": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "The lights' current state, as the camera reports it",
+        "description": "- `light` / `indicator_light` are `on`, `off`, or null when the control has\n  no such light or the control daemon gave no answer.",
+        "operationId": "ptzLightStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Light state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LightStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/ptz/monitors/{id}/light/off": {
+      "post": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "Turn the light off",
+        "operationId": "ptzLightOff",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The control can't do this",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/ptz/monitors/{id}/light/on": {
+      "post": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "Turn the light on",
+        "operationId": "ptzLightOn",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The control can't do this",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -16095,6 +16629,41 @@
           "state_name": {
             "type": "string",
             "description": "Name of the state to apply"
+          }
+        }
+      },
+      "AudioCapabilities": {
+        "type": "object",
+        "description": "Audio capabilities (#190)",
+        "required": [
+          "can_play",
+          "can_volume"
+        ],
+        "properties": {
+          "can_play": {
+            "type": "boolean",
+            "description": "`POST .../audio/play/{file}` and `.../audio/stop`"
+          },
+          "can_volume": {
+            "type": "boolean",
+            "description": "`POST .../audio/volume/{up|down}`"
+          },
+          "max_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The sound numbers `audio/play` accepts.",
+            "minimum": 0
           }
         }
       },
@@ -22561,6 +23130,44 @@
           "Edit"
         ]
       },
+      "LightCapabilities": {
+        "type": "object",
+        "description": "Light capabilities (#190)",
+        "required": [
+          "can_light",
+          "can_indicator_light"
+        ],
+        "properties": {
+          "can_indicator_light": {
+            "type": "boolean",
+            "description": "`POST .../indicator-light/{on|off}`"
+          },
+          "can_light": {
+            "type": "boolean",
+            "description": "`POST .../light/{on|off}`"
+          }
+        }
+      },
+      "LightStatusResponse": {
+        "type": "object",
+        "description": "The lights' state as the camera reports it (#190); null where the control\nhas no such light or the daemon gave no answer.",
+        "properties": {
+          "indicator_light": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`on` or `off`."
+          },
+          "light": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`on` or `off`."
+          }
+        }
+      },
       "LiveProtocolStatus": {
         "type": "object",
         "description": "Protocol status in live stats",
@@ -26332,6 +26939,10 @@
           "scan"
         ],
         "properties": {
+          "audio": {
+            "$ref": "#/components/schemas/AudioCapabilities",
+            "description": "Audio capabilities"
+          },
           "control_id": {
             "type": "integer",
             "format": "int32",
@@ -26349,6 +26960,10 @@
           "iris": {
             "$ref": "#/components/schemas/AxisCapabilities",
             "description": "Iris capabilities"
+          },
+          "light": {
+            "$ref": "#/components/schemas/LightCapabilities",
+            "description": "Light capabilities"
           },
           "name": {
             "type": "string",

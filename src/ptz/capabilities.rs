@@ -114,6 +114,27 @@ pub struct PowerCapabilities {
     pub can_reboot: bool,
 }
 
+/// Light capabilities (#190)
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+pub struct LightCapabilities {
+    /// `POST .../light/{on|off}`
+    pub can_light: bool,
+    /// `POST .../indicator-light/{on|off}`
+    pub can_indicator_light: bool,
+}
+
+/// Audio capabilities (#190)
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
+pub struct AudioCapabilities {
+    /// `POST .../audio/play/{file}` and `.../audio/stop`
+    pub can_play: bool,
+    /// The sound numbers `audio/play` accepts.
+    pub min_file: Option<u32>,
+    pub max_file: Option<u32>,
+    /// `POST .../audio/volume/{up|down}`
+    pub can_volume: bool,
+}
+
 /// Auto-scan capabilities
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct ScanCapabilities {
@@ -148,6 +169,12 @@ pub struct PtzCapabilities {
     pub presets: PresetCapabilities,
     /// Scan capabilities
     pub scan: ScanCapabilities,
+    /// Light capabilities
+    #[serde(default)]
+    pub light: LightCapabilities,
+    /// Audio capabilities
+    #[serde(default)]
+    pub audio: AudioCapabilities,
 }
 
 impl PtzCapabilities {
@@ -338,6 +365,16 @@ impl From<&ControlModel> for PtzCapabilities {
             scan: ScanCapabilities {
                 can_auto_scan: m.can_auto_scan != 0,
                 num_scan_paths: m.num_scan_paths,
+            },
+            light: LightCapabilities {
+                can_light: m.can_light != 0,
+                can_indicator_light: m.can_indicator_light != 0,
+            },
+            audio: AudioCapabilities {
+                can_play: m.can_audio_play != 0,
+                min_file: m.min_audio_file,
+                max_file: m.max_audio_file,
+                can_volume: m.can_audio_volume != 0,
             },
         };
         caps.without_uninvocable()
