@@ -61,7 +61,7 @@ impl MigrationTrait for Migration {
         for stmt in seeds::seed_statements() {
             let built = backend.build(&stmt);
             let head: String = built.sql.chars().take(120).collect();
-            conn.execute(built).await.map_err(|e| {
+            conn.execute_raw(built).await.map_err(|e| {
                 DbErr::Custom(format!(
                     "{e}
   while seeding: {head}"
@@ -87,10 +87,12 @@ impl MigrationTrait for Migration {
                         "SELECT setval(pg_get_serial_sequence('\"{table}\"', '{col}'), \
                          (SELECT COALESCE(MAX(\"{col}\"), 0) + 1 FROM \"{table}\"), false)"
                     );
-                    conn.execute(Statement::from_string(backend, sql)).await?;
+                    conn.execute_raw(Statement::from_string(backend, sql))
+                        .await?;
                 }
             }
-            DatabaseBackend::Sqlite => {}
+            // DatabaseBackend is non-exhaustive since sea-orm 2.
+            _ => {}
         }
 
         Ok(())

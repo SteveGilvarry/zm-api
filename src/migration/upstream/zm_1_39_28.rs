@@ -16,7 +16,7 @@ async fn fk_needs_index(m: &SchemaManager<'_>, table: &str, column: &str) -> Res
         return Ok(false);
     }
     Ok(m.get_connection()
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::MySql,
             "SELECT 1 FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = DATABASE() \
              AND TABLE_NAME = ? AND COLUMN_NAME = ? AND REFERENCED_TABLE_NAME IS NOT NULL",

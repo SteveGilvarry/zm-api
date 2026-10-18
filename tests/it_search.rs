@@ -74,7 +74,7 @@ const TEST_EVENT_IDS: [u64; 5] = [991_001, 991_002, 991_003, 991_004, 991_005];
 async fn cleanup_test_vectors(db: &sea_orm::DatabaseConnection) {
     let ids = TEST_EVENT_IDS.map(|i| i.to_string()).join(",");
     let _ = db
-        .execute(Statement::from_string(
+        .execute_raw(Statement::from_string(
             db.get_database_backend(),
             format!("DELETE FROM zmnext_event_vectors WHERE event_id IN ({ids})"),
         ))
@@ -194,7 +194,7 @@ async fn mariadb_vector_round_trip() {
         .await
         .expect("re-upsert");
     let row = db
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             db.get_database_backend(),
             "SELECT COUNT(*) AS c FROM zmnext_event_vectors WHERE event_id = 991001".to_owned(),
         ))
@@ -224,7 +224,7 @@ const SVC_MONITOR: u32 = 6;
 async fn cleanup_svc_vectors(db: &sea_orm::DatabaseConnection) {
     let ids = SVC_EVENT_IDS.map(|i| i.to_string()).join(",");
     let _ = db
-        .execute(Statement::from_string(
+        .execute_raw(Statement::from_string(
             db.get_database_backend(),
             format!("DELETE FROM zmnext_event_vectors WHERE event_id IN ({ids})"),
         ))

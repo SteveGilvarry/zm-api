@@ -524,6 +524,20 @@ recognisable path forward.
 
 ### Changed
 
+- **Dependencies brought up to current releases.** Every semver-compatible
+  update was taken, and these crossed a major line: sea-orm and
+  sea-orm-migration 1.1 → 2.0 with sqlx 0.8 → 0.9 (raw statements go through
+  the `*_raw` connection methods, `Value::String` is unboxed, `ExprTrait` is
+  imported where expressions are built), utoipa 5 → 6 with utoipa-swagger-ui
+  9 → 10 (no code changes; `openapi.json` regenerated), quick-xml 0.41 → 0.42
+  (string-based events in the ONVIF parsers), rand 0.9 → 0.10, argon2 0.5 →
+  0.6 (same PHC hashes), sha1/sha2 0.11, chacha20poly1305 0.11, jsonwebtoken
+  11, base64 0.23, tower-http 0.7, garde 0.23, sentry 0.49, jemalloc 0.7,
+  itertools 0.15, tokio-tungstenite 0.30 and axum-test 21. The unused mockall
+  and rstest dev-dependencies and the unused direct rand_core dependency are
+  gone. Not moved: webrtc 0.17 (0.20 rewrote the crate on a new core, #165)
+  and rcgen 0.13, which webrtc 0.17 requires.
+
 - **`tag_id` that doesn't parse is a 400** (#136). `GET /api/v3/events` used
   to drop non-numeric values, so `tag_id=abc` quietly became "no tag filter"
   and returned every event.

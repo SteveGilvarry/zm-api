@@ -55,7 +55,7 @@ impl MigrationTrait for Migration {
 
         if mysql {
             for name in RETIRED_TRIGGERS {
-                conn.execute(Statement::from_string(
+                conn.execute_raw(Statement::from_string(
                     DatabaseBackend::MySql,
                     format!("DROP TRIGGER IF EXISTS `{name}`"),
                 ))
@@ -65,7 +65,7 @@ impl MigrationTrait for Migration {
 
         // Resync: every summarised monitor, each bucket's count and bytes.
         let monitors: Vec<i64> = conn
-            .query_all(
+            .query_all_raw(
                 backend(m).build(
                     Query::select()
                         .expr_as(as_i64(m, "MonitorId"), Alias::new("id"))
@@ -78,7 +78,7 @@ impl MigrationTrait for Migration {
             .collect::<Result<_, _>>()?;
         for (table, count_col, bytes_col) in BUCKETS {
             let rows = conn
-                .query_all(
+                .query_all_raw(
                     backend(m).build(
                         Query::select()
                             .expr_as(as_i64(m, "MonitorId"), Alias::new("id"))
@@ -87,11 +87,8 @@ impl MigrationTrait for Migration {
                                 Alias::new("n"),
                             )
                             .expr_as(
-                                Func::coalesce([
-                                    Expr::col(c("DiskSpace")).sum(),
-                                    Expr::val(0).into(),
-                                ])
-                                .cast_as(cast_target(m)),
+                                Func::coalesce([Expr::col(c("DiskSpace")).sum(), Expr::val(0)])
+                                    .cast_as(cast_target(m)),
                                 Alias::new("bytes"),
                             )
                             .from(t(table))
@@ -122,7 +119,7 @@ impl MigrationTrait for Migration {
 
         if mysql {
             for (_, create) in mysql_triggers() {
-                conn.execute(Statement::from_string(
+                conn.execute_raw(Statement::from_string(
                     DatabaseBackend::MySql,
                     create.to_string(),
                 ))

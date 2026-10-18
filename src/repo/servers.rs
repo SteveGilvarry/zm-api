@@ -156,7 +156,7 @@ pub async fn monitor_counts(
         .await?;
     Ok(rows
         .into_iter()
-        .map(|r| (r.server_id, r.count.max(0) as u64))
+        .map(|r| (r.server_id, u64::try_from(r.count).unwrap_or(0)))
         .collect())
 }
 

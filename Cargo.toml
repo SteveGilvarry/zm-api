@@ -158,15 +158,15 @@ nix = { version = "0.31", features = ["signal", "fs", "hostname", "user"] }
 libc = "0.2"
 
 [dependencies.sea-orm]
-version = "1"
+version = "2"
 features = ["sqlx-mysql", "sqlx-postgres", "runtime-tokio-rustls", "mock"]
 
 [dependencies.sea-orm-migration]
-version = "1"
+version = "2"
 features = ["runtime-tokio-rustls", "sqlx-postgres","sqlx-mysql"]
 
 [dependencies.sqlx]
-version = "0.8.6"
+version = "0.9"
 features = ["mysql", "postgres"]
 
 [build-dependencies]

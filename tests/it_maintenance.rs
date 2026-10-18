@@ -37,7 +37,7 @@ const MON_SUPERSEDED: u32 = 99_316;
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn exec(db: &DatabaseConnection, sql: impl Into<String>) {
-    db.execute(Statement::from_string(
+    db.execute_raw(Statement::from_string(
         db.get_database_backend(),
         sql.into(),
     ))

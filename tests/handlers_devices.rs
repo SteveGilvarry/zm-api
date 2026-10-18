@@ -31,10 +31,10 @@ fn auth_header() -> String {
 #[tokio::test]
 async fn test_list_devices() {
     let devices = vec![sample_device()];
-    // Mock both the COUNT query (for num_items) and the data query (for fetch_page)
-    // The COUNT query returns an i32 for MySQL backend
+    // Mock both the COUNT query (for num_items) and the data query (for
+    // fetch_page). The paginator reads the count as i64.
     let count_result: BTreeMap<String, Value> =
-        BTreeMap::from([("num_items".to_string(), Value::Int(Some(1)))]);
+        BTreeMap::from([("num_items".to_string(), Value::BigInt(Some(1)))]);
     let db = MockDatabase::new(DatabaseBackend::MySql)
         .append_query_results(vec![vec![count_result]])
         .append_query_results::<DeviceModel, _, _>(vec![devices])

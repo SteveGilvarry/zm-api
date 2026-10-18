@@ -16,7 +16,7 @@ use common::test_db::get_test_db;
 use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult, Statement};
 
 async fn exec(db: &DatabaseConnection, sql: impl Into<String>) {
-    db.execute(Statement::from_string(
+    db.execute_raw(Statement::from_string(
         db.get_database_backend(),
         sql.into(),
     ))

@@ -164,7 +164,7 @@ where
         "SELECT `UseZmNext` AS use_zm_next FROM `Monitors` WHERE `Id` = ?",
         [monitor_id.into()],
     );
-    match conn.query_one(stmt).await {
+    match conn.query_one_raw(stmt).await {
         Ok(Some(row)) => row
             .try_get::<i8>("", "use_zm_next")
             .map(|v| v != 0)
@@ -184,7 +184,7 @@ where
         DbBackend::MySql,
         "SELECT `UseZmNext` FROM `Monitors` LIMIT 0".to_string(),
     );
-    conn.query_all(stmt).await.is_ok()
+    conn.query_all_raw(stmt).await.is_ok()
 }
 
 /// Set a monitor's `UseZmNext` flag. Raw UPDATE for the same reason
@@ -207,6 +207,6 @@ where
         "UPDATE `Monitors` SET `UseZmNext` = ? WHERE `Id` = ?",
         [(enabled as i8).into(), monitor_id.into()],
     );
-    conn.execute(stmt).await?;
+    conn.execute_raw(stmt).await?;
     Ok(())
 }

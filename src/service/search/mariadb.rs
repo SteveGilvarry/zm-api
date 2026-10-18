@@ -109,7 +109,7 @@ impl VectorStore for MariaDbVectorStore {
             dim = self.dim
         );
         self.db
-            .execute(self.st(sql, vec![]))
+            .execute_raw(self.st(sql, vec![]))
             .await
             .map_err(|e| SearchError::Store(e.to_string()))?;
         Ok(())
@@ -121,7 +121,7 @@ impl VectorStore for MariaDbVectorStore {
             // per event/kind without relying on VALUES() semantics over VECTOR.
             if item.event_id != 0 {
                 self.db
-                    .execute(self.st(
+                    .execute_raw(self.st(
                         format!("DELETE FROM {TABLE} WHERE event_id = ? AND kind = ?"),
                         vec![Value::from(item.event_id), Value::from(item.kind.as_str())],
                     ))
@@ -130,7 +130,7 @@ impl VectorStore for MariaDbVectorStore {
             }
             let event_id = (item.event_id != 0).then_some(item.event_id);
             self.db
-                .execute(self.st(
+                .execute_raw(self.st(
                     format!(
                         "INSERT INTO {TABLE} \
                          (event_id, monitor_id, ts, kind, classes, vec, `text`, created_at) \
@@ -176,7 +176,7 @@ impl VectorStore for MariaDbVectorStore {
 
         let rows = self
             .db
-            .query_all(self.st(sql, params))
+            .query_all_raw(self.st(sql, params))
             .await
             .map_err(|e| SearchError::Store(e.to_string()))?;
 
@@ -213,7 +213,7 @@ impl VectorStore for MariaDbVectorStore {
 
         let rows = self
             .db
-            .query_all(self.st(sql, params))
+            .query_all_raw(self.st(sql, params))
             .await
             .map_err(|e| SearchError::Store(e.to_string()))?;
 
@@ -257,7 +257,7 @@ impl VectorStore for MariaDbVectorStore {
 
         let rows = self
             .db
-            .query_all(self.st(sql, params))
+            .query_all_raw(self.st(sql, params))
             .await
             .map_err(|e| SearchError::Store(e.to_string()))?;
         Ok(rows
@@ -284,7 +284,7 @@ impl VectorStore for MariaDbVectorStore {
         );
         let row = self
             .db
-            .query_one(self.st(sql, params))
+            .query_one_raw(self.st(sql, params))
             .await
             .map_err(|e| SearchError::Store(e.to_string()))?
             .ok_or_else(|| SearchError::Store("count returned no row".into()))?;
