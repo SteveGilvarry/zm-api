@@ -161,6 +161,18 @@ recognisable path forward.
 
 ### Fixed
 
+- **Alarm control through shared memory works on ZoneMinder 1.39** (#148,
+  PR #149 by Nic Boet). `SharedData` grew to 888 bytes on master and zm-api
+  assumed 872, so `PATCH /monitors/{id}/alarm` wrote `TriggerData` 16 bytes
+  early: no alarm, and the cause text landed on `TriggerData.size`, which made
+  zmwatch restart the capture daemon. The offset now comes from the `size`
+  field zmc writes, and a layout zm-api does not recognise is refused instead
+  of written at a guessed offset.
+- **`migrator bridge` no longer stamps an older ZoneMinder version over a
+  newer database** (#150, PR #151 by Nic Boet). On a database past the
+  mirrored chain it wrote `ZM_DYN_DB_VERSION` and `ZM_DYN_CURR_VERSION` back
+  to the cutover version, so ZoneMinder re-ran its newer updates and
+  `getVersion` reported the wrong schema. The rows are only ever raised.
 - **`GET /monitors` and `GET /monitors/{id}` work on ZoneMinder 1.39.37 and
   later.** Upstream dropped `Monitors.RTSPDescribe` (the install tests against
   master caught it as a 500: `Unknown column 'Monitors.RTSPDescribe'`). The
