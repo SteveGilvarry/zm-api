@@ -27,7 +27,11 @@ case "$E2E_ZM" in
       "https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-${rel}.noarch.rpm" >/dev/null
     zmrepo="$(curl -fsSL "https://zmrepo.zoneminder.com/el/${rel}/$(uname -m)/" \
       | grep -oE 'zmrepo-[0-9][^"<]*\.noarch\.rpm' | sort -uV | tail -1)"
-    dnf -y install --nogpgcheck "https://zmrepo.zoneminder.com/el/${rel}/$(uname -m)/${zmrepo}" >/dev/null
+    # zmrepo's release package requires rhel-release, which Rocky and Alma do
+    # not provide (they ship rocky-release / almalinux-release), so dnf refuses
+    # it. It only drops a .repo file and a GPG key, so install it without
+    # dependency checks.
+    rpm -Uvh --nodeps "https://zmrepo.zoneminder.com/el/${rel}/$(uname -m)/${zmrepo}" >/dev/null
     dnf -y install zoneminder >"$ARTIFACTS/zoneminder-install.log" 2>&1 \
       || { tail -40 "$ARTIFACTS/zoneminder-install.log"; exit 1; }
     mariadb -uroot </usr/share/zoneminder/db/zm_create.sql
