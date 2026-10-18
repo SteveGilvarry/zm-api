@@ -34,10 +34,10 @@ e2e_distro() {
     rocky-9)
       E2E_IMAGE=rockylinux/rockylinux:9 E2E_FAMILY=rpm E2E_ZM=zmrepo-rpm
       E2E_WEB_USER=apache E2E_WEB_GROUP=apache ;;
-    fedora-41)
+    fedora-44)
       # zmrepo's Fedora builds stopped at 1.39.23, before the stream socket
       # landed, so Fedora gets the smoke test only.
-      E2E_IMAGE=fedora:41 E2E_FAMILY=rpm E2E_ZM=none
+      E2E_IMAGE=fedora:44 E2E_FAMILY=rpm E2E_ZM=none
       E2E_WEB_USER=apache E2E_WEB_GROUP=apache ;;
     opensuse-tumbleweed)
       E2E_IMAGE=opensuse/tumbleweed:latest E2E_FAMILY=rpm E2E_ZM=none
@@ -52,5 +52,5 @@ e2e_distro() {
 }
 
 e2e_distros() {
-  echo "ubuntu-24.04 ubuntu-22.04 debian-13 debian-12 rocky-9 fedora-41 opensuse-tumbleweed arch"
+  echo "ubuntu-24.04 ubuntu-22.04 debian-13 debian-12 rocky-9 fedora-44 opensuse-tumbleweed arch"
 }

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use sea_orm::sea_query::ExprTrait;
 use sea_orm::sea_query::{Alias, MysqlQueryBuilder, Order};
 use sea_orm::*;
 use tracing::instrument;
@@ -348,7 +349,7 @@ pub async fn get_counts_by_monitor(
     // Decode by index, not column name: MariaDB does not expose the SELECT
     // alias in result metadata the way MySQL 8 does, so by-name decode failed
     // with "no column found for name: monitor_id".
-    let rows = state.db().query_all(stmt).await?;
+    let rows = state.db().query_all_raw(stmt).await?;
     let mut counts = Vec::with_capacity(rows.len());
     for row in rows {
         let monitor_id: u32 = row.try_get_by_index(0)?;

@@ -163,7 +163,9 @@ impl SecretKey {
     /// file doesn't exist.
     pub fn load_or_create(path: &Path) -> std::io::Result<Self> {
         match std::fs::read(path) {
-            Ok(bytes) if bytes.len() == 32 => Ok(Self(Key::clone_from_slice(&bytes))),
+            Ok(bytes) if bytes.len() == 32 => Ok(Self(Key::from(
+                <[u8; 32]>::try_from(bytes.as_slice()).expect("length checked above"),
+            ))),
             Ok(bytes) => Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 format!(
@@ -204,7 +206,7 @@ impl SecretKey {
 
     #[cfg(test)]
     fn for_tests() -> Self {
-        Self(Key::clone_from_slice(&[7u8; 32]))
+        Self(Key::from([7u8; 32]))
     }
 
     fn aad(monitor_id: u32, name: &str) -> Vec<u8> {
@@ -238,10 +240,11 @@ impl SecretKey {
             return Err(format!("secret `{name}` is truncated"));
         }
         let (nonce, ct) = raw.split_at(12);
+        let nonce = Nonce::try_from(nonce).map_err(|_| format!("secret `{name}` is truncated"))?;
         let cipher = ChaCha20Poly1305::new(&self.0);
         let plain = cipher
             .decrypt(
-                Nonce::from_slice(nonce),
+                &nonce,
                 Payload {
                     msg: ct,
                     aad: &Self::aad(monitor_id, name),

@@ -1,5 +1,5 @@
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{phc::PasswordHash, PasswordHasher, PasswordVerifier},
     Argon2,
 };
 use bcrypt::{hash, verify};
@@ -19,10 +19,9 @@ pub fn bcrypt_verify(
 }
 
 pub fn argon_hash(content: impl AsRef<str>) -> Result<String, argon2::password_hash::Error> {
-    let salt = SaltString::generate(&mut OsRng);
-    let argon = Argon2::default();
-    Ok(argon
-        .hash_password(content.as_ref().as_bytes(), &salt)?
+    // password-hash 0.6 draws the salt from the OS itself.
+    Ok(Argon2::default()
+        .hash_password(content.as_ref().as_bytes())?
         .to_string())
 }
 

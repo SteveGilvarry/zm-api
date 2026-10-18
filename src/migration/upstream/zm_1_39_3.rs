@@ -119,7 +119,7 @@ impl MigrationTrait for Migration {
             .and_where(Expr::col((t("Zones"), c("Coords"))).like("%.%"))
             .and_where(Expr::col((t("Monitors"), c("Width"))).gt(0))
             .and_where(Expr::col((t("Monitors"), c("Height"))).gt(0));
-        for row in conn.query_all(backend(m).build(&sel)).await? {
+        for row in conn.query_all_raw(backend(m).build(&sel)).await? {
             let id: i64 = row.try_get("", "zone_id")?;
             let coords: String = row.try_get("", "Coords")?;
             let width: i64 = row.try_get("", "width")?;

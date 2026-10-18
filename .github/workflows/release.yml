@@ -85,7 +85,7 @@ jobs:
       matrix:
         include:
           - distro: fedora
-            image: fedora:41
+            image: fedora:44
             install: dnf -y install
           - distro: opensuse
             image: opensuse/tumbleweed:latest
@@ -221,7 +221,7 @@ jobs:
         include:
           - { distro: ubuntu-24.04, arch: amd64, runner: ubuntu-24.04, artifact: deb-amd64 }
           - { distro: ubuntu-24.04, arch: arm64, runner: ubuntu-24.04-arm, artifact: deb-arm64 }
-          - { distro: fedora-41, arch: amd64, runner: ubuntu-24.04, artifact: rpm-fedora }
+          - { distro: fedora-44, arch: amd64, runner: ubuntu-24.04, artifact: rpm-fedora }
           - { distro: opensuse-tumbleweed, arch: amd64, runner: ubuntu-24.04, artifact: rpm-opensuse }
           - { distro: arch, arch: amd64, runner: ubuntu-24.04, artifact: arch-pkg }
     runs-on: ${{ matrix.runner }}

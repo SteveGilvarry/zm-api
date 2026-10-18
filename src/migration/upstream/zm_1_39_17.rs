@@ -406,7 +406,7 @@ impl MigrationTrait for Migration {
         .await?;
         let conn = m.get_connection();
         let dataset_id: i64 = conn
-            .query_one(
+            .query_one_raw(
                 backend(m).build(
                     Query::select()
                         .expr_as(as_i64(m, "Id"), Alias::new("id"))
@@ -454,7 +454,7 @@ impl MigrationTrait for Migration {
         ];
         for (class, threshold, colour) in defaults {
             let class_id: Option<i64> = conn
-                .query_one(
+                .query_one_raw(
                     backend(m).build(
                         Query::select()
                             .expr_as(as_i64(m, "Id"), Alias::new("id"))

@@ -13,7 +13,7 @@
 //! known-answer test against an independent oracle (see the test below).
 
 use base64::Engine as _;
-use rand::RngCore as _;
+use rand::Rng as _;
 use sha1::{Digest, Sha1};
 
 use crate::onvif::types::Credentials;

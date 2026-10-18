@@ -18,11 +18,9 @@ pub fn init(config: &SentryConfig) -> Option<ClientInitGuard> {
     }
 
     tracing::info!("Initializing Sentry error reporting");
-    Some(sentry::init((
-        config.dsn.clone(),
-        sentry::ClientOptions {
-            release: sentry::release_name!(),
-            ..Default::default()
-        },
-    )))
+    // ClientOptions is non-exhaustive since sentry 0.49, so it cannot be
+    // built with struct syntax.
+    let mut options = sentry::ClientOptions::default();
+    options.release = sentry::release_name!();
+    Some(sentry::init((config.dsn.clone(), options)))
 }

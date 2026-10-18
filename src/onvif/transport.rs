@@ -285,11 +285,10 @@ fn parent_is(stack: &[String], local: &str) -> bool {
 }
 
 /// Strip an XML namespace prefix, returning the local name.
-fn local_name(qname: &[u8]) -> String {
-    let s = String::from_utf8_lossy(qname);
-    match s.rsplit_once(':') {
+fn local_name(qname: &str) -> String {
+    match qname.rsplit_once(':') {
         Some((_, local)) => local.to_string(),
-        None => s.into_owned(),
+        None => qname.to_string(),
     }
 }
 

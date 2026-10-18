@@ -53,7 +53,7 @@ async fn exists(
         }
         _ => Statement::from_sql_and_values(DatabaseBackend::Postgres, pg, params),
     };
-    Ok(conn.query_one(stmt).await?.is_some())
+    Ok(conn.query_one_raw(stmt).await?.is_some())
 }
 
 async fn table_exists(conn: &DatabaseConnection, table: &str) -> Result<bool, DbErr> {
@@ -110,7 +110,7 @@ async fn config_value(conn: &DatabaseConnection, name: &str) -> Result<Option<St
         ),
     };
     Ok(conn
-        .query_one(stmt)
+        .query_one_raw(stmt)
         .await?
         .and_then(|r| r.try_get::<String>("", "value").ok())
         .map(|v| v.trim().to_string())
@@ -130,7 +130,7 @@ pub async fn record_applied(conn: &DatabaseConnection, names: &[String]) -> Resu
             .columns([Alias::new("version"), Alias::new("applied_at")])
             .values_panic([name.as_str().into(), now.into()])
             .to_owned();
-        conn.execute(conn.get_database_backend().build(&insert))
+        conn.execute_raw(conn.get_database_backend().build(&insert))
             .await?;
     }
     Ok(())

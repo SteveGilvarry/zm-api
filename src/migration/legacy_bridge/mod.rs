@@ -180,7 +180,7 @@ async fn scalar(
     params: Vec<Value>,
 ) -> Result<Option<String>, DbErr> {
     let row = conn
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::MySql,
             sql,
             params,
@@ -198,7 +198,7 @@ async fn scalar_i64(
     params: Vec<Value>,
 ) -> Result<Option<i64>, DbErr> {
     let row = conn
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::MySql,
             sql,
             params,
@@ -247,7 +247,7 @@ async fn db_version(conn: &DatabaseConnection) -> Result<Option<String>, DbErr> 
 }
 
 async fn set_config(conn: &DatabaseConnection, name: &str, value: &str) -> Result<(), DbErr> {
-    conn.execute(Statement::from_sql_and_values(
+    conn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::MySql,
         "UPDATE Config SET Value = ? WHERE Name = ?",
         vec![value.into(), name.into()],
@@ -449,7 +449,7 @@ async fn converge_schema(conn: &DatabaseConnection) -> Result<(), DbErr> {
     // the MonitorId/ZoneId indexes those keys need. A fresh install has
     // neither; converge by dropping the keys, then the indexes.
     let stats_fks = conn
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             DatabaseBackend::MySql,
             "SELECT CONSTRAINT_NAME, COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE \
              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'Stats' \

@@ -4,7 +4,8 @@
 //! events; instead the reader emits each `&name;` / `&#N;` as a separate
 //! [`quick_xml::events::Event::GeneralRef`] event. Parsers that previously
 //! called `BytesText::unescape()` must now stitch text fragments and resolved
-//! references back together.
+//! references back together. Since 0.42 events carry `&str`, so the content
+//! accessors are infallible.
 
 use std::borrow::Cow;
 
@@ -14,7 +15,7 @@ use quick_xml::events::{BytesRef, BytesText};
 /// Decoded content of a `Text` event. Entity references arrive separately as
 /// `GeneralRef` events and never appear here.
 pub(crate) fn text_content<'a>(t: &'a BytesText<'a>) -> Cow<'a, str> {
-    t.xml10_content().unwrap_or_default()
+    t.xml10_content()
 }
 
 /// Resolve a `GeneralRef` event to its replacement text: numeric character
@@ -26,10 +27,5 @@ pub(crate) fn general_ref_content(r: &BytesRef<'_>) -> String {
     if let Ok(Some(ch)) = r.resolve_char_ref() {
         return ch.to_string();
     }
-    match r.decode() {
-        Ok(name) => resolve_predefined_entity(&name)
-            .unwrap_or_default()
-            .to_string(),
-        Err(_) => String::new(),
-    }
+    resolve_predefined_entity(r).unwrap_or_default().to_string()
 }

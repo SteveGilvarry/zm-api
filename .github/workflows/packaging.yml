@@ -72,7 +72,7 @@ jobs:
           # so this flow could not be tried before it reached CI.
           - { distro: rocky-9, arch: amd64, runner: ubuntu-24.04, flow: zoneminder master, unproven: true }
           # No upstream master package: install, accounts, upgrade, removal.
-          - { distro: fedora-41, arch: amd64, runner: ubuntu-24.04, flow: package }
+          - { distro: fedora-44, arch: amd64, runner: ubuntu-24.04, flow: package }
           - { distro: opensuse-tumbleweed, arch: amd64, runner: ubuntu-24.04, flow: package }
           - { distro: arch, arch: amd64, runner: ubuntu-24.04, flow: package }
     steps:

@@ -256,7 +256,7 @@ impl StatsService {
 
         let backend = self.db.get_database_backend();
         self.db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 backend,
                 "INSERT INTO Server_Stats \
                  (ServerId, TimeStamp, CpuUserPercent, CpuNicePercent, \
@@ -280,7 +280,7 @@ impl StatsService {
         // Bounded per pass so a backlog drains gradually instead of locking the
         // table; the next tick continues.
         self.db
-            .execute(Statement::from_string(
+            .execute_raw(Statement::from_string(
                 backend,
                 "DELETE FROM Server_Stats WHERE TimeStamp < NOW() - INTERVAL 1 DAY LIMIT 500",
             ))
@@ -297,7 +297,7 @@ impl StatsService {
         let backend = self.db.get_database_backend();
         let result = self
             .db
-            .execute(Statement::from_string(
+            .execute_raw(Statement::from_string(
                 backend,
                 "DELETE FROM Monitor_Status \
                  WHERE UpdatedOn < DATE_SUB(NOW(), INTERVAL 1 MINUTE)",
@@ -340,7 +340,7 @@ impl StatsService {
                 );
                 let removed = self
                     .db
-                    .execute(Statement::from_string(backend, sql))
+                    .execute_raw(Statement::from_string(backend, sql))
                     .await?
                     .rows_affected();
                 if removed > 0 {
@@ -423,7 +423,7 @@ impl StatsService {
             for monitor_id in &monitors {
                 let (n, bytes) = by_monitor.get(monitor_id).copied().unwrap_or((0, 0));
                 self.db
-                    .execute(Statement::from_sql_and_values(
+                    .execute_raw(Statement::from_sql_and_values(
                         backend,
                         format!(
                             "UPDATE Event_Summaries SET {count_col} = ?, {bytes_col} = ? \
@@ -448,7 +448,7 @@ impl StatsService {
             return Ok(());
         }
         self.db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 self.db.get_database_backend(),
                 "UPDATE Servers SET CpuUserPercent = ?, CpuNicePercent = ?, \
                  CpuSystemPercent = ?, CpuIdlePercent = ?, CpuUsagePercent = ? \
@@ -513,7 +513,7 @@ impl StatsService {
                 );
                 let removed = self
                     .db
-                    .execute(Statement::from_string(backend, sql))
+                    .execute_raw(Statement::from_string(backend, sql))
                     .await?
                     .rows_affected();
                 if removed > 0 {
@@ -546,7 +546,7 @@ impl StatsService {
                     );
                     let removed = self
                         .db
-                        .execute(Statement::from_string(backend, sql))
+                        .execute_raw(Statement::from_string(backend, sql))
                         .await?
                         .rows_affected();
                     debug!("pruned {removed} log rows over the {keep}-row limit");
@@ -566,7 +566,7 @@ impl StatsService {
         loop {
             let removed = self
                 .db
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     backend,
                     "DELETE FROM Sessions WHERE access < ? LIMIT 500",
                     [cutoff.into()],
