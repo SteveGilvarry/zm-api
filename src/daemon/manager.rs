@@ -2282,6 +2282,15 @@ impl DaemonManager {
             None => default(),
         };
 
+        // The synopsis stages need the decoded frame size and a plate directory,
+        // which only the monitor row knows (#128).
+        pipeline::fill_monitor_frame(
+            &mut value,
+            u32::from(monitor.width),
+            u32::from(monitor.height),
+            &events_root.join("plates").join(monitor_id.to_string()),
+        );
+
         // Shared inference (Phase 1): when enabled, route detection to the per-GPU
         // zm-infer daemon by injecting `infer_endpoint`/`gpu_id` into each detect
         // node's cfg. Injected here (after graph validation, never persisted); off

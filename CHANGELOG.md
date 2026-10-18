@@ -206,6 +206,14 @@ recognisable path forward.
   zm_rtsp_server` failed as an invalid daemon spec.
 - **`migrator bridge` leaves triggers alone on a database past its cutover**
   (#162), where they are upstream's newer ones.
+- **The synopsis pipeline produces cutouts and plates** (#128). For a
+  synopsis monitor the generated zm-next pipeline put `review_export` straight
+  under capture, where it got compressed packets and produced nothing, passed
+  it two keys its schema rejects, and placed nothing to make background
+  plates. It now follows zm-next's synopsis layout: `decode_ffmpeg(rgb24)` →
+  `review_export`, and `decode_ffmpeg(gray)` → `motion_pixel_diff` with
+  `plate_export`, with the frame size taken from the monitor and the plate
+  directory set when the pipeline is composed (stored graphs included).
 - **Monitor changes reach the capture daemons in passive mode** (#155).
   Creating, editing and deleting a monitor, and `PATCH /monitors/{id}/state`,
   now start, restart or stop its `zmc` (and `zmcontrol.pl` when controllable)
