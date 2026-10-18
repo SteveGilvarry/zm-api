@@ -306,10 +306,7 @@ fn apply_text(m: &mut ProbeMatch, stack: &[String], text: &str) {
         // Types is a space-separated list of (possibly prefixed) QNames; keep
         // the local part so `dn:NetworkVideoTransmitter` → `NetworkVideoTransmitter`.
         "Types" => {
-            m.types.extend(
-                text.split_whitespace()
-                    .map(|tok| local_name(tok.as_bytes())),
-            );
+            m.types.extend(text.split_whitespace().map(local_name));
         }
         // Scopes is a space-separated list of `onvif://…` scope URIs.
         "Scopes" => {
@@ -378,11 +375,10 @@ fn hex_val(b: u8) -> Option<u8> {
 }
 
 /// Strip an XML namespace prefix, returning the local name.
-fn local_name(qname: &[u8]) -> String {
-    let s = String::from_utf8_lossy(qname);
-    match s.rsplit_once(':') {
+fn local_name(qname: &str) -> String {
+    match qname.rsplit_once(':') {
         Some((_, local)) => local.to_string(),
-        None => s.into_owned(),
+        None => qname.to_string(),
     }
 }
 

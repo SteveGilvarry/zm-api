@@ -238,11 +238,10 @@ fn xml_escape(s: &str) -> String {
 }
 
 /// Strip an XML namespace prefix, returning the local name.
-fn local_name(qname: &[u8]) -> String {
-    let s = String::from_utf8_lossy(qname);
-    match s.rsplit_once(':') {
+fn local_name(qname: &str) -> String {
+    match qname.rsplit_once(':') {
         Some((_, local)) => local.to_string(),
-        None => s.into_owned(),
+        None => qname.to_string(),
     }
 }
 
@@ -250,7 +249,7 @@ fn local_name(qname: &[u8]) -> String {
 fn attr_local<'a>(e: &'a quick_xml::events::BytesStart<'a>, want: &str) -> Option<String> {
     for attr in e.attributes().flatten() {
         if local_name(attr.key.as_ref()) == want {
-            return Some(String::from_utf8_lossy(&attr.value).into_owned());
+            return Some(attr.value.clone().into_owned());
         }
     }
     None

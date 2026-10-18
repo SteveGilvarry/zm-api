@@ -71,7 +71,7 @@ futures = "0.3"
 futures-util = "0.3"
 # Not "full": that would pull phone-number (RUSTSEC-flagged quick-xml 0.38 via
 # phonenumber) and credit-card, neither of which any validator here uses.
-garde = { version = "0.22", features = [
+garde = { version = "0.23", features = [
     "derive",
     "serde",
     "email",
@@ -79,7 +79,7 @@ garde = { version = "0.22", features = [
     "pattern",
     "unicode",
 ] }
-itertools = "0.14"
+itertools = "0.15"
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 log = "0.4"
 memmap2 = "0.9"
@@ -94,15 +94,15 @@ test-context = "0.5"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io"] }
-tokio-tungstenite = "0.29"
+tokio-tungstenite = "0.30"
 tracing = { version = "0.1", features = ["attributes"] }
 tracing-appender = "0.2"
 tracing-bunyan-formatter = "0.3"
 tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", features = ["registry", "env-filter"] }
-sentry = "0.48"
+sentry = "0.49"
 # ONVIF SOAP client: XML envelope build/parse and WS-Security SHA-1 digest.
-quick-xml = "0.41"
+quick-xml = "0.42"
 sha1 = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -114,7 +114,7 @@ utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
 uuid = { version = "1", features = ["v4"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = [
+tower-http = { version = "0.7", features = [
     "cors",
     "trace",
     "fs",
@@ -123,7 +123,6 @@ tower-http = { version = "0.6", features = [
     "set-header",
 ] }
 tower_governor = "0.8"
-mockall = "0.14"
 
 # WebRTC native implementation
 webrtc = "0.17"
@@ -176,15 +175,12 @@ pkg-config = "0.3"
 
 [dev-dependencies]
 # HTTP server testing helpers for Axum
-axum-test = { version = "20", features = ["typed-routing"] }
+axum-test = { version = "21", features = ["typed-routing"] }
 # Parameterized tests
-rstest = "0.26"
 # Snapshot testing for JSON/OpenAPI
 insta = { version = "1", features = ["json"] }
 # JSON diffing in assertions (crate name uses hyphens)
 assert-json-diff = "2"
-# Mocking traits in unit tests
-mockall = "0.14"
 tower = "0.5"
 # Temporary directories for tests
 tempfile = "3"
@@ -195,12 +191,12 @@ tempfile = "3"
 # mark. jemalloc returns pages aggressively, keeping RSS near the live set.
 # Gated off MSVC, where jemalloc is unavailable. Wired up in src/lib.rs.
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
-tikv-jemallocator = "0.6"
+tikv-jemallocator = "0.7"
 
 # Query jemalloc's runtime stats to assert the global allocator is wired up
 # (see tests/jemalloc.rs).
 [target.'cfg(not(target_env = "msvc"))'.dev-dependencies]
-tikv-jemalloc-ctl = { version = "0.6", features = ["stats"] }
+tikv-jemalloc-ctl = { version = "0.7", features = ["stats"] }
 
 [package.metadata.deb]
 maintainer = "Steve Gilvarry <SteveGilvarry@users.noreply.github.com>"
