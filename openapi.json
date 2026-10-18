@@ -3362,6 +3362,65 @@
         ]
       }
     },
+    "/api/v3/events/{id}/stream/link": {
+      "post": {
+        "tags": [
+          "Event Playback"
+        ],
+        "summary": "Mint a signed link to an event's HLS playlist",
+        "operationId": "createEventMediaLink",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Event ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMediaLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Signed playlist link",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaLinkResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/events/{id}/stream/media.mp4": {
       "get": {
         "tags": [
@@ -3501,11 +3560,10 @@
           {
             "name": "seq",
             "in": "path",
-            "description": "Zero-based segment index",
+            "description": "Zero-based segment index with its `.m4s` extension, as the playlist lists it; a bare index is also accepted",
             "required": true,
             "schema": {
-              "type": "integer",
-              "minimum": 0
+              "type": "string"
             }
           }
         ],
@@ -4933,6 +4991,65 @@
           },
           "404": {
             "description": "Init segment not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/live/{monitor_id}/hls/link": {
+      "post": {
+        "tags": [
+          "Live Streaming"
+        ],
+        "summary": "Mint a signed link to a monitor's live HLS playlist",
+        "operationId": "createLiveMediaLink",
+        "parameters": [
+          {
+            "name": "monitor_id",
+            "in": "path",
+            "description": "Monitor/Camera ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMediaLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Signed playlist link",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaLinkResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -7582,7 +7699,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateStateRequest"
+                "$ref": "#/components/schemas/MonitorStateRequest"
               }
             }
           },
@@ -17454,6 +17571,21 @@
           }
         }
       },
+      "CreateMediaLinkRequest": {
+        "type": "object",
+        "description": "Mint a signed playlist link.",
+        "properties": {
+          "ttl_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Lifetime in seconds, 60 to 31536000 (365 days). Default 2592000\n(30 days).",
+            "minimum": 0
+          }
+        }
+      },
       "CreateModelRequest": {
         "type": "object",
         "required": [
@@ -21411,6 +21543,31 @@
           }
         }
       },
+      "MediaLinkResponse": {
+        "type": "object",
+        "description": "A signed playlist link for a player that can only authenticate in the URL.",
+        "required": [
+          "playlist_url",
+          "token",
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix time the link stops working."
+          },
+          "playlist_url": {
+            "type": "string",
+            "description": "The playlist path with its signature, ready for a player: prefix it\nwith the server's origin. The playlist signs every URI it lists.",
+            "example": "/api/v3/live/1/hls/master.m3u8?st=1.m.1.3.1760000000.1762592000.Q2…"
+          },
+          "token": {
+            "type": "string",
+            "description": "The signature alone (`st`), for building other URLs of the same\nmonitor or event."
+          }
+        }
+      },
       "MessageResponse": {
         "type": "object",
         "required": [
@@ -22491,6 +22648,18 @@
           "zone_count": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "MonitorStateRequest": {
+        "type": "object",
+        "description": "Body of `PATCH /monitors/{id}/state`. Distinct from the run-state\n`UpdateStateRequest` in `dto::request::states`: the two shared a name, and\nthe OpenAPI spec documented this endpoint with the other one's body (#158).",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "state": {
+            "type": "string"
           }
         }
       },

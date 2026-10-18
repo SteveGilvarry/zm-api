@@ -45,6 +45,7 @@ pub mod auth;
 pub mod events;
 pub mod events_playback;
 pub mod live;
+pub mod media_links;
 pub mod monitor;
 pub mod monitor_pipeline;
 pub mod search;

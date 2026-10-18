@@ -185,6 +185,13 @@ impl FromRequestParts<AppState> for MonitorScope {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
+        // A signed media URL sees one monitor, read-only.
+        if let Some(grant) = parts
+            .extensions
+            .get::<crate::service::media_grant::MediaGrant>()
+        {
+            return Ok(grant.scope());
+        }
         resolve_from_request(state, &parts.headers, &parts.uri).await
     }
 }
@@ -207,7 +214,13 @@ pub async fn monitor_path_guard(
         .and_then(|(_, value)| value.parse::<u32>().ok());
 
     if let Some(mid) = monitor_id {
-        let scope = resolve_from_request(&state, request.headers(), request.uri()).await?;
+        let scope = match request
+            .extensions()
+            .get::<crate::service::media_grant::MediaGrant>()
+        {
+            Some(grant) => grant.scope(),
+            None => resolve_from_request(&state, request.headers(), request.uri()).await?,
+        };
         let required = match *request.method() {
             Method::GET | Method::HEAD | Method::OPTIONS => Level::View,
             _ => Level::Edit,

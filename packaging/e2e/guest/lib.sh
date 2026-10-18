@@ -193,6 +193,32 @@ hls_has_segments() {
   return $rc
 }
 
+# A player that can't send a header (FFmpeg, so Home Assistant) plays live
+# HLS through a signed link: the playlist signs every URI it lists (#153).
+hls_plays_from_a_signed_link() {
+  local id link url rc=1
+  id="$(monitor_id)"
+  api POST "/api/v3/live/${id}/start" -H 'content-type: application/json' \
+    -d '{"enable_hls":true}' >/dev/null || return 1
+  wait_until 30 api_grep GET "/api/v3/live/${id}/hls/live.m3u8" '\.m4s' || return 1
+  link="$(api POST "/api/v3/live/${id}/hls/link" -H 'content-type: application/json' \
+    -d '{"ttl_seconds":600}' | jq -r .playlist_url)" || return 1
+  url="${API}${link}"
+  # No access token may appear in what the player is given.
+  if curl -sS -m 20 "$url" | grep -q 'token='; then
+    note "signed playlist lists an access token"
+  else
+    local packets
+    packets="$(timeout 40 ffprobe -v error -rw_timeout 15000000 -read_intervals '%+4' \
+      -select_streams v:0 -count_packets -show_entries stream=nb_read_packets \
+      -of csv=p=0 "$url" 2>>"$ARTIFACTS/ffprobe-signed-hls.log" | head -1)"
+    note "ffprobe read ${packets:-no} video packets through the signed link"
+    [[ "${packets:-0}" -gt 0 ]] && rc=0
+  fi
+  api DELETE "/api/v3/live/${id}/stop" >/dev/null 2>&1 || true
+  return $rc
+}
+
 # Live WebRTC: a headless Chromium answers zm-api's offer over the signaling
 # WebSocket and must decode frames. Chromium's own WebRTC stack is the peer,
 # so this does not depend on the webrtc crate zm-api is built with. Debian

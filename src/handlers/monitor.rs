@@ -5,7 +5,7 @@ use tracing::{info, warn};
 
 use crate::dto::request::monitor::MonitorListParams;
 use crate::dto::request::{
-    AlarmControlRequest, CreateMonitorRequest, UpdateMonitorRequest, MonitorStateRequest,
+    AlarmControlRequest, CreateMonitorRequest, MonitorStateRequest, UpdateMonitorRequest,
 };
 use crate::dto::response::monitors::PaginatedMonitorsResponse;
 use crate::dto::response::MonitorResponse;

@@ -552,11 +552,17 @@ pub fn create_router_app(state: AppState) -> Router {
     // byte-range video, chunked HLS playlists, JPEG snapshots, SSE and
     // WebSocket upgrades, all of which `CompressionLayer` would buffer,
     // invalidate (Range) or corrupt.
+    // `?st=` signed media URLs are checked ahead of every streaming route's
+    // own auth, which then honours the grant (see service::media_grant).
     let streaming = Router::new()
         .merge(live_routes) // Live streaming (unified)
         .merge(events_playback_routes) // Event playback
         .merge(snapshot_routes)
-        .merge(snapshot_event_routes);
+        .merge(snapshot_event_routes)
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::service::media_grant::media_grant_layer,
+        ));
 
     // Build the served OpenAPI document, merging in feature-gated fragments
     // (utoipa's derive cannot `#[cfg]` individual path/schema entries, so the
@@ -609,7 +615,13 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(event_tag_routes)
         .merge(search_routes)
         .merge(daemon_routes) // Daemon control
-        .merge(ptz_routes); // PTZ control
+        .merge(ptz_routes) // PTZ control
+        .merge(crate::util::authz::protect_at(
+            events_playback::add_event_link_route(Router::new()),
+            Feature::Events,
+            crate::util::authz::Level::View,
+            state.clone(),
+        ));
 
     // ONVIF discovery (feature-gated). Feeds monitor creation, so gated like
     // monitor management; merged before the compression layer so its JSON

@@ -18,6 +18,7 @@ pub mod h264;
 pub mod playlist;
 pub mod segmenter;
 pub mod session;
+pub mod signed_playlist;
 pub mod storage;
 pub mod vod;
 

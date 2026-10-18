@@ -31,6 +31,7 @@ if has_zoneminder; then
     api_json GET '/api/v3/events?limit=1' '.items | length > 0'
   check "snapshot from the stream socket is a JPEG" snapshot_is_jpeg
   check "live HLS from the stream socket has segments" hls_has_segments
+  check "live HLS plays in ffprobe from a signed link" hls_plays_from_a_signed_link
   if has_chromium; then
     check "live WebRTC plays in a headless browser" webrtc_plays
   else

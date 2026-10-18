@@ -67,16 +67,40 @@ that account stops working immediately, including ones issued to other devices.
 
 ## Media URLs
 
-`<img>` and `<video>` elements cannot set headers, so the snapshot route also
-accepts the token as a query parameter:
+`<img>` and `<video>` elements, and players such as FFmpeg, VLC and Home
+Assistant, cannot set headers, so media routes accept a credential in the URL
+too. There are two kinds.
+
+**Signed links (preferred).** A signed link opens one monitor's live media or
+one event's recording, read-only, and nothing else. Mint one with a header
+token:
 
 ```
-GET /api/v3/monitors/1/snapshot?token=<JWT>
+POST /api/v3/live/{monitor_id}/hls/link     {"ttl_seconds": 2592000}
+POST /api/v3/events/{id}/stream/link        {}
 ```
 
-This is the only place that is accepted. It puts a credential in a URL, where it
-can land in proxy logs and browser history — prefer the header wherever the
-client controls the request.
+The response's `playlist_url` is ready for a player. The playlist then signs
+every URI it lists with a signature that lasts minutes, renewed each time a
+live playlist is refetched, so a segment URL that leaks into a log is soon
+useless. Links last 30 days by default, up to 365. See
+[Live streaming](streaming.md#players-that-cannot-send-a-header).
+
+Nothing is stored for a link, so a single link cannot be revoked on its own.
+Every link a user minted stops working when that user is logged out
+everywhere, changes password or is disabled. Give each integration its own
+user, with `Stream: View` (or `Events: View`) on the monitors it needs, so
+revoking one integration leaves the others alone.
+
+**The access token (`?token=<JWT>`).** Still accepted on media routes for
+existing clients. It is the full access token, able to do anything the user
+can, and it puts that in a URL where it can land in proxy logs and browser
+history. Prefer the header wherever the client controls the request, and a
+signed link where it doesn't. A playlist fetched this way lists signed URIs,
+not the token.
+
+Responses to signed requests are sent `Cache-Control: private` and
+`Referrer-Policy: no-referrer`.
 
 ## Rate limiting
 

@@ -2734,7 +2734,10 @@ fn validate_daemon_spec(command: &str, args: &[String]) -> Result<(), String> {
 
     let result: Result<(), String> = match command {
         // Singletons that take no arguments.
-        "zmstats.pl" | "zmtelemetry.pl" | "zmtrigger.pl" | "zmeventnotification.pl"
+        "zmstats.pl"
+        | "zmtelemetry.pl"
+        | "zmtrigger.pl"
+        | "zmeventnotification.pl"
         | "zm_rtsp_server" => {
             if args.is_empty() {
                 Ok(())

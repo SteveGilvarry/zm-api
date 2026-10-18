@@ -1,6 +1,6 @@
 #![allow(clippy::result_large_err)]
 use crate::dto::request::{
-    AlarmControlRequest, CreateMonitorRequest, UpdateMonitorRequest, MonitorStateRequest,
+    AlarmControlRequest, CreateMonitorRequest, MonitorStateRequest, UpdateMonitorRequest,
 };
 use crate::dto::response::MonitorResponse;
 use crate::dto::{PaginatedResponse, PaginationParams};

@@ -10,6 +10,18 @@ recognisable path forward.
 
 ### Added
 
+- **Signed media links for players that can't send a header** (#153, #34).
+  `POST /api/v3/live/{monitor_id}/hls/link` and
+  `POST /api/v3/events/{id}/stream/link` mint a playlist URL signed for that
+  monitor's live stream or that event's recording, read-only, lasting 30 days
+  by default (up to 365). Every URI the playlist lists then carries its own
+  signature (`?st=`), valid for minutes on a live stream and renewed with each
+  playlist refresh, so FFmpeg, VLC, Safari's native player and Home Assistant
+  play it, and a segment URL caught in a log is soon useless. Nothing is
+  stored: a link is checked against its user's current permissions and dies
+  when the user is logged out everywhere, changes password or is disabled.
+  See the Media URLs section of the authentication guide.
+
 - **The schema follows ZoneMinder to 1.39.41** (#152). Eight more upstream
   updates are mirrored as migrations, vendored into the raw chain for
   `migrator bridge`, and the entities follow. `FrameResponse` gains
@@ -171,6 +183,29 @@ recognisable path forward.
   `--force` takes over despite a failed check.
 
 ### Fixed
+
+- **Live and recorded HLS play in header-less players** (#153). Playlists
+  fetched with a URL credential listed bare URIs, so FFmpeg and Home Assistant
+  got the playlist and then a 401 on the init segment and every segment. They
+  now list signed URIs. A playlist fetched with `?token=<JWT>` lists
+  signatures rather than copying the access token into its URIs.
+- **Recorded-event playlists play in FFmpeg** (#154). Segment URIs had no
+  extension, which FFmpeg's HLS demuxer refuses; they are now
+  `segment/N.m4s`, and a bare `N` still works.
+- **Start, stop and restart of ZoneMinder fall back to `zmpkg.pl`** (#157)
+  when `systemctl` fails, as ZoneMinder's own API does. The fallback was
+  `zmcontrol.pl`, the PTZ script.
+- **The OpenAPI spec documents `PATCH /monitors/{id}/state` with its own body**
+  (#158), `MonitorStateRequest` (`{"state": "start|stop|restart"}`). Two
+  structs shared the name `UpdateStateRequest`, and the run-state one won.
+- **Takeover no longer runs `zma` per monitor** (#160). Analysis has run
+  inside `zmc` since 1.36, and on 1.39 `zma -e <event>` re-analyses one event
+  and exits, so the supervisor restarted it forever.
+- **Takeover knows `zm_rtsp_server`** (#161), and starts it when
+  `ZM_MIN_RTSP_PORT` is set, as `zmpkg.pl` does. `zmdc.pl start
+  zm_rtsp_server` failed as an invalid daemon spec.
+- **`migrator bridge` leaves triggers alone on a database past its cutover**
+  (#162), where they are upstream's newer ones.
 
 - **Alarm control through shared memory works on ZoneMinder 1.39** (#148,
   PR #149 by Nic Boet). `SharedData` grew to 888 bytes on master and zm-api
@@ -470,6 +505,11 @@ recognisable path forward.
   default, and any other table that drifts is logged by name.
 
 ### Security
+
+- **Media responses to URL-credentialed requests are no longer cacheable by
+  shared caches** (`Cache-Control: private`) and send
+  `Referrer-Policy: no-referrer`, so a proxy can't replay a segment fetched
+  with a signature and the URL doesn't leak through `Referer`.
 
 - Dependency bumps for RUSTSEC-2026-0338 to 0342 (`quinn-proto` 0.11.19),
   RUSTSEC-2026-0346 to 0349 (`rustls` 0.23.46), and `async-trait` 0.1.92,

@@ -406,8 +406,26 @@ pub async fn get_event_playlist(
     State(state): State<AppState>,
     Path(path): Path<EventPlaybackPath>,
     scope: MonitorScope,
+    grant: Option<axum::Extension<crate::service::media_grant::MediaGrant>>,
+    uri: axum::http::Uri,
 ) -> Result<Response, AppError> {
     let event = get_event_entity(&state, path.id, &scope).await?;
+
+    // Fetched with a URL credential: sign the listed URIs so players that
+    // can't send a header can fetch them (#153).
+    let signer = crate::service::media_grant::uri_signer(
+        grant.as_deref(),
+        &uri,
+        crate::util::media_url::MediaResource::Event {
+            event_id: path.id,
+            monitor_id: event.monitor_id,
+        },
+        crate::util::media_url::RECORDING_TTL,
+    );
+    let sign = |p: String| match &signer {
+        Some(s) => crate::streaming::hls::signed_playlist::sign_playlist(&p, s),
+        None => p,
+    };
 
     // In-progress events have no finalized file to package as VOD. ZoneMinder
     // already maintains a growing `#EXT-X-PLAYLIST-TYPE:EVENT` playlist
@@ -430,7 +448,7 @@ pub async fn get_event_playlist(
                     ],
                 })
             })?;
-        let body = rewrite_zm_event_playlist(&zm_m3u8, "media.mp4");
+        let body = sign(rewrite_zm_event_playlist(&zm_m3u8, "media.mp4"));
         return Ok(Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")
@@ -445,7 +463,7 @@ pub async fn get_event_playlist(
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")
         .header(header::CACHE_CONTROL, "no-cache")
-        .body(Body::from(assets.playlist.clone()))
+        .body(Body::from(sign(assets.playlist.clone())))
         .unwrap())
 }
 
@@ -510,9 +528,8 @@ pub async fn get_event_segment(
     Path(path): Path<EventSegmentPath>,
     scope: MonitorScope,
 ) -> Result<Response, AppError> {
-    let index = segment_index(&path.seq).ok_or_else(|| {
-        AppError::BadRequestError(format!("invalid segment `{}`", path.seq))
-    })?;
+    let index = segment_index(&path.seq)
+        .ok_or_else(|| AppError::BadRequestError(format!("invalid segment `{}`", path.seq)))?;
     let assets = event_vod_assets(&state, path.id, &scope).await?;
     let segment = assets.segments.get(index).ok_or_else(|| {
         AppError::NotFoundError(crate::error::Resource {

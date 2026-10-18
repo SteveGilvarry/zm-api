@@ -22,6 +22,12 @@ pub fn routes() -> Router<AppState> {
         .route("/hls/master.m3u8", get(live::get_live_master_playlist))
         .route("/hls/live.m3u8", get(live::get_live_media_playlist))
         .route("/hls/init.mp4", get(live::get_live_init_segment))
+        // Signed playlist link for header-less players. Header token only.
+        .route(
+            "/hls/link",
+            post(crate::handlers::media_links::create_live_link)
+                .route_layer(axum::middleware::from_fn(auth_middleware)),
+        )
         .route("/hls/{segment}", get(live::get_live_segment))
         // WebRTC endpoints (WebSocket signaling)
         .route("/webrtc/ws", get(live::webrtc_websocket_handler))

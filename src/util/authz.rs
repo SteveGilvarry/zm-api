@@ -193,9 +193,20 @@ fn required_level(feature: Feature, method: &Method) -> Level {
 async fn enforce(
     state: AppState,
     feature: Feature,
+    level: Option<Level>,
     request: Request,
     next: Next,
 ) -> Result<Response, AppError> {
+    // A signed media URL was checked by `media_grant_layer`, including the
+    // feature this resource's media belongs to and the user's current access.
+    if request
+        .extensions()
+        .get::<crate::service::media_grant::MediaGrant>()
+        .is_some()
+    {
+        return Ok(next.run(request).await);
+    }
+
     // Self-contained: decode the bearer token (header or `?token=` for media
     // elements) rather than relying on auth middleware ordering.
     let token = extract_token_from_header(&request)
@@ -214,7 +225,7 @@ async fn enforce(
         ));
     }
 
-    let required = required_level(feature, request.method());
+    let required = level.unwrap_or_else(|| required_level(feature, request.method()));
     let granted = claims.perms.level(feature);
 
     if granted >= required {
@@ -234,7 +245,20 @@ async fn enforce(
 /// state is needed for the token-revocation check.
 pub fn protect(router: Router<AppState>, feature: Feature, state: AppState) -> Router<AppState> {
     router.layer(from_fn(move |req: Request, next: Next| {
-        enforce(state.clone(), feature, req, next)
+        enforce(state.clone(), feature, None, req, next)
+    }))
+}
+
+/// Like [`protect`], but requiring `level` whatever the method: for a POST
+/// that only reads, such as minting a read-only media link.
+pub fn protect_at(
+    router: Router<AppState>,
+    feature: Feature,
+    level: Level,
+    state: AppState,
+) -> Router<AppState> {
+    router.layer(from_fn(move |req: Request, next: Next| {
+        enforce(state.clone(), feature, Some(level), req, next)
     }))
 }
 

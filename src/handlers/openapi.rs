@@ -4,8 +4,8 @@ use utoipa::{
 };
 
 use crate::dto::request::{
-    AlarmControlRequest, CreateMonitorRequest, LoginRequest, RefreshTokenRequest, TokenInfoRequest,
-    UpdateMonitorRequest, MonitorStateRequest,
+    AlarmControlRequest, CreateMonitorRequest, LoginRequest, MonitorStateRequest,
+    RefreshTokenRequest, TokenInfoRequest, UpdateMonitorRequest,
 };
 use crate::dto::response::{
     LoginResponse, MessageResponse, MonitorPipelineResponse, MonitorResponse,
@@ -105,6 +105,7 @@ use crate::util::claim::UserClaims;
 
         // event playback
         crate::handlers::events_playback::get_event_playlist,
+        crate::handlers::media_links::create_event_link,
         crate::handlers::events_playback::get_event_video,
         crate::handlers::events_playback::get_event_stream_video,
         crate::handlers::events_playback::get_event_stream_media,
@@ -169,6 +170,7 @@ use crate::util::claim::UserClaims;
         crate::handlers::live::get_live_stats,
         crate::handlers::live::list_live_sessions,
         crate::handlers::live::get_live_master_playlist,
+        crate::handlers::media_links::create_live_link,
         crate::handlers::live::get_live_media_playlist,
         crate::handlers::live::get_live_init_segment,
         crate::handlers::live::get_live_segment,
@@ -546,6 +548,8 @@ use crate::util::claim::UserClaims;
             MonitorResponse,
             UpdateMonitorRequest,
             MonitorStateRequest,
+            crate::dto::request::CreateMediaLinkRequest,
+            crate::dto::response::MediaLinkResponse,
 
             // monitor presets
             crate::dto::request::monitor_presets::CreateMonitorPresetRequest,

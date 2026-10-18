@@ -7719,6 +7719,7 @@ dependencies = [
  "futures",
  "futures-util",
  "garde",
+ "hmac 0.13.0",
  "iana-time-zone",
  "image",
  "insta",

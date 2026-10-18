@@ -357,6 +357,8 @@ pub async fn list_live_sessions(State(state): State<AppState>) -> AppResult<Json
 pub async fn get_live_master_playlist(
     State(state): State<AppState>,
     Path(monitor_id): Path<u32>,
+    grant: Option<axum::Extension<crate::service::media_grant::MediaGrant>>,
+    uri: axum::http::Uri,
 ) -> Result<Response, AppError> {
     debug!("Serving live master playlist for monitor {}", monitor_id);
 
@@ -373,6 +375,7 @@ pub async fn get_live_master_playlist(
                 details: vec![("monitor_id".to_string(), monitor_id.to_string())],
             })
         })?;
+    let playlist = sign_live_playlist(playlist, monitor_id, grant.as_deref(), &uri);
 
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -380,6 +383,26 @@ pub async fn get_live_master_playlist(
         .header(header::CACHE_CONTROL, "no-cache, no-store, must-revalidate")
         .body(Body::from(playlist))
         .unwrap())
+}
+
+/// Sign a live playlist's URIs when it was fetched with a URL credential, so
+/// players that can't send a header can fetch them (#153).
+fn sign_live_playlist(
+    playlist: String,
+    monitor_id: u32,
+    grant: Option<&crate::service::media_grant::MediaGrant>,
+    uri: &axum::http::Uri,
+) -> String {
+    use crate::util::media_url::{MediaResource, LIVE_TTL};
+    match crate::service::media_grant::uri_signer(
+        grant,
+        uri,
+        MediaResource::Monitor(monitor_id),
+        LIVE_TTL,
+    ) {
+        Some(signer) => crate::streaming::hls::signed_playlist::sign_playlist(&playlist, &signer),
+        None => playlist,
+    }
 }
 
 /// Get HLS media playlist
@@ -401,6 +424,8 @@ pub async fn get_live_media_playlist(
     State(state): State<AppState>,
     Path(monitor_id): Path<u32>,
     Query(ll_hls): Query<LlHlsQuery>,
+    grant: Option<axum::Extension<crate::service::media_grant::MediaGrant>>,
+    uri: axum::http::Uri,
 ) -> Result<Response, AppError> {
     debug!("Serving live media playlist for monitor {}", monitor_id);
 
@@ -426,6 +451,7 @@ pub async fn get_live_media_playlist(
             details: vec![("monitor_id".to_string(), monitor_id.to_string())],
         })
     })?;
+    let playlist = sign_live_playlist(playlist, monitor_id, grant.as_deref(), &uri);
 
     Ok(Response::builder()
         .status(StatusCode::OK)

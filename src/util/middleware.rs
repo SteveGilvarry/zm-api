@@ -117,6 +117,15 @@ pub async fn media_auth_middleware(
     // Path only: media URLs may carry `?token=<JWT>`, which must not reach logs.
     debug!("Authenticating media request: {}", request.uri().path());
 
+    // Already authenticated by a signed media URL (`media_grant_layer`).
+    if request
+        .extensions()
+        .get::<crate::service::media_grant::MediaGrant>()
+        .is_some()
+    {
+        return Ok(next.run(request).await);
+    }
+
     // Try to extract token from Authorization header first
     let token = extract_token_from_header(&request).or_else(|| extract_token_from_query(&request));
 

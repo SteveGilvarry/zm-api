@@ -17,6 +17,7 @@ pub mod groups_monitors;
 pub mod groups_permissions;
 pub mod logs;
 pub mod manufacturers;
+pub mod media_links;
 pub mod models;
 pub mod monitor;
 pub mod monitor_ondemand;
@@ -59,3 +60,4 @@ pub use users::*;
 pub use zone_presets::*;
 pub use zones::*;
 // // pub use events::*; // Commented out to avoid ambiguity/unused warning // Commented out to avoid ambiguity/unused warning
+pub use media_links::*;

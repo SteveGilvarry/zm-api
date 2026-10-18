@@ -6,7 +6,24 @@
 //! - `Authorization: Bearer <token>` header (standard)
 //! - `?token=<token>` query parameter (for HTML5 media elements)
 
-use axum::{routing::get, Router};
+use axum::{
+    routing::{get, post},
+    Router,
+};
+
+/// `POST /api/v3/events/{id}/stream/link`: mint a signed playlist link.
+///
+/// Kept out of the Events-gated playback router, whose method-derived gate
+/// would demand Events:Edit for a POST; issuing a read-only link needs only
+/// View (`protect_at` in routes/mod.rs). Header token only.
+pub fn add_event_link_route(router: Router<AppState>) -> Router<AppState> {
+    router.route(
+        "/api/v3/events/{id}/stream/link",
+        post(crate::handlers::media_links::create_event_link).route_layer(
+            axum::middleware::from_fn(crate::util::middleware::auth_middleware),
+        ),
+    )
+}
 
 use crate::handlers::{events_playback, frame_images, synopsis};
 use crate::server::state::AppState;

@@ -51,7 +51,7 @@ master package gets the full flow against it. The others get the package flow.
 | `zoneminder` | yes | | ZoneMinder master from zmrepo, a synthetic RTSP camera, one monitor recording continuously |
 | `layout` | | yes | The web account, an empty database and a `zm.conf` with upstream's ownership, no ZoneMinder daemons |
 | `install` | yes | yes | Files, the account drop-in, keys, service up in passive mode, ZoneMinder's processes and sockets untouched |
-| `passive` | yes | yes | Login, monitors, events, a snapshot and live HLS off the stream socket, a restart that leaves ZoneMinder's sockets alone; on Debian, a headless Chromium plays the live WebRTC stream |
+| `passive` | yes | yes | Login, monitors, events, a snapshot and live HLS off the stream socket, ffprobe playing live HLS from a signed link, a restart that leaves ZoneMinder's sockets alone; on Debian, a headless Chromium plays the live WebRTC stream |
 | `takeover` | yes | | A takeover that fails is rolled back; a real one moves `zmc` under zm-api, still recording, files still owned by ZoneMinder's account |
 | `revert` | yes | | `zmdc.pl` supervises again, still recording |
 | `upgrade` | yes | yes | Reinstall keeps keys and mode; an install from the old fixed `zoneminder` account moves to ZoneMinder's |

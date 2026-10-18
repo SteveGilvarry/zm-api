@@ -5,6 +5,7 @@ pub mod dir;
 pub mod file;
 pub mod hash;
 pub mod key;
+pub mod media_url;
 pub mod middleware;
 pub mod password;
 pub mod path;
