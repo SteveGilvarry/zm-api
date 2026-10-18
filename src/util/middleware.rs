@@ -215,6 +215,28 @@ fn percent_decode(input: &str) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
+/// Paths that still answer while the schema is behind: liveness and version,
+/// so monitoring and `zm-web` can tell what is wrong.
+const SCHEMA_GATE_OPEN: &[&str] = &["/api/v3/server/health_check", "/api/v3/host/getVersion"];
+
+/// While ZoneMinder's schema is older than this build needs, every API call
+/// answers 503 saying how to upgrade it (#147). The UI and the API docs are
+/// still served.
+pub async fn schema_gate(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let path = req.uri().path();
+    match &state.schema_behind {
+        Some(msg) if path.starts_with("/api/v3/") && !SCHEMA_GATE_OPEN.contains(&path) => {
+            crate::error::AppError::ServiceUnavailableError(msg.to_string()).into_response()
+        }
+        _ => next.run(req).await,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

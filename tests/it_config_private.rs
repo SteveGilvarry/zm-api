@@ -156,3 +156,14 @@ async fn options_set_in_a_config_file_say_so() {
         .await;
     assert_eq!(put.status(), StatusCode::CONFLICT, "{}", put.text());
 }
+
+/// The test database is at the mirrored version, so nothing is gated (#147).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn the_test_schema_is_current() {
+    let app = TestApp::spawn().await;
+    let state = zm_api::migration::schema_check::check(&app.db)
+        .await
+        .unwrap();
+    assert_eq!(state, zm_api::migration::schema_check::SchemaState::Current);
+}

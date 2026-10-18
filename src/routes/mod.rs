@@ -675,7 +675,14 @@ pub fn create_router_app(state: AppState) -> Router {
 
     let api = api.layer(CompressionLayer::new());
 
-    let app = Router::new().merge(api).merge(streaming);
+    let app =
+        Router::new()
+            .merge(api)
+            .merge(streaming)
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::util::middleware::schema_gate,
+            ));
 
     // The browser UI (zm-web), when this binary is serving it. Mounted as the
     // fallback so every real route above still wins; only unmatched paths reach

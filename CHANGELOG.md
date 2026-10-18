@@ -211,6 +211,18 @@ recognisable path forward.
 
 ### Fixed
 
+- **A ZoneMinder schema older than this build no longer stops capture**
+  (#147). At startup zm-api compares ZoneMinder's schema version with the
+  one it mirrors. When the schema is behind, zm-api logs it as an error,
+  does not upgrade ZoneMinder's tables by itself, and doesn't take over the
+  daemons, so capture is left alone. Until the schema is upgraded, every API
+  call answers `503` naming the fix (`zm-api-db up`, or `bridge` for a
+  database not on the migration system); the health check and version still
+  answer. A schema that ZoneMinder's own packages have already brought
+  forward counts as current. `zm-api-db status` starts with "DB behind
+  binary" when that applies, and zm-api-db falls back to the database
+  `zm.conf` names when given no URL.
+
 - **Event time filters use the server's time zone** (#173). `start_time` /
   `end_time` on `GET /events` (and the times on `POST /events`, saved-search
   date terms and the audit report window) were turned into naive UTC and

@@ -49,7 +49,19 @@ it is creating the schema, not adopting one. Use
 there instead.
 .TP
 .B status
-List migrations and whether each has been applied. Read-only; safe at any time.
+List migrations and whether each has been applied, after a first line that
+says whether the ZoneMinder schema is current for this binary or
+.BR "DB behind binary" ,
+and which command upgrades it. Read-only; safe at any time.
+.PP
+When the schema is older than the ZoneMinder version this
+.B zm-api
+mirrors,
+.B zm-api
+does not upgrade it at startup: ZoneMinder's own daemons may still be the older
+version. It answers every API call with 503 and that message, and leaves the
+capture daemons alone, never taking them over, until the schema is upgraded and
+zm-api restarted.
 .PP
 The underlying SeaORM CLI accepts further subcommands
 .RB ( down ", " fresh ", " refresh ", " reset ).
@@ -62,7 +74,12 @@ Database connection URL, for example
 .IR mysql://zmuser:zmpass@localhost/zm .
 Falls back to the
 .B DATABASE_URL
-environment variable; the tool exits with status 2 if neither is given.
+environment variable, then to the database ZoneMinder's
+.I zm.conf
+(and
+.IR conf.d )
+names, so ZoneMinder's own account needs neither. The tool exits with status 2
+when none of these gives a URL.
 .SH EXAMPLES
 Upgrade an existing ZoneMinder database, having taken a backup first:
 .PP
