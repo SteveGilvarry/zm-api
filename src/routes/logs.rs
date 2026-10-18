@@ -10,6 +10,10 @@ pub fn add_log_routes(router: Router<AppState>) -> Router<AppState> {
             &format!("{}/logs", api_prefix),
             get(logs::list_logs).delete(logs::clear_logs),
         )
+        .route(
+            &format!("{}/logs/components", api_prefix),
+            get(logs::list_log_components),
+        )
         .route(&format!("{}/logs/{{id}}", api_prefix), get(logs::get_log))
         .layer(middleware::from_fn(auth_middleware));
     router.merge(protected)

@@ -74,17 +74,23 @@ where
 }
 
 /// Find monitors with pagination, restricted to the caller's allowlist.
+///
+/// Soft-deleted rows (`Deleted = 1`) are left out unless `include_deleted`.
 #[tracing::instrument(skip_all)]
 pub async fn find_paginated<C>(
     conn: &C,
     params: &PaginationParams,
     monitor_filter: Option<&[u32]>,
+    include_deleted: bool,
 ) -> AppResult<(Vec<entity::monitors::Model>, u64)>
 where
     C: ConnectionTrait,
 {
-    let paginator =
-        scoped(entity::monitors::Entity::find(), monitor_filter).paginate(conn, params.page_size());
+    let mut query = scoped(entity::monitors::Entity::find(), monitor_filter);
+    if !include_deleted {
+        query = query.filter(entity::monitors::Column::Deleted.eq(false));
+    }
+    let paginator = query.paginate(conn, params.page_size());
     let total = paginator.num_items().await?;
     let items = paginator
         .fetch_page(params.page().saturating_sub(1))

@@ -43,12 +43,14 @@ pub async fn list_all(state: &AppState, scope: &MonitorScope) -> AppResult<Vec<M
 pub async fn list_paginated(
     state: &AppState,
     params: &PaginationParams,
+    include_deleted: bool,
     scope: &MonitorScope,
 ) -> AppResult<PaginatedResponse<MonitorResponse>> {
     info!("Listing monitors with pagination.");
     let filter = scope.visible_ids(Level::View);
     let (items, total) =
-        repo::monitors::find_paginated(state.db(), params, filter.as_deref()).await?;
+        repo::monitors::find_paginated(state.db(), params, filter.as_deref(), include_deleted)
+            .await?;
     let responses: Vec<MonitorResponse> = items.into_iter().map(MonitorResponse::from).collect();
     Ok(PaginatedResponse::from_params(responses, total, params))
 }

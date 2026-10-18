@@ -80,4 +80,8 @@ pub struct PaginatedLogsResponse {
     pub current_page: u64,
     /// Last page number
     pub last_page: u64,
+    /// Row count of the whole table, ignoring every filter. Only present when
+    /// the request asked for it with `unfiltered_total=true`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_unfiltered: Option<u64>,
 }

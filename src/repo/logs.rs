@@ -6,8 +6,10 @@ use sea_orm::*;
 #[derive(Debug, Default, Clone)]
 pub struct LogQueryOptions {
     pub component: Option<String>,
-    /// Exact `Level` match.
-    pub level: Option<i8>,
+    /// Exact `Level` match against any of these.
+    pub levels: Option<Vec<i8>>,
+    /// Only these row ids.
+    pub ids: Option<Vec<u32>>,
     /// Severity threshold: keep rows at least this severe. On ZoneMinder's
     /// inverted scale that means `Level <= min_level`.
     pub min_level: Option<i8>,
@@ -16,7 +18,9 @@ pub struct LogQueryOptions {
     /// Unix-time (seconds) lower/upper bounds on `TimeKey`.
     pub start: Option<f64>,
     pub end: Option<f64>,
-    /// Newest-first when true (the default), oldest-first when false.
+    /// Column to order by; `None` is `TimeKey`.
+    pub sort_by: Option<logs::Column>,
+    /// Descending when true (the default), ascending when false.
     pub sort_desc: bool,
     pub server_id: Option<u32>,
 }
@@ -33,8 +37,11 @@ impl LogQueryOptions {
         if let Some(ref component) = self.component {
             cond = cond.add(logs::Column::Component.eq(component.clone()));
         }
-        if let Some(level) = self.level {
-            cond = cond.add(logs::Column::Level.eq(level));
+        if let Some(ref levels) = self.levels {
+            cond = cond.add(logs::Column::Level.is_in(levels.iter().copied()));
+        }
+        if let Some(ref ids) = self.ids {
+            cond = cond.add(logs::Column::Id.is_in(ids.iter().copied()));
         }
         if let Some(min_level) = self.min_level {
             // Inverted scale: "this severe or worse" == Level <= threshold.
@@ -67,12 +74,17 @@ pub async fn find_with_options(
     page: u64,
     page_size: u64,
 ) -> AppResult<(Vec<LogModel>, u64)> {
-    let query = Logs::find().filter(options.condition());
-    let query = if options.sort_desc {
-        query.order_by_desc(logs::Column::TimeKey)
+    let order = if options.sort_desc {
+        Order::Desc
     } else {
-        query.order_by_asc(logs::Column::TimeKey)
+        Order::Asc
     };
+    let column = options.sort_by.unwrap_or(logs::Column::TimeKey);
+    // Id breaks ties so pages don't shuffle when many rows share a value.
+    let query = Logs::find()
+        .filter(options.condition())
+        .order_by(column, order.clone())
+        .order_by(logs::Column::Id, order);
 
     let paginator = query.paginate(db, page_size);
     let total = paginator.num_items().await?;
@@ -92,6 +104,23 @@ pub async fn delete_with_options(
         .exec(db)
         .await?;
     Ok(res.rows_affected)
+}
+
+/// Row count of the whole table, ignoring every filter.
+pub async fn count_all(db: &DatabaseConnection) -> AppResult<u64> {
+    Ok(Logs::find().count(db).await?)
+}
+
+/// Every distinct `Component`, sorted.
+pub async fn distinct_components(db: &DatabaseConnection) -> AppResult<Vec<String>> {
+    Ok(Logs::find()
+        .select_only()
+        .column(logs::Column::Component)
+        .distinct()
+        .order_by_asc(logs::Column::Component)
+        .into_tuple::<String>()
+        .all(db)
+        .await?)
 }
 
 /// Find all logs with a limit (legacy helper)

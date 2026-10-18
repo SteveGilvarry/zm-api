@@ -4,7 +4,9 @@ use tracing::instrument;
 
 use crate::{
     dto::{
-        request::events::{EventCreateRequest, EventQueryParams, EventUpdateRequest},
+        request::events::{
+            parse_tag_filter, EventCreateRequest, EventQueryParams, EventUpdateRequest, TagOp,
+        },
         response::events::{
             EventCountResponse, EventCountsResponse, EventResponse, PaginatedEventsResponse,
         },
@@ -52,16 +54,22 @@ pub async fn list(
         cause: params.cause.clone().filter(|s| !s.is_empty()),
         name: params.name.clone().filter(|s| !s.is_empty()),
         notes: params.notes.clone().filter(|s| !s.is_empty()),
-        // Parse the comma-separated tag_id list, ignoring blanks/non-numerics.
         storage_id: params.storage_id,
-        tag_ids: params.tag_id.as_ref().map(|s| {
-            s.split(',')
-                .filter_map(|t| t.trim().parse::<u64>().ok())
-                .collect::<Vec<_>>()
-        }),
+        tags: params
+            .tag_id
+            .as_deref()
+            .map(parse_tag_filter)
+            .transpose()
+            .map_err(|e| AppError::BadRequestError(format!("tag_id: {e}")))?,
+        tags_negated: matches!(params.tag_op, Some(TagOp::NotIn)),
         monitor_filter: scope.visible_ids(Level::View),
     };
 
+    let totals = if params.totals {
+        Some(events_repo::totals_with_options(state, &options).await?)
+    } else {
+        None
+    };
     let (events, total) =
         events_repo::find_with_options(state, options, page - 1, page_size).await?;
 
@@ -89,6 +97,8 @@ pub async fn list(
         per_page: page_size,
         current_page: page,
         last_page: total_pages,
+        total_length_seconds: totals.map(|t| t.0),
+        total_disk_space: totals.map(|t| t.1),
     })
 }
 
@@ -116,6 +126,8 @@ pub async fn list_all(
             name: None,
             notes: None,
             tag_id: None,
+            tag_op: None,
+            totals: false,
             storage_id: None,
         },
         scope,
@@ -152,6 +164,8 @@ pub async fn list_by_monitor(
             name: None,
             notes: None,
             tag_id: None,
+            tag_op: None,
+            totals: false,
             storage_id: None,
         },
         scope,

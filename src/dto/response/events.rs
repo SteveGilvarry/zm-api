@@ -174,6 +174,14 @@ pub struct PaginatedEventsResponse {
     pub per_page: u64,
     pub current_page: u64,
     pub last_page: u64,
+    /// Summed `length` of every matching event, in seconds. Only present when
+    /// the request asked for it with `totals=true`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_length_seconds: Option<f64>,
+    /// Summed `disk_space` of every matching event, in bytes. Only with
+    /// `totals=true`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_disk_space: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]

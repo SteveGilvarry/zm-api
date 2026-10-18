@@ -15,11 +15,22 @@ use zm_api::dto::response::{PaginatedStatsResponse, StatResponse};
 
 /// Insert a `Stats` row directly and return its id.
 async fn insert_stat(db: &sea_orm::DatabaseConnection, monitor_id: u32) -> u32 {
+    insert_stat_at(db, monitor_id, 1, 1, 1).await
+}
+
+/// Insert a `Stats` row for a given event, frame and zone and return its id.
+async fn insert_stat_at(
+    db: &sea_orm::DatabaseConnection,
+    monitor_id: u32,
+    event_id: u64,
+    frame_id: u32,
+    zone_id: u32,
+) -> u32 {
     zm_api::entity::stats::ActiveModel {
         monitor_id: Set(monitor_id),
-        zone_id: Set(1),
-        event_id: Set(1),
-        frame_id: Set(1),
+        zone_id: Set(zone_id),
+        event_id: Set(event_id),
+        frame_id: Set(frame_id),
         pixel_diff: Set(0),
         alarm_pixels: Set(0),
         filter_pixels: Set(0),
@@ -89,6 +100,67 @@ async fn list_stats_returns_inserted_row() {
         body.items.iter().any(|s| s.id == id),
         "list should contain the fixture stat"
     );
+}
+
+/// GH #141: the Frames page asks for one frame's rows, the Stats page for one
+/// event's. Neither should have to page the whole table.
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn list_stats_filters_by_event_frame_and_zone() {
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let monitor = insert_monitor(&app.db, "StatFilter")
+        .await
+        .expect("insert monitor");
+    let _mon = RowGuard::monitor(monitor.id);
+
+    // An event id no other test uses, derived from the fresh monitor id.
+    let event = 900_000_000 + u64::from(monitor.id);
+    let f1z1 = insert_stat_at(&app.db, monitor.id, event, 1, 1).await;
+    let f1z2 = insert_stat_at(&app.db, monitor.id, event, 1, 2).await;
+    let f2z1 = insert_stat_at(&app.db, monitor.id, event, 2, 1).await;
+    let other = insert_stat_at(&app.db, monitor.id, event + 1, 1, 1).await;
+    let _guards = [f1z1, f1z2, f2z1, other].map(stat_guard);
+
+    let ids = |resp: &common::harness::TestResponse| {
+        let body: PaginatedStatsResponse = resp.json();
+        let mut ids: Vec<u32> = body.items.iter().map(|s| s.id).collect();
+        ids.sort_unstable();
+        (ids, body.total)
+    };
+
+    let resp = app
+        .get(&format!("/api/v3/stats?event_id={event}"), &token)
+        .await;
+    assert_status(&resp, StatusCode::OK);
+    assert_eq!(ids(&resp), (vec![f1z1, f1z2, f2z1], 3));
+
+    let resp = app
+        .get(
+            &format!("/api/v3/stats?event_id={event}&frame_id=1"),
+            &token,
+        )
+        .await;
+    assert_eq!(ids(&resp), (vec![f1z1, f1z2], 2));
+
+    let resp = app
+        .get(
+            &format!("/api/v3/stats?event_id={event}&frame_id=1&zone_id=2"),
+            &token,
+        )
+        .await;
+    assert_eq!(ids(&resp), (vec![f1z2], 1));
+}
+
+/// `FrameId` restarts at 1 in every event, so on its own it names nothing.
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn list_stats_rejects_frame_id_without_event_id() {
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+
+    let resp = app.get("/api/v3/stats?frame_id=1", &token).await;
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "{}", resp.text());
 }
 
 #[tokio::test]

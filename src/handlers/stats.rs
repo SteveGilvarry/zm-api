@@ -1,34 +1,42 @@
-use crate::dto::request::stats::{CreateStatRequest, UpdateStatRequest};
+use crate::dto::request::stats::{CreateStatRequest, StatQueryParams, UpdateStatRequest};
 use crate::dto::response::stats::PaginatedStatsResponse;
 use crate::dto::response::StatResponse;
-use crate::dto::PaginationParams;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 use crate::service::monitor_acl::MonitorScope;
 use axum::{
     extract::{Path, Query, State},
     Json,
 };
+use garde::Validate;
 
-/// List all stats with pagination.
+/// List stats with pagination, optionally narrowed to one event, frame or zone.
 ///
 /// - Requires a valid JWT.
+/// - `frame_id` needs `event_id`: frame numbers restart in every event.
 #[utoipa::path(
     get,
     path = "/api/v3/stats",
     params(
         ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
-        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25),
+        ("event_id" = Option<u64>, Query, description = "Only stats of this event"),
+        ("frame_id" = Option<u32>, Query, description = "Only stats of this frame (needs event_id)"),
+        ("zone_id" = Option<u32>, Query, description = "Only stats of this zone")
     ),
-    responses((status = 200, description = "Paginated list of stats", body = PaginatedStatsResponse)),
+    responses(
+        (status = 200, description = "Paginated list of stats", body = PaginatedStatsResponse),
+        (status = 400, description = "Invalid query, e.g. frame_id without event_id", body = crate::error::AppResponseError)
+    ),
     tag = "Stats",
     security(("jwt" = []))
 )]
 pub async fn list_stats(
     State(state): State<AppState>,
-    Query(params): Query<PaginationParams>,
+    Query(params): Query<StatQueryParams>,
     scope: MonitorScope,
 ) -> AppResult<Json<PaginatedStatsResponse>> {
+    params.validate().map_err(AppError::InvalidInputError)?;
     let result = crate::service::stats::list_paginated(&state, &params, &scope).await?;
     Ok(Json(PaginatedStatsResponse::from(result)))
 }

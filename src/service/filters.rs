@@ -150,6 +150,8 @@ pub async fn preview(
         per_page: page_size,
         current_page: page,
         last_page: total.div_ceil(page_size),
+        total_length_seconds: None,
+        total_disk_space: None,
     })
 }
 
