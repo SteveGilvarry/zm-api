@@ -10,6 +10,14 @@ recognisable path forward.
 
 ### Added
 
+- **Config options say where their value comes from** (#183): each
+  `/configs` entry carries `requires` (the option's dependency, as
+  ZoneMinder stores it), `source` (`db` or `file`) and `source_file`. When
+  `zm.conf` or a `conf.d` file sets the option, the response shows the file's
+  value, which is the one in effect, and a `PUT` answers `409`, since the
+  file would override the change anyway. A private option set in a file
+  still returns an empty value.
+
 - **Signed media links for players that can't send a header** (#153, #34).
   `POST /api/v3/live/{monitor_id}/hls/link` and
   `POST /api/v3/events/{id}/stream/link` mint a playlist URL signed for that

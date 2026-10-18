@@ -5,11 +5,36 @@ use crate::error::{AppError, AppResult};
 use crate::repo;
 use crate::server::state::AppState;
 
+/// A row as the API reports it: the value in effect, which is a config
+/// file's when one sets the option (#183).
 fn to_response(m: &crate::entity::config::Model) -> ConfigResponse {
+    to_response_with(m, &crate::configure::zmconf::ZmConfig::load())
+}
+
+fn to_response_with(
+    m: &crate::entity::config::Model,
+    files: &crate::configure::zmconf::ZmConfig,
+) -> ConfigResponse {
+    let from_file = files.source_of(&m.name).map(|path| {
+        (
+            path.display().to_string(),
+            files.get(&m.name).unwrap_or_default(),
+        )
+    });
+    let (value, source, source_file) = match from_file {
+        // A secret set in a file never leaves the server, as ZoneMinder's
+        // Options page shows it.
+        Some((path, _)) if m.private != 0 => (String::new(), "file", Some(path)),
+        Some((path, v)) => (v.to_string(), "file", Some(path)),
+        None => (m.value.clone(), "db", None),
+    };
     ConfigResponse {
         id: m.id,
         name: m.name.clone(),
-        value: m.value.clone(),
+        value,
+        requires: m.requires.clone(),
+        source: source.to_string(),
+        source_file,
         r#type: m.r#type.clone(),
         default_value: m.default_value.clone(),
         hint: m.hint.clone(),
@@ -26,7 +51,8 @@ fn to_response(m: &crate::entity::config::Model) -> ConfigResponse {
 
 pub async fn list_all(state: &AppState) -> AppResult<Vec<ConfigResponse>> {
     let items = repo::config::list_all(state.db()).await?;
-    Ok(items.iter().map(to_response).collect())
+    let files = crate::configure::zmconf::ZmConfig::load();
+    Ok(items.iter().map(|m| to_response_with(m, &files)).collect())
 }
 
 pub async fn list_paginated(
@@ -34,7 +60,9 @@ pub async fn list_paginated(
     params: &PaginationParams,
 ) -> AppResult<PaginatedResponse<ConfigResponse>> {
     let (items, total) = repo::config::find_paginated(state.db(), params).await?;
-    let responses: Vec<ConfigResponse> = items.iter().map(to_response).collect();
+    let files = crate::configure::zmconf::ZmConfig::load();
+    let responses: Vec<ConfigResponse> =
+        items.iter().map(|m| to_response_with(m, &files)).collect();
     Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
@@ -43,7 +71,9 @@ pub async fn list_filtered(
     params: &ConfigQueryParams,
 ) -> AppResult<PaginatedResponse<ConfigResponse>> {
     let (items, total) = repo::config::find_filtered(state.db(), params).await?;
-    let responses: Vec<ConfigResponse> = items.iter().map(to_response).collect();
+    let files = crate::configure::zmconf::ZmConfig::load();
+    let responses: Vec<ConfigResponse> =
+        items.iter().map(|m| to_response_with(m, &files)).collect();
     Ok(PaginatedResponse::new(
         responses,
         total,
@@ -84,6 +114,14 @@ pub async fn update_value(
         return Err(AppError::PermissionDeniedError(
             "Config is read-only".into(),
         ));
+    }
+    // A value set in zm.conf or conf.d wins over the database, so writing
+    // the row would change nothing (#183).
+    if let Some(path) = crate::configure::zmconf::ZmConfig::load().source_of(name) {
+        return Err(AppError::ConflictError(format!(
+            "{name} is set in {}; change it there",
+            path.display()
+        )));
     }
 
     let updated = repo::config::update_value(state.db(), name, &req.value).await?;

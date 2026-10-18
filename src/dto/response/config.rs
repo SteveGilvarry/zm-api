@@ -18,6 +18,15 @@ pub struct ConfigResponse {
     pub readonly: u8,
     pub private: i8,
     pub system: i8,
+    /// `Config.Requires`, raw: clauses like `ZM_OPT_USE_AUTH=1;ZM_AUTH_RELAY=hashed`
+    /// that must all hold for the option to apply (#183).
+    pub requires: Option<String>,
+    /// `db`, or `file` when zm.conf or a conf.d file sets the option. A file
+    /// wins everywhere, so `value` is then the file's (blank for a private
+    /// one) and the option can't be changed through the API.
+    pub source: String,
+    /// The file that sets it, for `source: "file"`.
+    pub source_file: Option<String>,
 }
 
 /// Paginated response for configs

@@ -16906,7 +16906,8 @@
           "category",
           "readonly",
           "private",
-          "system"
+          "system",
+          "source"
         ],
         "properties": {
           "category": {
@@ -16964,6 +16965,24 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "requires": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`Config.Requires`, raw: clauses like `ZM_OPT_USE_AUTH=1;ZM_AUTH_RELAY=hashed`\nthat must all hold for the option to apply (#183)."
+          },
+          "source": {
+            "type": "string",
+            "description": "`db`, or `file` when zm.conf or a conf.d file sets the option. A file\nwins everywhere, so `value` is then the file's (blank for a private\none) and the option can't be changed through the API."
+          },
+          "source_file": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The file that sets it, for `source: \"file\"`."
           },
           "system": {
             "type": "integer",

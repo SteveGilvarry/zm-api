@@ -21,6 +21,10 @@ use crate::daemon::config::DaemonConfig;
 #[derive(Debug, Clone, Default)]
 pub struct ZmConfig {
     values: HashMap<String, String>,
+    /// The file that last set each key (a later conf.d file wins).
+    sources: HashMap<String, std::path::PathBuf>,
+    /// The file being read, for `sources`.
+    current: Option<std::path::PathBuf>,
 }
 
 impl ZmConfig {
@@ -29,7 +33,8 @@ impl ZmConfig {
     /// Loads `/etc/zm/zm.conf` and then all files in `/etc/zm/conf.d/`
     /// with a `.conf` extension, in alphabetical order.
     pub fn load() -> Self {
-        Self::load_from_path("/etc/zm")
+        let dir = std::env::var("ZM_CONF_DIR").unwrap_or_else(|_| "/etc/zm".to_string());
+        Self::load_from_path(&dir)
     }
 
     /// Load ZoneMinder configuration from a custom base path
@@ -43,7 +48,7 @@ impl ZmConfig {
         // Load main zm.conf
         let main_conf = base.join("zm.conf");
         if main_conf.exists() {
-            info!("Loading ZoneMinder config from {:?}", main_conf);
+            debug!("Loading ZoneMinder config from {:?}", main_conf);
             config.load_file(&main_conf);
         } else {
             debug!("ZoneMinder config not found at {:?}", main_conf);
@@ -60,6 +65,7 @@ impl ZmConfig {
 
     /// Load a single configuration file
     fn load_file(&mut self, path: &Path) {
+        self.current = Some(path.to_path_buf());
         match fs::read_to_string(path) {
             Ok(contents) => {
                 for line in contents.lines() {
@@ -111,9 +117,17 @@ impl ZmConfig {
             let value = value.trim().to_string();
 
             if !key.is_empty() {
+                if let Some(file) = &self.current {
+                    self.sources.insert(key.clone(), file.clone());
+                }
                 self.values.insert(key, value);
             }
         }
+    }
+
+    /// The file (zm.conf or a conf.d file) that sets `key`, if any.
+    pub fn source_of(&self, key: &str) -> Option<&Path> {
+        self.sources.get(key).map(|p| p.as_path())
     }
 
     /// Get a configuration value
@@ -281,6 +295,31 @@ ZM_DB_PASS=zmpass
 
         assert_eq!(config.db_host(), Some("localhost"));
         assert_eq!(config.db_port(), None);
+    }
+
+    #[test]
+    fn records_which_file_sets_each_key() {
+        let tmp = TempDir::new().unwrap();
+        create_test_config(
+            tmp.path(),
+            "zm.conf",
+            "ZM_DB_HOST=db\nZM_PATH_SOCKS=/run/zm\n",
+        );
+        let conf_d = tmp.path().join("conf.d");
+        fs::create_dir(&conf_d).unwrap();
+        create_test_config(&conf_d, "02-local.conf", "ZM_PATH_SOCKS=/var/run/zm\n");
+        let c = ZmConfig::load_from_path(tmp.path().to_str().unwrap());
+        assert_eq!(
+            c.source_of("ZM_DB_HOST"),
+            Some(tmp.path().join("zm.conf").as_path())
+        );
+        // A later conf.d file wins, and is the one named.
+        assert_eq!(
+            c.source_of("ZM_PATH_SOCKS"),
+            Some(conf_d.join("02-local.conf").as_path())
+        );
+        assert_eq!(c.get("ZM_PATH_SOCKS"), Some("/var/run/zm"));
+        assert_eq!(c.source_of("ZM_NOT_SET"), None);
     }
 
     #[test]
