@@ -537,6 +537,13 @@ recognisable path forward.
   and rstest dev-dependencies and the unused direct rand_core dependency are
   gone. Not moved: webrtc 0.17 (0.20 rewrote the crate on a new core, #165)
   and rcgen 0.13, which webrtc 0.17 requires.
+- **The crate declares `rust-version = "1.94"`**, which sea-orm 2 and sqlx 0.9
+  need. Debian, Ubuntu, Arch and openSUSE builds already use a toolchain at
+  or past it. EL9's rust-toolset is 1.92, so the RPM builder for Rocky now
+  installs current stable through rustup, as the Debian builders do; building
+  the RPM on EL9 by hand needs the same. The Fedora package and release jobs
+  move from Fedora 41, which is end of life and frozen at rust 1.91, to
+  Fedora 44.
 
 - **`tag_id` that doesn't parse is a 400** (#136). `GET /api/v3/events` used
   to drop non-numeric values, so `tag_id=abc` quietly became "no tag filter"

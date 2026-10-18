@@ -88,6 +88,18 @@ RUN ${install} \\
       'pkgconfig(libavdevice)' 'pkgconfig(libswscale)' \\
       'pkgconfig(libswresample)'
 EOF
+      case "$distro" in
+        rocky-*|alma-*|rhel-*)
+          # EL9's rust-toolset (1.92) is below the crate's rust-version (1.94,
+          # needed by sea-orm 2 and sqlx 0.9), so build with current stable
+          # from rustup, as the Debian builders do. The distro rust stays
+          # installed to satisfy the spec's BuildRequires.
+          cat <<'EOF'
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+ENV PATH="/root/.cargo/bin:${PATH}"
+EOF
+          ;;
+      esac
       ;;
     arch)
       cat <<'EOF'

@@ -6,6 +6,9 @@ name = "zm-api"
 # packaging/arch/PKGBUILD for the rpm/Arch equivalents, and docs/deployment.md.
 version = "3.0.0-alpha.1"
 edition = "2021"
+# sea-orm 2 and sqlx 0.9 need 1.94; EL9's rust-toolset (1.92) and Fedora 41
+# (1.91, end of life) are below it, so the RPM builders use rustup.
+rust-version = "1.94"
 license = "AGPL-3.0-or-later"
 description = "A modern REST API for ZoneMinder"
 repository = "https://github.com/SteveGilvarry/zm-api"
