@@ -1114,8 +1114,11 @@ pub struct UpdateMonitorRequest {
     pub recording: Option<Recording>,
 }
 
+/// Body of `PATCH /monitors/{id}/state`. Distinct from the run-state
+/// `UpdateStateRequest` in `dto::request::states`: the two shared a name, and
+/// the OpenAPI spec documented this endpoint with the other one's body (#158).
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
-pub struct UpdateStateRequest {
+pub struct MonitorStateRequest {
     #[garde(custom(is_valid_state))]
     pub state: String,
 }

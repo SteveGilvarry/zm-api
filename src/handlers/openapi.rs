@@ -5,7 +5,7 @@ use utoipa::{
 
 use crate::dto::request::{
     AlarmControlRequest, CreateMonitorRequest, LoginRequest, RefreshTokenRequest, TokenInfoRequest,
-    UpdateMonitorRequest, UpdateStateRequest,
+    UpdateMonitorRequest, MonitorStateRequest,
 };
 use crate::dto::response::{
     LoginResponse, MessageResponse, MonitorPipelineResponse, MonitorResponse,
@@ -545,7 +545,7 @@ use crate::util::claim::UserClaims;
             CreateMonitorRequest,
             MonitorResponse,
             UpdateMonitorRequest,
-            UpdateStateRequest,
+            MonitorStateRequest,
 
             // monitor presets
             crate::dto::request::monitor_presets::CreateMonitorPresetRequest,

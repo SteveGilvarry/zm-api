@@ -13,7 +13,7 @@ use common::fixtures::{
 use common::test_db::{get_test_db, test_prefix};
 use sea_orm::{ActiveModelTrait, DatabaseConnection, DbErr, EntityTrait, Set};
 use tower::ServiceExt;
-use zm_api::dto::request::{AlarmControlRequest, CreateMonitorRequest, UpdateStateRequest};
+use zm_api::dto::request::{AlarmControlRequest, CreateMonitorRequest, MonitorStateRequest};
 use zm_api::dto::response::events::EventCountsByMonitorResponse;
 use zm_api::dto::response::{
     EventResponse, FrameResponse, MonitorResponse, PaginatedEventsResponse,
@@ -411,7 +411,7 @@ async fn test_api_monitors_state_alarm() {
     let created = create_monitor(&app, name).await;
     let _g_monitor = RowGuard::monitor(created.id);
 
-    let state_body = serde_json::to_vec(&UpdateStateRequest {
+    let state_body = serde_json::to_vec(&MonitorStateRequest {
         state: "start".to_string(),
     })
     .expect("serialize state request");

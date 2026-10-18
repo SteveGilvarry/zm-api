@@ -1,6 +1,6 @@
 #![allow(clippy::result_large_err)]
 use crate::dto::request::{
-    AlarmControlRequest, CreateMonitorRequest, UpdateMonitorRequest, UpdateStateRequest,
+    AlarmControlRequest, CreateMonitorRequest, UpdateMonitorRequest, MonitorStateRequest,
 };
 use crate::dto::response::MonitorResponse;
 use crate::dto::{PaginatedResponse, PaginationParams};
@@ -719,7 +719,7 @@ pub async fn delete(state: &AppState, id: u32, scope: &MonitorScope) -> AppResul
 pub async fn update_state(
     state: &AppState,
     id: u32,
-    req: UpdateStateRequest,
+    req: MonitorStateRequest,
     scope: &MonitorScope,
 ) -> AppResult<MonitorResponse> {
     info!("Updating state of monitor with ID: {id} and request: {req:?}.");

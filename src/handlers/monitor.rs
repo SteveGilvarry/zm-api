@@ -5,7 +5,7 @@ use tracing::{info, warn};
 
 use crate::dto::request::monitor::MonitorListParams;
 use crate::dto::request::{
-    AlarmControlRequest, CreateMonitorRequest, UpdateMonitorRequest, UpdateStateRequest,
+    AlarmControlRequest, CreateMonitorRequest, UpdateMonitorRequest, MonitorStateRequest,
 };
 use crate::dto::response::monitors::PaginatedMonitorsResponse;
 use crate::dto::response::MonitorResponse;
@@ -211,7 +211,7 @@ pub async fn delete_monitor(
     params(
         ("id" = u32, Path, description = "Monitor identifier")
     ),
-    request_body = UpdateStateRequest,
+    request_body = MonitorStateRequest,
     responses(
         (status = 200, description = "Monitor state updated successfully", body = MonitorResponse),
         (status = 400, description = "Invalid request data", body = AppResponseError),
@@ -228,7 +228,7 @@ pub async fn update_state(
     State(state): State<AppState>,
     Path(id): Path<u32>,
     scope: MonitorScope,
-    Json(req): Json<UpdateStateRequest>,
+    Json(req): Json<MonitorStateRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
     info!("Updating state of monitor with ID: {id} and request: {req:?}.");
     req.validate().map_err(AppError::InvalidInputError)?;

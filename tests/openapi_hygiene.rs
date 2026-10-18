@@ -127,3 +127,23 @@ fn datetime_examples_carry_an_offset() {
         naive.join("\n  ")
     );
 }
+
+#[test]
+fn monitor_state_body_is_the_start_stop_restart_one() {
+    // Regression (#158): two request structs were both named
+    // `UpdateStateRequest`, and the spec documented this endpoint with the
+    // run-state body, so generated clients sent the wrong fields.
+    let spec = spec();
+    let body = &spec["paths"]["/api/v3/monitors/{id}/state"]["patch"]["requestBody"];
+    let reference = body["content"]["application/json"]["schema"]["$ref"]
+        .as_str()
+        .expect("state body is a schema reference");
+    let name = reference.rsplit('/').next().unwrap();
+    let props: BTreeSet<&str> = spec["components"]["schemas"][name]["properties"]
+        .as_object()
+        .expect("schema properties")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(props, BTreeSet::from(["state"]), "schema {name}");
+}
