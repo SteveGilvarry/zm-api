@@ -1175,31 +1175,9 @@ impl DaemonManager {
                 }
             }
 
-            // Start zma (analysis daemon) if needed for motion detection
-            if needs_analysis {
-                let daemon_id = format!("zma -m {}", monitor_id);
-                match self.start_daemon(&daemon_id, &[]).await {
-                    Ok(resp) if resp.success => {
-                        started += 1;
-                        info!("Started zma for monitor {}", monitor_id);
-                    }
-                    Ok(resp) => {
-                        if !resp.message.contains("already running") {
-                            failed += 1;
-                            errors.push(format!("zma -m {}: {}", monitor_id, resp.message));
-                            warn!(
-                                "Failed to start zma for monitor {}: {}",
-                                monitor_id, resp.message
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        failed += 1;
-                        errors.push(format!("zma -m {}: {}", monitor_id, e));
-                        error!("Error starting zma for monitor {}: {}", monitor_id, e);
-                    }
-                }
-            }
+            // No zma here: analysis runs inside zmc (zmpkg.pl stopped starting
+            // zma per monitor in 1.36), and on 1.39 `zma` is a per-event
+            // re-analysis tool that exits at once (#160).
 
             // PTZ control + motion tracking - both gated on ZM_OPT_CONTROL and
             // a controllable monitor (matches zmpkg.pl:222-233 nesting).
@@ -1366,6 +1344,12 @@ impl DaemonManager {
                     debug!("Skipping zmstats.pl: disabled for this server");
                     continue;
                 }
+                // zmpkg.pl starts the restream server whenever an RTSP port
+                // is configured (#161).
+                "zm_rtsp_server" if !gates.zm_rtsp_server => {
+                    debug!("Skipping zm_rtsp_server: ZM_MIN_RTSP_PORT is not set");
+                    continue;
+                }
                 _ => {}
             }
 
@@ -1420,13 +1404,16 @@ impl DaemonManager {
             zm_opt_use_eventnotification,
             zm_telemetry_data,
             zm_run_audit,
+            zm_min_rtsp_port,
         ) = tokio::join!(
             read_bool_config(db, "ZM_OPT_CONTROL"),
             read_bool_config(db, "ZM_OPT_TRIGGERS"),
             read_bool_config(db, "ZM_OPT_USE_EVENTNOTIFICATION"),
             read_bool_config(db, "ZM_TELEMETRY_DATA"),
             read_bool_config(db, "ZM_RUN_AUDIT"),
+            crate::repo::config::get_config_value(db, "ZM_MIN_RTSP_PORT"),
         );
+        let zm_rtsp_server = rtsp_port_configured(zm_min_rtsp_port.ok().flatten().as_deref());
 
         let (server_zmstats, server_zmaudit, server_zmtrigger, server_zmeventnotification) =
             match self.server_id {
@@ -1461,6 +1448,7 @@ impl DaemonManager {
             zm_opt_use_eventnotification,
             zm_telemetry_data,
             zm_run_audit,
+            zm_rtsp_server,
             server_zmstats,
             server_zmaudit,
             server_zmtrigger,
@@ -2018,8 +2006,7 @@ impl DaemonManager {
     /// Start all daemons for a specific monitor.
     ///
     /// This starts the appropriate daemons based on the monitor's configuration:
-    /// - `zmc -m {id}`: Capture daemon (always started)
-    /// - `zma -m {id}`: Analysis daemon (if function is Modect/Mocord)
+    /// - `zmc -m {id}`: Capture daemon (always started; analysis runs in it)
     ///
     /// # Arguments
     ///
@@ -2440,25 +2427,7 @@ impl DaemonManager {
             }
         }
 
-        // Start zma (analysis daemon) if needed for motion detection
-        let needs_analysis = matches!(monitor.function, Function::Modect | Function::Mocord);
-        if needs_analysis {
-            let zma_id = format!("zma -m {}", monitor_id);
-            match self.start_daemon(&zma_id, &[]).await {
-                Ok(resp) if resp.success => {
-                    started.push("zma".to_string());
-                    info!("Started zma for monitor {}", monitor_id);
-                }
-                Ok(resp) => {
-                    if !resp.message.contains("already running") {
-                        errors.push(format!("zma: {}", resp.message));
-                    }
-                }
-                Err(e) => {
-                    errors.push(format!("zma: {}", e));
-                }
-            }
-        }
+        // No zma: analysis runs inside zmc (#160).
 
         if errors.is_empty() {
             Ok(DaemonResponse::ok(format!(
@@ -2765,7 +2734,8 @@ fn validate_daemon_spec(command: &str, args: &[String]) -> Result<(), String> {
 
     let result: Result<(), String> = match command {
         // Singletons that take no arguments.
-        "zmstats.pl" | "zmtelemetry.pl" | "zmtrigger.pl" | "zmeventnotification.pl" => {
+        "zmstats.pl" | "zmtelemetry.pl" | "zmtrigger.pl" | "zmeventnotification.pl"
+        | "zm_rtsp_server" => {
             if args.is_empty() {
                 Ok(())
             } else {
@@ -2791,8 +2761,10 @@ fn validate_daemon_spec(command: &str, args: &[String]) -> Result<(), String> {
             [d, path] if d == "-d" && device_re.is_match(path) && !path.contains("..") => Ok(()),
             _ => Err(format!("zmc args invalid: {:?}", args)),
         },
+        // zma re-analyses one event: `-e <event_id>`, optionally `-m <id>`.
         "zma" => match args {
-            [m, id] if m == "-m" && int_arg(id) => Ok(()),
+            [e, ev] if e == "-e" && int_arg(ev) => Ok(()),
+            [e, ev, m, id] if e == "-e" && int_arg(ev) && m == "-m" && int_arg(id) => Ok(()),
             _ => Err(format!("zma args invalid: {:?}", args)),
         },
         "zmcontrol.pl" => match args {
@@ -3093,10 +3065,21 @@ struct StartupGates {
     zm_opt_use_eventnotification: bool,
     zm_telemetry_data: bool,
     zm_run_audit: bool,
+    /// `ZM_MIN_RTSP_PORT` is set, so the RTSP restream server runs.
+    zm_rtsp_server: bool,
     server_zmstats: bool,
     server_zmaudit: bool,
     server_zmtrigger: bool,
     server_zmeventnotification: bool,
+}
+
+/// Whether `ZM_MIN_RTSP_PORT` turns the restream server on: zmpkg.pl tests
+/// the value for truth, so unset, empty and `0` are off.
+fn rtsp_port_configured(value: Option<&str>) -> bool {
+    match value.map(str::trim) {
+        None | Some("") => false,
+        Some(v) => v.parse::<u32>().map(|p| p != 0).unwrap_or(true),
+    }
 }
 
 /// Extract monitor ID from daemon arguments.
@@ -3286,6 +3269,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rtsp_server_runs_when_a_port_is_configured() {
+        assert!(rtsp_port_configured(Some("8554")));
+        assert!(!rtsp_port_configured(Some("0")));
+        assert!(!rtsp_port_configured(Some("")));
+        assert!(!rtsp_port_configured(None));
+    }
+
+    #[test]
     fn test_parse_daemon_command_simple() {
         let (cmd, args) = parse_daemon_command("zmfilter.pl", &[]);
         assert_eq!(cmd, "zmfilter.pl");
@@ -3371,7 +3362,12 @@ mod tests {
         // Per-monitor
         assert!(validate_daemon_spec("zmc", &args(&["-m", "3"])).is_ok());
         assert!(validate_daemon_spec("zmc", &args(&["-d", "/dev/video0"])).is_ok());
-        assert!(validate_daemon_spec("zma", &args(&["-m", "3"])).is_ok());
+        assert!(validate_daemon_spec("zma", &args(&["-e", "42"])).is_ok());
+        assert!(validate_daemon_spec("zma", &args(&["-e", "42", "-m", "3"])).is_ok());
+        // zma no longer runs per monitor (#160).
+        assert!(validate_daemon_spec("zma", &args(&["-m", "3"])).is_err());
+        assert!(validate_daemon_spec("zm_rtsp_server", &[]).is_ok());
+        assert!(validate_daemon_spec("zm_rtsp_server", &args(&["-x"])).is_err());
         assert!(validate_daemon_spec("zmcontrol.pl", &args(&["--id", "3"])).is_ok());
         assert!(validate_daemon_spec("zmtrack.pl", &args(&["-m", "3"])).is_ok());
     }
