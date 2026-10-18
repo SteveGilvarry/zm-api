@@ -31,10 +31,18 @@ impl TestApp {
     /// `DatabaseConnection` is not `Clone`, so two connections are opened: one
     /// drives the application, the other (`self.db`) is for fixtures.
     pub async fn spawn() -> Self {
+        Self::spawn_with(|_| {}).await
+    }
+
+    /// [`spawn`](Self::spawn), adjusting the state (its config, say) before
+    /// the router is built.
+    #[allow(dead_code)]
+    pub async fn spawn_with(adjust: impl FnOnce(&mut AppState)) -> Self {
         let expect_msg = "connect to test database (is it running on :3307?)";
         let fixture_db = get_test_db().await.expect(expect_msg);
         let app_db = get_test_db().await.expect(expect_msg);
-        let state = AppState::for_test_with_db(app_db);
+        let mut state = AppState::for_test_with_db(app_db);
+        adjust(&mut state);
         let router = zm_api::routes::create_router_app(state);
         Self {
             db: fixture_db,

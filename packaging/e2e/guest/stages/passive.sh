@@ -42,6 +42,14 @@ if has_zoneminder; then
   check "zoneminder.service running" svc_active zoneminder.service
     check_eq "zmc is supervised by zmdc.pl" "$(zmdc_pid)" "$(zmc_parent)"
 
+  section "Daemons through zmdc.sock"
+  check "daemon status is read from zmdc.sock" api_json GET /api/v3/system/status \
+    '.running and ([.daemons[] | select(.id | startswith("zmc"))] | length > 0)'
+  check "stopping the monitor through the API stops zmc" monitor_stop_stops_zmc
+  check "starting it again starts zmc" monitor_start_starts_zmc
+  check_eq "zmc is supervised by zmdc.pl again" "$(zmdc_pid)" "$(zmc_parent)"
+  check "capturing again" wait_until 60 capturing
+
   # #82: a zm-api restart once deleted ZoneMinder's socket directory.
   before="$(inode "$(socks_dir)/zmdc.sock")"
   systemctl restart zm-api.service

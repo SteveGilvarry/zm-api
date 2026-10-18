@@ -206,6 +206,18 @@ recognisable path forward.
   zm_rtsp_server` failed as an invalid daemon spec.
 - **`migrator bridge` leaves triggers alone on a database past its cutover**
   (#162), where they are upstream's newer ones.
+- **Monitor changes reach the capture daemons in passive mode** (#155).
+  Creating, editing and deleting a monitor, and `PATCH /monitors/{id}/state`,
+  now start, restart or stop its `zmc` (and `zmcontrol.pl` when controllable)
+  through ZoneMinder's `zmdc.sock`, as ZoneMinder's own API does. The state
+  change answered 200 and did nothing, edits waited for something else to
+  restart `zmc`, and a delete left `zmc` running. An edit in takeover mode
+  restarts the monitor's daemons too.
+- **Daemon and system status work in passive mode** (#156).
+  `/api/v3/daemons*` and `/api/v3/system/status` answered 503; they now read
+  what `zmdc.pl` supervises from its `zmdc.sock`, with this host's load,
+  memory and disk, and the per-daemon start/stop/restart/reload endpoints
+  send their command to it.
 
 - **Alarm control through shared memory works on ZoneMinder 1.39** (#148,
   PR #149 by Nic Boet). `SharedData` grew to 888 bytes on master and zm-api

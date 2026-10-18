@@ -30,6 +30,7 @@ pub mod media_grant;
 pub mod models;
 pub mod monitor;
 pub mod monitor_acl;
+pub mod monitor_daemons;
 pub mod monitor_pipeline;
 pub mod monitor_presets;
 pub mod monitor_status;

@@ -12,12 +12,84 @@ use crate::entity::sea_orm_active_enums::{Analysing, Capturing, Function, Record
 use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
 
+// Passive mode (no daemon manager of our own): ZoneMinder's zmdc.pl supervises
+// the daemons, and these read and control them through its `zmdc.sock`, the
+// way ZoneMinder's web UI does (#155, #156).
+
+/// ZoneMinder's `zmdc.sock` (`ZM_PATH_SOCKS`, from zm.conf).
+fn zmdc_socket(state: &AppState) -> std::path::PathBuf {
+    state.config.daemon.socket_file()
+}
+
+/// What zmdc.pl reports it supervises.
+async fn zmdc_status(state: &AppState) -> AppResult<Vec<crate::daemon::ipc::ProcessStatus>> {
+    let reply = crate::daemon::zmdc_client::request(&zmdc_socket(state), "status", None)
+        .await
+        .map_err(|e| {
+            AppError::ServiceUnavailableError(format!("ZoneMinder's zmdc.sock is unreachable: {e}"))
+        })?;
+    Ok(crate::daemon::zmdc_client::parse_status(
+        &reply,
+        chrono::Local::now().naive_local(),
+    ))
+}
+
+/// Ask zmdc.pl to `start`/`stop`/`restart`/`reload` the daemon `id`
+/// (`zmc -m 1`). The spec is checked against the same allowlist zm-api's own
+/// supervisor uses before it reaches zmdc.pl.
+async fn zmdc_control(
+    state: &AppState,
+    command: &str,
+    id: &str,
+) -> AppResult<DaemonActionResponse> {
+    let mut words = id.split_whitespace();
+    let daemon = words.next().unwrap_or_default();
+    let args: Vec<String> = words.map(str::to_string).collect();
+    crate::daemon::manager::validate_daemon_spec(daemon, &args)
+        .map_err(|e| AppError::BadRequestError(format!("Invalid daemon spec: {e}")))?;
+    let reply = crate::daemon::zmdc_client::request(&zmdc_socket(state), command, Some(id))
+        .await
+        .map_err(|e| {
+            AppError::ServiceUnavailableError(format!("ZoneMinder's zmdc.sock is unreachable: {e}"))
+        })?;
+    Ok(zmdc_reply_to_action(&reply, command, id))
+}
+
+/// zmdc.pl answers a command with the log lines it wrote for it; its
+/// failures read "Invalid daemon …", "Can't find …" or "No process …". A
+/// `restart` of a process it doesn't know prints "Can't find …" and then
+/// starts it, so a start line overrides those.
+fn zmdc_reply_to_action(reply: &str, command: &str, id: &str) -> DaemonActionResponse {
+    let text = reply.trim();
+    let complained = text.lines().any(|l| {
+        let l = l.trim_start();
+        l.starts_with("Invalid") || l.starts_with("Can't") || l.starts_with("No process")
+    });
+    let started = text.contains(" starting at ") || text.contains(" started at ");
+    let failed = complained && !started;
+    let message = if text.is_empty() {
+        format!("{command} {id} sent to zmdc")
+    } else {
+        text.to_string()
+    };
+    if failed {
+        DaemonActionResponse::error(message)
+    } else {
+        DaemonActionResponse::success(message)
+    }
+}
+
 /// Get the status of all daemons.
 pub async fn get_all_daemons(state: &AppState) -> AppResult<DaemonListResponse> {
-    let manager = state
-        .daemon_manager
-        .as_ref()
-        .ok_or_else(|| AppError::ServiceUnavailableError("Daemon manager not available".into()))?;
+    let Some(manager) = state.daemon_manager.as_ref() else {
+        return Ok(DaemonListResponse {
+            daemons: zmdc_status(state)
+                .await?
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        });
+    };
 
     let status = manager.get_status().await;
     Ok(DaemonListResponse {
@@ -27,21 +99,16 @@ pub async fn get_all_daemons(state: &AppState) -> AppResult<DaemonListResponse> 
 
 /// Get the status of a specific daemon.
 pub async fn get_daemon(state: &AppState, id: &str) -> AppResult<DaemonStatusResponse> {
-    let manager = state
-        .daemon_manager
-        .as_ref()
-        .ok_or_else(|| AppError::ServiceUnavailableError("Daemon manager not available".into()))?;
-
-    manager
-        .get_daemon_status(id)
-        .await
-        .map(Into::into)
-        .ok_or_else(|| {
-            AppError::NotFoundError(crate::error::Resource {
-                resource_type: crate::error::ResourceType::Config,
-                details: vec![("daemon_id".to_string(), id.to_string())],
-            })
+    let found = match state.daemon_manager.as_ref() {
+        Some(manager) => manager.get_daemon_status(id).await,
+        None => zmdc_status(state).await?.into_iter().find(|p| p.id == id),
+    };
+    found.map(Into::into).ok_or_else(|| {
+        AppError::NotFoundError(crate::error::Resource {
+            resource_type: crate::error::ResourceType::Config,
+            details: vec![("daemon_id".to_string(), id.to_string())],
         })
+    })
 }
 
 /// Start a daemon.
@@ -50,10 +117,13 @@ pub async fn start_daemon(
     id: &str,
     args: &[String],
 ) -> AppResult<DaemonActionResponse> {
-    let manager = state
-        .daemon_manager
-        .as_ref()
-        .ok_or_else(|| AppError::ServiceUnavailableError("Daemon manager not available".into()))?;
+    let Some(manager) = state.daemon_manager.as_ref() else {
+        let spec = std::iter::once(id)
+            .chain(args.iter().map(String::as_str))
+            .collect::<Vec<_>>()
+            .join(" ");
+        return zmdc_control(state, "start", &spec).await;
+    };
 
     info!("Starting daemon: {} with args: {:?}", id, args);
     let resp = manager.start_daemon(id, args).await?;
@@ -62,10 +132,9 @@ pub async fn start_daemon(
 
 /// Stop a daemon.
 pub async fn stop_daemon(state: &AppState, id: &str) -> AppResult<DaemonActionResponse> {
-    let manager = state
-        .daemon_manager
-        .as_ref()
-        .ok_or_else(|| AppError::ServiceUnavailableError("Daemon manager not available".into()))?;
+    let Some(manager) = state.daemon_manager.as_ref() else {
+        return zmdc_control(state, "stop", id).await;
+    };
 
     info!("Stopping daemon: {}", id);
     let resp = manager.stop_daemon(id).await?;
@@ -74,10 +143,9 @@ pub async fn stop_daemon(state: &AppState, id: &str) -> AppResult<DaemonActionRe
 
 /// Restart a daemon.
 pub async fn restart_daemon(state: &AppState, id: &str) -> AppResult<DaemonActionResponse> {
-    let manager = state
-        .daemon_manager
-        .as_ref()
-        .ok_or_else(|| AppError::ServiceUnavailableError("Daemon manager not available".into()))?;
+    let Some(manager) = state.daemon_manager.as_ref() else {
+        return zmdc_control(state, "restart", id).await;
+    };
 
     info!("Restarting daemon: {}", id);
     // Pass empty args - daemon ID (e.g., "zmc -m 1") contains the args
@@ -87,10 +155,9 @@ pub async fn restart_daemon(state: &AppState, id: &str) -> AppResult<DaemonActio
 
 /// Reload a daemon (SIGHUP).
 pub async fn reload_daemon(state: &AppState, id: &str) -> AppResult<DaemonActionResponse> {
-    let manager = state
-        .daemon_manager
-        .as_ref()
-        .ok_or_else(|| AppError::ServiceUnavailableError("Daemon manager not available".into()))?;
+    let Some(manager) = state.daemon_manager.as_ref() else {
+        return zmdc_control(state, "reload", id).await;
+    };
 
     info!("Reloading daemon: {}", id);
     let resp = manager.reload_daemon(id).await?;
@@ -99,12 +166,20 @@ pub async fn reload_daemon(state: &AppState, id: &str) -> AppResult<DaemonAction
 
 /// Get system status.
 pub async fn get_system_status(state: &AppState) -> AppResult<SystemStatusResponse> {
-    let manager = state
-        .daemon_manager
-        .as_ref()
-        .ok_or_else(|| AppError::ServiceUnavailableError("Daemon manager not available".into()))?;
-
-    let status = manager.get_status().await;
+    let status = match state.daemon_manager.as_ref() {
+        Some(manager) => manager.get_status().await,
+        // Passive: ZoneMinder's daemons, and this host's load, memory and
+        // disk, which need no daemon manager. `running` is whether zmdc.pl
+        // answered.
+        None => {
+            let daemons = zmdc_status(state).await;
+            crate::daemon::ipc::SystemStatus {
+                running: daemons.is_ok(),
+                daemons: daemons.unwrap_or_default(),
+                stats: crate::daemon::stats::collect_stats().ok(),
+            }
+        }
+    };
     let mut response: SystemStatusResponse = status.into();
     // Live DB pool usage (the legacy header's `DB: n/max`). Read here rather
     // than in the IPC stats struct, which only carries OS metrics.
@@ -597,6 +672,36 @@ fn response_to_action(resp: DaemonResponse) -> DaemonActionResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zmdc_failures_are_reported_as_failures() {
+        assert!(
+            zmdc_reply_to_action(
+                "'zmc -m 1' starting at 26/10/18 10:00:00, pid = 3\n",
+                "start",
+                "zmc -m 1"
+            )
+            .success
+        );
+        assert!(zmdc_reply_to_action("", "stop", "zmc -m 1").success);
+        for bad in [
+            "No process with command of 'zmc -m 9' is running\n",
+            "Can't find process with command of 'zmc -m 9'\n",
+            "Invalid daemon 'x' specified\n",
+        ] {
+            assert!(
+                !zmdc_reply_to_action(bad, "stop", "zmc -m 9").success,
+                "{bad}"
+            );
+        }
+        // restart of an unknown process starts it.
+        assert!(zmdc_reply_to_action(
+            "Can't find process with command of 'zmc -m 9'\n'zmc -m 9' starting at 26/10/18 10:00:00\n",
+            "restart",
+            "zmc -m 9"
+        )
+        .success);
+    }
 
     #[test]
     fn test_response_to_action_success() {

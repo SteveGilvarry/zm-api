@@ -110,6 +110,15 @@ stopped_cleanly() {
 zmc_pid()     { pgrep -x -o zmc; }
 zmc_parent()  { ps -o ppid= -p "$(zmc_pid)" | tr -d ' '; }
 zmc_user()    { ps -o user= -p "$(zmc_pid)" | tr -d ' '; }
+no_zmc()      { ! zmc_pid >/dev/null; }
+
+# Passive mode: monitor state changes go to ZoneMinder's zmdc.sock (#155).
+monitor_state() {
+  api PATCH "/api/v3/monitors/$(monitor_id)/state" -H 'content-type: application/json' \
+    -d "{\"state\":\"$1\"}" >/dev/null
+}
+monitor_stop_stops_zmc()   { monitor_state stop && wait_until 30 no_zmc; }
+monitor_start_starts_zmc() { monitor_state start && wait_until 30 zmc_pid; }
 
 # Capture is live when zmc has refreshed Monitor_Status within the last
 # few seconds and reports frames arriving.

@@ -253,6 +253,7 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
 
     // Use the repository to insert the new monitor
     let result = repo::monitors::create(state.db(), monitor).await?;
+    crate::service::monitor_daemons::created(state, &result).await;
 
     Ok(MonitorResponse::from(result))
 }
@@ -277,6 +278,8 @@ pub async fn update(
             })
         })?;
 
+    // The row as it was, to stop its daemons with after the save.
+    let before = monitor_model.clone();
     let mut monitor: monitors::ActiveModel = monitor_model.into();
 
     // Update fields if they are provided in the request
@@ -692,6 +695,7 @@ pub async fn update(
 
     // Use the repository to update the monitor
     let updated_monitor = repo::monitors::update(state.db(), monitor).await?;
+    crate::service::monitor_daemons::updated(state, &before, &updated_monitor).await;
     Ok(MonitorResponse::from(updated_monitor))
 }
 
@@ -708,11 +712,7 @@ pub async fn delete(state: &AppState, id: u32, scope: &MonitorScope) -> AppResul
         })?;
     // Its daemons first, while the row still exists: a zmc whose monitor row
     // vanished crash-looped forever (#76). Reconcile also catches this.
-    if let Some(dm) = &state.daemon_manager {
-        if let Err(e) = dm.stop_monitor(id).await {
-            tracing::warn!("Could not stop daemons for monitor {id} before delete: {e}");
-        }
-    }
+    crate::service::monitor_daemons::deleting(state, &monitor).await;
     repo::monitors::delete(state.db(), monitor).await
 }
 
@@ -747,32 +747,13 @@ pub async fn update_state(
         }
     }
 
-    // Now control the daemons (if daemon manager is available)
-    if let Some(dm) = &state.daemon_manager {
-        let daemon_result = match action {
-            "start" => dm.start_monitor(id).await,
-            "stop" => dm.stop_monitor(id).await,
-            "restart" => dm.restart_monitor(id).await,
-            _ => unreachable!(), // Already validated above
-        };
-
-        match daemon_result {
-            Ok(resp) => {
-                if resp.success {
-                    info!("Daemon control for monitor {}: {}", id, resp.message);
-                } else {
-                    // Log warning but don't fail - reconciliation will fix it
-                    tracing::warn!("Daemon control issue for monitor {}: {}", id, resp.message);
-                }
-            }
-            Err(e) => {
-                // Log error but don't fail the request - reconciliation will fix it
-                tracing::error!("Daemon control error for monitor {}: {}", id, e);
-            }
-        }
-    } else {
-        tracing::debug!("Daemon manager not available, skipping daemon control");
-    }
+    // Control the daemons: zm-api's own in takeover, zmdc.pl's in passive.
+    let action = match action {
+        "start" => crate::service::monitor_daemons::Action::Start,
+        "stop" => crate::service::monitor_daemons::Action::Stop,
+        _ => crate::service::monitor_daemons::Action::Restart,
+    };
+    crate::service::monitor_daemons::set_state(state, &monitor_model, action).await;
 
     // Return the current monitor state
     Ok(MonitorResponse::from(monitor_model))

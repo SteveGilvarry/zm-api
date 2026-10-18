@@ -2721,7 +2721,7 @@ impl DaemonManager {
 ///
 /// Mirrors `zmdc.pl`'s hardcoded daemon-name regex (line 131-138) plus
 /// `zmpkg.pl`'s `^/dev/[\w/.\-]+$` device path check (line 214).
-fn validate_daemon_spec(command: &str, args: &[String]) -> Result<(), String> {
+pub(crate) fn validate_daemon_spec(command: &str, args: &[String]) -> Result<(), String> {
     use regex::Regex;
     use std::sync::OnceLock;
 
@@ -2927,7 +2927,7 @@ fn fold_should_run(wants: &[(u32, String, bool)]) -> std::collections::HashMap<S
     per_daemon
 }
 
-fn zmc_daemon_id(monitor_type: &MonitorType, device: &str, monitor_id: u32) -> String {
+pub(crate) fn zmc_daemon_id(monitor_type: &MonitorType, device: &str, monitor_id: u32) -> String {
     if matches!(monitor_type, MonitorType::Local) && !device.is_empty() {
         if device.chars().any(char::is_whitespace) {
             warn!(
