@@ -32,7 +32,11 @@ case "$E2E_ZM" in
     # it. It only drops a .repo file and a GPG key, so install it without
     # dependency checks.
     rpm -Uvh --nodeps "https://zmrepo.zoneminder.com/el/${rel}/$(uname -m)/${zmrepo}" >/dev/null
-    dnf -y install zoneminder >"$ARTIFACTS/zoneminder-install.log" 2>&1 \
+    # zmrepo's packages are signed with a SHA1 key, which EL9's default crypto
+    # policy refuses to import ("Hash algorithm SHA1 not available"). This is a
+    # throwaway lab host installing from a repository that calls itself a
+    # testing repo, so skip the signature check for it.
+    dnf -y install --nogpgcheck zoneminder >"$ARTIFACTS/zoneminder-install.log" 2>&1 \
       || { tail -40 "$ARTIFACTS/zoneminder-install.log"; exit 1; }
     mariadb -uroot </usr/share/zoneminder/db/zm_create.sql
     mariadb -uroot -e "CREATE USER 'zmuser'@'localhost' IDENTIFIED BY 'zmpass';
