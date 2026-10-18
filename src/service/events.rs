@@ -45,8 +45,16 @@ pub async fn list(
 
     let options = events_repo::EventQueryOptions {
         monitor_id: params.monitor_id,
-        start_time: params.start_time.as_ref().map(|dt| dt.0.naive_utc()),
-        end_time: params.end_time.as_ref().map(|dt| dt.0.naive_utc()),
+        // The columns hold server-local wall-clock time; the filter is a UTC
+        // instant (#173).
+        start_time: params
+            .start_time
+            .as_ref()
+            .map(|dt| crate::util::utc_to_naive_local(dt.0)),
+        end_time: params
+            .end_time
+            .as_ref()
+            .map(|dt| crate::util::utc_to_naive_local(dt.0)),
         sort_field: params.sort.unwrap_or_default(),
         sort_direction: params.direction.unwrap_or_default(),
         alarm_frames_min: params.alarm_frames_min,
@@ -222,8 +230,12 @@ pub async fn create(
         secondary_storage_id: Set(event.secondary_storage_id),
         name: Set(event.name),
         cause: Set(event.cause),
-        start_date_time: Set(event.start_date_time.map(|dt| dt.0.naive_utc())),
-        end_date_time: Set(event.end_date_time.map(|dt| dt.0.naive_utc())),
+        start_date_time: Set(event
+            .start_date_time
+            .map(|dt| crate::util::utc_to_naive_local(dt.0))),
+        end_date_time: Set(event
+            .end_date_time
+            .map(|dt| crate::util::utc_to_naive_local(dt.0))),
         width: Set(event.width),
         height: Set(event.height),
         length: Set(event.length.0),

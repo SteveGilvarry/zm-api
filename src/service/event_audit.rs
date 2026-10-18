@@ -75,9 +75,9 @@ impl Acc {
     }
 }
 
+/// A local-time column value, as UTC, the way every event response reports it.
 fn rfc3339(t: NaiveDateTime) -> String {
-    t.and_utc()
-        .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+    crate::util::naive_local_to_utc(t).to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
 pub async fn event_audit(
@@ -174,7 +174,8 @@ pub async fn event_audit(
 
 /// The default window, as legacy's: the hour ending an hour ago.
 pub fn default_window() -> (NaiveDateTime, NaiveDateTime) {
-    let now = Utc::now().naive_utc();
+    // In the server-local time the event columns hold (#173).
+    let now = crate::util::utc_to_naive_local(Utc::now());
     (
         now - chrono::Duration::hours(2),
         now - chrono::Duration::hours(1),

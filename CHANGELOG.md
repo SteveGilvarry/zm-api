@@ -184,6 +184,12 @@ recognisable path forward.
 
 ### Fixed
 
+- **Event time filters use the server's time zone** (#173). `start_time` /
+  `end_time` on `GET /events` (and the times on `POST /events`, saved-search
+  date terms and the audit report window) were turned into naive UTC and
+  compared against ZoneMinder's local-time columns, so on any server not on
+  UTC the window was off by the offset. They now convert to server-local
+  time, the inverse of what responses already do.
 - **Login accepts short passwords** (#174). `POST /auth/login` rejected any
   password under 6 characters before checking it, so ZoneMinder users with
   short passwords, the default `admin`/`admin` included, couldn't log in.

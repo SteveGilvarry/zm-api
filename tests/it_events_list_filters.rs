@@ -407,11 +407,13 @@ async fn the_event_audit_finds_gaps_and_missing_or_empty_media() {
     let monitor = insert_monitor(&app.db, "Audit").await.expect("monitor");
     let _m = RowGuard::monitor(monitor.id);
 
+    // Stored as ZoneMinder stores them: server-local wall-clock.
     let base = chrono::NaiveDate::from_ymd_opt(2026, 10, 1)
         .unwrap()
         .and_hms_opt(10, 0, 0)
-        .unwrap();
-    let at = |s: i64| base + chrono::Duration::seconds(s);
+        .unwrap()
+        .and_utc();
+    let at = |s: i64| zm_api::util::utc_to_naive_local(base + chrono::Duration::seconds(s));
     // (start, end, video bytes): 0 = empty file, None = no file.
     let specs = [(0, 60, Some(5)), (90, 120, Some(0)), (110, 200, None)];
     let mut ids = Vec::new();
@@ -491,4 +493,71 @@ async fn an_event_carries_its_max_score_frame() {
         .await
         .json();
     assert_eq!(body["max_score_frame_id"], 42);
+}
+
+/// Event time filters take a UTC instant and compare it against the
+/// local-time columns correctly (#173): filtering from an event's own
+/// reported start finds it, a second later doesn't. Meaningful on a host
+/// whose zone isn't UTC.
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn time_filters_round_trip_an_events_reported_start() {
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let monitor = insert_monitor(&app.db, "TzRound").await.expect("monitor");
+    let _m = RowGuard::monitor(monitor.id);
+    let start_utc =
+        chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() - 600, 0).unwrap();
+    let e = zm_api::entity::events::ActiveModel {
+        monitor_id: Set(monitor.id),
+        state_id: Set(1),
+        name: Set(unique_name("TzRound")),
+        start_date_time: Set(Some(zm_api::util::utc_to_naive_local(start_utc))),
+        end_date_time: Set(Some(zm_api::util::utc_to_naive_local(
+            start_utc + chrono::Duration::seconds(30),
+        ))),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("event");
+    let _e = guard_event(e.id);
+
+    let reported: serde_json::Value = app
+        .get(&format!("/api/v3/events/{}", e.id), &token)
+        .await
+        .json();
+    let reported = reported["start_date_time"].as_str().unwrap().to_string();
+    let at = chrono::DateTime::parse_from_rfc3339(&reported).unwrap();
+    assert_eq!(
+        at.timestamp(),
+        start_utc.timestamp(),
+        "reported as UTC: {reported}"
+    );
+
+    let ids = |from: String| {
+        let app = &app;
+        let token = token.clone();
+        async move {
+            let r = app
+                .get(
+                    &format!(
+                        "/api/v3/events?monitor_id={}&start_time={}",
+                        monitor.id,
+                        urlencoding::encode(&from)
+                    ),
+                    &token,
+                )
+                .await;
+            assert_eq!(r.status(), StatusCode::OK, "{}", r.text());
+            r.json::<PaginatedEventsResponse>()
+                .items
+                .into_iter()
+                .map(|e| e.id)
+                .collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(ids(reported.clone()).await, vec![e.id]);
+    let later = (at + chrono::Duration::seconds(1)).to_rfc3339();
+    assert!(ids(later).await.is_empty());
 }

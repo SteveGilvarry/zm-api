@@ -45,8 +45,15 @@ pub async fn event_audit(
     scope: MonitorScope,
 ) -> AppResult<Json<EventAuditResponse>> {
     let (default_start, default_end) = crate::service::event_audit::default_window();
-    let start = q.start.map(|d| d.0.naive_utc()).unwrap_or(default_start);
-    let end = q.end.map(|d| d.0.naive_utc()).unwrap_or(default_end);
+    // Event times are server-local wall-clock (#173).
+    let start = q
+        .start
+        .map(|d| crate::util::utc_to_naive_local(d.0))
+        .unwrap_or(default_start);
+    let end = q
+        .end
+        .map(|d| crate::util::utc_to_naive_local(d.0))
+        .unwrap_or(default_end);
     Ok(Json(
         crate::service::event_audit::event_audit(&state, start, end, q.monitor_id, &scope).await?,
     ))
