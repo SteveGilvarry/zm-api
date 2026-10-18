@@ -16364,9 +16364,23 @@
           "has_tilt_speed",
           "has_turbo_tilt",
           "can_auto_scan",
-          "num_scan_paths"
+          "num_scan_paths",
+          "can_light",
+          "can_indicator_light",
+          "can_audio_play",
+          "can_audio_volume"
         ],
         "properties": {
+          "can_audio_play": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "can_audio_volume": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "can_auto_focus": {
             "type": "integer",
             "format": "int32",
@@ -16437,6 +16451,11 @@
             "format": "int32",
             "minimum": 0
           },
+          "can_indicator_light": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "can_iris": {
             "type": "integer",
             "format": "int32",
@@ -16453,6 +16472,11 @@
             "minimum": 0
           },
           "can_iris_rel": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "can_light": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
@@ -16622,6 +16646,14 @@
             "format": "int32",
             "minimum": 0
           },
+          "max_audio_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "max_focus_range": {
             "type": [
               "integer",
@@ -16777,6 +16809,14 @@
             "minimum": 0
           },
           "max_zoom_step": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_audio_file": {
             "type": [
               "integer",
               "null"
@@ -17138,6 +17178,22 @@
           "name"
         ],
         "properties": {
+          "can_audio_play": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "can_audio_volume": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "can_auto_focus": {
             "type": [
               "integer",
@@ -17250,6 +17306,14 @@
             "format": "int32",
             "minimum": 0
           },
+          "can_indicator_light": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "can_iris": {
             "type": [
               "integer",
@@ -17275,6 +17339,14 @@
             "minimum": 0
           },
           "can_iris_rel": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "can_light": {
             "type": [
               "integer",
               "null"
@@ -17538,6 +17610,14 @@
             "format": "int32",
             "minimum": 0
           },
+          "max_audio_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "max_focus_range": {
             "type": [
               "integer",
@@ -17693,6 +17773,14 @@
             "minimum": 0
           },
           "max_zoom_step": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_audio_file": {
             "type": [
               "integer",
               "null"
@@ -28038,6 +28126,22 @@
       "UpdateControlRequest": {
         "type": "object",
         "properties": {
+          "can_audio_play": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "can_audio_volume": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "can_auto_focus": {
             "type": [
               "integer",
@@ -28150,6 +28254,14 @@
             "format": "int32",
             "minimum": 0
           },
+          "can_indicator_light": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "can_iris": {
             "type": [
               "integer",
@@ -28175,6 +28287,14 @@
             "minimum": 0
           },
           "can_iris_rel": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "can_light": {
             "type": [
               "integer",
               "null"
@@ -28438,6 +28558,14 @@
             "format": "int32",
             "minimum": 0
           },
+          "max_audio_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "max_focus_range": {
             "type": [
               "integer",
@@ -28593,6 +28721,14 @@
             "minimum": 0
           },
           "max_zoom_step": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_audio_file": {
             "type": [
               "integer",
               "null"

@@ -190,6 +190,10 @@ recognisable path forward.
   compared against ZoneMinder's local-time columns, so on any server not on
   UTC the window was off by the offset. They now convert to server-local
   time, the inverse of what responses already do.
+- **Controls carry their light and audio capabilities** (#177):
+  `can_light`, `can_indicator_light`, `can_audio_play`, `min_audio_file`,
+  `max_audio_file` and `can_audio_volume`, on the response and on create and
+  update.
 - **Zone presets carry their thresholds** (#188): the fourteen threshold
   columns a preset applies, on the response and on create and update, named
   as on `ZoneResponse`.

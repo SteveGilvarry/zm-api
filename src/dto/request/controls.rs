@@ -109,6 +109,13 @@ pub struct CreateControlRequest {
     pub turbo_tilt_speed: Option<i32>,
     pub can_auto_scan: Option<u8>,
     pub num_scan_paths: Option<u8>,
+    // Light and audio capabilities, ZoneMinder 1.39.13-1.39.29 (#177).
+    pub can_light: Option<u8>,
+    pub can_indicator_light: Option<u8>,
+    pub can_audio_play: Option<u8>,
+    pub min_audio_file: Option<u32>,
+    pub max_audio_file: Option<u32>,
+    pub can_audio_volume: Option<u8>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema, Validate)]
@@ -217,4 +224,11 @@ pub struct UpdateControlRequest {
     pub turbo_tilt_speed: Option<i32>,
     pub can_auto_scan: Option<u8>,
     pub num_scan_paths: Option<u8>,
+    // Light and audio capabilities, ZoneMinder 1.39.13-1.39.29 (#177).
+    pub can_light: Option<u8>,
+    pub can_indicator_light: Option<u8>,
+    pub can_audio_play: Option<u8>,
+    pub min_audio_file: Option<u32>,
+    pub max_audio_file: Option<u32>,
+    pub can_audio_volume: Option<u8>,
 }
