@@ -18,7 +18,13 @@ fi
 check "startup migrations created zm-api's own tables" own_tables_exist
 check_eq "GET /monitors" "200" "$(api_status GET /api/v3/monitors)"
 check_eq "GET /events" "200" "$(api_status GET '/api/v3/events?limit=1')"
-check_eq "daemon control is off in passive mode" "503" "$(api_status GET /api/v3/daemons)"
+# Passive mode reads ZoneMinder's daemons through its zmdc.sock (#156); with
+# no ZoneMinder there is no zmdc.sock to read.
+if has_zoneminder; then
+  check_eq "daemon status comes from zmdc.sock" "200" "$(api_status GET /api/v3/daemons)"
+else
+  check_eq "no zmdc.sock, no daemon status" "503" "$(api_status GET /api/v3/daemons)"
+fi
 
 if has_zoneminder; then
   section "Against the running ZoneMinder"
