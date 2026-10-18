@@ -11678,6 +11678,74 @@
         ]
       }
     },
+    "/api/v3/reports/event-audit": {
+      "get": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Audit events over a window: per monitor, counts, gaps, and missing or\nempty media",
+        "description": "- Legacy's \"Audit Events Report\". Events overlapping `[start, end)` are\n  counted per monitor; each one's media is checked on disk.\n- Defaults to the hour ending an hour ago, as legacy does. At most 10000\n  events; a wider window is a 400.",
+        "operationId": "event_audit",
+        "parameters": [
+          {
+            "name": "start",
+            "in": "query",
+            "description": "Window start (RFC 3339)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "description": "Window end (RFC 3339)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "monitor_id",
+            "in": "query",
+            "description": "Only this monitor",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-monitor audit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventAuditResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad window, or too many events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/reports/{id}": {
       "get": {
         "tags": [
@@ -20794,6 +20862,31 @@
           }
         }
       },
+      "EventAuditResponse": {
+        "type": "object",
+        "description": "Legacy's \"Audit Events Report\": per monitor, the events overlapping a\nwindow, the gaps between them, and those whose media is missing or empty.",
+        "required": [
+          "start",
+          "end",
+          "monitors"
+        ],
+        "properties": {
+          "end": {
+            "type": "string",
+            "example": "2026-10-18T10:00:00Z"
+          },
+          "monitors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MonitorEventAudit"
+            }
+          },
+          "start": {
+            "type": "string",
+            "example": "2026-10-18T09:00:00Z"
+          }
+        }
+      },
       "EventCloseMode": {
         "type": "string",
         "enum": [
@@ -22822,6 +22915,86 @@
           },
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "MonitorEventAudit": {
+        "type": "object",
+        "required": [
+          "monitor_id",
+          "event_count",
+          "first_event_id",
+          "last_event_id",
+          "missing_files",
+          "zero_size"
+        ],
+        "properties": {
+          "event_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "first_event_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "first_start": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Start of the first event in the window."
+          },
+          "last_end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "End of the last event in the window."
+          },
+          "last_event_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_gap_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "min_gap_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Smallest and largest gap, in seconds, from one event's end to the\nnext one's start: negative where events overlap. Null with fewer than\ntwo events."
+          },
+          "missing_files": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "description": "Events whose video (or, without one, whose directory) isn't on disk."
+          },
+          "monitor_id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "zero_size": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "description": "Events whose video file is empty."
           }
         }
       },

@@ -384,3 +384,86 @@ async fn hourly_counts_can_be_for_one_monitor() {
     assert_eq!(total(a.id).await, 2);
     assert_eq!(total(b.id).await, 3);
 }
+
+/// `GET /reports/event-audit`: per monitor, gaps between events and the
+/// events whose media is missing or empty (#36).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn the_event_audit_finds_gaps_and_missing_or_empty_media() {
+    use common::fixtures::insert_storage;
+    use zm_api::entity::sea_orm_active_enums::Scheme;
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let root = tempfile::tempdir().unwrap();
+    let storage = insert_storage(
+        &app.db,
+        "Audit",
+        root.path().to_str().unwrap(),
+        Scheme::Shallow,
+    )
+    .await
+    .unwrap();
+    let _s = RowGuard::storage(storage.id);
+    let monitor = insert_monitor(&app.db, "Audit").await.expect("monitor");
+    let _m = RowGuard::monitor(monitor.id);
+
+    let base = chrono::NaiveDate::from_ymd_opt(2026, 10, 1)
+        .unwrap()
+        .and_hms_opt(10, 0, 0)
+        .unwrap();
+    let at = |s: i64| base + chrono::Duration::seconds(s);
+    // (start, end, video bytes): 0 = empty file, None = no file.
+    let specs = [(0, 60, Some(5)), (90, 120, Some(0)), (110, 200, None)];
+    let mut ids = Vec::new();
+    let mut guards = Vec::new();
+    for (start, end, bytes) in specs {
+        let e = zm_api::entity::events::ActiveModel {
+            monitor_id: Set(monitor.id),
+            storage_id: Set(Some(storage.id)),
+            scheme: Set(Scheme::Shallow),
+            state_id: Set(1),
+            name: Set(unique_name("Audit")),
+            start_date_time: Set(Some(at(start))),
+            end_date_time: Set(Some(at(end))),
+            default_video: Set("video.mp4".to_string()),
+            ..Default::default()
+        }
+        .insert(&app.db)
+        .await
+        .expect("event");
+        if let Some(n) = bytes {
+            let dir = root
+                .path()
+                .join(monitor.id.to_string())
+                .join(e.id.to_string());
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("video.mp4"), vec![b'x'; n]).unwrap();
+        }
+        ids.push(e.id);
+        guards.push(guard_event(e.id));
+    }
+
+    let start = urlencoding::encode("2026-10-01T09:00:00Z").into_owned();
+    let end = urlencoding::encode("2026-10-01T11:00:00Z").into_owned();
+    let r = app
+        .get(
+            &format!(
+                "/api/v3/reports/event-audit?start={start}&end={end}&monitor_id={}",
+                monitor.id
+            ),
+            &token,
+        )
+        .await;
+    assert_eq!(r.status(), StatusCode::OK, "{}", r.text());
+    let body: serde_json::Value = r.json();
+    let m = &body["monitors"][0];
+    assert_eq!(m["monitor_id"], monitor.id);
+    assert_eq!(m["event_count"], 3);
+    assert_eq!(
+        m["min_gap_seconds"], -10,
+        "the third overlaps the second by 10 s"
+    );
+    assert_eq!(m["max_gap_seconds"], 30);
+    assert_eq!(m["zero_size"], serde_json::json!([ids[1]]));
+    assert_eq!(m["missing_files"], serde_json::json!([ids[2]]));
+}

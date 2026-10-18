@@ -248,6 +248,12 @@ recognisable path forward.
   refresh and for signed media links; and the role's per-monitor and
   per-group grants feed the monitor ACL beneath the user's own. A user
   whose access came from a role was gated on their own levels alone.
+- **`GET /api/v3/reports/event-audit`**, legacy's Audit Events Report (#36):
+  per monitor, the events overlapping a window, their span, the smallest and
+  largest gap between one event's end and the next one's start (negative
+  where they overlap), and the events whose video is missing or empty on
+  disk. Defaults to the hour ending an hour ago, as legacy does; at most
+  10000 events per report.
 - **`GET /events/counts/{hours}?monitor_id=`** gives one monitor's hourly
   event counts, for the console's per-monitor sparkline (#36), instead of
   paging up to a thousand events per monitor to bucket them.

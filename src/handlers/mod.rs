@@ -42,6 +42,7 @@ pub mod zone_presets;
 pub mod zones;
 
 pub mod auth;
+pub mod event_audit;
 pub mod events;
 pub mod events_playback;
 pub mod live;

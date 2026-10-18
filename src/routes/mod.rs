@@ -27,6 +27,7 @@ pub mod daemon; // Daemon control
 pub mod devices; // Devices
 #[cfg(feature = "onvif-discovery")]
 pub mod discovery; // ONVIF camera discovery
+pub mod event_audit; // Audit Events Report
 pub mod event_data; // Event Data
 pub mod event_summaries; // Event Summaries (pre-calculated counts)
 pub mod events; // Add events module
@@ -541,6 +542,10 @@ pub fn create_router_app(state: AppState) -> Router {
     };
     let user_routes = protect(users::add_user_routes(Router::new()), Feature::System);
     let role_routes = protect(roles::add_role_routes(Router::new()), Feature::System);
+    let event_audit_routes = protect(
+        event_audit::add_event_audit_routes(Router::new()),
+        Feature::Events,
+    );
     let settings_table_routes = protect(
         settings_tables::add_settings_table_routes(Router::new()),
         Feature::System,
@@ -591,6 +596,7 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(filter_routes)
         .merge(user_routes)
         .merge(role_routes)
+        .merge(event_audit_routes)
         .merge(settings_table_routes)
         .merge(settings_tables::add_navbar_route(Router::new()))
         .merge(group_routes)

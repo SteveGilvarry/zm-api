@@ -7,6 +7,7 @@ pub mod daemon;
 pub mod devices;
 #[cfg(feature = "onvif-discovery")]
 pub mod discovery;
+pub mod event_audit;
 pub mod event_data;
 pub mod event_storage;
 pub mod event_summaries;
