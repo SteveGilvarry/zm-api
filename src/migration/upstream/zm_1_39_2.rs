@@ -43,7 +43,7 @@ impl MigrationTrait for Migration {
 
         // Coords and Area, per zone, from the monitor's pixel dimensions.
         let rows = conn
-            .query_all(
+            .query_all_raw(
                 backend(m).build(
                     Query::select()
                         .expr_as(as_i64_of(m, "Zones", "Id"), Alias::new("zone_id"))

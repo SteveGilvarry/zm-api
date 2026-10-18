@@ -4,6 +4,7 @@ use crate::dto::PaginationParams;
 use crate::entity::config;
 use crate::entity::config::{Column, Entity as Config};
 use crate::error::AppResult;
+use sea_orm::sea_query::ExprTrait;
 use sea_orm::{
     ColumnTrait, DatabaseConnection, EntityTrait, FromQueryResult, PaginatorTrait, QueryFilter,
     QueryOrder, QuerySelect,
@@ -261,7 +262,9 @@ mod tests {
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results(vec![vec![BTreeMap::from([(
                 "num_items".to_string(),
-                sea_orm::Value::Int(Some(2)),
+                // The paginator reads the count as i64 (sea-orm 2 decodes the
+                // mock row strictly).
+                sea_orm::Value::BigInt(Some(2)),
             )])]])
             .append_query_results::<config::Model, _, _>(vec![items])
             .into_connection();
@@ -278,7 +281,9 @@ mod tests {
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results(vec![vec![BTreeMap::from([(
                 "num_items".to_string(),
-                sea_orm::Value::Int(Some(1)),
+                // The paginator reads the count as i64 (sea-orm 2 decodes the
+                // mock row strictly).
+                sea_orm::Value::BigInt(Some(1)),
             )])]])
             .append_query_results::<config::Model, _, _>(vec![items])
             .into_connection();
@@ -298,7 +303,9 @@ mod tests {
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results(vec![vec![BTreeMap::from([(
                 "num_items".to_string(),
-                sea_orm::Value::Int(Some(1)),
+                // The paginator reads the count as i64 (sea-orm 2 decodes the
+                // mock row strictly).
+                sea_orm::Value::BigInt(Some(1)),
             )])]])
             .append_query_results::<config::Model, _, _>(vec![items])
             .into_connection();
@@ -319,14 +326,14 @@ mod tests {
                 BTreeMap::from([
                     (
                         "category".to_string(),
-                        sea_orm::Value::String(Some(Box::new("Network".to_string()))),
+                        sea_orm::Value::String(Some("Network".to_string())),
                     ),
                     ("count".to_string(), sea_orm::Value::BigInt(Some(10))),
                 ]),
                 BTreeMap::from([
                     (
                         "category".to_string(),
-                        sea_orm::Value::String(Some(Box::new("System".to_string()))),
+                        sea_orm::Value::String(Some("System".to_string())),
                     ),
                     ("count".to_string(), sea_orm::Value::BigInt(Some(25))),
                 ]),

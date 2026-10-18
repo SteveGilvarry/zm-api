@@ -147,7 +147,7 @@ pub fn choose_backend(pref: BackendPref, mariadb_native: bool) -> Backend {
 /// different connections, leaving a lingering connection-scoped table that breaks
 /// the next probe. A pure `SELECT` is idempotent and pool-safe.
 pub async fn probe_mariadb_vector(db: &DatabaseConnection) -> bool {
-    db.query_one(Statement::from_string(
+    db.query_one_raw(Statement::from_string(
         db.get_database_backend(),
         "SELECT VEC_DISTANCE_COSINE(VEC_FromText('[1,2,3]'), VEC_FromText('[1,2,3]')) AS d",
     ))

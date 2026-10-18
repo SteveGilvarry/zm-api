@@ -33,12 +33,12 @@ pub async fn migrate_test_db(db: &DatabaseConnection) {
     let pinned = db.begin().await.expect("pin a connection for the lock");
     let lock = |sql: &str| Statement::from_string(sea_orm::DatabaseBackend::MySql, sql.to_string());
     pinned
-        .execute(lock("SELECT GET_LOCK('zm_api_test_migrate', 120)"))
+        .execute_raw(lock("SELECT GET_LOCK('zm_api_test_migrate', 120)"))
         .await
         .expect("take migration lock");
     let result = zm_api::client::database::migrate_database(db).await;
     let _ = pinned
-        .execute(lock("SELECT RELEASE_LOCK('zm_api_test_migrate')"))
+        .execute_raw(lock("SELECT RELEASE_LOCK('zm_api_test_migrate')"))
         .await;
     let _ = pinned.rollback().await;
     result.expect("apply zm-api migrations");
@@ -80,7 +80,7 @@ pub async fn cleanup_by_prefix(
     let sql = format!("DELETE FROM `{}` WHERE `{}` LIKE ?", table, column);
     let statement =
         Statement::from_sql_and_values(backend, sql, vec![Value::from(format!("{prefix}%"))]);
-    let result = db.execute(statement).await?;
+    let result = db.execute_raw(statement).await?;
     Ok(result.rows_affected())
 }
 

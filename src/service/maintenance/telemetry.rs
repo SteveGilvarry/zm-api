@@ -333,7 +333,7 @@ impl TelemetryService {
         let backend = self.db.get_database_backend();
         let updated = self
             .db
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 backend,
                 "UPDATE Config SET Value = ? WHERE Name = ?",
                 [value.into(), name.into()],
@@ -345,7 +345,7 @@ impl TelemetryService {
             // row to update; a silent no-op minted a fresh uuid and re-sent
             // every pass (#103).
             self.db
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     backend,
                     "INSERT INTO Config (Name, Value, Type, Category) VALUES (?, ?, 'string', 'system')",
                     [name.into(), value.into()],

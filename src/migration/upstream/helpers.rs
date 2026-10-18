@@ -37,7 +37,7 @@ async fn probe(
         }
         _ => Statement::from_sql_and_values(DatabaseBackend::Postgres, pg, values),
     };
-    Ok(conn.query_one(stmt).await?.is_some())
+    Ok(conn.query_one_raw(stmt).await?.is_some())
 }
 
 pub async fn table_exists(m: &SchemaManager<'_>, table: &str) -> Result<bool, DbErr> {
@@ -85,7 +85,7 @@ pub async fn column_data_type(
         ),
     };
     Ok(conn
-        .query_one(stmt)
+        .query_one_raw(stmt)
         .await?
         .and_then(|r| r.try_get::<String>("", "data_type").ok())
         .map(|s| s.to_lowercase()))
@@ -156,7 +156,7 @@ pub async fn run<S: StatementBuilder>(m: &SchemaManager<'_>, stmt: &S) -> Result
     let built = backend(m).build(stmt);
     let head: String = built.sql.chars().take(200).collect();
     m.get_connection()
-        .execute(built)
+        .execute_raw(built)
         .await
         .map(|_| ())
         .map_err(|e| DbErr::Custom(format!("{e}\n  while executing: {head}")))
@@ -269,7 +269,7 @@ pub async fn ensure_enum_type(
     }
     let exists = m
         .get_connection()
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT 1 FROM pg_type WHERE typname = $1",
             [name.into()],
@@ -303,7 +303,7 @@ pub async fn widen_enum(
     if backend(m) == DatabaseBackend::Postgres {
         for v in all_values {
             m.get_connection()
-                .execute(Statement::from_string(
+                .execute_raw(Statement::from_string(
                     DatabaseBackend::Postgres,
                     format!("ALTER TYPE \"{type_name}\" ADD VALUE IF NOT EXISTS '{v}'"),
                 ))
@@ -322,11 +322,14 @@ pub async fn insert_if_absent(
     insert: InsertStatement,
 ) -> Result<bool, DbErr> {
     let conn = m.get_connection();
-    let found = conn.query_one(backend(m).build(&probe)).await?.is_some();
+    let found = conn
+        .query_one_raw(backend(m).build(&probe))
+        .await?
+        .is_some();
     if found {
         return Ok(false);
     }
-    conn.execute(backend(m).build(&insert)).await?;
+    conn.execute_raw(backend(m).build(&insert)).await?;
     Ok(true)
 }
 
@@ -341,7 +344,7 @@ pub fn probe_eq(table: &str, col: &str, value: &str) -> SelectStatement {
 
 pub async fn exec_stmt<S: StatementBuilder>(m: &SchemaManager<'_>, stmt: &S) -> Result<u64, DbErr> {
     Ok(m.get_connection()
-        .execute(backend(m).build(stmt))
+        .execute_raw(backend(m).build(stmt))
         .await?
         .rows_affected())
 }

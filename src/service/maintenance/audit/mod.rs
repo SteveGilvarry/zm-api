@@ -539,7 +539,7 @@ impl AuditService {
             .join(",");
         let removed = self
             .db
-            .execute(Statement::from_string(
+            .execute_raw(Statement::from_string(
                 self.db.get_database_backend(),
                 format!("DELETE FROM Events WHERE Id IN ({list})"),
             ))
@@ -634,7 +634,7 @@ impl AuditService {
                 .join(",");
             removed += self
                 .db
-                .execute(Statement::from_string(
+                .execute_raw(Statement::from_string(
                     backend,
                     format!("DELETE FROM {table} WHERE EventId IN ({list})"),
                 ))
@@ -707,7 +707,7 @@ impl AuditService {
                  WHERE Id = {id} AND EndDateTime IS NULL"
             );
             self.db
-                .execute(Statement::from_string(backend, sql))
+                .execute_raw(Statement::from_string(backend, sql))
                 .await?;
         }
         info!("closed {} unclosed events", ids.len());
@@ -779,7 +779,7 @@ impl AuditService {
                 .map(|t| (t.total, t.total_bytes, t.archived, t.archived_bytes))
                 .unwrap_or((0, 0, 0, 0));
             self.db
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     backend,
                     "UPDATE Event_Summaries SET TotalEvents = ?, TotalEventDiskSpace = ?, \
                      ArchivedEvents = ?, ArchivedEventDiskSpace = ? WHERE MonitorId = ?",
@@ -823,7 +823,7 @@ impl AuditService {
             // read rather than failing the guard forever.
             let updated = self
                 .db
-                .execute(Statement::from_sql_and_values(
+                .execute_raw(Statement::from_sql_and_values(
                     backend,
                     "UPDATE Storage SET DiskSpace = ? WHERE Id = ? AND DiskSpace <=> ?",
                     [row.actual.into(), row.id.into(), row.current.into()],
@@ -903,7 +903,7 @@ impl AuditService {
                 .join(",");
             removed += self
                 .db
-                .execute(Statement::from_string(
+                .execute_raw(Statement::from_string(
                     backend,
                     format!("DELETE FROM {table} WHERE Id IN ({list})"),
                 ))

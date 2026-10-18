@@ -214,7 +214,8 @@ mod tests {
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results(vec![vec![BTreeMap::from([(
                 "num_items".to_string(),
-                sea_orm::Value::Int(Some(1)),
+                // The paginator reads the count as i64.
+                sea_orm::Value::BigInt(Some(1)),
             )])]])
             .append_query_results::<ConfigModel, _, _>(vec![items])
             .into_connection();
@@ -236,14 +237,14 @@ mod tests {
                 BTreeMap::from([
                     (
                         "category".to_string(),
-                        sea_orm::Value::String(Some(Box::new("Network".to_string()))),
+                        sea_orm::Value::String(Some("Network".to_string())),
                     ),
                     ("count".to_string(), sea_orm::Value::BigInt(Some(5))),
                 ]),
                 BTreeMap::from([
                     (
                         "category".to_string(),
-                        sea_orm::Value::String(Some(Box::new("System".to_string()))),
+                        sea_orm::Value::String(Some("System".to_string())),
                     ),
                     ("count".to_string(), sea_orm::Value::BigInt(Some(10))),
                 ]),

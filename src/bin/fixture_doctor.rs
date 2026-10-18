@@ -143,7 +143,7 @@ async fn main() -> ExitCode {
         let sql =
             format!("SELECT `{column}` AS name FROM `{table}` WHERE `{column}` LIKE 'Test\\_%'");
         let stmt = Statement::from_string(DbBackend::MySql, sql);
-        let rows = match db.query_all(stmt).await {
+        let rows = match db.query_all_raw(stmt).await {
             Ok(rows) => rows,
             Err(e) => {
                 // A missing table/column is not fatal — schemas drift between
@@ -216,7 +216,7 @@ async fn main() -> ExitCode {
             sql,
             [sea_orm::Value::from(row.name.clone())],
         );
-        match db.execute(stmt).await {
+        match db.execute_raw(stmt).await {
             Ok(res) => deleted += res.rows_affected(),
             Err(e) => {
                 eprintln!(

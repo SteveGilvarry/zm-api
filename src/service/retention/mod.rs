@@ -33,8 +33,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use sea_orm::{
-    ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DbErr, EntityTrait,
-    FromQueryResult, QueryFilter, QueryOrder,
+    ColumnTrait, Condition, DatabaseConnection, DbErr, EntityTrait, FromQueryResult, QueryFilter,
+    QueryOrder,
 };
 use tracing::{debug, info, warn};
 
