@@ -451,9 +451,11 @@ recognisable path forward.
 - Dependency bumps for RUSTSEC-2026-0338 to 0342 (`quinn-proto` 0.11.19),
   RUSTSEC-2026-0346 to 0349 (`rustls` 0.23.46), and `async-trait` 0.1.92,
   whose generated code tripped clippy's `double_must_use` on current stable.
-  The `zip` 3 advisories (RUSTSEC-2026-0367 to 0369) remain: it is a
-  build-time dependency of `utoipa-swagger-ui` 9, and moving to 10 is a
-  separate change.
+  The `zip` 3 advisories (RUSTSEC-2026-0367 to 0369) are ignored with a
+  justification in `deny.toml`: zip is a build-time dependency of
+  `utoipa-swagger-ui` 9 that unpacks the bundled Swagger UI, not runtime code,
+  and no release of that crate depends on zip 9 yet. Clearing them needs the
+  utoipa 6 migration (#164).
 
 ### Removed
 

@@ -27,6 +27,15 @@ ignore = [
     # proc-macro-error2 unmaintained. Build-time-only derive-macro dependency;
     # unmaintained but not a vulnerability. Revisit if a maintained fork lands.
     "RUSTSEC-2026-0173",
+    # zip 3.0.0: symlink targets, Unix modes through symlinks and SUID/SGID bits
+    # preserved on extraction. Build-dependency of utoipa-swagger-ui 9 only: its
+    # build script unpacks the Swagger UI release it ships, on the build host,
+    # and zip is not in the binary. No release depends on zip >= 9 yet (10.0.1
+    # pins ^8.6; master has 9.0 and needs utoipa 6). Revisit with the utoipa 6
+    # migration.
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
 ]
 
 [bans]
