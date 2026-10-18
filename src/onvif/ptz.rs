@@ -356,11 +356,10 @@ fn fmt_f32(v: f32) -> String {
 }
 
 /// Strip an XML namespace prefix, returning the local name.
-fn local_name(qname: &[u8]) -> String {
-    let s = String::from_utf8_lossy(qname);
-    match s.rsplit_once(':') {
+fn local_name(qname: &str) -> String {
+    match qname.rsplit_once(':') {
         Some((_, local)) => local.to_string(),
-        None => s.into_owned(),
+        None => qname.to_string(),
     }
 }
 
@@ -380,7 +379,7 @@ fn read_text(reader: &mut Reader<&[u8]>) -> String {
                 out.push_str(&super::xml::general_ref_content(&r));
             }
             Ok(Event::CData(t)) if depth == 0 => {
-                out.push_str(&String::from_utf8_lossy(t.as_ref()));
+                out.push_str(&t);
             }
             Ok(Event::Start(_)) => depth += 1,
             Ok(Event::End(_)) => {
