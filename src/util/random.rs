@@ -1,4 +1,4 @@
-use rand::{distr::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, RngExt};
 
 pub fn generate_random_string(len: usize) -> String {
     let rng = rand::rng();
