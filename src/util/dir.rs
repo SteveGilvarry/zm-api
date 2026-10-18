@@ -28,13 +28,14 @@ mod tests {
 
     #[test]
     fn test_get_cargo_project_root() {
+        // cargo runs tests with the package root as the working directory, so
+        // the nearest Cargo.lock is this crate's. Compare paths, not the
+        // directory name: a worktree or a renamed clone is still the root.
         let root = get_cargo_project_root().unwrap().unwrap();
-        let dir_name = root.file_name().unwrap().to_str().unwrap();
-        // Compare separator-insensitively: the package is `zm-api`, but a
-        // checkout may sit in either `zm-api` or `zm_api` (CI uses the repo
-        // name, some local clones predate the rename). Normalising only one
-        // side would make this unsatisfiable for one of them.
-        let norm = |s: &str| s.replace('-', "_");
-        assert_eq!(norm(dir_name), norm(env!("CARGO_PKG_NAME")));
+        let expected = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        assert_eq!(
+            root.canonicalize().unwrap(),
+            expected.canonicalize().unwrap()
+        );
     }
 }
