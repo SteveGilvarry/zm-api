@@ -317,7 +317,8 @@ pub struct CreateMonitorRequest {
     #[garde(skip)]
     pub recording_source: RecordingSource,
 
-    #[garde(skip)] // Option<u8> can be None
+    /// Accepted and ignored: ZoneMinder 1.39.37 removed `RTSPDescribe`.
+    #[garde(skip)]
     pub rtsp_describe: Option<u8>,
 
     // -1 is ZoneMinder's "leave the camera setting alone" sentinel (GH #19).
@@ -908,6 +909,7 @@ pub struct UpdateMonitorRequest {
     #[garde(skip)]
     pub recording_source: Option<RecordingSource>,
 
+    /// Accepted and ignored: ZoneMinder 1.39.37 removed `RTSPDescribe`.
     #[garde(skip)]
     pub rtsp_describe: Option<u8>,
 
@@ -1294,6 +1296,35 @@ mod parity_tests {
                 !accepts("record_audio", v),
                 "RecordAudio {v} is out of range"
             );
+        }
+    }
+}
+
+/// Query parameters for listing monitors.
+#[derive(Debug, Default, Deserialize, Serialize, ToSchema, Validate)]
+pub struct MonitorListParams {
+    /// Page number (1-indexed)
+    #[schema(example = 1)]
+    #[garde(range(min = 1))]
+    pub page: Option<u64>,
+
+    /// Number of items per page (max 1000)
+    #[schema(example = 25)]
+    #[garde(range(min = 1, max = 1000))]
+    pub page_size: Option<u64>,
+
+    /// Also list monitors ZoneMinder has soft-deleted (`Deleted = 1`), which
+    /// stay in the table until their events are gone. Off by default.
+    #[serde(default)]
+    #[garde(skip)]
+    pub include_deleted: bool,
+}
+
+impl MonitorListParams {
+    pub fn pagination(&self) -> crate::dto::PaginationParams {
+        crate::dto::PaginationParams {
+            page: self.page,
+            page_size: self.page_size,
         }
     }
 }

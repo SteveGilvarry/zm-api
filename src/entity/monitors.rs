@@ -199,8 +199,6 @@ pub struct Model {
     pub audio_alarm_score: u16,
     #[sea_orm(column_name = "RecordingSource")]
     pub recording_source: RecordingSource,
-    #[sea_orm(column_name = "RTSPDescribe")]
-    pub rtsp_describe: Option<u8>,
     #[sea_orm(
         column_name = "Brightness",
         column_type = "custom(\"MEDIUMINT\")",

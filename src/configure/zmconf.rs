@@ -14,6 +14,9 @@ use std::fs;
 use std::path::Path;
 use tracing::{debug, info, warn};
 
+use super::streaming::ZoneMinderConfig;
+use crate::daemon::config::DaemonConfig;
+
 /// Parsed ZoneMinder configuration
 #[derive(Debug, Clone, Default)]
 pub struct ZmConfig {
@@ -184,6 +187,38 @@ impl ZmConfig {
             || self.db_user().is_some()
             || self.db_pass().is_some()
     }
+
+    /// A path setting, ignoring one that is present but empty.
+    fn path(&self, key: &str) -> Option<&str> {
+        self.get(key).filter(|v| !v.is_empty())
+    }
+
+    /// Follow zm.conf for the paths ZoneMinder's packaging decides.
+    ///
+    /// Where the sockets and binaries live differs by distribution: Debian
+    /// and Ubuntu use `/run/zm` and `/usr/bin`, the Red Hat family keeps its
+    /// sockets in `/var/lib/zoneminder/sock`. zm.conf is where zmc and
+    /// zmdc.pl read those from, so it is where the stream sockets and
+    /// `zmdc.sock` clients actually are.
+    ///
+    /// Only a value still at its built-in default is replaced. Anything else
+    /// was set in TOML or the environment and is kept.
+    pub fn apply_paths(&self, daemon: &mut DaemonConfig, streaming: &mut ZoneMinderConfig) {
+        let daemon_defaults = DaemonConfig::default();
+        if let Some(socks) = self.path("ZM_PATH_SOCKS") {
+            if daemon.socket_path == daemon_defaults.socket_path {
+                daemon.socket_path = socks.into();
+            }
+            if streaming.socks_path == ZoneMinderConfig::default().socks_path {
+                streaming.socks_path = socks.to_string();
+            }
+        }
+        if let Some(bin) = self.path("ZM_PATH_BIN") {
+            if daemon.bin_path == daemon_defaults.bin_path {
+                daemon.bin_path = bin.into();
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -314,5 +349,53 @@ ZM_DB_PASS=secretpass
 
         assert!(!config.has_db_config());
         assert_eq!(config.db_host(), None);
+    }
+
+    fn paths_from(content: &str) -> (DaemonConfig, ZoneMinderConfig, ZmConfig) {
+        let tmp = TempDir::new().unwrap();
+        create_test_config(tmp.path(), "zm.conf", content);
+        let zmconf = ZmConfig::load_from_path(tmp.path().to_str().unwrap());
+        (DaemonConfig::default(), ZoneMinderConfig::default(), zmconf)
+    }
+
+    /// The Red Hat family keeps ZoneMinder's sockets outside /run/zm. Left at
+    /// the Debian default, live streaming and zmdc.sock both look in a
+    /// directory that does not exist there.
+    #[test]
+    fn apply_paths_follows_zm_conf_when_settings_are_at_their_defaults() {
+        let (mut daemon, mut streaming, zmconf) =
+            paths_from("ZM_PATH_SOCKS=/var/lib/zoneminder/sock\nZM_PATH_BIN=/usr/local/bin\n");
+
+        zmconf.apply_paths(&mut daemon, &mut streaming);
+
+        assert_eq!(daemon.socket_path, Path::new("/var/lib/zoneminder/sock"));
+        assert_eq!(streaming.socks_path, "/var/lib/zoneminder/sock");
+        assert_eq!(daemon.bin_path, Path::new("/usr/local/bin"));
+    }
+
+    #[test]
+    fn apply_paths_keeps_explicit_settings() {
+        let (mut daemon, mut streaming, zmconf) =
+            paths_from("ZM_PATH_SOCKS=/var/lib/zoneminder/sock\nZM_PATH_BIN=/opt/zm/bin\n");
+        daemon.socket_path = "/srv/zm/sock".into();
+        daemon.bin_path = "/srv/zm/bin".into();
+        streaming.socks_path = "/srv/zm/sock".to_string();
+
+        zmconf.apply_paths(&mut daemon, &mut streaming);
+
+        assert_eq!(daemon.socket_path, Path::new("/srv/zm/sock"));
+        assert_eq!(daemon.bin_path, Path::new("/srv/zm/bin"));
+        assert_eq!(streaming.socks_path, "/srv/zm/sock");
+    }
+
+    #[test]
+    fn apply_paths_ignores_missing_and_empty_values() {
+        let (mut daemon, mut streaming, zmconf) = paths_from("ZM_PATH_SOCKS=\n");
+
+        zmconf.apply_paths(&mut daemon, &mut streaming);
+
+        assert_eq!(daemon.socket_path, Path::new("/run/zm"));
+        assert_eq!(streaming.socks_path, "/run/zm");
+        assert_eq!(daemon.bin_path, Path::new("/usr/bin"));
     }
 }

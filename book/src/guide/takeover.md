@@ -60,13 +60,29 @@ The script sequences both services correctly — disable and stop
 `zoneminder.service`, flip the flag, restart zm-api; and the reverse on the way
 back. Prefer it over editing `APP_DAEMON__ENABLED` by hand.
 
+It also guards the switch on both sides:
+
+- **Before**, it checks that zm-api is up in passive mode, runs as ZoneMinder's
+  account, can read `zm.conf`, can write the events, socket and log directories,
+  and can execute `zmc`. `sudo zm-api-takeover --check` runs only these checks
+  and changes nothing. A failure stops the takeover unless you pass `--force`.
+- **After**, it waits for zm-api to stay up and, if `zmc` was capturing
+  beforehand, for zm-api to have started it again. If either does not happen
+  within 60 seconds it undoes the switch, starts `zoneminder.service` again and
+  exits with status 3. A takeover that cannot record does not leave the host
+  recording nothing.
+
+Removing the zm-api package while in takeover mode hands control back the same
+way before the service is stopped.
+
 ## Before you take over
 
 - zm-api must already be working in passive mode. Takeover is not a way to fix
   a broken install: if the API cannot reach the database, taking over the
   capture daemons as well means nothing records.
-- The service user needs write access to the events directory, and membership
-  of `ZM_STREAM_SOCKET_GROUP` for live streaming.
+- zm-api must run as the account ZoneMinder's daemons run as, with write access
+  to the events and socket directories. The package sets that up; the script
+  checks it.
 - Nothing else may be starting the ZoneMinder daemons — no cron entry, no
   `zmpkg.pl` invocation, no second host sharing the database with the same
   server ID.

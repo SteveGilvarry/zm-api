@@ -2359,7 +2359,7 @@
           {
             "name": "sort",
             "in": "query",
-            "description": "Field to sort by: start_time, end_time, alarm_frames, max_score, avg_score, tot_score, length, id, name, cause, monitor_id, notes, frames",
+            "description": "Field to sort by: start_time, end_time, alarm_frames, max_score, avg_score, tot_score, length, id, name, cause, monitor_id, notes, frames, archived, emailed, disk_space",
             "required": false,
             "schema": {
               "type": "string"
@@ -2430,12 +2430,31 @@
           {
             "name": "tag_id",
             "in": "query",
-            "description": "Events with any of these tag ids (comma-separated)",
+            "description": "Events with any of these tag ids (comma-separated), `none` for untagged events, `any` for events with at least one tag. Legacy's `0` and `-1` mean `none` and `any`.",
             "required": false,
             "schema": {
               "type": "string"
             },
             "example": "1,4"
+          },
+          {
+            "name": "tag_op",
+            "in": "query",
+            "description": "`in` (default) keeps what tag_id matches, `not_in` keeps the rest",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "in"
+          },
+          {
+            "name": "totals",
+            "in": "query",
+            "description": "Also return total_length_seconds and total_disk_space summed over the whole result. Costs a second aggregate query.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           },
           {
             "name": "storage_id",
@@ -5334,7 +5353,7 @@
           "Logs"
         ],
         "summary": "List log entries with pagination and filtering.",
-        "description": "Filter by `component`, `min_level` (severity name — this severe or worse),\nexact `level`, `search` (message substring), `start`/`end` (Unix seconds),\n`server_id`, and `sort` (asc/desc by time; default newest-first).",
+        "description": "Filter by `component`, `min_level` (severity name — this severe or worse),\nexact `level` (one value or a comma list), `ids`, `search` (message\nsubstring), `start`/`end` (Unix seconds) and `server_id`. Order with\n`sort_by` (default `time`) and `sort` (asc/desc; default newest-first).",
         "operationId": "listLogs",
         "parameters": [
           {
@@ -5384,13 +5403,22 @@
           {
             "name": "level",
             "in": "query",
-            "description": "Exact Logs.Level match (inverted scale: 0=Info, -1=Warning, -2=Error, -3=Fatal, positive=debug)",
+            "description": "Exact Logs.Level match, one value or a comma list (inverted scale: 0=Info, -1=Warning, -2=Error, -3=Fatal, -4=Panic, -5=Audit, positive=debug)",
             "required": false,
             "schema": {
-              "type": "integer",
-              "format": "int32"
+              "type": "string"
             },
-            "example": -2
+            "example": "-1,-5"
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "description": "Only these log ids, comma-separated",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "101,102"
           },
           {
             "name": "search",
@@ -5425,12 +5453,31 @@
           {
             "name": "sort",
             "in": "query",
-            "description": "asc (oldest first) or desc (newest first, default)",
+            "description": "asc or desc (default)",
             "required": false,
             "schema": {
               "type": "string"
             },
             "example": "desc"
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "description": "Column to sort on: time (default)|id|component|server_id|pid|level|code|message|file|line",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "time"
+          },
+          {
+            "name": "unfiltered_total",
+            "in": "query",
+            "description": "Also return total_unfiltered, the whole table's row count. Costs a second COUNT(*).",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           },
           {
             "name": "server_id",
@@ -5521,11 +5568,19 @@
           {
             "name": "level",
             "in": "query",
-            "description": "Only clear this exact Logs.Level",
+            "description": "Only clear these exact Logs.Level values (one or a comma list)",
             "required": false,
             "schema": {
-              "type": "integer",
-              "format": "int32"
+              "type": "string"
+            }
+          },
+          {
+            "name": "ids",
+            "in": "query",
+            "description": "Only clear these log ids, comma-separated. An empty or unparseable list is a 400, never \"clear everything\".",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           },
           {
@@ -5602,6 +5657,46 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/logs/components": {
+      "get": {
+        "tags": [
+          "Logs"
+        ],
+        "summary": "List every component that has written a log row, sorted.",
+        "description": "Feeds the log page's Component filter, so it shows what is in the table\ninstead of a guessed list.",
+        "operationId": "listLogComponents",
+        "responses": {
+          "200": {
+            "description": "Distinct component names, sorted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
             "content": {
               "application/json": {
                 "schema": {
@@ -6550,6 +6645,15 @@
               "minimum": 0
             },
             "example": 25
+          },
+          {
+            "name": "include_deleted",
+            "in": "query",
+            "description": "Also list soft-deleted monitors (Deleted = 1). Default false.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -12493,8 +12597,8 @@
         "tags": [
           "Stats"
         ],
-        "summary": "List all stats with pagination.",
-        "description": "- Requires a valid JWT.",
+        "summary": "List stats with pagination, optionally narrowed to one event, frame or zone.",
+        "description": "- Requires a valid JWT.\n- `frame_id` needs `event_id`: frame numbers restart in every event.",
         "operationId": "list_stats",
         "parameters": [
           {
@@ -12520,6 +12624,39 @@
               "minimum": 0
             },
             "example": 25
+          },
+          {
+            "name": "event_id",
+            "in": "query",
+            "description": "Only stats of this event",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "frame_id",
+            "in": "query",
+            "description": "Only stats of this frame (needs event_id)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "zone_id",
+            "in": "query",
+            "description": "Only stats of this zone",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
           }
         ],
         "responses": {
@@ -12529,6 +12666,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PaginatedStatsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid query, e.g. frame_id without event_id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
                 }
               }
             }
@@ -18114,6 +18261,7 @@
               "null"
             ],
             "format": "int32",
+            "description": "Accepted and ignored: ZoneMinder 1.39.37 removed `RTSPDescribe`.",
             "minimum": 0
           },
           "rtsp_server": {
@@ -19689,8 +19837,23 @@
               "string",
               "null"
             ],
-            "description": "Filter to events carrying any of these tag ids (comma-separated, e.g.\n`tag_id=1,4,5`). Standard query strings can't repeat a key into a list,\nso a comma-separated value is used.",
+            "description": "Filter to events carrying any of these tag ids (comma-separated, e.g.\n`tag_id=1,4,5`). Standard query strings can't repeat a key into a list,\nso a comma-separated value is used. `none` keeps events with no tag and\n`any` keeps events with at least one; legacy's `0` and `-1` mean the same.",
             "example": "1,4"
+          },
+          "tag_op": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TagOp",
+                "description": "`in` (default) keeps what `tag_id` matches, `not_in` keeps the rest."
+              }
+            ]
+          },
+          "totals": {
+            "type": "boolean",
+            "description": "Also return `total_length_seconds` and `total_disk_space` summed over\nthe whole result, not the page. Off by default: it is a second\naggregate query."
           }
         }
       },
@@ -19958,7 +20121,10 @@
           "cause",
           "monitor_id",
           "notes",
-          "frames"
+          "frames",
+          "archived",
+          "emailed",
+          "disk_space"
         ]
       },
       "EventSummary": {
@@ -20915,14 +21081,21 @@
             "description": "Only logs at or before this Unix time (seconds; `TimeKey`).",
             "example": 1714400000.0
           },
-          "level": {
+          "ids": {
             "type": [
-              "integer",
+              "string",
               "null"
             ],
-            "format": "int32",
-            "description": "Exact `Logs.Level` value match (ZoneMinder's inverted numeric scale:\n0=Info, -1=Warning, -2=Error, -3=Fatal, positive=debug). For \"this\nsevere or worse\", use `min_level` instead.",
-            "example": -2
+            "description": "Only these log ids, as a comma list. On `DELETE` this clears the rows\nan operator selected.",
+            "example": "101,102"
+          },
+          "level": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Exact `Logs.Level` match, one value or a comma list (`-1,-5`), on\nZoneMinder's inverted numeric scale: 0=Info, -1=Warning, -2=Error,\n-3=Fatal, -4=Panic, -5=Audit, positive=debug. For \"this severe or\nworse\", use `min_level` instead.",
+            "example": "-2"
           },
           "min_level": {
             "oneOf": [
@@ -20980,7 +21153,18 @@
               },
               {
                 "$ref": "#/components/schemas/LogSort",
-                "description": "Sort by time: `asc` (oldest first) or `desc` (newest first, default)."
+                "description": "Sort direction: `asc` or `desc` (default). With the default `sort_by`\nthat is oldest or newest first."
+              }
+            ]
+          },
+          "sort_by": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LogSortField",
+                "description": "Column to sort on (default `time`)."
               }
             ]
           },
@@ -20992,6 +21176,10 @@
             "format": "double",
             "description": "Only logs at or after this Unix time (seconds; `TimeKey`).",
             "example": 1714300000.0
+          },
+          "unfiltered_total": {
+            "type": "boolean",
+            "description": "Also return `total_unfiltered`, the row count of the whole table. Off\nby default: it is a second `COUNT(*)` over `Logs` on every request."
           }
         }
       },
@@ -21080,10 +21268,26 @@
       },
       "LogSort": {
         "type": "string",
-        "description": "Sort direction for the log time (`TimeKey`).",
+        "description": "Sort direction.",
         "enum": [
           "asc",
           "desc"
+        ]
+      },
+      "LogSortField": {
+        "type": "string",
+        "description": "Column the log list is ordered by.",
+        "enum": [
+          "time",
+          "id",
+          "component",
+          "server_id",
+          "pid",
+          "level",
+          "code",
+          "message",
+          "file",
+          "line"
         ]
       },
       "LoginRequest": {
@@ -22127,6 +22331,7 @@
               "null"
             ],
             "format": "int32",
+            "description": "Always `null`: ZoneMinder 1.39.37 removed `RTSPDescribe`.",
             "minimum": 0
           },
           "rtsp_server": {
@@ -22795,6 +23000,23 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "total_disk_space": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Summed `disk_space` of every matching event, in bytes. Only with\n`totals=true`.",
+            "minimum": 0
+          },
+          "total_length_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Summed `length` of every matching event, in seconds. Only present when\nthe request asked for it with `totals=true`."
           }
         }
       },
@@ -23072,6 +23294,15 @@
             "type": "integer",
             "format": "int64",
             "description": "Total number of matching logs",
+            "minimum": 0
+          },
+          "total_unfiltered": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Row count of the whole table, ignoring every filter. Only present when\nthe request asked for it with `unfiltered_total=true`.",
             "minimum": 0
           }
         }
@@ -25759,6 +25990,14 @@
           }
         }
       },
+      "TagOp": {
+        "type": "string",
+        "description": "How `tag_id` is applied.",
+        "enum": [
+          "in",
+          "not_in"
+        ]
+      },
       "TagResponse": {
         "type": "object",
         "required": [
@@ -28135,6 +28374,7 @@
               "null"
             ],
             "format": "int32",
+            "description": "Accepted and ignored: ZoneMinder 1.39.37 removed `RTSPDescribe`.",
             "minimum": 0
           },
           "rtsp_server": {

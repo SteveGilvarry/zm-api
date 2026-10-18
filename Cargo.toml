@@ -204,8 +204,9 @@ tikv-jemalloc-ctl = { version = "0.6", features = ["stats"] }
 
 [package.metadata.deb]
 maintainer = "Steve Gilvarry <SteveGilvarry@users.noreply.github.com>"
-# openssl: JWT key generation in the post-install script. passwd: useradd/usermod.
-depends = "$auto, openssl, passwd"
+# openssl: JWT key generation in the post-install script. passwd: useradd and
+# groupadd. procps: pgrep, used by zm-api-takeover.
+depends = "$auto, openssl, passwd, procps"
 section = "net"
 priority = "optional"
 maintainer-scripts = "packaging/debian"

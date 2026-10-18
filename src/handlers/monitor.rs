@@ -3,12 +3,12 @@ use axum::Json;
 use garde::Validate;
 use tracing::{info, warn};
 
+use crate::dto::request::monitor::MonitorListParams;
 use crate::dto::request::{
     AlarmControlRequest, CreateMonitorRequest, UpdateMonitorRequest, UpdateStateRequest,
 };
 use crate::dto::response::monitors::PaginatedMonitorsResponse;
 use crate::dto::response::MonitorResponse;
-use crate::dto::PaginationParams;
 use crate::error::AppError;
 use crate::error::AppResponseError;
 use crate::error::AppResult;
@@ -24,7 +24,8 @@ use crate::service::monitor_acl::MonitorScope;
     path = "/api/v3/monitors",
     params(
         ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
-        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25)
+        ("page_size" = Option<u64>, Query, description = "Items per page (max 1000)", example = 25),
+        ("include_deleted" = Option<bool>, Query, description = "Also list soft-deleted monitors (Deleted = 1). Default false.")
     ),
     responses(
         (status = 200, description = "Paginated list of monitors", body = PaginatedMonitorsResponse),
@@ -38,11 +39,19 @@ use crate::service::monitor_acl::MonitorScope;
 )]
 pub async fn list_monitors(
     State(state): State<AppState>,
-    Query(params): Query<PaginationParams>,
+    Query(params): Query<MonitorListParams>,
     scope: MonitorScope,
 ) -> AppResult<Json<PaginatedMonitorsResponse>> {
     info!("Listing all monitors with pagination.");
-    match service::monitor::list_paginated(&state, &params, &scope).await {
+    params.validate().map_err(AppError::InvalidInputError)?;
+    match service::monitor::list_paginated(
+        &state,
+        &params.pagination(),
+        params.include_deleted,
+        &scope,
+    )
+    .await
+    {
         Ok(result) => Ok(Json(PaginatedMonitorsResponse::from(result))),
         Err(e) => {
             warn!("Failed to list monitors: {e:?}.");

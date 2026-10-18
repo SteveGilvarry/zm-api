@@ -4,7 +4,7 @@ use sea_orm::sea_query::{Alias, MysqlQueryBuilder, Order};
 use sea_orm::*;
 use tracing::instrument;
 
-use crate::dto::request::events::{EventSortField, SortDirection};
+use crate::dto::request::events::{EventSortField, SortDirection, TagFilter};
 use crate::entity::{events, events_tags, prelude::Events, tags};
 use crate::server::state::AppState;
 
@@ -22,8 +22,9 @@ pub struct EventQueryOptions {
     pub cause: Option<String>,
     pub name: Option<String>,
     pub notes: Option<String>,
-    /// Keep only events carrying at least one of these tag ids.
-    pub tag_ids: Option<Vec<u64>>,
+    /// Tag filter, and whether to keep what it matches or the rest.
+    pub tags: Option<TagFilter>,
+    pub tags_negated: bool,
     /// Keep only events stored on this storage.
     pub storage_id: Option<u16>,
     /// Row-level ACL allowlist of monitor ids. `None` is unrestricted;
@@ -43,6 +44,9 @@ fn get_sort_column(field: EventSortField) -> events::Column {
         EventSortField::Length => events::Column::Length,
         EventSortField::Id => events::Column::Id,
         EventSortField::Name => events::Column::Name,
+        EventSortField::Archived => events::Column::Archived,
+        EventSortField::Emailed => events::Column::Emailed,
+        EventSortField::DiskSpace => events::Column::DiskSpace,
         EventSortField::Cause => events::Column::Cause,
         EventSortField::MonitorId => events::Column::MonitorId,
         EventSortField::Notes => events::Column::Notes,
@@ -72,17 +76,11 @@ pub async fn find_all(
     find_with_options(state, EventQueryOptions::default(), page, page_size).await
 }
 
-/// Find events with full query options
-#[instrument(skip(state))]
-pub async fn find_with_options(
-    state: &AppState,
-    options: EventQueryOptions,
-    page: u64,
-    page_size: u64,
-) -> Result<(Vec<events::Model>, u64), DbErr> {
+/// Every filter on `options`, ACL included, as one select. Shared by the list
+/// and the totals query so they always cover the same rows.
+fn filtered(options: &EventQueryOptions) -> Select<Events> {
     let mut query = Events::find();
 
-    // Apply filters
     if let Some(monitor_id) = options.monitor_id {
         query = query.filter(events::Column::MonitorId.eq(monitor_id));
     }
@@ -115,35 +113,78 @@ pub async fn find_with_options(
     if let Some(storage_id) = options.storage_id {
         query = query.filter(events::Column::StorageId.eq(storage_id));
     }
-    // Tag filter: events with at least one of the requested tags, via a
-    // subquery over Events_Tags (avoids a join that would duplicate rows).
-    if let Some(ref tag_ids) = options.tag_ids {
-        if !tag_ids.is_empty() {
-            use crate::entity::events_tags;
-            use sea_orm::sea_query::Query;
-            let sub = Query::select()
-                .column(events_tags::Column::EventId)
-                .from(events_tags::Entity)
-                .and_where(events_tags::Column::TagId.is_in(tag_ids.iter().copied()))
-                .to_owned();
-            query = query.filter(events::Column::Id.in_subquery(sub));
-        }
+    // Tag filter via a subquery over Events_Tags (a join would duplicate rows).
+    if let Some(ref tags) = options.tags {
+        use crate::entity::events_tags;
+        use sea_orm::sea_query::Query;
+        let mut sub = Query::select();
+        sub.column(events_tags::Column::EventId)
+            .from(events_tags::Entity);
+        // "Untagged" is "not in the set of tagged events", so it flips the sense.
+        let keep_matching = match tags {
+            TagFilter::AnyOf(ids) => {
+                sub.and_where(events_tags::Column::TagId.is_in(ids.iter().copied()));
+                true
+            }
+            TagFilter::Tagged => true,
+            TagFilter::Untagged => false,
+        };
+        query = if keep_matching != options.tags_negated {
+            query.filter(events::Column::Id.in_subquery(sub))
+        } else {
+            query.filter(events::Column::Id.not_in_subquery(sub))
+        };
     }
 
     // Row-level ACL: restrict to the caller's permitted monitors.
     if let Some(monitor_ids) = &options.monitor_filter {
         query = query.filter(events::Column::MonitorId.is_in(monitor_ids.iter().copied()));
     }
+    query
+}
 
-    // Apply sorting
+/// Find events with full query options
+#[instrument(skip(state))]
+pub async fn find_with_options(
+    state: &AppState,
+    options: EventQueryOptions,
+    page: u64,
+    page_size: u64,
+) -> Result<(Vec<events::Model>, u64), DbErr> {
     let sort_column = get_sort_column(options.sort_field);
-    query = apply_sorting(query, sort_column, options.sort_direction);
+    let query = apply_sorting(filtered(&options), sort_column, options.sort_direction);
 
     let paginator = query.paginate(state.db(), page_size);
     let total = paginator.num_items().await?;
     let events = paginator.fetch_page(page).await?;
 
     Ok((events, total))
+}
+
+/// Summed `Length` (seconds) and `DiskSpace` (bytes) of every event the options
+/// match, not of one page.
+#[instrument(skip(state))]
+pub async fn totals_with_options(
+    state: &AppState,
+    options: &EventQueryOptions,
+) -> Result<(f64, u64), DbErr> {
+    use rust_decimal::prelude::ToPrimitive;
+    use rust_decimal::Decimal;
+    use sea_orm::sea_query::Expr;
+
+    // SUM over a DECIMAL and over a BIGINT both come back as DECIMAL.
+    let row: Option<(Option<Decimal>, Option<Decimal>)> = filtered(options)
+        .select_only()
+        .column_as(Expr::col(events::Column::Length).sum(), "total_length")
+        .column_as(Expr::col(events::Column::DiskSpace).sum(), "total_disk")
+        .into_tuple()
+        .one(state.db())
+        .await?;
+    let (length, disk) = row.unwrap_or((None, None));
+    Ok((
+        length.and_then(|d| d.to_f64()).unwrap_or(0.0),
+        disk.and_then(|d| d.to_u64()).unwrap_or(0),
+    ))
 }
 
 /// Find events matching a prebuilt `Condition` (the compiled filter AST), with

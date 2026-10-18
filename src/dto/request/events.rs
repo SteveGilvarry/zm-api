@@ -36,6 +36,58 @@ pub enum EventSortField {
     Notes,
     /// Sort by total frame count
     Frames,
+    /// Sort by the archived flag
+    Archived,
+    /// Sort by the emailed flag
+    Emailed,
+    /// Sort by bytes on disk
+    DiskSpace,
+}
+
+/// What `tag_id` asks for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TagFilter {
+    /// Events with no tag at all (`none`, or legacy's `0`).
+    Untagged,
+    /// Events with at least one tag (`any`, or legacy's `-1`).
+    Tagged,
+    /// Events carrying at least one of these tags.
+    AnyOf(Vec<u64>),
+}
+
+/// Parse `tag_id`. A value that doesn't parse is an error rather than "no
+/// filter", which would return every event to a caller who asked for a few.
+pub fn parse_tag_filter(raw: &str) -> Result<TagFilter, garde::Error> {
+    match raw.trim() {
+        "none" | "0" => return Ok(TagFilter::Untagged),
+        "any" | "-1" => return Ok(TagFilter::Tagged),
+        _ => {}
+    }
+    let ids: Result<Vec<u64>, _> = raw.split(',').map(|t| t.trim().parse::<u64>()).collect();
+    match ids {
+        Ok(ids) if !ids.is_empty() && !ids.contains(&0) => Ok(TagFilter::AnyOf(ids)),
+        _ => Err(garde::Error::new(
+            "must be `none`, `any`, or a comma-separated list of tag ids",
+        )),
+    }
+}
+
+fn valid_tag_filter(value: &Option<String>, _: &()) -> garde::Result {
+    match value {
+        Some(raw) => parse_tag_filter(raw).map(|_| ()),
+        None => Ok(()),
+    }
+}
+
+/// How `tag_id` is applied.
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TagOp {
+    /// Keep events the tag filter matches (default).
+    #[default]
+    In,
+    /// Keep events the tag filter does not match.
+    NotIn,
 }
 
 /// Sort direction
@@ -112,10 +164,22 @@ pub struct EventQueryParams {
 
     /// Filter to events carrying any of these tag ids (comma-separated, e.g.
     /// `tag_id=1,4,5`). Standard query strings can't repeat a key into a list,
-    /// so a comma-separated value is used.
+    /// so a comma-separated value is used. `none` keeps events with no tag and
+    /// `any` keeps events with at least one; legacy's `0` and `-1` mean the same.
     #[schema(example = "1,4")]
-    #[garde(skip)]
+    #[garde(custom(valid_tag_filter))]
     pub tag_id: Option<String>,
+
+    /// `in` (default) keeps what `tag_id` matches, `not_in` keeps the rest.
+    #[garde(skip)]
+    pub tag_op: Option<TagOp>,
+
+    /// Also return `total_length_seconds` and `total_disk_space` summed over
+    /// the whole result, not the page. Off by default: it is a second
+    /// aggregate query.
+    #[serde(default)]
+    #[garde(skip)]
+    pub totals: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]

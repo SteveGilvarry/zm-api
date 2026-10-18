@@ -19,7 +19,7 @@
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, DbErr, Statement};
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::MigratorTrait;
-use tracing::info;
+use tracing::{info, warn};
 
 use super::legacy_bridge::{chain::CUTOVER_ZM_VERSION, version_lt};
 use super::{upstream, Migrator};
@@ -162,7 +162,8 @@ async fn detect_version(conn: &DatabaseConnection) -> Result<Option<String>, DbE
 /// `Migrator::up` runs only what is newer. Returns true when a stamp was
 /// recorded; false when the database is fresh (let the baseline run) or
 /// already stamped. Errors when the schema is older than the baseline or
-/// its version cannot be determined.
+/// its version cannot be determined. A schema newer than the latest mirrored
+/// version is stamped with everything known.
 pub async fn stamp_baseline_if_schema_current(conn: &DatabaseConnection) -> Result<bool, DbErr> {
     if !table_exists(conn, "Monitors").await? {
         return Ok(false); // fresh database: let the baseline run
@@ -185,10 +186,18 @@ pub async fn stamp_baseline_if_schema_current(conn: &DatabaseConnection) -> Resu
         )));
     }
     if version_lt(CUTOVER_ZM_VERSION, &version) {
-        return Err(DbErr::Custom(format!(
-            "existing ZoneMinder schema at {version} is newer than this zm-api's \
-             {CUTOVER_ZM_VERSION}; vendor the newer upstream updates first"
-        )));
+        // ZoneMinder's own packages can run ahead of the updates mirrored
+        // here; a host tracking upstream master does so within days of any
+        // schema change. Such a schema embodies every mirror this build
+        // knows, so stamp them all and let `up` create zm-api's own tables.
+        // Refusing instead left those tables missing on first install. The
+        // newer upstream columns stay unknown to this build until they are
+        // mirrored, and the mirrors are re-runnable when they arrive.
+        warn!(
+            "existing ZoneMinder schema at {version} is newer than the {CUTOVER_ZM_VERSION} \
+             this zm-api mirrors; stamping every known migration. Columns added upstream \
+             since {CUTOVER_ZM_VERSION} are not available through the API yet"
+        );
     }
     info!("existing ZoneMinder schema at {version} found; stamping the migrations it embodies");
     record_through_version(conn, &version).await?;
@@ -225,6 +234,21 @@ mod tests {
 
         let all = migrations_embodied_by(CUTOVER_ZM_VERSION);
         assert_eq!(all.len(), 1 + upstream::VERSIONS.len());
+    }
+
+    /// A ZoneMinder ahead of the mirrored chain (upstream master a few
+    /// updates on) embodies everything this build knows about.
+    #[test]
+    fn embodied_set_for_a_newer_schema_is_every_known_migration() {
+        assert!(version_lt(CUTOVER_ZM_VERSION, "1.39.999"));
+        assert_eq!(
+            migrations_embodied_by("1.39.999"),
+            migrations_embodied_by(CUTOVER_ZM_VERSION)
+        );
+        assert_eq!(
+            migrations_embodied_by("1.40.0"),
+            migrations_embodied_by(CUTOVER_ZM_VERSION)
+        );
     }
 
     /// Needs STAMP_TEST_DATABASE_URL pointing at a database freshly loaded

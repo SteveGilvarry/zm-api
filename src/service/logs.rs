@@ -1,5 +1,6 @@
-use crate::dto::request::logs::{LogQueryParams, LogSort};
+use crate::dto::request::logs::{parse_comma_list, LogQueryParams, LogSort, LogSortField};
 use crate::dto::response::logs::{LogResponse, PaginatedLogsResponse};
+use crate::entity::logs::Column;
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::repo::logs::LogQueryOptions;
@@ -12,12 +13,34 @@ const DEFAULT_PAGE_SIZE: u64 = 50;
 fn options_from(params: &LogQueryParams) -> LogQueryOptions {
     LogQueryOptions {
         component: params.component.clone(),
-        level: params.level,
+        // Both lists passed `validate()` in the handler; a parse failure here
+        // could only come from a caller that skipped it, and must still never
+        // widen the filter, so it matches nothing.
+        levels: params
+            .level
+            .as_deref()
+            .map(|raw| parse_comma_list(raw).unwrap_or_default()),
+        ids: params
+            .ids
+            .as_deref()
+            .map(|raw| parse_comma_list(raw).unwrap_or_default()),
         min_level: params.min_level.map(|l| l.threshold()),
         search: params.search.clone().filter(|s| !s.is_empty()),
         start: params.start,
         end: params.end,
-        // Newest-first unless the caller asks for ascending.
+        sort_by: params.sort_by.map(|f| match f {
+            LogSortField::Time => Column::TimeKey,
+            LogSortField::Id => Column::Id,
+            LogSortField::Component => Column::Component,
+            LogSortField::ServerId => Column::ServerId,
+            LogSortField::Pid => Column::Pid,
+            LogSortField::Level => Column::Level,
+            LogSortField::Code => Column::Code,
+            LogSortField::Message => Column::Message,
+            LogSortField::File => Column::File,
+            LogSortField::Line => Column::Line,
+        }),
+        // Descending unless the caller asks for ascending.
         sort_desc: !matches!(params.sort, Some(LogSort::Asc)),
         server_id: params.server_id,
     }
@@ -39,14 +62,25 @@ pub async fn list(state: &AppState, params: &LogQueryParams) -> AppResult<Pagina
         repo::logs::find_with_options(state.db(), options, page - 1, page_size).await?;
 
     let total_pages = total.div_ceil(page_size);
+    let total_unfiltered = if params.unfiltered_total {
+        Some(repo::logs::count_all(state.db()).await?)
+    } else {
+        None
+    };
 
     Ok(PaginatedLogsResponse {
+        total_unfiltered,
         items: logs.iter().map(LogResponse::from).collect(),
         total,
         per_page: page_size,
         current_page: page,
         last_page: total_pages,
     })
+}
+
+/// Every distinct component that has logged, for the log page's filter.
+pub async fn components(state: &AppState) -> AppResult<Vec<String>> {
+    repo::logs::distinct_components(state.db()).await
 }
 
 /// List recent logs (legacy helper)

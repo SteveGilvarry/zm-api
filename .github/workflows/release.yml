@@ -165,8 +165,9 @@ jobs:
           path: out/*.pkg.tar.zst
           if-no-files-found: error
 
-  # Attach every artifact that built to the GitHub Release. Runs on tags only;
-  # `always()` so a single distro failure still publishes the rest.
+  # Attach every artifact that built and passed its install test to the GitHub
+  # Release. Runs on tags only; `always()` so a single distro failure still
+  # publishes the rest.
   # The OpenAPI spec as a release asset: lets the API surface be diffed between
   # releases and fed to a client generator without standing a server up.
   openapi:
@@ -204,16 +205,82 @@ jobs:
           name: openapi
           path: openapi.json
 
+  # Install every package on a host running systemd and walk the install
+  # process before anything is published (packaging/e2e). The .deb is tested
+  # beside a ZoneMinder built from upstream master: passive, takeover, revert,
+  # upgrade, removal. A package that passes leaves a `verified-*` marker, and
+  # only marked packages are published.
+  install-test:
+    name: install test (${{ matrix.distro }} ${{ matrix.arch }})
+    needs: [deb, rpm, arch]
+    # Run for the packages that did build even if another build failed.
+    if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { distro: ubuntu-24.04, arch: amd64, runner: ubuntu-24.04, artifact: deb-amd64 }
+          - { distro: ubuntu-24.04, arch: arm64, runner: ubuntu-24.04-arm, artifact: deb-arm64 }
+          - { distro: fedora-41, arch: amd64, runner: ubuntu-24.04, artifact: rpm-fedora }
+          - { distro: opensuse-tumbleweed, arch: amd64, runner: ubuntu-24.04, artifact: rpm-opensuse }
+          - { distro: arch, arch: amd64, runner: ubuntu-24.04, artifact: arch-pkg }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: pkg
+
+      - name: Install it and walk the install process
+        run: packaging/e2e/run.sh ${{ matrix.distro }} --package pkg
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaging-logs-${{ matrix.artifact }}
+          path: target/e2e/${{ matrix.distro }}/logs
+          if-no-files-found: ignore
+
+      - name: Mark the package verified
+        run: echo "${{ matrix.artifact }} passed its install test at ${{ github.sha }}" > verified.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-${{ matrix.artifact }}
+          path: verified.txt
+
   release:
     name: Publish release
-    needs: [deb, rpm, arch, openapi]
+    needs: [deb, rpm, arch, openapi, install-test]
     if: always() && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
+      # One directory per artifact, so a package can be matched to its marker.
       - uses: actions/download-artifact@v4
         with:
-          path: artifacts
-          merge-multiple: true
+          path: downloaded
+
+      # A package is published only if its install test passed. One that failed
+      # is held back with a warning, and the rest still go out.
+      - name: Keep verified packages
+        run: |
+          mkdir -p artifacts
+          for dir in downloaded/*/; do
+            name="$(basename "$dir")"
+            case "$name" in
+              verified-*|packaging-logs-*) ;;
+              deb-*|rpm-*|arch-pkg)
+                if [ -d "downloaded/verified-$name" ]; then
+                  cp "$dir"* artifacts/
+                else
+                  echo "::warning title=Package held back::$name did not pass its install test and is not published"
+                fi ;;
+              *) cp "$dir"* artifacts/ ;;
+            esac
+          done
 
       - name: List artifacts
         run: ls -lR artifacts || true

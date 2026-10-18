@@ -1,6 +1,6 @@
-use crate::dto::request::stats::{CreateStatRequest, UpdateStatRequest};
+use crate::dto::request::stats::{CreateStatRequest, StatQueryParams, UpdateStatRequest};
 use crate::dto::response::StatResponse;
-use crate::dto::{PaginatedResponse, PaginationParams};
+use crate::dto::PaginatedResponse;
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -22,13 +22,17 @@ pub async fn list_all(state: &AppState, scope: &MonitorScope) -> AppResult<Vec<S
 
 pub async fn list_paginated(
     state: &AppState,
-    params: &PaginationParams,
+    params: &StatQueryParams,
     scope: &MonitorScope,
 ) -> AppResult<PaginatedResponse<StatResponse>> {
     let filter = scope.visible_ids(Level::View);
     let (items, total) = repo::stats::find_paginated(state.db(), params, filter.as_deref()).await?;
     let responses: Vec<StatResponse> = items.iter().map(StatResponse::from).collect();
-    Ok(PaginatedResponse::from_params(responses, total, params))
+    Ok(PaginatedResponse::from_params(
+        responses,
+        total,
+        &params.pagination(),
+    ))
 }
 
 pub async fn get_by_id(state: &AppState, id: u32, scope: &MonitorScope) -> AppResult<StatResponse> {

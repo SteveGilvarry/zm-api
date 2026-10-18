@@ -34,10 +34,12 @@ Only the database is genuinely detachable. Live streaming reads zmc's unix
 sockets and alarm control writes ZoneMinder's shared memory, neither of which
 crosses a machine boundary.
 
-Two consequences worth stating plainly. The stream sockets are mode 0660 owned
-by ZoneMinder's `ZM_STREAM_SOCKET_GROUP`, so **the zm-api service user must be a
-member of that group** or every live stream fails with a permission error. And
-zm-api runs schema migrations against the shared ZoneMinder database at
+Two consequences worth stating plainly. Everything in that table belongs to the
+account ZoneMinder's daemons run as, so **zm-api runs as that same account**:
+`ZM_WEB_USER` from `zm.conf`, which is `www-data` on Debian and Ubuntu, `apache`
+on the Red Hat family, `wwwrun` on openSUSE and `http` on Arch. The package
+works this out at install time; see [Install](../getting-started/install.md#the-service-account).
+And zm-api runs schema migrations against the shared ZoneMinder database at
 startup — see [Upgrading an existing ZoneMinder](../getting-started/upgrading.md)
 before first run on an existing install.
 

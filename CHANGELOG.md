@@ -126,7 +126,103 @@ recognisable path forward.
   optional fields pass with a notice. This is the guard that would have caught
   the `/me` change above in the pull request that made it.
 
+- `GET /api/v3/stats` takes `event_id`, `frame_id` and `zone_id` (#141), so a
+  client can fetch one frame's or one event's rows without paging the table.
+  `frame_id` alone is a 400, because frame numbers restart in every event.
+
+- The log page's remaining filters (#142). `GET /api/v3/logs` takes `level` as
+  a comma list of exact levels (`-1,-5` for warnings and audit rows), `ids`,
+  and `sort_by` on any column. `unfiltered_total=true` adds `total_unfiltered`,
+  the whole table's row count; it is opt-in because it costs a second
+  `COUNT(*)` on every poll. `GET /api/v3/logs/components` lists the components
+  in the table. `DELETE /api/v3/logs` takes the same `ids`, and an empty or
+  unparseable `ids` is a 400 rather than "clear everything".
+
+- `GET /api/v3/events` (#136): `tag_id=none` keeps untagged events and
+  `tag_id=any` keeps events with at least one tag (legacy's `0` and `-1` are
+  accepted for the same), `tag_op=not_in` inverts the tag filter, `sort` takes
+  `archived`, `emailed` and `disk_space`, and `totals=true` adds
+  `total_length_seconds` and `total_disk_space` summed over the whole result
+  instead of the page. Sorting on tags and a free-text `q` are not included.
+
+- **Install tests that run the package against ZoneMinder master**
+  (`packaging/e2e/`, the `Packaging` workflow). The built package is installed
+  on a container running systemd, beside a ZoneMinder from upstream's master
+  repository that is recording from a synthetic RTSP camera, and walked through
+  passive mode, takeover, revert, upgrade and removal, checking at each step
+  that capture and recording carried on. Ubuntu 24.04 (amd64 and arm64) and
+  Debian 13 run that flow; Fedora, openSUSE and Arch, which have no upstream
+  master package, run the install, account, upgrade and removal checks. It
+  runs on packaging pull requests, on `master`, and nightly, and the `Release`
+  workflow now holds back any package that fails it.
+
+- `zm-api-takeover --check` runs the pre-flight checks and changes nothing.
+  `--force` takes over despite a failed check.
+
 ### Fixed
+
+- **`GET /monitors` and `GET /monitors/{id}` work on ZoneMinder 1.39.37 and
+  later.** Upstream dropped `Monitors.RTSPDescribe` (the install tests against
+  master caught it as a 500: `Unknown column 'Monitors.RTSPDescribe'`). The
+  column is gone from the entity; `rtsp_describe` stays in the request and
+  response bodies, ignored on the way in and always `null` on the way out, so
+  existing clients keep working. Reported by zm-holodeck's review as well.
+- **The Arch package depends on `ffmpeg`.** The binary links the FFmpeg
+  libraries, and pacman has no automatic shared-library dependencies, so on a
+  host without FFmpeg the service failed to start with "libavutil.so.61:
+  cannot open shared object file".
+- **The RPM builds on EL9.** The debugsource subpackage was always empty for a
+  Rust binary, which rpm on Rocky 9 treats as a build error; it is no longer
+  generated.
+- **The package now runs zm-api as ZoneMinder's own account, and the previous
+  fixed `zoneminder` account is gone from the unit.** ZoneMinder's daemons run
+  as the web server's user (`www-data`, `apache`, `wwwrun`, `http`, by
+  distribution), and upstream's packages close its files to everyone else. As
+  `zoneminder`, zm-api could not read `/etc/zm/zm.conf` on Debian or Ubuntu
+  (mode 0640, owned by `www-data`), so a fresh install beside upstream's
+  package crash-looped on "Access denied for user 'username'", and after
+  takeover `zmc` could not have written the events tree. The post-install
+  script now reads `ZM_WEB_USER` and `ZM_WEB_GROUP` from `zm.conf` and writes
+  them to `/etc/systemd/system/zm-api.service.d/10-account.conf`; a host with
+  no ZoneMinder still gets a dedicated `zoneminder` account. No existing
+  account is modified. **On upgrade the service account changes.** State and
+  logs follow automatically; recordings made in takeover mode under the old
+  account need the `chown --from=` the upgrade prints.
+- **zm-api exits on SIGTERM.** A clean shutdown returned `Ok` into a join that
+  only ever returned on an error, so the process sat idle until systemd killed
+  it at `TimeoutStopSec`. Every stop and restart took 50 seconds and ended in
+  SIGKILL, which in takeover mode was a 50 second capture gap on each upgrade.
+- **The unit starts on distributions without an `ssl-cert` group.** The shipped
+  `SupplementaryGroups=video ssl-cert` named a Debian-only group, and systemd
+  refuses to start a unit that lists a missing one, so the RPM and Arch
+  packages could not start. Extra groups are now written per host, and only
+  those that exist. `WorkingDirectory` no longer fails the start on a host
+  without ZoneMinder's share directory.
+- **A ZoneMinder schema newer than the mirrored chain no longer blocks zm-api's
+  own tables.** First start against upstream master (1.39.35 against the
+  mirrored 1.39.33) failed its migration step with "vendor the newer upstream
+  updates first" and left `monitor_pipeline` and friends uncreated. Such a
+  schema embodies every mirrored migration, so they are stamped and zm-api's
+  own migrations run, with a warning that newer upstream columns are not yet
+  available through the API.
+- **Socket and binary paths follow `zm.conf`.** `daemon.socket_path`,
+  `streaming.zoneminder.socks_path` and `daemon.bin_path` left at their
+  defaults now take `ZM_PATH_SOCKS` and `ZM_PATH_BIN`. The Red Hat family
+  keeps ZoneMinder's sockets in `/var/lib/zoneminder/sock`, not the `/run/zm`
+  the package assumed. The shipped `zm-api.env` no longer sets either.
+- **`zm-api-takeover` checks before and after the switch.** It refuses to take
+  over when zm-api is not up in passive mode, runs as a different account from
+  ZoneMinder, or cannot write the events and socket directories. After the
+  switch, if zm-api does not stay up, or `zmc` was capturing and has not been
+  started again, it undoes the switch, restarts `zoneminder.service` and exits
+  3. Previously a failed takeover left the host recording nothing.
+- **Removing the package in takeover mode hands control back to ZoneMinder**
+  before stopping the service. It used to leave `zoneminder.service` disabled
+  with no supervisor running.
+- **A package upgrade restarts the service.** The Debian postinst only ran
+  `systemctl start`, so the old binary kept running until the next reboot.
+- Purging the `.deb`, or removing the `.rpm` or Arch package, removes the
+  account drop-in.
 
 - **Over-long request fields are a 400 naming the field, not a 500** (#55).
   About forty request structs had no length rule for columns that are
@@ -350,6 +446,17 @@ recognisable path forward.
   baseline instead of removing it. It now converges on the database's own
   default, and any other table that drifts is logged by name.
 
+### Security
+
+- Dependency bumps for RUSTSEC-2026-0338 to 0342 (`quinn-proto` 0.11.19),
+  RUSTSEC-2026-0346 to 0349 (`rustls` 0.23.46), and `async-trait` 0.1.92,
+  whose generated code tripped clippy's `double_must_use` on current stable.
+  The `zip` 3 advisories (RUSTSEC-2026-0367 to 0369) are ignored with a
+  justification in `deny.toml`: zip is a build-time dependency of
+  `utoipa-swagger-ui` 9 that unpacks the bundled Swagger UI, not runtime code,
+  and no release of that crate depends on zip 9 yet. Clearing them needs the
+  utoipa 6 migration (#164).
+
 ### Removed
 
 - `frame_skip` from the monitor create/update requests and response:
@@ -405,6 +512,15 @@ recognisable path forward.
 
 ### Changed
 
+- **`tag_id` that doesn't parse is a 400** (#136). `GET /api/v3/events` used
+  to drop non-numeric values, so `tag_id=abc` quietly became "no tag filter"
+  and returned every event.
+- **BREAKING: `GET /api/v3/monitors` leaves out soft-deleted monitors** (#137).
+  The list had no `Deleted` filter, so a monitor ZoneMinder's web UI had
+  deleted (`Deleted = 1`, the row kept until its events are gone) came back
+  looking live. Pass `include_deleted=true` to list them; each row's `deleted`
+  says which is which. `GET /api/v3/monitors/{id}` still returns a soft-deleted
+  monitor, so its page loads while its events exist.
 - **BREAKING: `frame_skip` is gone from monitor requests and responses.**
   ZoneMinder 1.39.24 drops `Monitors.FrameSkip`, and zm-api now mirrors that
   update, so `MonitorResponse` no longer carries the field and create/update

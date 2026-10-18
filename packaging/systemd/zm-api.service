@@ -10,39 +10,44 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# Dedicated zoneminder user (create with install script)
+# The account is set per host by a drop-in,
+# /etc/systemd/system/zm-api.service.d/10-account.conf, which the package's
+# post-install step (/usr/share/zm-api/setup-instance.sh) writes: zm-api runs
+# as the account ZoneMinder runs as, ZM_WEB_USER in /etc/zm/zm.conf. That is
+# www-data on Debian and Ubuntu, apache on the Red Hat family, wwwrun on
+# openSUSE and http on Arch, so no single name here could be right.
+#
+# The values below are the fallback for a host with no ZoneMinder, where the
+# same script creates a dedicated `zoneminder` account. To run as something
+# else, add a drop-in that sorts after 10-account.conf (systemctl edit zm-api).
+#
+# Extra groups (video, ssl-cert, ZoneMinder's ZM_STREAM_SOCKET_GROUP) are in
+# the drop-in as well, and only the ones this host has: naming a group that
+# does not exist makes systemd refuse to start the unit (status=216/GROUP).
+# Live streaming needs the stream-socket group. Without it streams fail and
+# the log reports "permission denied opening stream socket ...".
 User=zoneminder
 Group=zoneminder
-# video: camera access, ssl-cert: TLS certificates
-#
-# Live streaming also needs read access to zmc's per-monitor stream sockets
-# ({ZM_PATH_SOCKS}/stream_*.sock), which are mode 0660 owned by ZoneMinder's
-# ZM_STREAM_SOCKET_GROUP. If that group is not "zoneminder", add it here via a
-# drop-in — NOT by editing this line, and note that naming a group that does
-# not exist makes systemd refuse to start the unit (status=216/GROUP):
-#
-#   sudo systemctl edit zm-api
-#   [Service]
-#   SupplementaryGroups=<value of ZM_STREAM_SOCKET_GROUP>
-#
-# Symptom when it is missing: streams fail and the log reports "permission
-# denied opening stream socket ...".
-SupplementaryGroups=video ssl-cert
 
 # Environment configuration
 EnvironmentFile=-/etc/zm-api/zm-api.env
 
-# Paths
-WorkingDirectory=/usr/share/zoneminder
+# Paths. ZoneMinder's share directory is absent on a host without ZoneMinder,
+# hence the "-": a missing working directory is otherwise a start failure.
+WorkingDirectory=-/usr/share/zoneminder
+# systemd creates both and re-owns them to the unit's account on every start,
+# so they follow an account change without a manual chown.
 StateDirectory=zm-api
+LogsDirectory=zm-api
 
-# /run/zm is ZoneMinder's socket directory (zmdc.sock, zm.pid, the per-monitor
-# stream sockets) and its package provisions it. It must NOT be declared as
-# RuntimeDirectory here: systemd would chown it to this unit's user on start
-# and delete it on every stop/restart, which in passive mode unlinks zmdc.pl's
-# listening socket and zmc's stream sockets from under a running ZoneMinder
-# (#82). Create it only when it is missing, and never touch an existing one.
-ExecStartPre=+/bin/sh -c 'test -d /run/zm || install -d -m 0775 -o zoneminder -g zoneminder /run/zm'
+# ZoneMinder's socket directory (zmdc.sock, zm.pid, the per-monitor stream
+# sockets) belongs to its package. It must NOT be declared as RuntimeDirectory
+# here: systemd would chown it to this unit's user on start and delete it on
+# every stop/restart, which in passive mode unlinks zmdc.pl's listening socket
+# and zmc's stream sockets from under a running ZoneMinder (#82). Create it
+# only when it is missing, and never touch an existing one. The drop-in
+# replaces this line with the host's account and its ZM_PATH_SOCKS.
+ExecStartPre=+/bin/sh -c 'test -d /run/zm || install -d -m 0755 -o zoneminder -g zoneminder /run/zm'
 
 # Execution
 ExecStart=/usr/bin/zm-api

@@ -3,8 +3,84 @@
 Collapse the per-monitor GPU-inference footprint from **O(N) CUDA contexts + ORT
 sessions** (one per camera) into **O(GPU)** by sharing inference across monitors.
 
-> Status: **Phase 0 measured — EP tuning INEFFECTIVE; a worker memory LEAK was
-> found instead.** Phases 1–2 designed, not started.
+> Status (2026-09-18): **Phase 1 built in zm-next** (`zm-infer` daemon, remote
+> branch in `decode_detect`'s CUDA backend, protocol tests); zm-api's side was
+> already in place, and it ran end to end under zm-api on 2026-09-18. Measured:
+> host memory −43% at 3 cameras; **VRAM unchanged** (see "Phase 1 as built"). Phase 0 found
+> EP tuning ineffective and a worker memory leak instead (fixed 2026-06-27).
+
+## Review, 2026-09-18
+
+The per-GPU daemon is still the right design. What changed since June:
+
+- **The projections held up.** Measured on the RTX 5070 Ti box, 3 replayed cameras
+  (zm-next `docs/Performance.md`): a worker with its own session costs ~1.1 GB host
+  PSS and ~0.73 GB VRAM; a worker doing NVDEC decode with *no* session costs ~0.2 GB
+  host and ~0.33 GB VRAM. So after = one session + ~0.2 GB host / ~0.33 GB VRAM per
+  camera (the table below guessed 0.4 / 0.3).
+- **The motion gate cuts the load far below what this plan sized for.** The plan
+  assumed every frame goes to the daemon (20 cameras × 10 fps × 4.9 MB). Measured
+  gating was 97%, 89% and 0% of frames on three cameras; the June engine benchmark
+  ran ~1,250 inferences/s. Throughput hardening (per-connection CUDA streams,
+  double-buffered batch, batch linger) is therefore **out of Phase 1**; the safety
+  items (deadlines, exit on an engine error, degrade-never-allocate) stay.
+- **`roi_motion` stays as configured on the remote path.** An earlier version of
+  this plan said to force it off. `pipeline.rs::inject_shared_inference` keeps it,
+  correctly: the gate runs on the worker and only moving regions are sent.
+- **The control-protocol work applies to this socket too**: kernel peer credentials
+  decide who may register or submit, the daemon sends a hello first, and a worker
+  reports the daemon being unreachable as `worker_degraded` (EVENT `0x0403`).
+- The shared-memory ring mentioned below (`zm_shmring`) was removed from zm-next on
+  2026-09-15; it never crossed processes.
+- Still open: a CPU session in the worker as the daemon-down fallback. At 97%
+  gating a camera needs well under one inference per second, so it would cost
+  almost nothing and no VRAM; a camera whose gate stays open would cost ~25% of a
+  core. Not built; today a down daemon means dropped detections.
+
+## Phase 1 as built (zm-next)
+
+- `zm-infer --gpu <n> --socket <path> [--allow-uid <uid>]... [--max-batch 8]
+  [--max-wait-us 0]`. Exit codes as zm-core: 0 stopped, 64 usage, 69 socket
+  unusable, 70 internal. **Any inference exception exits 70** after answering the
+  request (CUDA errors are sticky); zm-api restarts it and workers drop detections
+  meanwhile.
+- Wire (`plugins/detect_onnx/infer_remote.hpp`): the stream-socket 24-byte header
+  with socket-local types `0x20` InferHello, `0x21` Register `{model_path, net}`,
+  `0x22` RegisterAck `{ok, model_id | error}`, `0x23` Submit (letterbox, confidence,
+  class allow-list, fp32 CHW tensor), `0x24` Result (boxes, or an error string),
+  `0x25`/`0x26` Ping/Pong `{clients, models, requests, errors}` for an app-level
+  health probe. One session per `(model_path, net)`.
+- Auth: only the daemon's own uid, plus `--allow-uid`, may register or submit;
+  others get `control_peer:false` and are closed before the model loader is reached.
+- Worker: `decode_detect` with `hw: cuda` reads `infer_endpoint` (and `gpu_id`,
+  informational). It then loads **no** ONNX Runtime session: preprocess on the GPU,
+  one device-to-host copy into pinned memory, Submit. Request deadline 1 s
+  (30 s for Register, which can include the model load). On failure the detection
+  is dropped, `worker_degraded {component:"zm-infer", degraded:true}` is published
+  once, the connection retries with 1 s → 30 s backoff, and recovery publishes
+  `degraded:false`. There is no local-session fallback, by design.
+- **Measured** (RTX 5070 Ti, 3 replayed cameras, back to back with local sessions;
+  zm-next `docs/Performance.md`):
+
+  | | Local sessions | Shared (`zm-infer`) |
+  |---|---|---|
+  | Host PSS | 3,197 MB | 1,809 MB (workers 708 + daemon 1,101) |
+  | Per camera | ~1.07 GB | ~0.23 GB, plus ~1.1 GB once |
+  | VRAM over baseline | +2.15 GB | +2.10 GB (workers 0.49–0.63 GB each + daemon 0.5 GB) |
+  | CPU (of one core) | 5.4% | 6.8% |
+
+  The host-memory win is as projected. **The VRAM projection below was wrong**: a
+  session-less worker keeps ~0.56 GB (CUDA context, NVDEC surfaces, kernels), not
+  0.3 GB, so VRAM saves only ~0.17 GB per camera past the third. Cameras per GPU is
+  now bounded by that per-worker floor, not by ORT sessions. Detections are
+  identical: from the same point in the clip loop, all three cameras' counters
+  (gated / inferred / detections) matched the local run exactly. Killing the daemon
+  under a live worker: worker kept running, one `worker_degraded`, self-recovered.
+- Not done: `detect_onnx` ignores `infer_endpoint` with a warning (it isn't in the
+  default pipeline); no per-connection CUDA streams; no blue/green model swap.
+- zm-api: nothing new needed to start it. Two follow-ups: `zm-infer` must be
+  found next to `zm-core` when `[zmnext.worker].binary` is an absolute path, and
+  the Ping/Pong probe can replace the CPU-time `appears_hung` exemption.
 
 ## ⚠️ Measured result (2026-06-27) — pivot
 
@@ -194,10 +270,11 @@ The real O(N)→O(GPU) collapse. Ship **with** the hardening below in-scope:
   workers ordering, `CUDA_VISIBLE_DEVICES=<gpu>` per daemon, exempt from the
   `appears_hung` CPU-time heuristic (use app-level PING/STATS instead).
 - pipeline.rs: inject `infer_endpoint`/`gpu_id` into detect cfg at compose time,
-  never persisted; force `roi_motion=false` on the remote path.
-- **Required hardening** (not deferred): per-connection CUDA streams +
-  stream-scoped sync + double-buffered `d_batch_` (kills null-stream
-  serialization); per-request deadlines; try/catch around `Run` (sticky CUDA
+  never persisted; `roi_motion` stays as configured (see Review).
+- **Required hardening**: ~~per-connection CUDA streams + stream-scoped sync +
+  double-buffered `d_batch_`~~ (deferred 2026-09-18: gated load is a small
+  fraction of one stream's capacity; revisit if `zm-infer` ever queues);
+  per-request deadlines; try/catch around `Run` (sticky CUDA
   error → exit for clean restart); degrade-don't-allocate fallback behind a global
   GPU-session admission cap + re-attach loop; dynamic-batch ONNX preflight (fail
   closed to per-instance if fixed-batch).

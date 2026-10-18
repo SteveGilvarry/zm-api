@@ -43,12 +43,14 @@ pub async fn list_all(state: &AppState, scope: &MonitorScope) -> AppResult<Vec<M
 pub async fn list_paginated(
     state: &AppState,
     params: &PaginationParams,
+    include_deleted: bool,
     scope: &MonitorScope,
 ) -> AppResult<PaginatedResponse<MonitorResponse>> {
     info!("Listing monitors with pagination.");
     let filter = scope.visible_ids(Level::View);
     let (items, total) =
-        repo::monitors::find_paginated(state.db(), params, filter.as_deref()).await?;
+        repo::monitors::find_paginated(state.db(), params, filter.as_deref(), include_deleted)
+            .await?;
     let responses: Vec<MonitorResponse> = items.into_iter().map(MonitorResponse::from).collect();
     Ok(PaginatedResponse::from_params(responses, total, params))
 }
@@ -153,7 +155,6 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         encoder_parameters: Set(req.encoder_parameters),
         record_audio: Set(req.record_audio),
         recording_source: Set(recording_source),
-        rtsp_describe: Set(req.rtsp_describe),
         brightness: Set(Some(req.brightness)),
         contrast: Set(Some(req.contrast)),
         hue: Set(Some(req.hue)),
@@ -488,9 +489,6 @@ pub async fn update(
     }
     if let Some(recording_source) = req.recording_source {
         monitor.recording_source = Set(recording_source);
-    }
-    if req.rtsp_describe.is_some() {
-        monitor.rtsp_describe = Set(req.rtsp_describe);
     }
     if let Some(brightness) = req.brightness {
         monitor.brightness = Set(Some(brightness));

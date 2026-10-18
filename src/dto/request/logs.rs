@@ -31,7 +31,53 @@ impl LogLevel {
     }
 }
 
-/// Sort direction for the log time (`TimeKey`).
+/// Column the log list is ordered by.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, ToSchema, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum LogSortField {
+    /// `TimeKey` (default).
+    #[default]
+    Time,
+    Id,
+    Component,
+    ServerId,
+    Pid,
+    Level,
+    Code,
+    Message,
+    File,
+    Line,
+}
+
+/// Parse a comma-separated query value (`"1,2,3"`). An empty list or any
+/// element that doesn't parse is an error, never "no filter": on `DELETE /logs`
+/// a filter that silently vanished would clear the whole table.
+pub fn parse_comma_list<T: std::str::FromStr>(raw: &str) -> Result<Vec<T>, garde::Error> {
+    let items: Result<Vec<T>, _> = raw.split(',').map(|s| s.trim().parse::<T>()).collect();
+    match items {
+        Ok(v) if !v.is_empty() => Ok(v),
+        _ => Err(garde::Error::new(
+            "must be a comma-separated list of integers",
+        )),
+    }
+}
+
+fn comma_list_of<T: std::str::FromStr>(value: &Option<String>, _: &()) -> garde::Result {
+    match value {
+        Some(raw) => parse_comma_list::<T>(raw).map(|_| ()),
+        None => Ok(()),
+    }
+}
+
+fn level_list(value: &Option<String>, ctx: &()) -> garde::Result {
+    comma_list_of::<i8>(value, ctx)
+}
+
+fn id_list(value: &Option<String>, ctx: &()) -> garde::Result {
+    comma_list_of::<u32>(value, ctx)
+}
+
+/// Sort direction.
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, ToSchema, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum LogSort {
@@ -66,12 +112,19 @@ pub struct LogQueryParams {
     #[garde(skip)]
     pub min_level: Option<LogLevel>,
 
-    /// Exact `Logs.Level` value match (ZoneMinder's inverted numeric scale:
-    /// 0=Info, -1=Warning, -2=Error, -3=Fatal, positive=debug). For "this
-    /// severe or worse", use `min_level` instead.
-    #[schema(example = -2)]
-    #[garde(range(min = -128, max = 127))]
-    pub level: Option<i8>,
+    /// Exact `Logs.Level` match, one value or a comma list (`-1,-5`), on
+    /// ZoneMinder's inverted numeric scale: 0=Info, -1=Warning, -2=Error,
+    /// -3=Fatal, -4=Panic, -5=Audit, positive=debug. For "this severe or
+    /// worse", use `min_level` instead.
+    #[schema(example = "-2")]
+    #[garde(custom(level_list))]
+    pub level: Option<String>,
+
+    /// Only these log ids, as a comma list. On `DELETE` this clears the rows
+    /// an operator selected.
+    #[schema(example = "101,102")]
+    #[garde(custom(id_list))]
+    pub ids: Option<String>,
 
     /// Case-insensitive substring match on the log message.
     #[schema(example = "connection")]
@@ -88,9 +141,20 @@ pub struct LogQueryParams {
     #[garde(skip)]
     pub end: Option<f64>,
 
-    /// Sort by time: `asc` (oldest first) or `desc` (newest first, default).
+    /// Sort direction: `asc` or `desc` (default). With the default `sort_by`
+    /// that is oldest or newest first.
     #[garde(skip)]
     pub sort: Option<LogSort>,
+
+    /// Column to sort on (default `time`).
+    #[garde(skip)]
+    pub sort_by: Option<LogSortField>,
+
+    /// Also return `total_unfiltered`, the row count of the whole table. Off
+    /// by default: it is a second `COUNT(*)` over `Logs` on every request.
+    #[serde(default)]
+    #[garde(skip)]
+    pub unfiltered_total: bool,
 
     /// Filter by server ID
     #[schema(example = 1)]

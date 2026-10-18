@@ -1,5 +1,4 @@
-use crate::dto::request::stats::{CreateStatRequest, UpdateStatRequest};
-use crate::dto::PaginationParams;
+use crate::dto::request::stats::{CreateStatRequest, StatQueryParams, UpdateStatRequest};
 use crate::entity::stats::{ActiveModel, Entity as Stats, Model as StatModel};
 use crate::error::AppResult;
 use sea_orm::*;
@@ -22,14 +21,26 @@ pub async fn find_all(
 
 pub async fn find_paginated(
     db: &DatabaseConnection,
-    params: &PaginationParams,
+    params: &StatQueryParams,
     monitor_filter: Option<&[u32]>,
 ) -> AppResult<(Vec<StatModel>, u64)> {
-    let paginator = scoped(Stats::find(), monitor_filter).paginate(db, params.page_size());
+    use crate::entity::stats::Column;
+    let mut query = scoped(Stats::find(), monitor_filter);
+    if let Some(event_id) = params.event_id {
+        query = query.filter(Column::EventId.eq(event_id));
+    }
+    if let Some(frame_id) = params.frame_id {
+        query = query.filter(Column::FrameId.eq(frame_id));
+    }
+    if let Some(zone_id) = params.zone_id {
+        query = query.filter(Column::ZoneId.eq(zone_id));
+    }
+    let page = params.pagination();
+    let paginator = query
+        .order_by_asc(Column::Id)
+        .paginate(db, page.page_size());
     let total = paginator.num_items().await?;
-    let items = paginator
-        .fetch_page(params.page().saturating_sub(1))
-        .await?;
+    let items = paginator.fetch_page(page.page().saturating_sub(1)).await?;
     Ok((items, total))
 }
 

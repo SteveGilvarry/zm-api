@@ -24,20 +24,28 @@ see [Serving a dashboard](../guide/dashboard.md).
 
 ## `permission denied opening stream socket`
 
-The service user is not in ZoneMinder's `ZM_STREAM_SOCKET_GROUP`. The
-per-monitor sockets are mode 0660.
+zm-api is not running as ZoneMinder's account, and is not in ZoneMinder's
+`ZM_STREAM_SOCKET_GROUP` either. The per-monitor sockets are mode 0660.
+
+Compare the two:
 
 ```bash
-sudo systemctl edit zm-api
+systemctl show -p User -p Group -p SupplementaryGroups zm-api
+grep -rh 'ZM_WEB_USER\|ZM_STREAM_SOCKET_GROUP' /etc/zm
 ```
 
-```ini
-[Service]
-SupplementaryGroups=<value of ZM_STREAM_SOCKET_GROUP>
+They differ when ZoneMinder was installed, or moved to another web server,
+after zm-api. Re-resolve the account and restart:
+
+```bash
+sudo /usr/share/zm-api/setup-instance.sh
+sudo systemctl restart zm-api
 ```
 
-Do **not** add it to the shipped unit file. A group that does not exist makes
-systemd refuse to start the service entirely (`status=216/GROUP`).
+If you run zm-api under an account of your own choosing, add the group in your
+own drop-in (`systemctl edit zm-api`, `SupplementaryGroups=<group>`). Name only
+groups that exist: one that does not makes systemd refuse to start the service
+(`status=216/GROUP`).
 
 ## The service starts but features are missing
 
@@ -63,6 +71,8 @@ Common causes:
 | Symptom | Cause |
 | --- | --- |
 | `status=216/GROUP` | A `SupplementaryGroups=` entry names a group that doesn't exist |
+| `status=217/USER` | The account in the unit doesn't exist. Run `/usr/share/zm-api/setup-instance.sh` |
+| `Failed to read "/etc/zm/zm.conf": Permission denied` | zm-api is not running as ZoneMinder's account. Run `/usr/share/zm-api/setup-instance.sh` and restart |
 | Cannot connect to database | `APP_DB__*` set to something wrong, overriding the working `zm.conf` fallback |
 | Missing JWT keys | `/var/lib/zm-api/keys` not provisioned — run `/usr/share/zm-api/setup-instance.sh` |
 | Port in use | Something else on 8080; set `APP_SERVER__PORT` |

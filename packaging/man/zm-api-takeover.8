@@ -1,9 +1,12 @@
-.TH ZM-API-TAKEOVER 8 "2026-08-22" "zm-api" "System Administration"
+.TH ZM-API-TAKEOVER 8 "2026-10-02" "zm-api" "System Administration"
 .SH NAME
 zm-api\-takeover \- switch zm-api between passive and active daemon control
 .SH SYNOPSIS
 .B zm-api-takeover
 .RI [ \-\-yes ]
+.RI [ \-\-force ]
+.br
+.B zm-api-takeover \-\-check
 .br
 .B zm-api-takeover \-\-revert
 .RI [ \-\-yes ]
@@ -46,17 +49,48 @@ that record erratically. This script therefore stops and disables
 .B zoneminder.service
 before it flips zm-api's mode, and reverses that order on the way back.
 .PP
-Concretely, taking over: disable and stop
+Concretely, taking over: run the pre-flight checks, disable and stop
 .BR zoneminder.service ,
 set
 .B APP_DAEMON__ENABLED=true
 in the environment file, restart
-.BR zm-api.service .
+.BR zm-api.service ,
+then confirm the result.
 Reverting: set
 .B APP_DAEMON__ENABLED=false
 and restart zm-api first \(em releasing the daemons \(em then enable and start
 .BR zoneminder.service .
+.SS Checks before and after
+Before anything is stopped, the script confirms that zm-api is running in
+passive mode, that it runs as the account ZoneMinder's daemons run as
+.RB ( ZM_WEB_USER
+in
+.IR /etc/zm/zm.conf ),
+that this account can read
+.I zm.conf
+and write the events, socket, log and shared-memory directories, and that it
+can execute
+.BR zmc .
+A failed check stops the takeover with ZoneMinder untouched.
+.PP
+After the switch, the script waits for zm-api to stay up and, when
+.B zmc
+was capturing beforehand, for zm-api to have started it again. If that does
+not happen within the timeout the switch is undone:
+.B APP_DAEMON__ENABLED
+goes back to false and
+.B zoneminder.service
+is enabled and started. A takeover that cannot record does not leave the host
+recording nothing.
 .SH OPTIONS
+.TP
+.B \-\-check
+Run the pre-flight checks and exit. Changes nothing. Exit status 0 when the
+host is ready, 1 when it is not.
+.TP
+.B \-\-force
+Take over even when a pre-flight check fails. The check after the switch, and
+the rollback it triggers, still apply.
 .TP
 .BR \-\-revert ", " \-\-passive
 Hand daemon control back to ZoneMinder.
@@ -74,10 +108,13 @@ zm-api must already be working in passive mode. Takeover is not a way to fix a
 broken install: if the API cannot reach the database, taking over ZoneMinder's
 daemons as well means nothing records.
 .IP \(bu 2
-The service user needs write access to the ZoneMinder events directory, and
-membership of ZoneMinder's
-.B ZM_STREAM_SOCKET_GROUP
-for live streaming.
+zm-api must run as the account ZoneMinder's daemons run as, so that recordings
+keep one owner whichever supervisor started
+.BR zmc .
+The package arranges this at install time. If ZoneMinder was installed
+afterwards, run
+.I /usr/share/zm-api/setup-instance.sh
+and restart zm-api.
 .IP \(bu 2
 Nothing else may be starting the ZoneMinder daemons \(em no cron entry, no
 .BR zmpkg.pl
@@ -123,16 +160,25 @@ then
 .B ZM_API_ENV_FILE
 Path to the environment file to edit. Default
 .IR /etc/zm-api/zm-api.env .
+.TP
+.B ZM_API_TAKEOVER_TIMEOUT
+Seconds to wait for zm-api to stay up, and for capture to resume, before a
+takeover is rolled back. Default 60.
 .SH EXIT STATUS
 .TP
 .B 0
 Success, including a user-declined confirmation.
 .TP
 .B 1
-Not run as root, or the environment file does not exist.
+Not run as root, the environment file does not exist, or a pre-flight check
+failed. Nothing was changed.
 .TP
 .B 2
 Unrecognised argument.
+.TP
+.B 3
+The takeover was attempted, failed its check, and was rolled back.
+ZoneMinder is supervising its daemons again.
 .SH FILES
 .TP
 .I /etc/zm-api/zm-api.env

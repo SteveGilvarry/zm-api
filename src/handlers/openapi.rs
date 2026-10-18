@@ -184,6 +184,7 @@ use crate::util::claim::UserClaims;
         crate::handlers::logs::get_log,
         crate::handlers::logs::list_logs,
         crate::handlers::logs::clear_logs,
+        crate::handlers::logs::list_log_components,
 
         // manufacturers
         crate::handlers::manufacturers::create_manufacturer,
@@ -457,6 +458,7 @@ use crate::util::claim::UserClaims;
             crate::dto::request::events::EventQueryParams,
             crate::dto::request::events::EventSortField,
             crate::dto::request::events::SortDirection,
+            crate::dto::request::events::TagOp,
             crate::dto::request::events::EventUpdateRequest,
             crate::dto::response::events::EventCountResponse,
             crate::dto::response::events::EventCountsResponse,

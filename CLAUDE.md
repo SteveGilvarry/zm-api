@@ -11,7 +11,7 @@ Keep it practical: commands that work, where code lives, and project-specific co
 - ORM: SeaORM v1.1 (current app config builds a `mysql://...` URL)
 - API docs: Utoipa v5.4.0 + Swagger UI (`/api-docs/openapi.json`, `/swagger-ui`)
 - Live streaming is WebRTC + HLS (the earlier MSE scaffolding was removed in commit `ab731fc`). Treat streaming as product code: don’t refactor broadly unless the task requires it.
-- Live media comes from zmc’s per-monitor **stream socket** (`{ZM_PATH_SOCKS}/stream_{id}.sock`, one connection carrying video + audio with a HELLO codec handshake — see ZoneMinder’s `docs/stream_socket.rst`). The old media FIFOs are gone; `src/streaming/source/` holds the protocol parser (`protocol.rs`), reader (`stream_socket.rs`), shared media helpers (`media.rs`) and router. The zm-api service user must be in ZoneMinder’s `ZM_STREAM_SOCKET_GROUP` (socket mode 0660).
+- Live media comes from zmc’s per-monitor **stream socket** (`{ZM_PATH_SOCKS}/stream_{id}.sock`, one connection carrying video + audio with a HELLO codec handshake — see ZoneMinder’s `docs/stream_socket.rst`). The old media FIFOs are gone; `src/streaming/source/` holds the protocol parser (`protocol.rs`), reader (`stream_socket.rs`), shared media helpers (`media.rs`) and router. The sockets are mode 0660, owned by ZoneMinder’s account; zm-api runs as that same account (`ZM_WEB_USER` from zm.conf, resolved by `packaging/setup-instance.sh` into a systemd drop-in), so no group setup is needed.
 
 ## Guardrails (Important)
 
@@ -40,6 +40,13 @@ cargo test --all-features
 
 ```bash
 APP_PROFILE=test-db cargo test --test '*' -- --include-ignored
+```
+
+5. If you touched `packaging/`, the unit file, startup, shutdown or `zm.conf` handling, run the install test (requires Docker; see `packaging/e2e/README.md`). It installs the built package beside ZoneMinder master on a systemd container and walks passive → takeover → revert → upgrade → remove:
+
+```bash
+CARGO_PROFILE_RELEASE_OPT_LEVEL=0 packaging/e2e/build.sh ubuntu-24.04   # opt 0: the optimised build needs >8 GB
+packaging/e2e/run.sh ubuntu-24.04
 ```
 
 ## Repo Map (Where Things Live)

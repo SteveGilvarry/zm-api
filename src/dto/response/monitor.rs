@@ -83,6 +83,7 @@ pub struct MonitorResponse {
     pub encoder_parameters: Option<String>,
     pub record_audio: i8,
     pub recording_source: String,
+    /// Always `null`: ZoneMinder 1.39.37 removed `RTSPDescribe`.
     pub rtsp_describe: Option<u8>,
     pub brightness: Option<i32>,
     pub contrast: Option<i32>,
@@ -249,7 +250,9 @@ impl From<monitors::Model> for MonitorResponse {
             encoder_parameters: model.encoder_parameters,
             record_audio: model.record_audio,
             recording_source: enum_str(&model.recording_source),
-            rtsp_describe: model.rtsp_describe,
+            // ZoneMinder 1.39.37 dropped Monitors.RTSPDescribe; kept in the
+            // response, always null, so existing clients keep deserialising.
+            rtsp_describe: None,
             brightness: model.brightness,
             contrast: model.contrast,
             hue: model.hue,
