@@ -2428,6 +2428,15 @@
             }
           },
           {
+            "name": "q",
+            "in": "query",
+            "description": "Free-text search over id, monitor, storage, name, cause, start/end time, length, frames, scores, archived, emailed, notes and disk space; any may match",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "tag_id",
             "in": "query",
             "description": "Events with any of these tag ids (comma-separated), `none` for untagged events, `any` for events with at least one tag. Legacy's `0` and `-1` mean `none` and `any`.",
@@ -20250,6 +20259,14 @@
             "format": "int64",
             "example": "20",
             "minimum": 0
+          },
+          "q": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Free-text search, as legacy's events search box: a substring match\nover Id, MonitorId, StorageId, Name, Cause, StartDateTime,\nEndDateTime, Length, Frames, AlarmFrames, TotScore, AvgScore,\nMaxScore, Archived, Emailed, Notes and DiskSpace, any of which may\nmatch (#136).",
+            "example": "Front"
           },
           "sort": {
             "oneOf": [

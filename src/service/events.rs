@@ -54,6 +54,7 @@ pub async fn list(
         cause: params.cause.clone().filter(|s| !s.is_empty()),
         name: params.name.clone().filter(|s| !s.is_empty()),
         notes: params.notes.clone().filter(|s| !s.is_empty()),
+        q: params.q.clone().filter(|s| !s.trim().is_empty()),
         storage_id: params.storage_id,
         tags: params
             .tag_id
@@ -125,6 +126,7 @@ pub async fn list_all(
             cause: None,
             name: None,
             notes: None,
+            q: None,
             tag_id: None,
             tag_op: None,
             totals: false,
@@ -163,6 +165,7 @@ pub async fn list_by_monitor(
             cause: None,
             name: None,
             notes: None,
+            q: None,
             tag_id: None,
             tag_op: None,
             totals: false,
@@ -398,6 +401,7 @@ mod tests {
             messaged: 0,
             executed: 0,
             notes: None,
+            q: None,
             state_id: 1,
             orientation: Orientation::Rotate0,
             disk_space: None,
@@ -467,6 +471,7 @@ mod tests {
             height: 720,
             length: DecimalWrapper(Decimal::new(0, 0)),
             notes: None,
+            q: None,
             orientation: Orientation::Rotate0,
         };
         let out = create(&state_create, req, &MonitorScope::All)
@@ -494,6 +499,7 @@ mod tests {
                 name: Some("new".into()),
                 cause: None,
                 notes: None,
+                q: None,
                 orientation: None,
                 archived: None,
                 locked: None,

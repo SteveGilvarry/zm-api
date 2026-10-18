@@ -245,3 +245,54 @@ async fn totals_cover_the_whole_result_not_the_page() {
     assert!(body.get("total_length_seconds").is_none_or(|v| v.is_null()));
     assert!(body.get("total_disk_space").is_none_or(|v| v.is_null()));
 }
+
+/// `q` searches legacy's column set: a name substring, a cause, or an id as
+/// text all find the event, and a miss finds nothing (#136).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn q_searches_across_columns() {
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let monitor = insert_monitor(&app.db, "EvListQ").await.expect("monitor");
+    let _m = RowGuard::monitor(monitor.id);
+    let event = zm_api::entity::events::ActiveModel {
+        monitor_id: Set(monitor.id),
+        state_id: Set(1),
+        name: Set(unique_name("Driveway")),
+        cause: Set(Some("Linked".to_string())),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("event");
+    let _e = guard_event(event.id);
+    let other = insert_event(&app.db, monitor.id, EventSpec::default()).await;
+    let _o = guard_event(other);
+
+    let found = |q: String| {
+        let app = &app;
+        let token = token.clone();
+        async move {
+            let r = app
+                .get(
+                    &format!(
+                        "/api/v3/events?monitor_id={}&q={}",
+                        monitor.id,
+                        urlencoding::encode(&q)
+                    ),
+                    &token,
+                )
+                .await;
+            assert_eq!(r.status(), StatusCode::OK, "{}", r.text());
+            r.json::<PaginatedEventsResponse>()
+                .items
+                .into_iter()
+                .map(|e| e.id)
+                .collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(found("Driveway".into()).await, vec![event.id]);
+    assert_eq!(found("Linke".into()).await, vec![event.id]);
+    assert!(found(event.id.to_string()).await.contains(&event.id));
+    assert!(found("no-such-text-anywhere".into()).await.is_empty());
+}

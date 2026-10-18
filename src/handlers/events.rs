@@ -40,6 +40,7 @@ use crate::{
         ("cause" = Option<String>, Query, description = "Substring match on cause", example = "Motion"),
         ("name" = Option<String>, Query, description = "Substring match on name", example = "Front"),
         ("notes" = Option<String>, Query, description = "Substring match on notes"),
+        ("q" = Option<String>, Query, description = "Free-text search over id, monitor, storage, name, cause, start/end time, length, frames, scores, archived, emailed, notes and disk space; any may match"),
         ("tag_id" = Option<String>, Query, description = "Events with any of these tag ids (comma-separated), `none` for untagged events, `any` for events with at least one tag. Legacy's `0` and `-1` mean `none` and `any`.", example = "1,4"),
         ("tag_op" = Option<String>, Query, description = "`in` (default) keeps what tag_id matches, `not_in` keeps the rest", example = "in"),
         ("totals" = Option<bool>, Query, description = "Also return total_length_seconds and total_disk_space summed over the whole result. Costs a second aggregate query."),

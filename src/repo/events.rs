@@ -23,6 +23,8 @@ pub struct EventQueryOptions {
     pub cause: Option<String>,
     pub name: Option<String>,
     pub notes: Option<String>,
+    /// Free-text search over legacy's column set (`q`).
+    pub q: Option<String>,
     /// Tag filter, and whether to keep what it matches or the rest.
     pub tags: Option<TagFilter>,
     pub tags_negated: bool,
@@ -77,6 +79,41 @@ pub async fn find_all(
     find_with_options(state, EventQueryOptions::default(), page, page_size).await
 }
 
+/// Legacy's events search box (`web/ajax/events.php`): `LIKE %q%` over these
+/// columns, any of which may match. Numbers and dates are compared as text,
+/// as MySQL does there, so `12` finds event 112 and `2026-10` a month.
+fn free_text(q: &str) -> sea_orm::Condition {
+    use sea_orm::sea_query::{Alias, Expr, ExprTrait};
+    use sea_orm::Condition;
+    const COLUMNS: [events::Column; 17] = [
+        events::Column::Id,
+        events::Column::MonitorId,
+        events::Column::StorageId,
+        events::Column::Name,
+        events::Column::Cause,
+        events::Column::StartDateTime,
+        events::Column::EndDateTime,
+        events::Column::Length,
+        events::Column::Frames,
+        events::Column::AlarmFrames,
+        events::Column::TotScore,
+        events::Column::AvgScore,
+        events::Column::MaxScore,
+        events::Column::Archived,
+        events::Column::Emailed,
+        events::Column::Notes,
+        events::Column::DiskSpace,
+    ];
+    let pattern = format!("%{q}%");
+    COLUMNS.into_iter().fold(Condition::any(), |cond, col| {
+        cond.add(
+            Expr::col((events::Entity, col))
+                .cast_as(Alias::new("CHAR"))
+                .like(pattern.clone()),
+        )
+    })
+}
+
 /// Every filter on `options`, ACL included, as one select. Shared by the list
 /// and the totals query so they always cover the same rows.
 fn filtered(options: &EventQueryOptions) -> Select<Events> {
@@ -113,6 +150,9 @@ fn filtered(options: &EventQueryOptions) -> Select<Events> {
     }
     if let Some(storage_id) = options.storage_id {
         query = query.filter(events::Column::StorageId.eq(storage_id));
+    }
+    if let Some(ref q) = options.q {
+        query = query.filter(free_text(q));
     }
     // Tag filter via a subquery over Events_Tags (a join would duplicate rows).
     if let Some(ref tags) = options.tags {
