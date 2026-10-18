@@ -9517,6 +9517,248 @@
         ]
       }
     },
+    "/api/v3/notifications": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "List push registrations",
+        "description": "The caller's own; every user's for a System editor.",
+        "operationId": "listNotifications",
+        "responses": {
+          "200": {
+            "description": "Push registrations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NotificationResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Register a push token",
+        "description": "A token already registered to the caller is updated in place (200);\na new one is created (201). Another user's token is a 403.",
+        "operationId": "registerNotification",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateNotificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Already registered; updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token belongs to another user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/notifications/{id}": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Get one push registration",
+        "operationId": "getNotification",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Notification ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Push registration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or another user's",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Remove a push registration",
+        "operationId": "deleteNotification",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Notification ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Not found, or another user's",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Change a push registration",
+        "description": "Typically `last_notified_at` and `badge_count` after a push.",
+        "operationId": "updateNotification",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Notification ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNotificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or another user's",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The new token is already registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/object-types": {
       "get": {
         "tags": [
@@ -21069,6 +21311,84 @@
           }
         }
       },
+      "CreateNotificationRequest": {
+        "type": "object",
+        "description": "Register a push token. A token already registered is updated in place,\nas ZoneMinder's `notifications.json` does.",
+        "required": [
+          "token",
+          "platform"
+        ],
+        "properties": {
+          "app_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "badge_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "interval": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Minimum seconds between pushes.",
+            "minimum": 0
+          },
+          "last_notified_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "RFC 3339."
+          },
+          "monitor_list": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Comma-separated monitor ids to notify for; empty or absent for all."
+          },
+          "platform": {
+            "$ref": "#/components/schemas/PushPlatform"
+          },
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "push_state": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PushState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "token": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The owner. Only a System editor may set it; otherwise it is the caller.",
+            "minimum": 0
+          }
+        }
+      },
       "CreateObjectTypeRequest": {
         "type": "object",
         "properties": {
@@ -25624,6 +25944,106 @@
         "description": "Local wall-clock time with no offset, as stored by ZoneMinder",
         "example": "2025-04-24T12:34:56"
       },
+      "NotificationResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "token",
+          "interval",
+          "badge_count",
+          "updated_on"
+        ],
+        "properties": {
+          "app_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "badge_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_on": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DateTimeWrapper"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "interval": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "last_notified_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DateTimeWrapper",
+                "description": "UTC, like event times."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "monitor_list": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "platform": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PushPlatform",
+                "description": "`null` for a value this build doesn't know."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "push_state": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PushState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "token": {
+            "type": "string"
+          },
+          "updated_on": {
+            "$ref": "#/components/schemas/DateTimeWrapper"
+          },
+          "user_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "ObjectTypeResponse": {
         "type": "object",
         "required": [
@@ -27945,6 +28365,21 @@
             "minimum": 0
           }
         }
+      },
+      "PushPlatform": {
+        "type": "string",
+        "enum": [
+          "android",
+          "ios",
+          "web"
+        ]
+      },
+      "PushState": {
+        "type": "string",
+        "enum": [
+          "enabled",
+          "disabled"
+        ]
       },
       "Recording": {
         "type": "string",
@@ -32138,6 +32573,87 @@
           }
         }
       },
+      "UpdateNotificationRequest": {
+        "type": "object",
+        "properties": {
+          "app_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "badge_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "interval": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "last_notified_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "monitor_list": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`null` clears it; omit to leave it unchanged."
+          },
+          "platform": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PushPlatform"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "push_state": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PushState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "System editors only.",
+            "minimum": 0
+          }
+        }
+      },
       "UpdateObjectTypeRequest": {
         "type": "object",
         "properties": {
@@ -34067,6 +34583,10 @@
     {
       "name": "Monitors",
       "description": "Monitor management endpoints"
+    },
+    {
+      "name": "Notifications",
+      "description": "Push token registrations"
     },
     {
       "name": "Monitors Permissions",

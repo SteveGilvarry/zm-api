@@ -10,6 +10,14 @@ recognisable path forward.
 
 ### Added
 
+- **Push token registrations** (#175): `/api/v3/notifications` lists, reads,
+  registers, changes and removes the Notifications rows that
+  zmeventnotification-style push uses, as ZoneMinder's `notifications.json`
+  does. Any logged-in user manages their own tokens, and a System editor sees
+  everyone's. Posting a token that is already registered updates its row
+  (`200`), posting another user's token is a `403`, and another user's row
+  is a `404`. `last_notified_at` is in UTC.
+
 - **Monitor actions** (#179): `GET/POST /api/v3/monitors/{id}/actions`,
   `GET/PATCH/DELETE /api/v3/monitors/{id}/actions/{action_id}` and
   `GET /api/v3/monitors/{id}/actions/targets` cover ZoneMinder 1.39.30's

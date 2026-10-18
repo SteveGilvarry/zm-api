@@ -48,6 +48,7 @@ pub mod monitor_status; // Monitor Status
 pub mod monitors;
 pub mod monitors_permissions; // Monitors Permissions
 pub mod montage_layouts; // Montage Layouts
+pub mod notifications; // push token registrations (#175)
 pub mod object_types; // Object Types
 pub mod ptz; // PTZ control
 pub mod reports; // Reports
@@ -618,6 +619,7 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(settings_table_routes)
         .merge(monitor_action_routes)
         .merge(monitor_action_run_route)
+        .merge(notifications::add_notification_routes(Router::new()))
         .merge(settings_tables::add_navbar_route(Router::new()))
         .merge(group_routes)
         .merge(server_info_routes)

@@ -26,6 +26,7 @@ pub mod monitor_presets;
 pub mod monitor_status;
 pub mod monitors_permissions;
 pub mod montage_layouts;
+pub mod notifications;
 pub mod object_types;
 pub mod ptz;
 pub mod reports;

@@ -50,6 +50,7 @@ pub mod media_links;
 pub mod monitor;
 pub mod monitor_actions;
 pub mod monitor_pipeline;
+pub mod notifications;
 pub mod roles;
 pub mod search;
 pub mod server;
