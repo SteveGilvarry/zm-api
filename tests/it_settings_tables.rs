@@ -119,3 +119,42 @@ async fn the_navbar_shows_enabled_items_in_order_to_any_user() {
         .await;
     assert!(bad.status().is_client_error());
 }
+
+/// Each storage reports the filesystem its path is on (#145), and null when
+/// the path can't be read.
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn storage_reports_its_filesystem() {
+    use common::fixtures::insert_storage;
+    use zm_api::entity::sea_orm_active_enums::Scheme;
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let dir = tempfile::tempdir().unwrap();
+    let real = insert_storage(
+        &app.db,
+        "FsReal",
+        dir.path().to_str().unwrap(),
+        Scheme::Medium,
+    )
+    .await
+    .unwrap();
+    let _r = RowGuard::storage(real.id);
+    let gone = insert_storage(&app.db, "FsGone", "/no/such/zm/storage", Scheme::Medium)
+        .await
+        .unwrap();
+    let _g = RowGuard::storage(gone.id);
+
+    let body: serde_json::Value = app
+        .get(&format!("/api/v3/storage/{}", real.id), &token)
+        .await
+        .json();
+    let fs = &body["filesystem"];
+    assert!(fs["total_bytes"].as_u64().unwrap() > 0, "{body}");
+    assert!(fs["used_bytes"].as_u64().unwrap() <= fs["total_bytes"].as_u64().unwrap());
+
+    let body: serde_json::Value = app
+        .get(&format!("/api/v3/storage/{}", gone.id), &token)
+        .await
+        .json();
+    assert!(body["filesystem"].is_null(), "{body}");
+}

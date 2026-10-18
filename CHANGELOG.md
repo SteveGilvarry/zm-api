@@ -230,6 +230,12 @@ recognisable path forward.
   `alarm`, `alert`), `alarms_disabled` and `analysing` from the monitor's
   shared memory while zmc runs, and `PATCH /api/v3/monitors/{id}/alarm` takes
   `disable_alarms` and `enable_alarms`, ZoneMinder's `zmu -n` and `zmu -c`.
+- **Each storage reports its filesystem** (#145): `StorageResponse` gains
+  `filesystem` (`total_bytes`, `used_bytes`, `available_bytes`,
+  `usage_percent`) for the disk its path is on, as `df` reports it, or null
+  when the path can't be read from this server. It is the disk's own size,
+  labelled as such, beside the event bytes; the capacity declared for
+  retention (docs/STORAGE_PLAN.md) is separate.
 - **Encoder templates and menu items** (#144). `/api/v3/encoder-templates`
   and `/api/v3/menu-items` are CRUD over ZoneMinder 1.39's `EncoderTemplates`
   and `Menu_Items` (System-gated), and `GET /api/v3/system/menu` returns the

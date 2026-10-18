@@ -27177,6 +27177,36 @@
           }
         }
       },
+      "StorageFilesystem": {
+        "type": "object",
+        "required": [
+          "total_bytes",
+          "used_bytes",
+          "available_bytes",
+          "usage_percent"
+        ],
+        "properties": {
+          "available_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "usage_percent": {
+            "type": "number",
+            "format": "double"
+          },
+          "used_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "StorageResponse": {
         "type": "object",
         "required": [
@@ -27204,6 +27234,17 @@
           "enabled": {
             "type": "integer",
             "format": "int32"
+          },
+          "filesystem": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StorageFilesystem",
+                "description": "The filesystem the storage's path is on, as `df` reports it: the\ndisk's own size and use, not the capacity declared for retention. Null\nwhen the path can't be read from this server (#145)."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "id": {
             "type": "integer",

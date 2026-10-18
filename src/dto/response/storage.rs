@@ -15,6 +15,33 @@ pub struct StorageResponse {
     pub disk_space: Option<i64>,
     pub do_delete: i8,
     pub enabled: i8,
+    /// The filesystem the storage's path is on, as `df` reports it: the
+    /// disk's own size and use, not the capacity declared for retention. Null
+    /// when the path can't be read from this server (#145).
+    pub filesystem: Option<StorageFilesystem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct StorageFilesystem {
+    pub total_bytes: u64,
+    pub used_bytes: u64,
+    pub available_bytes: u64,
+    pub usage_percent: f64,
+}
+
+impl StorageResponse {
+    /// Fill `filesystem` from the storage path (a `statvfs`).
+    pub fn with_filesystem(mut self) -> Self {
+        self.filesystem = crate::daemon::stats::filesystem_usage(std::path::Path::new(&self.path))
+            .ok()
+            .map(|u| StorageFilesystem {
+                total_bytes: u.total_bytes,
+                used_bytes: u.used_bytes,
+                available_bytes: u.available_bytes,
+                usage_percent: u.usage_percent,
+            });
+        self
+    }
 }
 
 impl From<&crate::entity::storage::Model> for StorageResponse {
@@ -33,6 +60,7 @@ impl From<&crate::entity::storage::Model> for StorageResponse {
             disk_space: m.disk_space,
             do_delete: m.do_delete,
             enabled: m.enabled,
+            filesystem: None,
         }
     }
 }
