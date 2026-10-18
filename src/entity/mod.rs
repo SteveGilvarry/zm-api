@@ -33,6 +33,7 @@ pub mod groups_monitors;
 pub mod groups_permissions;
 pub mod logs;
 pub mod manufacturers;
+pub mod media_jobs;
 pub mod menu_items;
 pub mod models;
 pub mod monitor_actions;

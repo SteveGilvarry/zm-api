@@ -44,6 +44,8 @@ pub struct AppState {
     /// Set when ZoneMinder's schema is older than this build needs (#147):
     /// the API answers 503 with this message, and the daemons are left alone.
     pub schema_behind: Option<Arc<str>>,
+    /// Wakes the media job worker when a job is queued.
+    pub media_job_wake: Arc<tokio::sync::Notify>,
 }
 
 impl AppState {
@@ -343,6 +345,7 @@ impl AppState {
             ptz_manager,
             revocations,
             schema_behind,
+            media_job_wake: Arc::new(tokio::sync::Notify::new()),
         })
     }
 
@@ -381,6 +384,7 @@ impl AppState {
             ptz_manager: std::sync::Arc::new(PtzManager::with_defaults()),
             revocations: std::sync::Arc::new(crate::util::revocation::TokenRevocations::default()),
             schema_behind: None,
+            media_job_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
         }
     }
 

@@ -47,6 +47,7 @@ pub mod event_export;
 pub mod events;
 pub mod events_playback;
 pub mod live;
+pub mod media_jobs;
 pub mod media_links;
 pub mod monitor;
 pub mod monitor_actions;

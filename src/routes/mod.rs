@@ -41,6 +41,7 @@ pub mod groups_permissions; // Groups Permissions
 pub mod live; // Live streaming (unified)
 pub mod logs; // Logs
 pub mod manufacturers; // Manufacturers
+pub mod media_jobs; // generated event videos, media job queue (#187)
 pub mod models; // Models
 pub mod monitor_actions; // MonitorActions (#179)
 pub mod monitor_presets; // Monitor Presets
@@ -590,6 +591,10 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(events_playback_routes) // Event playback
         .merge(snapshot_routes)
         .merge(snapshot_event_routes)
+        .merge(protect(
+            media_jobs::add_event_video_routes(Router::new()),
+            Feature::Events,
+        ))
         .merge(crate::util::authz::protect_at(
             events_playback::add_event_export_route(Router::new()),
             Feature::Events,
@@ -626,6 +631,10 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(monitor_action_routes)
         .merge(monitor_action_run_route)
         .merge(notifications::add_notification_routes(Router::new()))
+        .merge(protect(
+            media_jobs::add_job_routes(Router::new()),
+            Feature::Events,
+        ))
         .merge(settings_tables::add_navbar_route(Router::new()))
         .merge(group_routes)
         .merge(server_info_routes)

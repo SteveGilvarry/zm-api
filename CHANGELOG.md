@@ -10,6 +10,19 @@ recognisable path forward.
 
 ### Added
 
+- **Generate a video for an event** (#187), the first kind in the media job
+  queue of `docs/FILTERS_PLAN.md`. `POST /api/v3/events/{id}/videos` queues
+  ZoneMinder's Generate Video, with a format from `ZM_FFMPEG_FORMATS`, a
+  speed (`rate`) or frame rate (`fps`), a `scale` or `size`, an optional
+  greyscale `transform`, and `overwrite`. The video is made from the
+  recording, or from the capture JPEGs for an event without one, and named
+  as `zmvideo.pl` names its files. `GET /api/v3/events/{id}/videos` lists
+  the event's video files with the options read back from their names, and
+  `GET`/`DELETE .../videos/{name}` downloads or deletes one (not the
+  recording). `GET /api/v3/jobs[/{id}]` shows the queue, and `DELETE` cancels
+  a queued job or removes a finished one. ffmpeg runs without a shell, one
+  job at a time, and jobs a restart interrupted run again.
+
 - **Event export** (#30): `POST /api/v3/events/export {ids, include}`
   streams a zip, built as it goes, with a `{event_id}/` folder per event.
   `include` picks from `details` (`event.json`), `frames` (`frames.json`),

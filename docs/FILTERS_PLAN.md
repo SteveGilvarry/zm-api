@@ -105,6 +105,13 @@ replaces `AutoExecuteCmd`.
 
 ## Subsystem 3: Media job queue
 
+**Status:** the queue exists, with one kind. `media_jobs` (zm-api-owned) holds
+the jobs, and a single in-process worker runs them in order. Jobs a restart
+interrupted are re-queued. The first kind is `video` (#187), ZoneMinder's
+Generate Video, queued by `POST /api/v3/events/{id}/videos` and read through
+`GET/DELETE /api/v3/jobs[/{id}]`. The transcode, export, move and copy kinds,
+and the generic `POST /events/{id}/jobs` below, are still to build.
+
 `POST /api/v3/events/{id}/jobs` body `{ kind: transcode | export | move |
 copy, target_storage_id?, destination? }`. Workers consume the queue with
 bounded concurrency. The `videoed` / `uploaded` columns become job-completion

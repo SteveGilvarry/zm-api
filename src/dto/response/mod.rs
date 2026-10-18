@@ -17,6 +17,7 @@ pub mod groups_monitors;
 pub mod groups_permissions;
 pub mod logs;
 pub mod manufacturers;
+pub mod media_jobs;
 pub mod media_links;
 pub mod models;
 mod monitor;

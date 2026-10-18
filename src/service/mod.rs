@@ -29,6 +29,7 @@ pub mod logs;
 pub mod maintenance;
 pub mod manufacturers;
 pub mod media_grant;
+pub mod media_jobs;
 pub mod models;
 pub mod monitor;
 pub mod monitor_acl;

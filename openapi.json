@@ -4071,6 +4071,250 @@
         ]
       }
     },
+    "/api/v3/events/{id}/videos": {
+      "get": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "List an event's video files",
+        "description": "Generated files and the recording, with the options read back from a\ngenerated file's name.",
+        "operationId": "listEventVideos",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Event ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Video files",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EventVideoResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Generate a video for an event",
+        "description": "Queues a `video` job, ZoneMinder's Generate Video: from the recording\nwhen the event has one, else from its capture JPEGs. Poll\n`GET /api/v3/jobs/{id}`; when it is `done`, `output` names the file in\n`GET /api/v3/events/{id}/videos`.",
+        "operationId": "generateEventVideo",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Event ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateVideoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaJobResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad options, or a format not in ZM_FFMPEG_FORMATS",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/events/{id}/videos/{name}": {
+      "get": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Download one of an event's video files",
+        "operationId": "downloadEventVideo",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Event ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "File name, from the listing",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Delete a generated video",
+        "description": "The event's recording can't be deleted here (409).",
+        "operationId": "deleteEventVideo",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Event ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "File name, from the listing",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The event's recording",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/filters": {
       "get": {
         "tags": [
@@ -5181,6 +5425,157 @@
             }
           }
         }
+      }
+    },
+    "/api/v3/jobs": {
+      "get": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "List media jobs",
+        "description": "Newest first, at most 500, for the events the caller can see.",
+        "operationId": "listMediaJobs",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "`queued`, `running`, `done`, `failed` or `cancelled`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Jobs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MediaJobResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/jobs/{id}": {
+      "get": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Get a media job",
+        "operationId": "getMediaJob",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Job ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaJobResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Cancel or remove a media job",
+        "description": "Cancels a queued job; removes a finished one's record (its file stays).\nA running job is a 409.",
+        "operationId": "deleteMediaJob",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Job ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Cancelled or removed"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
       }
     },
     "/api/v3/live/sessions": {
@@ -23608,6 +24003,62 @@
           }
         }
       },
+      "EventVideoResponse": {
+        "type": "object",
+        "description": "A video file in an event's directory.",
+        "required": [
+          "name",
+          "size_bytes",
+          "format",
+          "recorded"
+        ],
+        "properties": {
+          "format": {
+            "type": "string",
+            "description": "The file's extension."
+          },
+          "fps": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "From a generated file's name (zmvideo.pl's `-r`, `-R`, `-s` and `-S`\nparts), when present."
+          },
+          "recorded": {
+            "type": "boolean",
+            "description": "The event's own recording (`DefaultVideo`); it can't be deleted here."
+          },
+          "scale": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "size": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "ExportPart": {
         "type": "string",
         "description": "What goes into each event's folder in the zip.",
@@ -24013,6 +24464,57 @@
           "Mocord",
           "Nodect"
         ]
+      },
+      "GenerateVideoRequest": {
+        "type": "object",
+        "description": "`POST /api/v3/events/{id}/videos`: what zmvideo.pl's options set.",
+        "properties": {
+          "format": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One of `ZM_FFMPEG_FORMATS`; defaults to its starred entry."
+          },
+          "fps": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "A fixed output frame rate. Exclusive with `rate`."
+          },
+          "overwrite": {
+            "type": "boolean",
+            "description": "Replace a file of the same name; otherwise an existing one is the result."
+          },
+          "rate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Playback speed relative to real time (2 is twice as fast). Exclusive\nwith `fps`."
+          },
+          "scale": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Scale relative to the event's size. Exclusive with `size`."
+          },
+          "size": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An exact `WIDTHxHEIGHT`. Exclusive with `scale`."
+          },
+          "transform": {
+            "$ref": "#/components/schemas/VideoTransform"
+          }
+        }
       },
       "GroupMonitorResponse": {
         "type": "object",
@@ -24622,6 +25124,91 @@
           "user": {
             "$ref": "#/components/schemas/UserResponse",
             "description": "The caller's user record (permissions, profile)."
+          }
+        }
+      },
+      "MediaJobResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "event_id",
+          "monitor_id",
+          "params",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "$ref": "#/components/schemas/DateTimeWrapper"
+          },
+          "created_by": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "finished_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DateTimeWrapper"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "kind": {
+            "type": "string",
+            "description": "`video` for now."
+          },
+          "monitor_id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "output": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For a video, the file name in the event's directory."
+          },
+          "params": {
+            "type": "object",
+            "description": "The parameters the job was queued with."
+          },
+          "started_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DateTimeWrapper"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "description": "`queued`, `running`, `done`, `failed` or `cancelled`."
           }
         }
       },
@@ -33832,6 +34419,14 @@
             "description": "ZoneMinder version"
           }
         }
+      },
+      "VideoTransform": {
+        "type": "string",
+        "description": "A filter for the generated video, as ZoneMinder's Generate Video offers.",
+        "enum": [
+          "none",
+          "greyscale"
+        ]
       },
       "WebRtcSignalingMessage": {
         "oneOf": [
