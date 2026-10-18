@@ -54,6 +54,7 @@ pub async fn update(
     scheme: Option<String>,
     server_id: Option<u32>,
     url: Option<String>,
+    do_delete: Option<i8>,
 ) -> AppResult<StorageResponse> {
     let updated = repo::storage::update(
         state.db(),
@@ -65,6 +66,7 @@ pub async fn update(
         scheme,
         server_id,
         url,
+        do_delete,
     )
     .await?;
     let updated = updated.ok_or_else(|| {
@@ -120,6 +122,7 @@ mod tests {
             &state,
             1,
             Some("n".into()),
+            None,
             None,
             None,
             None,
@@ -203,6 +206,7 @@ mod tests {
             &state,
             7,
             Some("new".into()),
+            None,
             None,
             None,
             None,

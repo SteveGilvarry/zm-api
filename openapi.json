@@ -30916,6 +30916,14 @@
       "UpdateStorageRequest": {
         "type": "object",
         "properties": {
+          "do_delete": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Whether ZoneMinder may delete media from this area (`DoDelete`, 0/1);\nthe reaper and event deletes honour it (#185)."
+          },
           "enabled": {
             "type": [
               "integer",

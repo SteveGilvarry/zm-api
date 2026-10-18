@@ -158,3 +158,34 @@ async fn storage_reports_its_filesystem() {
         .json();
     assert!(body["filesystem"].is_null(), "{body}");
 }
+
+/// `PATCH /storage/{id}` changes `do_delete` (#185).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn storage_do_delete_can_be_changed() {
+    use common::fixtures::insert_storage;
+    use zm_api::entity::sea_orm_active_enums::Scheme;
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let s = insert_storage(&app.db, "DoDel", "/tmp", Scheme::Medium)
+        .await
+        .unwrap();
+    let _g = RowGuard::storage(s.id);
+    let r = app
+        .patch_json(
+            &format!("/api/v3/storage/{}", s.id),
+            &token,
+            &json!({ "do_delete": 0 }),
+        )
+        .await;
+    assert_eq!(r.status(), StatusCode::OK, "{}", r.text());
+    assert_eq!(r.json::<serde_json::Value>()["do_delete"], 0);
+    let bad = app
+        .patch_json(
+            &format!("/api/v3/storage/{}", s.id),
+            &token,
+            &json!({ "do_delete": 7 }),
+        )
+        .await;
+    assert!(bad.status().is_client_error());
+}
