@@ -127,3 +127,44 @@ async fn create_zone_preset_with_invalid_body_is_rejected() {
         resp.text()
     );
 }
+
+/// A preset carries the thresholds it applies, on create, update and read
+/// (#188).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn presets_carry_their_thresholds() {
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let body = json!({
+        "name": unique_name("PresetThr"), "type": "active", "units": "percent",
+        "check_method": "blobs",
+        "min_pixel_threshold": 25, "max_pixel_threshold": 200,
+        "min_alarm_pixels": 3.0, "filter_x": 3, "filter_y": 3,
+        "min_blobs": 1, "max_blobs": 5, "overload_frames": 2, "extend_alarm_frames": 4,
+    });
+    let create = app.post_json("/api/v3/zone-presets", &token, &body).await;
+    assert!(create.status().is_success(), "{}", create.text());
+    let created: serde_json::Value = create.json();
+    let id = created["id"].as_u64().unwrap();
+    let _g = RowGuard::new(format!("ZonePresets#{id}"), move |db| async move {
+        use sea_orm::EntityTrait;
+        let _ = zm_api::entity::zone_presets::Entity::delete_by_id(id as u32)
+            .exec(&db)
+            .await;
+    });
+    assert_eq!(created["min_pixel_threshold"], 25);
+    assert_eq!(created["min_alarm_pixels"], 3.0);
+    assert_eq!(created["max_blobs"], 5);
+    assert_eq!(created["extend_alarm_frames"], 4);
+
+    let upd = app
+        .patch_json(
+            &format!("/api/v3/zone-presets/{id}"),
+            &token,
+            &json!({ "max_blobs": 9 }),
+        )
+        .await;
+    let upd: serde_json::Value = upd.json();
+    assert_eq!(upd["max_blobs"], 9);
+    assert_eq!(upd["min_pixel_threshold"], 25, "untouched fields stay");
+}

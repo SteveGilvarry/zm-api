@@ -83,6 +83,10 @@ pub struct UpdateZonePresetRequest {
     pub units: Option<String>,
     #[garde(skip)]
     pub check_method: Option<String>,
+    /// Thresholds to change; omitted ones are left alone (#188).
+    #[serde(flatten)]
+    #[garde(skip)]
+    pub thresholds: crate::dto::request::zone_presets::ZonePresetThresholds,
 }
 
 /// Update fields of an existing zone preset (partial update).
@@ -111,6 +115,7 @@ pub async fn update_zone_preset(
         req.r#type,
         req.units,
         req.check_method,
+        &req.thresholds,
     )
     .await?;
     Ok(Json(item))

@@ -190,6 +190,9 @@ recognisable path forward.
   compared against ZoneMinder's local-time columns, so on any server not on
   UTC the window was off by the offset. They now convert to server-local
   time, the inverse of what responses already do.
+- **Zone presets carry their thresholds** (#188): the fourteen threshold
+  columns a preset applies, on the response and on create and update, named
+  as on `ZoneResponse`.
 - **`component` on `GET` and `DELETE /logs` takes a comma list** (#186), as
   `level` does, for the log page's multi-select and for clearing by it.
 - **`PATCH /storage/{id}` takes `do_delete`** (#185), so the switch that stops

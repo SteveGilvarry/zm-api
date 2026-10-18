@@ -20405,27 +20405,35 @@
         ]
       },
       "CreateZonePresetRequest": {
-        "type": "object",
-        "required": [
-          "name",
-          "type",
-          "units",
-          "check_method"
-        ],
-        "properties": {
-          "check_method": {
-            "type": "string"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ZonePresetThresholds",
+            "description": "The thresholds the preset applies to a zone (#188)."
           },
-          "name": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          },
-          "units": {
-            "type": "string"
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "type",
+              "units",
+              "check_method"
+            ],
+            "properties": {
+              "check_method": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "units": {
+                "type": "string"
+              }
+            }
           }
-        }
+        ]
       },
       "CreateZoneRequest": {
         "type": "object",
@@ -31128,33 +31136,41 @@
         "description": "Partial update: every field is optional and only provided fields change."
       },
       "UpdateZonePresetRequest": {
-        "type": "object",
-        "properties": {
-          "check_method": {
-            "type": [
-              "string",
-              "null"
-            ]
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ZonePresetThresholds",
+            "description": "Thresholds to change; omitted ones are left alone (#188)."
           },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "type": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "units": {
-            "type": [
-              "string",
-              "null"
-            ]
+          {
+            "type": "object",
+            "properties": {
+              "check_method": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "units": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
           }
-        }
+        ]
       },
       "UpdateZoneRequest": {
         "type": "object",
@@ -31949,25 +31965,240 @@
           "name",
           "type",
           "units",
-          "check_method"
+          "check_method",
+          "overload_frames",
+          "extend_alarm_frames"
         ],
         "properties": {
           "check_method": {
             "type": "string"
+          },
+          "extend_alarm_frames": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "filter_x": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "filter_y": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           },
           "id": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
           },
+          "max_alarm_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_blob_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_blobs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_filter_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_pixel_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_alarm_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_blob_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_blobs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_filter_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_pixel_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The thresholds the preset applies, named as on `ZoneResponse` (#188).",
+            "minimum": 0
+          },
           "name": {
             "type": "string"
+          },
+          "overload_frames": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "type": {
             "type": "string"
           },
           "units": {
             "type": "string"
+          }
+        }
+      },
+      "ZonePresetThresholds": {
+        "type": "object",
+        "description": "A zone preset's thresholds, named as on `ZoneResponse` so a client can copy\nthem to a zone one to one. On update, an omitted field is left alone.",
+        "properties": {
+          "extend_alarm_frames": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "filter_x": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "filter_y": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_alarm_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_blob_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_blobs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_filter_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_pixel_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_alarm_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_blob_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_blobs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_filter_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_pixel_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "overload_frames": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
