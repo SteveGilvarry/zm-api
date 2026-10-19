@@ -3755,6 +3755,14 @@ mod tests {
                 use std::os::unix::fs::PermissionsExt;
                 std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
             }
+            // A test forking in parallel can briefly hold the just-written
+            // file open, and exec then fails with ETXTBSY. Wait it out.
+            for _ in 0..100 {
+                if std::process::Command::new(&bin).output().is_ok() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
             assert_eq!(zmcore_supports_control_uid(&bin).await, want, "{name}");
         }
         assert!(!zmcore_supports_control_uid(&dir.join("missing")).await);
