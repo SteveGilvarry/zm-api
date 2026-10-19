@@ -128,14 +128,13 @@ pub async fn create(
         turbo_tilt_speed: Set(req.turbo_tilt_speed),
         can_auto_scan: Set(req.can_auto_scan.unwrap_or(0)),
         num_scan_paths: Set(req.num_scan_paths.unwrap_or(0)),
-        // Capability columns added by upstream 1.39.13-1.39.29; not on the
-        // request yet, so they take the schema defaults.
-        can_light: Set(0),
-        can_indicator_light: Set(0),
-        can_audio_play: Set(0),
-        min_audio_file: Set(None),
-        max_audio_file: Set(None),
-        can_audio_volume: Set(0),
+        // Light and audio capabilities, upstream 1.39.13-1.39.29 (#177).
+        can_light: Set(req.can_light.unwrap_or(0)),
+        can_indicator_light: Set(req.can_indicator_light.unwrap_or(0)),
+        can_audio_play: Set(req.can_audio_play.unwrap_or(0)),
+        min_audio_file: Set(req.min_audio_file),
+        max_audio_file: Set(req.max_audio_file),
+        can_audio_volume: Set(req.can_audio_volume.unwrap_or(0)),
     };
     Ok(am.insert(db).await?)
 }
@@ -443,6 +442,24 @@ pub async fn update(
     }
     if let Some(v) = req.num_scan_paths {
         am.num_scan_paths = Set(v);
+    }
+    if let Some(v) = req.can_light {
+        am.can_light = Set(v);
+    }
+    if let Some(v) = req.can_indicator_light {
+        am.can_indicator_light = Set(v);
+    }
+    if let Some(v) = req.can_audio_play {
+        am.can_audio_play = Set(v);
+    }
+    if let Some(v) = req.min_audio_file {
+        am.min_audio_file = Set(Some(v));
+    }
+    if let Some(v) = req.max_audio_file {
+        am.max_audio_file = Set(Some(v));
+    }
+    if let Some(v) = req.can_audio_volume {
+        am.can_audio_volume = Set(v);
     }
 
     let updated = am.update(db).await?;

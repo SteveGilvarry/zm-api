@@ -5,7 +5,7 @@ use tracing::{info, warn};
 
 use crate::dto::request::monitor::MonitorListParams;
 use crate::dto::request::{
-    AlarmControlRequest, CreateMonitorRequest, UpdateMonitorRequest, UpdateStateRequest,
+    AlarmControlRequest, CreateMonitorRequest, MonitorStateRequest, UpdateMonitorRequest,
 };
 use crate::dto::response::monitors::PaginatedMonitorsResponse;
 use crate::dto::response::MonitorResponse;
@@ -211,7 +211,7 @@ pub async fn delete_monitor(
     params(
         ("id" = u32, Path, description = "Monitor identifier")
     ),
-    request_body = UpdateStateRequest,
+    request_body = MonitorStateRequest,
     responses(
         (status = 200, description = "Monitor state updated successfully", body = MonitorResponse),
         (status = 400, description = "Invalid request data", body = AppResponseError),
@@ -228,7 +228,7 @@ pub async fn update_state(
     State(state): State<AppState>,
     Path(id): Path<u32>,
     scope: MonitorScope,
-    Json(req): Json<UpdateStateRequest>,
+    Json(req): Json<MonitorStateRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
     info!("Updating state of monitor with ID: {id} and request: {req:?}.");
     req.validate().map_err(AppError::InvalidInputError)?;
@@ -239,6 +239,32 @@ pub async fn update_state(
             Err(e)
         }
     }
+}
+
+/// The monitor's live audio level
+///
+/// - What the monitor editor's level meter polls once a second. Each call asks
+///   zmc to keep measuring for ten more seconds, even with audio detection
+///   off. `level` and `alarm` are null while zmc isn't running.
+#[utoipa::path(
+    get,
+    path = "/api/v3/monitors/{id}/audio-level",
+    params(("id" = u32, Path, description = "Monitor identifier")),
+    responses(
+        (status = 200, description = "Live audio level", body = crate::dto::response::monitor_status::AudioLevelResponse),
+        (status = 404, description = "Monitor not found", body = AppResponseError)
+    ),
+    security(("jwt" = [])),
+    tag = "Monitors"
+)]
+pub async fn get_audio_level(
+    State(state): State<AppState>,
+    Path(id): Path<u32>,
+    scope: MonitorScope,
+) -> AppResult<Json<crate::dto::response::monitor_status::AudioLevelResponse>> {
+    Ok(Json(
+        service::monitor::audio_level(&state, id, &scope).await?,
+    ))
 }
 
 #[utoipa::path(

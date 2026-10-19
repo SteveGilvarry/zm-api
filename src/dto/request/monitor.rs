@@ -27,9 +27,10 @@ pub fn is_valid_state(value: &str, _ctx: &()) -> garde::Result {
 // request ever reached the service.
 pub fn is_valid_alarm_action(value: &str, _ctx: &()) -> garde::Result {
     match value {
-        "on" | "off" | "cancel" | "status" => Ok(()),
+        "on" | "off" | "cancel" | "status" | "disable_alarms" | "enable_alarms" => Ok(()),
         _ => Err(garde::Error::new(
-            "invalid alarm action; must be 'on', 'off', 'cancel', or 'status'",
+            "invalid alarm action; must be 'on', 'off', 'cancel', 'status', \
+             'disable_alarms' or 'enable_alarms'",
         )),
     }
 }
@@ -97,7 +98,7 @@ pub struct CreateMonitorRequest {
     #[garde(length(chars, min = 1, max = 64))]
     pub name: String,
     #[garde(skip)] // Boolean type doesn't need validation
-    pub deleted: bool,
+    pub deleted: Option<bool>,
     /// Whether the monitor is enabled (ZoneMinder's `Monitors.Enabled`).
     /// Defaults to enabled when omitted.
     #[garde(range(min = 0, max = 1))]
@@ -107,8 +108,8 @@ pub struct CreateMonitorRequest {
     #[garde(skip)] // Option<u32> can be None, or we could validate if Some
     pub server_id: Option<u32>,
     // 0 is ZoneMinder's sentinel for the default storage (GH #19).
-    #[garde(range(min = 0))]
-    pub storage_id: u16,
+    #[garde(inner(range(min = 0)))]
+    pub storage_id: Option<u16>,
     #[garde(skip)] // Option<u32> can be None
     pub manufacturer_id: Option<u32>,
     #[garde(skip)] // Option<u32> can be None
@@ -121,37 +122,37 @@ pub struct CreateMonitorRequest {
 
     #[serde(rename = "function")]
     #[garde(skip)]
-    pub function: Function,
+    pub function: Option<Function>,
 
     #[serde(rename = "capturing")]
     #[garde(skip)]
-    pub capturing: Capturing,
+    pub capturing: Option<Capturing>,
 
-    #[garde(range(min = 0, max = 1))]
-    pub decoding_enabled: u8,
+    #[garde(inner(range(min = 0, max = 1)))]
+    pub decoding_enabled: Option<u8>,
 
     #[serde(rename = "decoding")]
     #[garde(skip)]
-    pub decoding: Decoding,
+    pub decoding: Option<Decoding>,
 
-    #[garde(range(min = -1, max = 1))]
-    pub rtsp2_web_enabled: i8,
+    #[garde(inner(range(min = -1, max = 1)))]
+    pub rtsp2_web_enabled: Option<i8>,
 
     #[serde(rename = "rtsp2_web_type")]
     #[garde(skip)]
-    pub rtsp2_web_type: Rtsp2WebType,
+    pub rtsp2_web_type: Option<Rtsp2WebType>,
 
-    #[garde(range(min = -1, max = 1))]
-    pub janus_enabled: i8,
+    #[garde(inner(range(min = -1, max = 1)))]
+    pub janus_enabled: Option<i8>,
 
-    #[garde(range(min = -1, max = 1))]
-    pub janus_audio_enabled: i8,
+    #[garde(inner(range(min = -1, max = 1)))]
+    pub janus_audio_enabled: Option<i8>,
 
     #[garde(inner(length(chars, max = 30)))]
     pub janus_profile_override: Option<String>,
 
-    #[garde(range(min = -1, max = 1))]
-    pub restream: i8,
+    #[garde(inner(range(min = -1, max = 1)))]
+    pub restream: Option<i8>,
 
     #[garde(skip)] // Option<i32> can be None
     pub rtsp_user: Option<i32>,
@@ -163,52 +164,52 @@ pub struct CreateMonitorRequest {
     pub linked_monitors: Option<String>,
 
     #[garde(length(min = 0))] // Empty string is valid, but validate it's a string
-    pub triggers: String,
+    pub triggers: Option<String>,
 
     // DB column `EventStartCommand` is varchar(255).
-    #[garde(length(max = 255))]
-    #[garde(custom(is_safe_command_string))]
-    pub event_start_command: String,
+    #[garde(inner(length(max = 255)))]
+    #[garde(inner(custom(is_safe_command_string)))]
+    pub event_start_command: Option<String>,
 
     // DB column `EventEndCommand` is varchar(255).
-    #[garde(length(max = 255))]
-    #[garde(custom(is_safe_command_string))]
-    pub event_end_command: String,
+    #[garde(inner(length(max = 255)))]
+    #[garde(inner(custom(is_safe_command_string)))]
+    pub event_end_command: Option<String>,
 
     // DB column `ONVIF_URL` is varchar(255).
-    #[garde(length(max = 255))]
-    #[garde(custom(is_safe_onvif_url))]
-    pub onvif_url: String,
+    #[garde(inner(length(max = 255)))]
+    #[garde(inner(custom(is_safe_onvif_url)))]
+    pub onvif_url: Option<String>,
 
-    #[garde(length(chars, max = 20))]
-    pub onvif_events_path: String,
+    #[garde(inner(length(chars, max = 20)))]
+    pub onvif_events_path: Option<String>,
 
-    #[garde(length(chars, max = 64))]
-    pub onvif_username: String,
+    #[garde(inner(length(chars, max = 64)))]
+    pub onvif_username: Option<String>,
 
-    #[garde(length(chars, max = 64))]
-    pub onvif_password: String,
+    #[garde(inner(length(chars, max = 64)))]
+    pub onvif_password: Option<String>,
 
-    #[garde(length(chars, max = 255))]
-    pub onvif_options: String,
+    #[garde(inner(length(chars, max = 255)))]
+    pub onvif_options: Option<String>,
 
-    #[garde(range(min = -1, max = 1))]
-    pub onvif_event_listener: i8,
+    #[garde(inner(range(min = -1, max = 1)))]
+    pub onvif_event_listener: Option<i8>,
 
     #[garde(inner(length(chars, max = 30)))]
     pub onvif_alarm_text: Option<String>,
 
-    #[garde(range(min = -1, max = 1))]
-    pub use_amcrest_api: i8,
+    #[garde(inner(range(min = -1, max = 1)))]
+    pub use_amcrest_api: Option<i8>,
 
-    #[garde(length(max = 255))]
-    pub device: String,
+    #[garde(inner(length(max = 255)))]
+    pub device: Option<String>,
 
-    #[garde(range(min = 0))]
-    pub channel: u8,
+    #[garde(inner(range(min = 0)))]
+    pub channel: Option<u8>,
 
     #[garde(skip)] // u32 doesn't need range validation in this case
-    pub format: u32,
+    pub format: Option<u32>,
 
     #[garde(skip)] // Option<u8> can be None
     pub v4l_multi_buffer: Option<u8>,
@@ -228,14 +229,14 @@ pub struct CreateMonitorRequest {
     pub host: Option<String>,
 
     // DB column `Port` is varchar(8).
-    #[garde(length(max = 8))]
-    #[garde(custom(is_safe_url_component))]
-    pub port: String,
+    #[garde(inner(length(max = 8)))]
+    #[garde(inner(custom(is_safe_url_component)))]
+    pub port: Option<String>,
 
     // DB column `SubPath` is varchar(64).
-    #[garde(length(max = 64))]
-    #[garde(custom(is_safe_url_component))]
-    pub sub_path: String,
+    #[garde(inner(length(max = 64)))]
+    #[garde(inner(custom(is_safe_url_component)))]
+    pub sub_path: Option<String>,
 
     // DB column `Path` is varchar(255).
     #[garde(inner(length(max = 255)))]
@@ -256,24 +257,24 @@ pub struct CreateMonitorRequest {
     #[garde(inner(length(chars, max = 64)))]
     pub pass: Option<String>,
 
-    #[garde(range(min = 1))]
-    pub width: u16,
+    #[garde(inner(range(min = 1)))]
+    pub width: Option<u16>,
 
-    #[garde(range(min = 1))]
-    pub height: u16,
+    #[garde(inner(range(min = 1)))]
+    pub height: Option<u16>,
 
-    #[garde(range(min = 0))]
-    pub colours: u8,
+    #[garde(inner(range(min = 0)))]
+    pub colours: Option<u8>,
 
     #[garde(skip)] // u32 doesn't need validation in this case
-    pub palette: u32,
+    pub palette: Option<u32>,
 
     #[serde(rename = "orientation")]
     #[garde(skip)]
-    pub orientation: Orientation,
+    pub orientation: Option<Orientation>,
 
     #[garde(skip)] // u32 doesn't need validation in this case
-    pub deinterlacing: u32,
+    pub deinterlacing: Option<u32>,
 
     #[garde(inner(length(chars, max = 32)))]
     pub decoder: Option<String>,
@@ -287,12 +288,12 @@ pub struct CreateMonitorRequest {
     /// `Monitors.SaveJPEGs` is a two-bit mask, not a flag: bit 0 saves
     /// captured frames and bit 1 saves analysis images, so 3 means both — and
     /// 3 is the column default, which the old `max = 1` rejected (GH #39).
-    #[garde(range(min = 0, max = 3))]
-    pub save_jpe_gs: i8,
+    #[garde(inner(range(min = 0, max = 3)))]
+    pub save_jpe_gs: Option<i8>,
 
     /// 0 disabled, 1 encode, 2 camera passthrough.
-    #[garde(range(min = 0, max = 2))]
-    pub video_writer: i8,
+    #[garde(inner(range(min = 0, max = 2)))]
+    pub video_writer: Option<i8>,
 
     #[garde(skip)] // Option<u32> can be None
     pub output_codec: Option<u32>,
@@ -310,82 +311,82 @@ pub struct CreateMonitorRequest {
     pub encoder_parameters: Option<String>,
 
     /// Boolean. The old `min = -1` accepted a value the column has no meaning for.
-    #[garde(range(min = 0, max = 1))]
-    pub record_audio: i8,
+    #[garde(inner(range(min = 0, max = 1)))]
+    pub record_audio: Option<i8>,
 
     #[serde(rename = "recording_source")]
     #[garde(skip)]
-    pub recording_source: RecordingSource,
+    pub recording_source: Option<RecordingSource>,
 
     /// Accepted and ignored: ZoneMinder 1.39.37 removed `RTSPDescribe`.
     #[garde(skip)]
     pub rtsp_describe: Option<u8>,
 
     // -1 is ZoneMinder's "leave the camera setting alone" sentinel (GH #19).
-    #[garde(range(min = -1, max = i32::MAX))]
-    pub brightness: i32,
+    #[garde(inner(range(min = -1, max = i32::MAX)))]
+    pub brightness: Option<i32>,
 
-    #[garde(range(min = -1, max = i32::MAX))]
-    pub contrast: i32,
+    #[garde(inner(range(min = -1, max = i32::MAX)))]
+    pub contrast: Option<i32>,
 
-    #[garde(range(min = -1, max = i32::MAX))]
-    pub hue: i32,
+    #[garde(inner(range(min = -1, max = i32::MAX)))]
+    pub hue: Option<i32>,
 
-    #[garde(range(min = -1, max = i32::MAX))]
-    pub colour: i32,
+    #[garde(inner(range(min = -1, max = i32::MAX)))]
+    pub colour: Option<i32>,
 
-    #[garde(length(chars, max = 32))]
-    pub event_prefix: String,
+    #[garde(inner(length(chars, max = 32)))]
+    pub event_prefix: Option<String>,
 
     #[garde(inner(length(chars, max = 64)))]
     pub label_format: Option<String>,
 
     #[garde(skip)] // u16 doesn't need validation in this case
-    pub label_x: u16,
+    pub label_x: Option<u16>,
 
     #[garde(skip)] // u16 doesn't need validation in this case
-    pub label_y: u16,
+    pub label_y: Option<u16>,
 
-    #[garde(range(min = 1))]
-    pub label_size: u16,
+    #[garde(inner(range(min = 1)))]
+    pub label_size: Option<u16>,
 
-    #[garde(range(min = 1))]
-    pub image_buffer_count: u16,
+    #[garde(inner(range(min = 1)))]
+    pub image_buffer_count: Option<u16>,
 
     // 0 means unlimited in ZoneMinder (GH #19).
-    #[garde(range(min = 0))]
-    pub max_image_buffer_count: u16,
+    #[garde(inner(range(min = 0)))]
+    pub max_image_buffer_count: Option<u16>,
 
     #[garde(skip)] // u16 doesn't need validation in this case
-    pub warmup_count: u16,
+    pub warmup_count: Option<u16>,
 
     #[garde(skip)] // u16 doesn't need validation in this case
-    pub pre_event_count: u16,
+    pub pre_event_count: Option<u16>,
 
     #[garde(skip)] // u16 doesn't need validation in this case
-    pub post_event_count: u16,
+    pub post_event_count: Option<u16>,
 
-    #[garde(range(min = 0))]
-    pub stream_replay_buffer: u32,
+    #[garde(inner(range(min = 0)))]
+    pub stream_replay_buffer: Option<u32>,
 
-    #[garde(range(min = 1))]
-    pub alarm_frame_count: u16,
+    #[garde(inner(range(min = 1)))]
+    pub alarm_frame_count: Option<u16>,
 
-    #[garde(range(min = 1))]
-    pub section_length: u32,
+    #[garde(inner(range(min = 1)))]
+    pub section_length: Option<u32>,
 
-    #[garde(range(min = -1, max = 1))]
-    pub section_length_warn: i8,
+    #[garde(inner(range(min = -1, max = 1)))]
+    pub section_length_warn: Option<i8>,
 
     #[serde(rename = "event_close_mode")]
     #[garde(skip)]
-    pub event_close_mode: EventCloseMode,
+    pub event_close_mode: Option<EventCloseMode>,
 
-    #[garde(range(min = 1))]
-    pub min_section_length: u32,
+    #[garde(inner(range(min = 1)))]
+    pub min_section_length: Option<u32>,
 
     #[garde(skip)] // u16 doesn't need validation in this case
-    pub motion_frame_skip: u16,
+    pub motion_frame_skip: Option<u16>,
 
     /// Whether this monitor is a camera or an IP speaker (1.39.30). Defaults to Camera.
     #[garde(skip)]
@@ -404,7 +405,7 @@ pub struct CreateMonitorRequest {
     pub analysis_fps_limit: Option<f64>,
 
     #[garde(skip)] // u16 doesn't need validation in this case
-    pub analysis_update_delay: u16,
+    pub analysis_update_delay: Option<u16>,
 
     #[garde(skip)] // Option<f64> can be None
     pub max_fps: Option<f64>,
@@ -413,16 +414,16 @@ pub struct CreateMonitorRequest {
     pub alarm_max_fps: Option<f64>,
 
     #[garde(skip)] // u16 doesn't need validation in this case
-    pub fps_report_interval: u16,
+    pub fps_report_interval: Option<u16>,
 
-    #[garde(range(min = 0, max = 100))]
-    pub ref_blend_perc: u8,
+    #[garde(inner(range(min = 0, max = 100)))]
+    pub ref_blend_perc: Option<u8>,
 
-    #[garde(range(min = 0, max = 100))]
-    pub alarm_ref_blend_perc: u8,
+    #[garde(inner(range(min = 0, max = 100)))]
+    pub alarm_ref_blend_perc: Option<u8>,
 
-    #[garde(range(min = 0, max = 1))]
-    pub controllable: u8,
+    #[garde(inner(range(min = 0, max = 1)))]
+    pub controllable: Option<u8>,
 
     #[garde(skip)] // Option<u32> can be None
     pub control_id: Option<u32>,
@@ -436,48 +437,48 @@ pub struct CreateMonitorRequest {
     #[garde(skip)] // Option<f64> can be None
     pub auto_stop_timeout: Option<f64>,
 
-    #[garde(range(min = 0, max = 1))]
-    pub track_motion: u8,
+    #[garde(inner(range(min = 0, max = 1)))]
+    pub track_motion: Option<u8>,
 
     #[garde(skip)] // Option<u16> can be None
     pub track_delay: Option<u16>,
 
-    #[garde(range(min = -1, max = 1))]
-    pub return_location: i8,
+    #[garde(inner(range(min = -1, max = 1)))]
+    pub return_location: Option<i8>,
 
     #[garde(skip)] // Option<u16> can be None
     pub return_delay: Option<u16>,
 
-    #[garde(range(min = 0, max = 1))]
-    pub modect_during_ptz: u8,
+    #[garde(inner(range(min = 0, max = 1)))]
+    pub modect_during_ptz: Option<u8>,
 
     #[garde(skip)]
-    pub default_rate: u16,
+    pub default_rate: Option<u16>,
 
-    #[garde(length(chars, max = 16))]
-    pub default_scale: String,
+    #[garde(inner(length(chars, max = 16)))]
+    pub default_scale: Option<String>,
 
     #[serde(rename = "default_codec")]
     #[garde(skip)]
-    pub default_codec: DefaultCodec,
+    pub default_codec: Option<DefaultCodec>,
 
     #[garde(skip)] // u32 doesn't need validation in this case
-    pub signal_check_points: u32,
+    pub signal_check_points: Option<u32>,
 
-    #[garde(length(chars, max = 32))]
-    pub signal_check_colour: String,
+    #[garde(inner(length(chars, max = 32)))]
+    pub signal_check_colour: Option<String>,
 
-    #[garde(length(chars, max = 32))]
-    pub web_colour: String,
+    #[garde(inner(length(chars, max = 32)))]
+    pub web_colour: Option<String>,
 
-    #[garde(range(min = 0, max = 1))]
-    pub exif: u8,
+    #[garde(inner(range(min = 0, max = 1)))]
+    pub exif: Option<u8>,
 
     #[garde(skip)] // Option<u16> can be None
     pub sequence: Option<u16>,
 
-    #[garde(range(min = -128, max = 127))]
-    pub zone_count: i8,
+    #[garde(inner(range(min = -128, max = 127)))]
+    pub zone_count: Option<i8>,
 
     #[garde(skip)] // Option<u32> can be None
     pub refresh: Option<u32>,
@@ -488,41 +489,81 @@ pub struct CreateMonitorRequest {
     #[garde(skip)] // Option<f64> can be None
     pub longitude: Option<f64>,
 
-    #[garde(range(min = -1, max = 1))]
-    pub rtsp_server: i8,
+    #[garde(inner(range(min = -1, max = 1)))]
+    pub rtsp_server: Option<i8>,
 
-    #[garde(length(chars, max = 255))]
-    pub rtsp_stream_name: String,
+    #[garde(inner(length(chars, max = 255)))]
+    pub rtsp_stream_name: Option<String>,
 
-    #[garde(range(min = -1, max = 1))]
-    pub soap_wsa_compl: i8,
+    #[garde(inner(range(min = -1, max = 1)))]
+    pub soap_wsa_compl: Option<i8>,
 
     // These are already enum types, so they're validated by the type system
     #[serde(rename = "importance")]
     #[garde(skip)]
-    pub importance: Importance,
+    pub importance: Option<Importance>,
 
-    #[garde(range(min = -1, max = 1))]
-    pub mqtt_enabled: i8,
+    #[garde(inner(range(min = -1, max = 1)))]
+    pub mqtt_enabled: Option<i8>,
 
-    #[garde(length(chars, max = 255))]
-    pub mqtt_subscriptions: String,
+    #[garde(inner(length(chars, max = 255)))]
+    pub mqtt_subscriptions: Option<String>,
 
     #[garde(skip)] // i32 doesn't need validation in this case
-    pub startup_delay: i32,
+    pub startup_delay: Option<i32>,
 
     #[serde(rename = "analysing")]
     #[garde(skip)]
-    pub analysing: Analysing,
+    pub analysing: Option<Analysing>,
 
     #[garde(skip)]
-    pub analysis_source: AnalysisSource,
+    pub analysis_source: Option<AnalysisSource>,
 
     #[garde(skip)]
-    pub analysis_image: AnalysisImage,
+    pub analysis_image: Option<AnalysisImage>,
 
     #[garde(skip)]
-    pub recording: Recording,
+    pub recording: Option<Recording>,
+
+    // --- Columns the response returns that had no request field (#159) ---
+    /// Serve the monitor through go2rtc.
+    #[garde(inner(range(min = 0, max = 1)))]
+    pub go2rtc_enabled: Option<i8>,
+    /// Stamp events with wall-clock rather than stream timestamps.
+    #[garde(inner(range(min = 0, max = 1)))]
+    pub wall_clock_timestamps: Option<i8>,
+    /// Player the web UI uses for this monitor by default.
+    #[garde(inner(length(chars, max = 64)))]
+    pub default_player: Option<String>,
+    /// Hardware encoder (`EncoderHWAccelName`).
+    #[garde(inner(length(chars, max = 64)))]
+    pub encoder_hw_accel_name: Option<String>,
+    /// Hardware encoder device (`EncoderHWAccelDevice`).
+    #[garde(inner(length(chars, max = 255)))]
+    pub encoder_hw_accel_device: Option<String>,
+    /// Stream source channel.
+    #[garde(skip)]
+    pub stream_channel: Option<crate::entity::sea_orm_active_enums::StreamChannel>,
+    /// What the live view renders: video, audio visualization, or both.
+    #[garde(skip)]
+    pub what_display: Option<crate::entity::sea_orm_active_enums::WhatDisplay>,
+
+    // --- Object detection (ZoneMinder 1.39.17 AI data model) ---
+    /// Alpha applied when compositing the analysis image over the frame.
+    #[garde(inner(range(min = 0, max = 255)))]
+    pub analysis_image_opacity: Option<u8>,
+    /// Detector to use, or `none` to disable object detection.
+    #[garde(inner(length(max = 16)))]
+    pub object_detection: Option<String>,
+    /// Name of the AI model used for object detection.
+    #[garde(inner(length(max = 255)))]
+    pub object_detection_model: Option<String>,
+    /// Object confidence threshold (0.0-1.0).
+    #[garde(inner(range(min = 0.0, max = 1.0)))]
+    pub object_detection_object_threshold: Option<f32>,
+    /// Non-maximum-suppression threshold (0.0-1.0).
+    #[garde(inner(range(min = 0.0, max = 1.0)))]
+    pub object_detection_nms_threshold: Option<f32>,
 }
 
 impl Default for CreateMonitorRequest {
@@ -537,136 +578,148 @@ impl Default for CreateMonitorRequest {
             // Placeholder so the Default itself validates (min length 1); real
             // callers (e.g. onboarding) always override this.
             name: "Monitor".to_string(),
-            deleted: false,
+            deleted: Some(false),
             enabled: None,
             notes: None,
             server_id: None,
-            storage_id: 1,
+            storage_id: Some(1),
             manufacturer_id: None,
             model_id: None,
             r#type: MonitorType::Ffmpeg,
-            function: Function::Monitor,
-            capturing: Capturing::Always,
-            decoding_enabled: 1,
-            decoding: Decoding::Always,
-            rtsp2_web_enabled: 0,
-            rtsp2_web_type: Rtsp2WebType::Hls,
-            janus_enabled: 0,
-            janus_audio_enabled: 0,
+            function: Some(Function::Monitor),
+            capturing: Some(Capturing::Always),
+            decoding_enabled: Some(1),
+            decoding: Some(Decoding::Always),
+            rtsp2_web_enabled: Some(0),
+            rtsp2_web_type: Some(Rtsp2WebType::Hls),
+            janus_enabled: Some(0),
+            janus_audio_enabled: Some(0),
             janus_profile_override: None,
-            restream: 0,
+            restream: Some(0),
             rtsp_user: None,
             janus_rtsp_session_timeout: None,
             linked_monitors: None,
-            triggers: String::new(),
-            event_start_command: String::new(),
-            event_end_command: String::new(),
-            onvif_url: String::new(),
-            onvif_events_path: String::new(),
-            onvif_username: String::new(),
-            onvif_password: String::new(),
-            onvif_options: String::new(),
-            onvif_event_listener: 0,
+            triggers: Some(String::new()),
+            event_start_command: Some(String::new()),
+            event_end_command: Some(String::new()),
+            onvif_url: Some(String::new()),
+            onvif_events_path: Some(String::new()),
+            onvif_username: Some(String::new()),
+            onvif_password: Some(String::new()),
+            onvif_options: Some(String::new()),
+            onvif_event_listener: Some(0),
             onvif_alarm_text: None,
-            use_amcrest_api: 0,
-            device: String::new(),
-            channel: 0,
-            format: 0,
+            use_amcrest_api: Some(0),
+            device: Some(String::new()),
+            channel: Some(0),
+            format: Some(0),
             v4l_multi_buffer: None,
             v4l_captures_per_frame: None,
             protocol: None,
             method: None,
             host: None,
-            port: String::new(),
-            sub_path: String::new(),
+            port: Some(String::new()),
+            sub_path: Some(String::new()),
             path: None,
             second_path: None,
             options: None,
             user: None,
             pass: None,
-            width: 1,
-            height: 1,
-            colours: 4,
-            palette: 0,
-            orientation: Orientation::Rotate0,
-            deinterlacing: 0,
+            width: Some(1),
+            height: Some(1),
+            colours: Some(4),
+            palette: Some(0),
+            orientation: Some(Orientation::Rotate0),
+            deinterlacing: Some(0),
             decoder: None,
             decoder_hw_accel_name: None,
             decoder_hw_accel_device: None,
-            save_jpe_gs: 1,
-            video_writer: 1,
+            save_jpe_gs: Some(1),
+            video_writer: Some(1),
             output_codec: None,
             encoder: None,
             output_container: Some(OutputContainer::Auto),
             encoder_parameters: None,
-            record_audio: 1,
-            recording_source: RecordingSource::Primary,
+            record_audio: Some(1),
+            recording_source: Some(RecordingSource::Primary),
             rtsp_describe: None,
-            brightness: 0,
-            contrast: 0,
-            hue: 0,
-            colour: 0,
-            event_prefix: "Event-".to_string(),
+            brightness: Some(0),
+            contrast: Some(0),
+            hue: Some(0),
+            colour: Some(0),
+            event_prefix: Some("Event-".to_string()),
             label_format: None,
-            label_x: 0,
-            label_y: 0,
-            label_size: 1,
-            image_buffer_count: 3,
-            max_image_buffer_count: 3,
-            warmup_count: 0,
-            pre_event_count: 5,
-            post_event_count: 5,
-            stream_replay_buffer: 1000,
-            alarm_frame_count: 1,
-            section_length: 600,
-            section_length_warn: 0,
-            event_close_mode: EventCloseMode::Idle,
-            min_section_length: 10,
-            motion_frame_skip: 0,
+            label_x: Some(0),
+            label_y: Some(0),
+            label_size: Some(1),
+            image_buffer_count: Some(3),
+            max_image_buffer_count: Some(3),
+            warmup_count: Some(0),
+            pre_event_count: Some(5),
+            post_event_count: Some(5),
+            stream_replay_buffer: Some(1000),
+            alarm_frame_count: Some(1),
+            section_length: Some(600),
+            section_length_warn: Some(0),
+            event_close_mode: Some(EventCloseMode::Idle),
+            min_section_length: Some(10),
+            motion_frame_skip: Some(0),
             device_class: None,
             audio_detection: None,
             audio_threshold: None,
             audio_alarm_score: None,
             analysis_fps_limit: None,
-            analysis_update_delay: 0,
+            analysis_update_delay: Some(0),
             max_fps: None,
             alarm_max_fps: None,
-            fps_report_interval: 100,
-            ref_blend_perc: 6,
-            alarm_ref_blend_perc: 6,
-            controllable: 0,
+            fps_report_interval: Some(100),
+            ref_blend_perc: Some(6),
+            alarm_ref_blend_perc: Some(6),
+            controllable: Some(0),
             control_id: None,
             control_device: None,
             control_address: None,
             auto_stop_timeout: None,
-            track_motion: 0,
+            track_motion: Some(0),
             track_delay: None,
-            return_location: -1,
+            return_location: Some(-1),
             return_delay: None,
-            modect_during_ptz: 0,
-            default_rate: 100,
-            default_scale: "0".to_string(),
-            default_codec: DefaultCodec::Auto,
-            signal_check_points: 0,
-            signal_check_colour: String::new(),
-            web_colour: String::new(),
-            exif: 0,
+            modect_during_ptz: Some(0),
+            default_rate: Some(100),
+            default_scale: Some("0".to_string()),
+            default_codec: Some(DefaultCodec::Auto),
+            signal_check_points: Some(0),
+            signal_check_colour: Some(String::new()),
+            web_colour: Some(String::new()),
+            exif: Some(0),
             sequence: None,
-            zone_count: 0,
+            zone_count: Some(0),
             refresh: None,
             latitude: None,
             longitude: None,
-            rtsp_server: 0,
-            rtsp_stream_name: String::new(),
-            soap_wsa_compl: 0,
-            importance: Importance::Normal,
-            mqtt_enabled: 0,
-            mqtt_subscriptions: String::new(),
-            startup_delay: 0,
-            analysing: Analysing::None,
-            analysis_source: AnalysisSource::Primary,
-            analysis_image: AnalysisImage::FullColour,
-            recording: Recording::Always,
+            rtsp_server: Some(0),
+            rtsp_stream_name: Some(String::new()),
+            soap_wsa_compl: Some(0),
+            importance: Some(Importance::Normal),
+            mqtt_enabled: Some(0),
+            mqtt_subscriptions: Some(String::new()),
+            startup_delay: Some(0),
+            analysing: Some(Analysing::None),
+            analysis_source: Some(AnalysisSource::Primary),
+            analysis_image: Some(AnalysisImage::FullColour),
+            recording: Some(Recording::Always),
+            go2rtc_enabled: None,
+            wall_clock_timestamps: None,
+            default_player: None,
+            encoder_hw_accel_name: None,
+            encoder_hw_accel_device: None,
+            stream_channel: None,
+            what_display: None,
+            analysis_image_opacity: None,
+            object_detection: None,
+            object_detection_model: None,
+            object_detection_object_threshold: None,
+            object_detection_nms_threshold: None,
         }
     }
 }
@@ -1112,17 +1165,45 @@ pub struct UpdateMonitorRequest {
     #[serde(rename = "recording")]
     #[garde(skip)]
     pub recording: Option<Recording>,
+
+    // --- Columns the response returns that had no request field (#159) ---
+    /// Serve the monitor through go2rtc.
+    #[garde(inner(range(min = 0, max = 1)))]
+    pub go2rtc_enabled: Option<i8>,
+    /// Stamp events with wall-clock rather than stream timestamps.
+    #[garde(inner(range(min = 0, max = 1)))]
+    pub wall_clock_timestamps: Option<i8>,
+    /// Player the web UI uses for this monitor by default.
+    #[garde(inner(length(chars, max = 64)))]
+    pub default_player: Option<String>,
+    /// Hardware encoder (`EncoderHWAccelName`).
+    #[garde(inner(length(chars, max = 64)))]
+    pub encoder_hw_accel_name: Option<String>,
+    /// Hardware encoder device (`EncoderHWAccelDevice`).
+    #[garde(inner(length(chars, max = 255)))]
+    pub encoder_hw_accel_device: Option<String>,
+    /// Stream source channel.
+    #[garde(skip)]
+    pub stream_channel: Option<crate::entity::sea_orm_active_enums::StreamChannel>,
+    /// What the live view renders: video, audio visualization, or both.
+    #[garde(skip)]
+    pub what_display: Option<crate::entity::sea_orm_active_enums::WhatDisplay>,
 }
 
+/// Body of `PATCH /monitors/{id}/state`. Distinct from the run-state
+/// `UpdateStateRequest` in `dto::request::states`: the two shared a name, and
+/// the OpenAPI spec documented this endpoint with the other one's body (#158).
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
-pub struct UpdateStateRequest {
+pub struct MonitorStateRequest {
     #[garde(custom(is_valid_state))]
     pub state: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Validate)]
 pub struct AlarmControlRequest {
-    /// Action to perform: "on" (trigger), "off"/"cancel" (cancel), "status" (get status)
+    /// Action to perform: "on" (force an alarm), "off"/"cancel" (cancel a
+    /// forced alarm), "disable_alarms" (force alarms off until
+    /// "enable_alarms", ZoneMinder's `zmu -n` / `zmu -c`), "status"
     #[garde(custom(is_valid_alarm_action))]
     pub action: String,
 

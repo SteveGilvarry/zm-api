@@ -39,7 +39,7 @@ before relying on any specific phase verdict.
 | Doc | Status | One-line scope |
 |---|---|---|
 | [STORAGE_PLAN.md](STORAGE_PLAN.md) | Active (design) | Per-Storage retention with declared capacity, per-Monitor quotas, soft-delete + reap, cold-tier handoff (S3 etc.). Replaces `PurgeWhenFull` and `Update DiskSpace`. |
-| [FILTERS_PLAN.md](FILTERS_PLAN.md) | Active (design) | Retire user-facing Filters. Saved searches → bulk event ops; notifications → rules engine; media → job queue; `AutoExecuteCmd` → webhooks. |
+| [FILTERS_PLAN.md](FILTERS_PLAN.md) | Active (P3 started) | Retire user-facing Filters. Saved searches → bulk event ops; notifications → rules engine; media → job queue (in tree with its first kind, `video`); `AutoExecuteCmd` → webhooks. |
 | [MONITOR_EVENTS_TASKS.md](MONITOR_EVENTS_TASKS.md) | Active | Capture-fault + state-change SSE on `GET /api/v3/monitors/{id}/events`. zmc-side (Phase 1) is the gating dependency; Phase 2-3 mostly land via the zm-next protocol code already in tree. |
 | [HEVC_WEBRTC_TASKS.md](HEVC_WEBRTC_TASKS.md) | Done — verify | Phase 1 server correctness shipped. Phase 2 (Safari verification) + Phase 3 (Swift/Kotlin apps) pending. |
 | [AUDIO_TASKS.md](AUDIO_TASKS.md) | Done — verify | Phases 1-3 (HLS AAC, WebRTC G.711, AAC→Opus) shipped. Real-camera browser verification pending; Phase 4 stretch items open. |

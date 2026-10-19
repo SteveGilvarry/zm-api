@@ -157,6 +157,15 @@ pub struct EventQueryParams {
     #[garde(skip)]
     pub notes: Option<String>,
 
+    /// Free-text search, as legacy's events search box: a substring match
+    /// over Id, MonitorId, StorageId, Name, Cause, StartDateTime,
+    /// EndDateTime, Length, Frames, AlarmFrames, TotScore, AvgScore,
+    /// MaxScore, Archived, Emailed, Notes and DiskSpace, any of which may
+    /// match (#136).
+    #[schema(example = "Front")]
+    #[garde(inner(length(max = 255)))]
+    pub q: Option<String>,
+
     /// Filter by the storage the event's media lives on.
     #[schema(example = 1)]
     #[garde(skip)]

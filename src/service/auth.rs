@@ -7,7 +7,6 @@ use crate::error::ToAppResult;
 use crate::repo::users as user;
 use crate::server::state::AppState;
 use crate::service::token;
-use crate::util::authz::UserPermissions;
 use crate::util::claim::UserClaims;
 use crate::util::password;
 use tracing::info;
@@ -34,7 +33,8 @@ pub async fn login(state: &AppState, req: LoginRequest) -> AppResult<TokenRespon
         _ => return Err(invalid_credentials()),
     };
 
-    let perms = UserPermissions::from(&user);
+    // The user's own levels raised by their role's (#143).
+    let perms = crate::util::authz::effective_permissions(&state.db, &user).await?;
     let resp = token::generate_tokens(user.username, user.id, perms)?;
     Ok(resp)
 }
@@ -53,9 +53,9 @@ pub async fn refresh_token(state: &AppState, req: RefreshTokenRequest) -> AppRes
         ));
     }
     info!("Set new session for user: {}", user.id);
-    // Re-read permissions from the user row so a refresh picks up any
-    // permission changes made since the previous token was issued.
-    let perms = UserPermissions::from(&user);
+    // Re-read permissions from the user row (and their role) so a refresh
+    // picks up any permission changes made since the previous token was issued.
+    let perms = crate::util::authz::effective_permissions(&state.db, &user).await?;
     let resp = token::generate_tokens(user.username, user.id, perms)?;
     info!("Refresh token success: {user_claims:?}");
     Ok(resp)
@@ -108,6 +108,7 @@ mod tests {
     use super::*;
     use crate::error::AppError;
     use crate::server::state::AppState;
+    use crate::util::authz::UserPermissions;
     use sea_orm::{DatabaseBackend, MockDatabase};
 
     fn mk_user(username: &str, hashed: &str) -> crate::entity::users::Model {
@@ -133,6 +134,7 @@ mod tests {
             token_min_expiry: 0,
             api_enabled: 1,
             home_view: "console".into(),
+            role_id: None,
         }
     }
 

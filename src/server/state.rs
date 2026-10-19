@@ -41,6 +41,11 @@ pub struct AppState {
     pub ptz_manager: Arc<PtzManager>,
     // Per-user token-revocation floors (hot-path mirror of Users.TokenMinExpiry)
     pub revocations: Arc<crate::util::revocation::TokenRevocations>,
+    /// Set when ZoneMinder's schema is older than this build needs (#147):
+    /// the API answers 503 with this message, and the daemons are left alone.
+    pub schema_behind: Option<Arc<str>>,
+    /// Wakes the media job worker when a job is queued.
+    pub media_job_wake: Arc<tokio::sync::Notify>,
 }
 
 impl AppState {
@@ -63,7 +68,21 @@ impl AppState {
         // tables — never ZoneMinder's). Non-fatal: a failure degrades the owned
         // features (event_synopsis, the zm-next pipeline store) rather than
         // blocking boot, since zm-api primarily reads ZoneMinder's own schema.
-        if let Err(e) = crate::client::database::migrate_database(db.as_ref()).await {
+        //
+        // A ZoneMinder schema older than this build mirrors is not upgraded
+        // here: ZoneMinder's own binaries may still be the old version. zm-api
+        // refuses to serve until the operator upgrades it (#147).
+        let schema_behind: Option<Arc<str>> =
+            match crate::migration::schema_check::check(db.as_ref()).await {
+                Ok(state) => state.explain().map(Arc::from),
+                Err(e) => {
+                    tracing::warn!("could not check the ZoneMinder schema version: {e}");
+                    None
+                }
+            };
+        if let Some(msg) = &schema_behind {
+            tracing::error!("{msg}. Until then the API answers 503 and capture is not touched");
+        } else if let Err(e) = crate::client::database::migrate_database(db.as_ref()).await {
             tracing::warn!("zm-api owned-table migrations failed (features may degrade): {e}");
         }
         // Stored zm-next graphs saved before secrets were split out still hold
@@ -255,7 +274,16 @@ impl AppState {
         }
 
         // Initialize daemon manager if enabled
-        let daemon_manager = if config.daemon.enabled {
+        let daemon_manager = if config.daemon.enabled && schema_behind.is_some() {
+            // The supervisor's monitor queries would fail on this schema and
+            // capture would stop; leave the daemons alone instead.
+            tracing::error!(
+                "not taking over ZoneMinder's daemons: the database is behind this build. \
+                 Running capture daemons are left alone; if none are running, \
+                 `zm-api-takeover --revert` hands supervision back to ZoneMinder"
+            );
+            None
+        } else if config.daemon.enabled {
             tracing::info!("Daemon controller enabled, initializing manager");
             let mut manager =
                 DaemonManager::with_database(config.daemon.clone(), server_id, db.clone());
@@ -316,6 +344,8 @@ impl AppState {
             daemon_manager,
             ptz_manager,
             revocations,
+            schema_behind,
+            media_job_wake: Arc::new(tokio::sync::Notify::new()),
         })
     }
 
@@ -353,6 +383,8 @@ impl AppState {
             daemon_manager: None,
             ptz_manager: std::sync::Arc::new(PtzManager::with_defaults()),
             revocations: std::sync::Arc::new(crate::util::revocation::TokenRevocations::default()),
+            schema_behind: None,
+            media_job_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
         }
     }
 

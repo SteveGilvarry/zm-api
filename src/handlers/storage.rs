@@ -89,6 +89,10 @@ pub struct UpdateStorageRequest {
     pub server_id: Option<u32>,
     #[garde(inner(length(chars, max = 255)))]
     pub url: Option<String>,
+    /// Whether ZoneMinder may delete media from this area (`DoDelete`, 0/1);
+    /// the reaper and event deletes honour it (#185).
+    #[garde(inner(range(min = 0, max = 1)))]
+    pub do_delete: Option<i8>,
 }
 
 /// Update storage fields (partial update).
@@ -120,6 +124,7 @@ pub async fn update_storage(
         req.scheme,
         req.server_id,
         req.url,
+        req.do_delete,
     )
     .await?;
     Ok(Json(item))

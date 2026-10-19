@@ -53,161 +53,79 @@ pub async fn get_version(state: &AppState) -> AppResult<VersionResponse> {
 }
 
 /// Restart ZoneMinder daemon
-pub async fn restart_zoneminder(_state: &AppState) -> AppResult<()> {
-    info!("Restarting ZoneMinder daemon");
-
-    // Try systemctl first (most common on modern Linux systems)
-    let result = Command::new("systemctl")
-        .arg("restart")
-        .arg("zoneminder")
-        .output()
-        .await;
-
-    match result {
-        Ok(output) if output.status.success() => {
-            info!("Successfully restarted ZoneMinder via systemctl");
-            Ok(())
-        }
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            error!("Failed to restart ZoneMinder: {}", stderr);
-
-            // Try zmcontrol.pl as fallback
-            restart_via_zmcontrol().await
-        }
-        Err(e) => {
-            error!("Failed to execute systemctl: {}", e);
-            // Try zmcontrol.pl as fallback
-            restart_via_zmcontrol().await
-        }
-    }
+pub async fn restart_zoneminder(state: &AppState) -> AppResult<()> {
+    control_zoneminder(state, "restart").await
 }
 
 /// Stop ZoneMinder daemon
-pub async fn stop_zoneminder(_state: &AppState) -> AppResult<()> {
-    info!("Stopping ZoneMinder daemon");
-
-    let result = Command::new("systemctl")
-        .arg("stop")
-        .arg("zoneminder")
-        .output()
-        .await;
-
-    match result {
-        Ok(output) if output.status.success() => {
-            info!("Successfully stopped ZoneMinder via systemctl");
-            Ok(())
-        }
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            error!("Failed to stop ZoneMinder: {}", stderr);
-            stop_via_zmcontrol().await
-        }
-        Err(e) => {
-            error!("Failed to execute systemctl: {}", e);
-            stop_via_zmcontrol().await
-        }
-    }
+pub async fn stop_zoneminder(state: &AppState) -> AppResult<()> {
+    control_zoneminder(state, "stop").await
 }
 
 /// Start ZoneMinder daemon
-pub async fn start_zoneminder(_state: &AppState) -> AppResult<()> {
-    info!("Starting ZoneMinder daemon");
+pub async fn start_zoneminder(state: &AppState) -> AppResult<()> {
+    control_zoneminder(state, "start").await
+}
 
-    let result = Command::new("systemctl")
-        .arg("start")
+/// `systemctl <action> zoneminder`, falling back to `zmpkg.pl <action>` when
+/// systemd is unavailable or refuses (containers, a service user without
+/// systemd rights). zmpkg.pl is what ZoneMinder's own API runs for run-state
+/// changes; the fallback used to be zmcontrol.pl, the PTZ script (#157).
+async fn control_zoneminder(state: &AppState, action: &str) -> AppResult<()> {
+    info!("{action} ZoneMinder");
+    match Command::new("systemctl")
+        .arg(action)
         .arg("zoneminder")
         .output()
-        .await;
-
-    match result {
+        .await
+    {
         Ok(output) if output.status.success() => {
-            info!("Successfully started ZoneMinder via systemctl");
-            Ok(())
+            info!("ZoneMinder {action} via systemctl succeeded");
+            return Ok(());
         }
-        Ok(output) => {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            error!("Failed to start ZoneMinder: {}", stderr);
-            start_via_zmcontrol().await
-        }
-        Err(e) => {
-            error!("Failed to execute systemctl: {}", e);
-            start_via_zmcontrol().await
-        }
+        Ok(output) => error!(
+            "systemctl {action} zoneminder failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ),
+        Err(e) => error!("Failed to execute systemctl: {e}"),
     }
-}
 
-/// Fallback: restart via zmcontrol.pl
-async fn restart_via_zmcontrol() -> AppResult<()> {
-    let output = Command::new("zmcontrol.pl")
-        .arg("restart")
+    let zmpkg = zmpkg_path(&state.config.daemon.bin_path);
+    let output = Command::new(&zmpkg)
+        .arg(action)
         .output()
         .await
         .map_err(|e| {
-            AppError::InternalServerError(format!("Failed to execute zmcontrol.pl: {}", e))
+            AppError::InternalServerError(format!("Failed to execute {}: {e}", zmpkg.display()))
         })?;
-
     if output.status.success() {
-        info!("Successfully restarted ZoneMinder via zmcontrol.pl");
+        info!("ZoneMinder {action} via zmpkg.pl succeeded");
         Ok(())
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
         Err(AppError::InternalServerError(format!(
-            "Failed to restart ZoneMinder: {}",
-            stderr
+            "Failed to {action} ZoneMinder: {}",
+            String::from_utf8_lossy(&output.stderr)
         )))
     }
 }
 
-/// Fallback: stop via zmcontrol.pl
-async fn stop_via_zmcontrol() -> AppResult<()> {
-    let output = Command::new("zmcontrol.pl")
-        .arg("stop")
-        .output()
-        .await
-        .map_err(|e| {
-            AppError::InternalServerError(format!("Failed to execute zmcontrol.pl: {}", e))
-        })?;
-
-    if output.status.success() {
-        info!("Successfully stopped ZoneMinder via zmcontrol.pl");
-        Ok(())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(AppError::InternalServerError(format!(
-            "Failed to stop ZoneMinder: {}",
-            stderr
-        )))
-    }
+/// zmpkg.pl in ZoneMinder's binary directory (`ZM_PATH_BIN`, applied to
+/// `[daemon].bin_path` from zm.conf).
+fn zmpkg_path(bin_path: &std::path::Path) -> std::path::PathBuf {
+    bin_path.join("zmpkg.pl")
 }
-
-/// Fallback: start via zmcontrol.pl
-async fn start_via_zmcontrol() -> AppResult<()> {
-    let output = Command::new("zmcontrol.pl")
-        .arg("start")
-        .output()
-        .await
-        .map_err(|e| {
-            AppError::InternalServerError(format!("Failed to execute zmcontrol.pl: {}", e))
-        })?;
-
-    if output.status.success() {
-        info!("Successfully started ZoneMinder via zmcontrol.pl");
-        Ok(())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(AppError::InternalServerError(format!(
-            "Failed to start ZoneMinder: {}",
-            stderr
-        )))
-    }
-}
-
-// TODO: Implement additional server-related functions here
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn falls_back_to_zmpkg_not_the_ptz_script() {
+        assert_eq!(
+            zmpkg_path(std::path::Path::new("/usr/bin")),
+            std::path::Path::new("/usr/bin/zmpkg.pl")
+        );
+    }
     use crate::entity::config::Model as ConfigModel;
     use crate::repo::config::{ZM_DB_VERSION_KEY, ZM_VERSION_KEY};
     use sea_orm::{DatabaseBackend, MockDatabase};

@@ -89,6 +89,9 @@ pub async fn update(
     if let Some(t) = req.token_min_expiry {
         active.token_min_expiry = Set(t);
     }
+    if let Some(role) = req.role_id {
+        active.role_id = Set(role);
+    }
     // Permission levels are validated/parsed from their string form.
     let p = &req.permissions;
     if let Some(v) = p.stream_level()? {
@@ -153,6 +156,7 @@ pub async fn create(
             .home_view
             .clone()
             .unwrap_or_else(|| "console".to_string())),
+        role_id: Set(req.role_id),
     };
     Ok(am.insert(db).await?)
 }
@@ -216,6 +220,7 @@ mod tests {
             token_min_expiry: 0,
             api_enabled: 1,
             home_view: "console".to_string(),
+            role_id: None,
         }
     }
 

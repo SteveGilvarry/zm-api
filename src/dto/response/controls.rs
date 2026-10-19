@@ -108,6 +108,13 @@ pub struct ControlResponse {
     pub turbo_tilt_speed: Option<i32>,
     pub can_auto_scan: u8,
     pub num_scan_paths: u8,
+    // Light and audio capabilities, ZoneMinder 1.39.13-1.39.29 (#177).
+    pub can_light: u8,
+    pub can_indicator_light: u8,
+    pub can_audio_play: u8,
+    pub min_audio_file: Option<u32>,
+    pub max_audio_file: Option<u32>,
+    pub can_audio_volume: u8,
 }
 
 impl From<&ControlModel> for ControlResponse {
@@ -215,6 +222,12 @@ impl From<&ControlModel> for ControlResponse {
             turbo_tilt_speed: model.turbo_tilt_speed,
             can_auto_scan: model.can_auto_scan,
             num_scan_paths: model.num_scan_paths,
+            can_light: model.can_light,
+            can_indicator_light: model.can_indicator_light,
+            can_audio_play: model.can_audio_play,
+            min_audio_file: model.min_audio_file,
+            max_audio_file: model.max_audio_file,
+            can_audio_volume: model.can_audio_volume,
         }
     }
 }

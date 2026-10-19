@@ -16,6 +16,8 @@ mod m00000000_000001_zm_baseline;
 mod m20260625_000001_create_event_synopsis;
 mod m20260627_000001_create_monitor_pipeline;
 mod m20260914_000001_create_zmnext_secret;
+mod m20261018_000001_create_media_jobs;
+pub mod schema_check;
 pub mod stamp;
 pub mod upstream;
 
@@ -34,6 +36,7 @@ impl MigratorTrait for Migrator {
             m20260627_000001_create_monitor_pipeline::Migration,
         ));
         all.push(Box::new(m20260914_000001_create_zmnext_secret::Migration));
+        all.push(Box::new(m20261018_000001_create_media_jobs::Migration));
         all
     }
 }

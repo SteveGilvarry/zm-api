@@ -155,6 +155,10 @@ pub struct CreateUserRequest {
     pub api_enabled: Option<u8>,
     #[garde(inner(length(chars, max = 16)))]
     pub max_bandwidth: Option<String>,
+    /// The user's role (`GET /api/v3/roles`); its permissions add to the
+    /// user's own.
+    #[garde(skip)]
+    pub role_id: Option<u32>,
     /// Per-feature permission levels. Omitted features default to `View`.
     #[serde(flatten)]
     #[garde(skip)]
@@ -187,6 +191,11 @@ pub struct UpdateUserRequest {
     /// revokes all of the user's outstanding tokens (admin revoke-all).
     #[garde(skip)]
     pub token_min_expiry: Option<u64>,
+    /// The user's role; `null` removes it. Omit to leave it unchanged.
+    #[serde(default, deserialize_with = "crate::dto::serde_helpers::double_option")]
+    #[schema(value_type = Option<u32>)]
+    #[garde(skip)]
+    pub role_id: Option<Option<u32>>,
     #[serde(flatten)]
     #[garde(skip)]
     pub permissions: UserPermissionsInput,

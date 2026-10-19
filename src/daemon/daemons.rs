@@ -112,6 +112,16 @@ pub const ZM_DAEMONS: &[DaemonDefinition] = &[
         priority: 90,
     },
     DaemonDefinition {
+        name: "zm_rtsp_server",
+        command: "zm_rtsp_server",
+        default_args: &[],
+        description: "RTSP restream server - re-serves monitors over RTSP",
+        auto_restart: true,
+        singleton: true,
+        requires_db: true,
+        priority: 75,
+    },
+    DaemonDefinition {
         name: "zmc",
         command: "zmc",
         default_args: &[],
@@ -125,10 +135,12 @@ pub const ZM_DAEMONS: &[DaemonDefinition] = &[
         name: "zma",
         command: "zma",
         default_args: &[],
-        description: "Analysis daemon - analyzes video for motion",
-        auto_restart: true,
-        singleton: false, // One per monitor
-        requires_db: false,
+        // Analysis has run inside zmc since 1.36; `zma -e <event>` re-analyses
+        // one recorded event and exits, so it is never restarted (#160).
+        description: "Event re-analysis - re-runs motion detection on a recorded event",
+        auto_restart: false,
+        singleton: false,
+        requires_db: true,
         priority: 6,
     },
 ];
@@ -184,6 +196,22 @@ mod tests {
     fn test_find_nonexistent() {
         assert!(DaemonDefinition::find_by_name("nonexistent").is_none());
         assert!(DaemonDefinition::find_by_command("nonexistent").is_none());
+    }
+
+    #[test]
+    fn zm_rtsp_server_is_a_known_singleton() {
+        // Regression (#161): zmdc rejected `start zm_rtsp_server` as an
+        // invalid daemon spec.
+        let d = DaemonDefinition::find_by_command("zm_rtsp_server").expect("known");
+        assert!(d.singleton && d.requires_db);
+    }
+
+    #[test]
+    fn zma_is_a_one_shot_job_not_a_supervised_daemon() {
+        // Regression (#160): zma per monitor exits at once on ZoneMinder
+        // master and was restarted forever.
+        let d = DaemonDefinition::find_by_command("zma").expect("known");
+        assert!(!d.auto_restart);
     }
 
     #[test]

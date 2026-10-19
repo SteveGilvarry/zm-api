@@ -10,6 +10,66 @@ recognisable path forward.
 
 ### Added
 
+- **Generate a video for an event** (#187), the first kind in the media job
+  queue of `docs/FILTERS_PLAN.md`. `POST /api/v3/events/{id}/videos` queues
+  ZoneMinder's Generate Video, with a format from `ZM_FFMPEG_FORMATS`, a
+  speed (`rate`) or frame rate (`fps`), a `scale` or `size`, an optional
+  greyscale `transform`, and `overwrite`. The video is made from the
+  recording, or from the capture JPEGs for an event without one, and named
+  as `zmvideo.pl` names its files. `GET /api/v3/events/{id}/videos` lists
+  the event's video files with the options read back from their names, and
+  `GET`/`DELETE .../videos/{name}` downloads or deletes one (not the
+  recording). `GET /api/v3/jobs[/{id}]` shows the queue, and `DELETE` cancels
+  a queued job or removes a finished one. ffmpeg runs without a shell, one
+  job at a time, and jobs a restart interrupted run again.
+
+- **Event export** (#30): `POST /api/v3/events/export {ids, include}`
+  streams a zip, built as it goes, with a `{event_id}/` folder per event.
+  `include` picks from `details` (`event.json`), `frames` (`frames.json`),
+  `images`, `video` and `misc`, and defaults to details and video. Up to 500
+  ids; each is checked before anything is sent, so an id that doesn't exist
+  or isn't visible is a `404`. Media files are stored as they are and the
+  JSON is deflated.
+
+- **Push token registrations** (#175): `/api/v3/notifications` lists, reads,
+  registers, changes and removes the Notifications rows that
+  zmeventnotification-style push uses, as ZoneMinder's `notifications.json`
+  does. Any logged-in user manages their own tokens, and a System editor sees
+  everyone's. Posting a token that is already registered updates its row
+  (`200`), posting another user's token is a `403`, and another user's row
+  is a `404`. `last_notified_at` is in UTC.
+
+- **Monitor actions** (#179): `GET/POST /api/v3/monitors/{id}/actions`,
+  `GET/PATCH/DELETE /api/v3/monitors/{id}/actions/{action_id}` and
+  `GET /api/v3/monitors/{id}/actions/targets` cover ZoneMinder 1.39.30's
+  MonitorActions, the lights and sounds one monitor's events trigger on
+  another's device. An action type the target's control can't perform, or an
+  audio file outside its range, is a `400`. A change restarts the monitor's
+  daemons, since zmc reads the list at start. `POST
+  .../actions/{action_id}/run` runs an enabled `Manual` action. It needs
+  Control view on the monitor and the target, and builds the command from the
+  stored row.
+
+- **Config options say where their value comes from** (#183): each
+  `/configs` entry carries `requires` (the option's dependency, as
+  ZoneMinder stores it), `source` (`db` or `file`) and `source_file`. When
+  `zm.conf` or a `conf.d` file sets the option, the response shows the file's
+  value, which is the one in effect, and a `PUT` answers `409`, since the
+  file would override the change anyway. A private option set in a file
+  still returns an empty value.
+
+- **Signed media links for players that can't send a header** (#153, #34).
+  `POST /api/v3/live/{monitor_id}/hls/link` and
+  `POST /api/v3/events/{id}/stream/link` mint a playlist URL signed for that
+  monitor's live stream or that event's recording, read-only, lasting 30 days
+  by default (up to 365). Every URI the playlist lists then carries its own
+  signature (`?st=`), valid for minutes on a live stream and renewed with each
+  playlist refresh, so FFmpeg, VLC, Safari's native player and Home Assistant
+  play it, and a segment URL caught in a log is soon useless. Nothing is
+  stored: a link is checked against its user's current permissions and dies
+  when the user is logged out everywhere, changes password or is disabled.
+  See the Media URLs section of the authentication guide.
+
 - **The schema follows ZoneMinder to 1.39.41** (#152). Eight more upstream
   updates are mirrored as migrations, vendored into the raw chain for
   `migrator bridge`, and the entities follow. `FrameResponse` gains
@@ -171,6 +231,153 @@ recognisable path forward.
   `--force` takes over despite a failed check.
 
 ### Fixed
+
+- **A ZoneMinder schema older than this build no longer stops capture**
+  (#147). At startup zm-api compares ZoneMinder's schema version with the
+  one it mirrors. When the schema is behind, zm-api logs it as an error,
+  does not upgrade ZoneMinder's tables by itself, and doesn't take over the
+  daemons, so capture is left alone. Until the schema is upgraded, every API
+  call answers `503` naming the fix (`zm-api-db up`, or `bridge` for a
+  database not on the migration system); the health check and version still
+  answer. A schema that ZoneMinder's own packages have already brought
+  forward counts as current. `zm-api-db status` starts with "DB behind
+  binary" when that applies, and zm-api-db falls back to the database
+  `zm.conf` names when given no URL.
+
+- **Event time filters use the server's time zone** (#173). `start_time` /
+  `end_time` on `GET /events` (and the times on `POST /events`, saved-search
+  date terms and the audit report window) were turned into naive UTC and
+  compared against ZoneMinder's local-time columns, so on any server not on
+  UTC the window was off by the offset. They now convert to server-local
+  time, the inverse of what responses already do.
+- **PTZ light and audio commands** (#190), following the iris and power
+  routes: `POST /ptz/monitors/{id}/light/{on|off}` and
+  `/indicator-light/{on|off}`, `GET /ptz/monitors/{id}/light` (each light
+  `on`, `off` or null, from the control module's status reply),
+  `POST .../audio/play/{file}` (checked against the control's sound range),
+  `/audio/stop` and `/audio/volume/{up|down}`. Each answers 400 when the
+  monitor's control can't do it, and `PtzCapabilities` gains `light` and
+  `audio` so a client shows only what it can invoke.
+- **`GET /api/v3/monitors/{id}/audio-level`**, the live audio level for the
+  monitor editor's meter (#180): `level` (0-100) and `alarm` from zmc's
+  shared memory, null while zmc isn't running, with the monitor's
+  `threshold` and `detection`. Each call asks zmc to keep measuring for ten
+  more seconds even with audio detection off, as ZoneMinder's editor does.
+- **`POST /api/v3/system/privacy`** records the answer to the privacy
+  statement as ZoneMinder's privacy page does (#189): `ZM_SHOW_PRIVACY` off,
+  `ZM_TELEMETRY_DATA` following the answer. System edit.
+- **Controls carry their light and audio capabilities** (#177):
+  `can_light`, `can_indicator_light`, `can_audio_play`, `min_audio_file`,
+  `max_audio_file` and `can_audio_volume`, on the response and on create and
+  update.
+- **Zone presets carry their thresholds** (#188): the fourteen threshold
+  columns a preset applies, on the response and on create and update, named
+  as on `ZoneResponse`.
+- **`component` on `GET` and `DELETE /logs` takes a comma list** (#186), as
+  `level` does, for the log page's multi-select and for clearing by it.
+- **`PATCH /storage/{id}` takes `do_delete`** (#185), so the switch that stops
+  ZoneMinder deleting media from an area can be changed after creation.
+- **Login accepts short passwords** (#174). `POST /auth/login` rejected any
+  password under 6 characters before checking it, so ZoneMinder users with
+  short passwords, the default `admin`/`admin` included, couldn't log in.
+  Setting a password still enforces a minimum.
+- **`EventResponse` carries `max_score_frame_id`** (#176), the frame a client
+  reports as the match (pyzm's `snapshot` frame resolves through it).
+- **Live and recorded HLS play in header-less players** (#153). Playlists
+  fetched with a URL credential listed bare URIs, so FFmpeg and Home Assistant
+  got the playlist and then a 401 on the init segment and every segment. They
+  now list signed URIs. A playlist fetched with `?token=<JWT>` lists
+  signatures rather than copying the access token into its URIs.
+- **Recorded-event playlists play in FFmpeg** (#154). Segment URIs had no
+  extension, which FFmpeg's HLS demuxer refuses; they are now
+  `segment/N.m4s`, and a bare `N` still works.
+- **Start, stop and restart of ZoneMinder fall back to `zmpkg.pl`** (#157)
+  when `systemctl` fails, as ZoneMinder's own API does. The fallback was
+  `zmcontrol.pl`, the PTZ script.
+- **The OpenAPI spec documents `PATCH /monitors/{id}/state` with its own body**
+  (#158), `MonitorStateRequest` (`{"state": "start|stop|restart"}`). Two
+  structs shared the name `UpdateStateRequest`, and the run-state one won.
+- **Takeover no longer runs `zma` per monitor** (#160). Analysis has run
+  inside `zmc` since 1.36, and on 1.39 `zma -e <event>` re-analyses one event
+  and exits, so the supervisor restarted it forever.
+- **Takeover knows `zm_rtsp_server`** (#161), and starts it when
+  `ZM_MIN_RTSP_PORT` is set, as `zmpkg.pl` does. `zmdc.pl start
+  zm_rtsp_server` failed as an invalid daemon spec.
+- **PTZ capabilities no longer advertise gain, white balance or auto-scan**
+  (#146). No command exists for them (and no ZoneMinder control module
+  implements them), so clients drew controls that did nothing. They read as
+  unsupported until a command exists.
+- **`migrator bridge` leaves triggers alone on a database past its cutover**
+  (#162), where they are upstream's newer ones.
+- **The synopsis pipeline produces cutouts and plates** (#128). For a
+  synopsis monitor the generated zm-next pipeline put `review_export` straight
+  under capture, where it got compressed packets and produced nothing, passed
+  it two keys its schema rejects, and placed nothing to make background
+  plates. It now follows zm-next's synopsis layout: `decode_ffmpeg(rgb24)` →
+  `review_export`, and `decode_ffmpeg(gray)` → `motion_pixel_diff` with
+  `plate_export`, with the frame size taken from the monitor and the plate
+  directory set when the pipeline is composed (stored graphs included).
+- **Monitor changes reach the capture daemons in passive mode** (#155).
+  Creating, editing and deleting a monitor, and `PATCH /monitors/{id}/state`,
+  now start, restart or stop its `zmc` (and `zmcontrol.pl` when controllable)
+  through ZoneMinder's `zmdc.sock`, as ZoneMinder's own API does. The state
+  change answered 200 and did nothing, edits waited for something else to
+  restart `zmc`, and a delete left `zmc` running. An edit in takeover mode
+  restarts the monitor's daemons too.
+- **The live alarm state, and Disable/Enable Alarms** (#139).
+  `GET /api/v3/monitor-status/{id}` adds `alarm_state` (`idle`, `prealarm`,
+  `alarm`, `alert`), `alarms_disabled` and `analysing` from the monitor's
+  shared memory while zmc runs, and `PATCH /api/v3/monitors/{id}/alarm` takes
+  `disable_alarms` and `enable_alarms`, ZoneMinder's `zmu -n` and `zmu -c`.
+- **Each storage reports its filesystem** (#145): `StorageResponse` gains
+  `filesystem` (`total_bytes`, `used_bytes`, `available_bytes`,
+  `usage_percent`) for the disk its path is on, as `df` reports it, or null
+  when the path can't be read from this server. It is the disk's own size,
+  labelled as such, beside the event bytes; the capacity declared for
+  retention (docs/STORAGE_PLAN.md) is separate.
+- **Encoder templates and menu items** (#144). `/api/v3/encoder-templates`
+  and `/api/v3/menu-items` are CRUD over ZoneMinder 1.39's `EncoderTemplates`
+  and `Menu_Items` (System-gated), and `GET /api/v3/system/menu` returns the
+  enabled menu items in order for any logged-in user, so a client can render
+  the navbar the operator configured instead of a hard-coded one.
+- **ZoneMinder 1.39 roles** (#143). `GET/POST /api/v3/roles` and
+  `GET/PUT/DELETE /api/v3/roles/{id}` manage `User_Roles`, and users gain
+  `role_id`. A user's permissions are now, per feature, the higher of their
+  own level and their role's, as ZoneMinder computes them, at login, on
+  refresh and for signed media links; and the role's per-monitor and
+  per-group grants feed the monitor ACL beneath the user's own. A user
+  whose access came from a role was gated on their own levels alone.
+- **`GET /api/v3/reports/event-audit`**, legacy's Audit Events Report (#36):
+  per monitor, the events overlapping a window, their span, the smallest and
+  largest gap between one event's end and the next one's start (negative
+  where they overlap), and the events whose video is missing or empty on
+  disk. Defaults to the hour ending an hour ago, as legacy does; at most
+  10000 events per report.
+- **`GET /events/counts/{hours}?monitor_id=`** gives one monitor's hourly
+  event counts, for the console's per-monitor sparkline (#36), instead of
+  paging up to a thousand events per monitor to bucket them.
+- **`GET /events/{id}` carries the event's directory** as `path` (#140),
+  resolved from its storage and scheme the way ZoneMinder's event page shows
+  it, so a client need not reimplement the Deep/Medium/Shallow layout.
+- **`GET /events?q=` searches the way legacy's events search box does**
+  (#136): a substring match over id, monitor, storage, name, cause, start and
+  end time, length, frame counts, scores, archived, emailed, notes and disk
+  space, any of which may match.
+- **A monitor can be created with only the fields that matter** (#159).
+  `CreateMonitorRequest` required 84 of its fields with no server-side
+  defaults; now only `name` and `type` are required, and an omitted field
+  takes ZoneMinder's column default (`PreEventCount` 10, `SaveJPEGs` 3, and
+  so on), so a monitor created through v3 starts out the way one created in
+  ZoneMinder does. Columns the response already returned but no request
+  could set are now settable on create and update: `go2rtc_enabled`,
+  `wall_clock_timestamps`, `default_player`, `encoder_hw_accel_name`,
+  `encoder_hw_accel_device`, `stream_channel`, `what_display`, and on create
+  the object-detection fields.
+- **Daemon and system status work in passive mode** (#156).
+  `/api/v3/daemons*` and `/api/v3/system/status` answered 503; they now read
+  what `zmdc.pl` supervises from its `zmdc.sock`, with this host's load,
+  memory and disk, and the per-daemon start/stop/restart/reload endpoints
+  send their command to it.
 
 - **Alarm control through shared memory works on ZoneMinder 1.39** (#148,
   PR #149 by Nic Boet). `SharedData` grew to 888 bytes on master and zm-api
@@ -470,6 +677,17 @@ recognisable path forward.
   default, and any other table that drifts is logged by name.
 
 ### Security
+
+- **Private config values are hidden below System Edit** (#184).
+  `GET /api/v3/configs` and `GET /api/v3/configs/{name}` returned `Private`
+  options in clear to anyone with System View, `ZM_AUTH_HASH_SECRET`
+  included, which is enough to sign an admin token (ZoneMinder fixed the same
+  in 1.39.41, GHSA-7g3f-93q8-fhwj). Their `value` is now empty unless the
+  caller can edit System.
+- **Media responses to URL-credentialed requests are no longer cacheable by
+  shared caches** (`Cache-Control: private`) and send
+  `Referrer-Policy: no-referrer`, so a proxy can't replay a segment fetched
+  with a signature and the URL doesn't leak through `Referer`.
 
 - Dependency bumps for RUSTSEC-2026-0338 to 0342 (`quinn-proto` 0.11.19),
   RUSTSEC-2026-0346 to 0349 (`rustls` 0.23.46), and `async-trait` 0.1.92,

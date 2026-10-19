@@ -245,3 +245,319 @@ async fn totals_cover_the_whole_result_not_the_page() {
     assert!(body.get("total_length_seconds").is_none_or(|v| v.is_null()));
     assert!(body.get("total_disk_space").is_none_or(|v| v.is_null()));
 }
+
+/// `q` searches legacy's column set: a name substring, a cause, or an id as
+/// text all find the event, and a miss finds nothing (#136).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn q_searches_across_columns() {
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let monitor = insert_monitor(&app.db, "EvListQ").await.expect("monitor");
+    let _m = RowGuard::monitor(monitor.id);
+    let event = zm_api::entity::events::ActiveModel {
+        monitor_id: Set(monitor.id),
+        state_id: Set(1),
+        name: Set(unique_name("Driveway")),
+        cause: Set(Some("Linked".to_string())),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("event");
+    let _e = guard_event(event.id);
+    let other = insert_event(&app.db, monitor.id, EventSpec::default()).await;
+    let _o = guard_event(other);
+
+    let found = |q: String| {
+        let app = &app;
+        let token = token.clone();
+        async move {
+            let r = app
+                .get(
+                    &format!(
+                        "/api/v3/events?monitor_id={}&q={}",
+                        monitor.id,
+                        urlencoding::encode(&q)
+                    ),
+                    &token,
+                )
+                .await;
+            assert_eq!(r.status(), StatusCode::OK, "{}", r.text());
+            r.json::<PaginatedEventsResponse>()
+                .items
+                .into_iter()
+                .map(|e| e.id)
+                .collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(found("Driveway".into()).await, vec![event.id]);
+    assert_eq!(found("Linke".into()).await, vec![event.id]);
+    assert!(found(event.id.to_string()).await.contains(&event.id));
+    assert!(found("no-such-text-anywhere".into()).await.is_empty());
+}
+
+/// `GET /events/{id}` carries the event's directory as the server resolves
+/// it; lists don't (#140).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn a_single_event_carries_its_directory() {
+    use zm_api::entity::sea_orm_active_enums::Scheme;
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let monitor = insert_monitor(&app.db, "EvPath").await.expect("monitor");
+    let _m = RowGuard::monitor(monitor.id);
+    let event = zm_api::entity::events::ActiveModel {
+        monitor_id: Set(monitor.id),
+        state_id: Set(1),
+        name: Set(unique_name("EvPath")),
+        scheme: Set(Scheme::Shallow),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("event");
+    let _e = guard_event(event.id);
+
+    let r = app
+        .get(&format!("/api/v3/events/{}", event.id), &token)
+        .await;
+    assert_eq!(r.status(), StatusCode::OK, "{}", r.text());
+    let body: serde_json::Value = r.json();
+    let path = body["path"].as_str().expect("path present");
+    assert!(
+        path.ends_with(&format!("/{}/{}", monitor.id, event.id)),
+        "shallow layout: {path}"
+    );
+
+    let r = app
+        .get(&format!("/api/v3/events?monitor_id={}", monitor.id), &token)
+        .await;
+    let body: serde_json::Value = r.json();
+    assert!(body["items"][0].get("path").is_none());
+}
+
+/// `GET /events/counts/{hours}?monitor_id=` is one monitor's hourly
+/// histogram (#36).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn hourly_counts_can_be_for_one_monitor() {
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let a = insert_monitor(&app.db, "HistA").await.expect("monitor a");
+    let _ma = RowGuard::monitor(a.id);
+    let b = insert_monitor(&app.db, "HistB").await.expect("monitor b");
+    let _mb = RowGuard::monitor(b.id);
+    let now = chrono::Utc::now().naive_utc();
+    let mut guards = Vec::new();
+    for (mid, n) in [(a.id, 2), (b.id, 3)] {
+        for _ in 0..n {
+            let e = zm_api::entity::events::ActiveModel {
+                monitor_id: Set(mid),
+                state_id: Set(1),
+                name: Set(unique_name("Hist")),
+                start_date_time: Set(Some(now)),
+                ..Default::default()
+            }
+            .insert(&app.db)
+            .await
+            .expect("event");
+            guards.push(guard_event(e.id));
+        }
+    }
+    let total = |mid: u32| {
+        let app = &app;
+        let token = token.clone();
+        async move {
+            let r = app
+                .get(&format!("/api/v3/events/counts/2?monitor_id={mid}"), &token)
+                .await;
+            assert_eq!(r.status(), StatusCode::OK, "{}", r.text());
+            r.json::<serde_json::Value>()["counts"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|c| c["count"].as_u64().unwrap())
+                .sum::<u64>()
+        }
+    };
+    assert_eq!(total(a.id).await, 2);
+    assert_eq!(total(b.id).await, 3);
+}
+
+/// `GET /reports/event-audit`: per monitor, gaps between events and the
+/// events whose media is missing or empty (#36).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn the_event_audit_finds_gaps_and_missing_or_empty_media() {
+    use common::fixtures::insert_storage;
+    use zm_api::entity::sea_orm_active_enums::Scheme;
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let root = tempfile::tempdir().unwrap();
+    let storage = insert_storage(
+        &app.db,
+        "Audit",
+        root.path().to_str().unwrap(),
+        Scheme::Shallow,
+    )
+    .await
+    .unwrap();
+    let _s = RowGuard::storage(storage.id);
+    let monitor = insert_monitor(&app.db, "Audit").await.expect("monitor");
+    let _m = RowGuard::monitor(monitor.id);
+
+    // Stored as ZoneMinder stores them: server-local wall-clock.
+    let base = chrono::NaiveDate::from_ymd_opt(2026, 10, 1)
+        .unwrap()
+        .and_hms_opt(10, 0, 0)
+        .unwrap()
+        .and_utc();
+    let at = |s: i64| zm_api::util::utc_to_naive_local(base + chrono::Duration::seconds(s));
+    // (start, end, video bytes): 0 = empty file, None = no file.
+    let specs = [(0, 60, Some(5)), (90, 120, Some(0)), (110, 200, None)];
+    let mut ids = Vec::new();
+    let mut guards = Vec::new();
+    for (start, end, bytes) in specs {
+        let e = zm_api::entity::events::ActiveModel {
+            monitor_id: Set(monitor.id),
+            storage_id: Set(Some(storage.id)),
+            scheme: Set(Scheme::Shallow),
+            state_id: Set(1),
+            name: Set(unique_name("Audit")),
+            start_date_time: Set(Some(at(start))),
+            end_date_time: Set(Some(at(end))),
+            default_video: Set("video.mp4".to_string()),
+            ..Default::default()
+        }
+        .insert(&app.db)
+        .await
+        .expect("event");
+        if let Some(n) = bytes {
+            let dir = root
+                .path()
+                .join(monitor.id.to_string())
+                .join(e.id.to_string());
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("video.mp4"), vec![b'x'; n]).unwrap();
+        }
+        ids.push(e.id);
+        guards.push(guard_event(e.id));
+    }
+
+    let start = urlencoding::encode("2026-10-01T09:00:00Z").into_owned();
+    let end = urlencoding::encode("2026-10-01T11:00:00Z").into_owned();
+    let r = app
+        .get(
+            &format!(
+                "/api/v3/reports/event-audit?start={start}&end={end}&monitor_id={}",
+                monitor.id
+            ),
+            &token,
+        )
+        .await;
+    assert_eq!(r.status(), StatusCode::OK, "{}", r.text());
+    let body: serde_json::Value = r.json();
+    let m = &body["monitors"][0];
+    assert_eq!(m["monitor_id"], monitor.id);
+    assert_eq!(m["event_count"], 3);
+    assert_eq!(
+        m["min_gap_seconds"], -10,
+        "the third overlaps the second by 10 s"
+    );
+    assert_eq!(m["max_gap_seconds"], 30);
+    assert_eq!(m["zero_size"], serde_json::json!([ids[1]]));
+    assert_eq!(m["missing_files"], serde_json::json!([ids[2]]));
+}
+
+/// `EventResponse` carries `MaxScoreFrameId` (#176).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn an_event_carries_its_max_score_frame() {
+    let app = TestApp::spawn().await;
+    let monitor = insert_monitor(&app.db, "MaxFrame").await.expect("monitor");
+    let _m = RowGuard::monitor(monitor.id);
+    let e = zm_api::entity::events::ActiveModel {
+        monitor_id: Set(monitor.id),
+        state_id: Set(1),
+        name: Set(unique_name("MaxFrame")),
+        max_score_frame_id: Set(Some(42)),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("event");
+    let _e = guard_event(e.id);
+    let body: serde_json::Value = app
+        .get(&format!("/api/v3/events/{}", e.id), &superuser_token())
+        .await
+        .json();
+    assert_eq!(body["max_score_frame_id"], 42);
+}
+
+/// Event time filters take a UTC instant and compare it against the
+/// local-time columns correctly (#173): filtering from an event's own
+/// reported start finds it, a second later doesn't. Meaningful on a host
+/// whose zone isn't UTC.
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn time_filters_round_trip_an_events_reported_start() {
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let monitor = insert_monitor(&app.db, "TzRound").await.expect("monitor");
+    let _m = RowGuard::monitor(monitor.id);
+    let start_utc =
+        chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() - 600, 0).unwrap();
+    let e = zm_api::entity::events::ActiveModel {
+        monitor_id: Set(monitor.id),
+        state_id: Set(1),
+        name: Set(unique_name("TzRound")),
+        start_date_time: Set(Some(zm_api::util::utc_to_naive_local(start_utc))),
+        end_date_time: Set(Some(zm_api::util::utc_to_naive_local(
+            start_utc + chrono::Duration::seconds(30),
+        ))),
+        ..Default::default()
+    }
+    .insert(&app.db)
+    .await
+    .expect("event");
+    let _e = guard_event(e.id);
+
+    let reported: serde_json::Value = app
+        .get(&format!("/api/v3/events/{}", e.id), &token)
+        .await
+        .json();
+    let reported = reported["start_date_time"].as_str().unwrap().to_string();
+    let at = chrono::DateTime::parse_from_rfc3339(&reported).unwrap();
+    assert_eq!(
+        at.timestamp(),
+        start_utc.timestamp(),
+        "reported as UTC: {reported}"
+    );
+
+    let ids = |from: String| {
+        let app = &app;
+        let token = token.clone();
+        async move {
+            let r = app
+                .get(
+                    &format!(
+                        "/api/v3/events?monitor_id={}&start_time={}",
+                        monitor.id,
+                        urlencoding::encode(&from)
+                    ),
+                    &token,
+                )
+                .await;
+            assert_eq!(r.status(), StatusCode::OK, "{}", r.text());
+            r.json::<PaginatedEventsResponse>()
+                .items
+                .into_iter()
+                .map(|e| e.id)
+                .collect::<Vec<_>>()
+        }
+    };
+    assert_eq!(ids(reported.clone()).await, vec![e.id]);
+    let later = (at + chrono::Duration::seconds(1)).to_rfc3339();
+    assert!(ids(later).await.is_empty());
+}

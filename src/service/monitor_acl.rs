@@ -86,58 +86,129 @@ impl MonitorScope {
     }
 }
 
-/// Resolve the monitor access scope for a user from the permission tables.
-pub async fn resolve(db: &DatabaseConnection, user_id: u32) -> AppResult<MonitorScope> {
-    let direct = repo::monitors_permissions::find_by_user_id(db, user_id).await?;
-    let group_perms = repo::groups_permissions::find_by_user_id(db, user_id).await?;
+/// The permission rows a user's monitor scope is built from: their own, and
+/// their role's (ZoneMinder 1.39), each as per-monitor grants and per-group
+/// grants, plus the members of every group named.
+#[derive(Debug, Default)]
+pub(crate) struct AclRows {
+    pub user_monitors: Vec<(u32, Permission)>,
+    pub user_groups: Vec<(u32, Permission)>,
+    pub role_monitors: Vec<(u32, Permission)>,
+    pub role_groups: Vec<(u32, Permission)>,
+    /// `group_id -> monitor ids`.
+    pub group_members: HashMap<u32, Vec<u32>>,
+}
 
-    // Default-allow: a user with no permission rows is unrestricted.
-    if direct.is_empty() && group_perms.is_empty() {
-        return Ok(MonitorScope::All);
+/// Build the scope from the rows. Default-allow: no rows at all is
+/// unrestricted. Otherwise the monitors named are an allowlist, decided by
+/// layers that each override the ones before for the monitors they name:
+/// the role's group grants, the role's per-monitor grants, the user's group
+/// grants, the user's per-monitor grants. ZoneMinder consults the user's own
+/// grants before the role's (`Monitor::canView`), hence the order.
+pub(crate) fn scope_from(rows: &AclRows) -> MonitorScope {
+    if rows.user_monitors.is_empty()
+        && rows.user_groups.is_empty()
+        && rows.role_monitors.is_empty()
+        && rows.role_groups.is_empty()
+    {
+        return MonitorScope::All;
     }
-
-    // Effective level per group the user actually has access through
-    // (`Inherit`/`None` at group level grant nothing).
-    let mut group_level: HashMap<u32, Level> = HashMap::new();
-    for gp in &group_perms {
-        let level = match gp.permission {
-            Permission::View => Level::View,
-            Permission::Edit => Level::Edit,
-            Permission::Inherit | Permission::None => continue,
-        };
-        let entry = group_level.entry(gp.group_id).or_insert(Level::None);
-        *entry = (*entry).max(level);
-    }
-
-    // Monitors reachable through those groups.
-    let group_ids: Vec<u32> = group_level.keys().copied().collect();
-    let group_monitors = repo::groups_monitors::find_by_group_ids(db, &group_ids).await?;
 
     let mut map: HashMap<u32, Level> = HashMap::new();
-    for gm in group_monitors {
-        if let Some(&level) = group_level.get(&gm.group_id) {
-            let entry = map.entry(gm.monitor_id).or_insert(Level::None);
-            *entry = (*entry).max(level);
+    for (groups, monitors) in [
+        (&rows.role_groups, &rows.role_monitors),
+        (&rows.user_groups, &rows.user_monitors),
+    ] {
+        // Effective level per group (`Inherit`/`None` at group level grant
+        // nothing), spread to the group's monitors at the highest level.
+        let mut via_groups: HashMap<u32, Level> = HashMap::new();
+        for (group_id, permission) in groups {
+            let level = match permission {
+                Permission::View => Level::View,
+                Permission::Edit => Level::Edit,
+                Permission::Inherit | Permission::None => continue,
+            };
+            for &monitor_id in rows.group_members.get(group_id).into_iter().flatten() {
+                let entry = via_groups.entry(monitor_id).or_insert(Level::None);
+                *entry = (*entry).max(level);
+            }
+        }
+        map.extend(via_groups);
+
+        // Per-monitor grants override the group-derived level.
+        for (monitor_id, permission) in monitors {
+            let level = match permission {
+                Permission::Inherit => continue,
+                Permission::None => Level::None,
+                Permission::View => Level::View,
+                Permission::Edit => Level::Edit,
+            };
+            map.insert(*monitor_id, level);
         }
     }
 
-    // Direct per-monitor grants override the group-derived level.
-    for mp in &direct {
-        match mp.permission {
-            Permission::Inherit => { /* keep the group-derived level */ }
-            Permission::None => {
-                map.insert(mp.monitor_id, Level::None);
-            }
-            Permission::View => {
-                map.insert(mp.monitor_id, Level::View);
-            }
-            Permission::Edit => {
-                map.insert(mp.monitor_id, Level::Edit);
-            }
+    MonitorScope::Restricted(map)
+}
+
+/// Resolve the monitor access scope for a user from the permission tables,
+/// their role's included (#143).
+pub async fn resolve(db: &DatabaseConnection, user_id: u32) -> AppResult<MonitorScope> {
+    use crate::entity::{role_groups_permissions, role_monitors_permissions};
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+
+    let direct = repo::monitors_permissions::find_by_user_id(db, user_id).await?;
+    let group_perms = repo::groups_permissions::find_by_user_id(db, user_id).await?;
+    let role_id = repo::users::find_by_id(db, user_id)
+        .await?
+        .and_then(|u| u.role_id);
+    let (role_monitors, role_groups) = match role_id {
+        Some(role_id) => (
+            role_monitors_permissions::Entity::find()
+                .filter(role_monitors_permissions::Column::RoleId.eq(role_id))
+                .all(db)
+                .await?,
+            role_groups_permissions::Entity::find()
+                .filter(role_groups_permissions::Column::RoleId.eq(role_id))
+                .all(db)
+                .await?,
+        ),
+        None => (Vec::new(), Vec::new()),
+    };
+
+    let mut rows = AclRows {
+        user_monitors: direct
+            .iter()
+            .map(|p| (p.monitor_id, p.permission.clone()))
+            .collect(),
+        user_groups: group_perms
+            .iter()
+            .map(|p| (p.group_id, p.permission.clone()))
+            .collect(),
+        role_monitors: role_monitors
+            .iter()
+            .map(|p| (p.monitor_id, p.permission.clone()))
+            .collect(),
+        role_groups: role_groups
+            .iter()
+            .map(|p| (p.group_id, p.permission.clone()))
+            .collect(),
+        group_members: HashMap::new(),
+    };
+    let group_ids: Vec<u32> = rows
+        .user_groups
+        .iter()
+        .chain(&rows.role_groups)
+        .map(|(g, _)| *g)
+        .collect();
+    if !group_ids.is_empty() {
+        for gm in repo::groups_monitors::find_by_group_ids(db, &group_ids).await? {
+            rows.group_members
+                .entry(gm.group_id)
+                .or_default()
+                .push(gm.monitor_id);
         }
     }
-
-    Ok(MonitorScope::Restricted(map))
+    Ok(scope_from(&rows))
 }
 
 /// Extract a bearer token — `Authorization: Bearer <jwt>` header, or the
@@ -185,6 +256,13 @@ impl FromRequestParts<AppState> for MonitorScope {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
+        // A signed media URL sees one monitor, read-only.
+        if let Some(grant) = parts
+            .extensions
+            .get::<crate::service::media_grant::MediaGrant>()
+        {
+            return Ok(grant.scope());
+        }
         resolve_from_request(state, &parts.headers, &parts.uri).await
     }
 }
@@ -207,7 +285,13 @@ pub async fn monitor_path_guard(
         .and_then(|(_, value)| value.parse::<u32>().ok());
 
     if let Some(mid) = monitor_id {
-        let scope = resolve_from_request(&state, request.headers(), request.uri()).await?;
+        let scope = match request
+            .extensions()
+            .get::<crate::service::media_grant::MediaGrant>()
+        {
+            Some(grant) => grant.scope(),
+            None => resolve_from_request(&state, request.headers(), request.uri()).await?,
+        };
         let required = match *request.method() {
             Method::GET | Method::HEAD | Method::OPTIONS => Level::View,
             _ => Level::Edit,
@@ -226,6 +310,44 @@ pub async fn monitor_path_guard(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rows() -> AclRows {
+        AclRows {
+            group_members: HashMap::from([(10, vec![1, 2]), (20, vec![3])]),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn no_rows_anywhere_is_unrestricted() {
+        assert!(matches!(scope_from(&rows()), MonitorScope::All));
+    }
+
+    #[test]
+    fn a_role_alone_restricts_like_the_users_own_rows_would() {
+        let mut r = rows();
+        r.role_groups = vec![(10, Permission::View)];
+        r.role_monitors = vec![(2, Permission::Edit)];
+        let s = scope_from(&r);
+        assert!(s.allows(1, Level::View) && !s.allows(1, Level::Edit));
+        assert!(s.allows(2, Level::Edit));
+        assert!(!s.allows(3, Level::View));
+    }
+
+    #[test]
+    fn the_users_own_grants_override_the_roles() {
+        let mut r = rows();
+        r.role_groups = vec![(10, Permission::Edit)];
+        r.role_monitors = vec![(3, Permission::View)];
+        // The user's own group grant lowers 1 and 2, their direct grant
+        // denies 2, and an Inherit row leaves the role's 3 alone.
+        r.user_groups = vec![(10, Permission::View)];
+        r.user_monitors = vec![(2, Permission::None), (3, Permission::Inherit)];
+        let s = scope_from(&r);
+        assert!(s.allows(1, Level::View) && !s.allows(1, Level::Edit));
+        assert!(!s.allows(2, Level::View));
+        assert!(s.allows(3, Level::View));
+    }
     use crate::entity::{groups_monitors, groups_permissions, monitors_permissions};
     use sea_orm::{DatabaseBackend, MockDatabase};
 
@@ -260,6 +382,8 @@ mod tests {
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<monitors_permissions::Model, _, _>(vec![vec![]])
             .append_query_results::<groups_permissions::Model, _, _>(vec![vec![]])
+            // The user has no role.
+            .append_query_results::<crate::entity::users::Model, _, _>(vec![vec![]])
             .into_connection();
         assert_eq!(resolve(&db, 7).await.unwrap(), MonitorScope::All);
     }
@@ -272,6 +396,8 @@ mod tests {
                 mon_perm(2, 11, Permission::Edit),
             ]])
             .append_query_results::<groups_permissions::Model, _, _>(vec![vec![]])
+            // The user has no role.
+            .append_query_results::<crate::entity::users::Model, _, _>(vec![vec![]])
             .into_connection();
 
         let scope = resolve(&db, 7).await.unwrap();
@@ -290,6 +416,8 @@ mod tests {
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results::<monitors_permissions::Model, _, _>(vec![vec![]])
             .append_query_results(vec![vec![grp_perm(1, 5, Permission::View)]])
+            // The user has no role.
+            .append_query_results::<crate::entity::users::Model, _, _>(vec![vec![]])
             .append_query_results(vec![vec![grp_mon(1, 5, 20), grp_mon(2, 5, 21)]])
             .into_connection();
 
@@ -305,6 +433,8 @@ mod tests {
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results(vec![vec![mon_perm(1, 20, Permission::None)]])
             .append_query_results(vec![vec![grp_perm(1, 5, Permission::Edit)]])
+            // The user has no role.
+            .append_query_results::<crate::entity::users::Model, _, _>(vec![vec![]])
             .append_query_results(vec![vec![grp_mon(1, 5, 20), grp_mon(2, 5, 21)]])
             .into_connection();
 
@@ -320,6 +450,8 @@ mod tests {
         let db = MockDatabase::new(DatabaseBackend::MySql)
             .append_query_results(vec![vec![mon_perm(1, 20, Permission::Inherit)]])
             .append_query_results(vec![vec![grp_perm(1, 5, Permission::Edit)]])
+            // The user has no role.
+            .append_query_results::<crate::entity::users::Model, _, _>(vec![vec![]])
             .append_query_results(vec![vec![grp_mon(1, 5, 20)]])
             .into_connection();
 

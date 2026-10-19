@@ -336,21 +336,25 @@ pub async fn onboard(state: &AppState, req: OnboardRequest) -> AppResult<Monitor
         name,
         r#type: MonitorType::Ffmpeg,
         path: Some(stream_uri),
-        width: profile
-            .width
-            .and_then(|w| u16::try_from(w).ok())
-            .filter(|w| *w >= 1)
-            .unwrap_or(1),
-        height: profile
-            .height
-            .and_then(|h| u16::try_from(h).ok())
-            .filter(|h| *h >= 1)
-            .unwrap_or(1),
-        storage_id: req.storage_id.filter(|s| *s >= 1).unwrap_or(1),
+        width: Some(
+            profile
+                .width
+                .and_then(|w| u16::try_from(w).ok())
+                .filter(|w| *w >= 1)
+                .unwrap_or(1),
+        ),
+        height: Some(
+            profile
+                .height
+                .and_then(|h| u16::try_from(h).ok())
+                .filter(|h| *h >= 1)
+                .unwrap_or(1),
+        ),
+        storage_id: Some(req.storage_id.filter(|s| *s >= 1).unwrap_or(1)),
         method: Some("rtpRtsp".to_string()),
-        onvif_url: req.xaddr.clone(),
-        onvif_username: req.username.clone(),
-        onvif_password: req.password.clone(),
+        onvif_url: Some(req.xaddr.clone()),
+        onvif_username: Some(req.username.clone()),
+        onvif_password: Some(req.password.clone()),
         user: has_creds.then(|| req.username.clone()),
         pass: has_creds.then(|| req.password.clone()),
         ..Default::default()

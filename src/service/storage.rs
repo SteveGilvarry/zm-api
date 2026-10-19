@@ -6,7 +6,10 @@ use crate::server::state::AppState;
 
 pub async fn list_all(state: &AppState) -> AppResult<Vec<StorageResponse>> {
     let items = repo::storage::find_all(state.db()).await?;
-    Ok(items.iter().map(StorageResponse::from).collect())
+    Ok(items
+        .iter()
+        .map(|m| StorageResponse::from(m).with_filesystem())
+        .collect())
 }
 
 pub async fn list_paginated(
@@ -14,7 +17,10 @@ pub async fn list_paginated(
     params: &PaginationParams,
 ) -> AppResult<PaginatedResponse<StorageResponse>> {
     let (items, total) = repo::storage::find_paginated(state.db(), params).await?;
-    let responses: Vec<StorageResponse> = items.iter().map(StorageResponse::from).collect();
+    let responses: Vec<StorageResponse> = items
+        .iter()
+        .map(|m| StorageResponse::from(m).with_filesystem())
+        .collect();
     Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
@@ -26,7 +32,7 @@ pub async fn get_by_id(state: &AppState, id: u16) -> AppResult<StorageResponse> 
             resource_type: ResourceType::Message,
         })
     })?;
-    Ok(StorageResponse::from(&item))
+    Ok(StorageResponse::from(&item).with_filesystem())
 }
 
 pub async fn create(
@@ -34,7 +40,7 @@ pub async fn create(
     req: crate::dto::request::CreateStorageRequest,
 ) -> AppResult<StorageResponse> {
     let model = repo::storage::create(state.db(), &req).await?;
-    Ok(StorageResponse::from(&model))
+    Ok(StorageResponse::from(&model).with_filesystem())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -48,6 +54,7 @@ pub async fn update(
     scheme: Option<String>,
     server_id: Option<u32>,
     url: Option<String>,
+    do_delete: Option<i8>,
 ) -> AppResult<StorageResponse> {
     let updated = repo::storage::update(
         state.db(),
@@ -59,6 +66,7 @@ pub async fn update(
         scheme,
         server_id,
         url,
+        do_delete,
     )
     .await?;
     let updated = updated.ok_or_else(|| {
@@ -67,7 +75,7 @@ pub async fn update(
             resource_type: crate::error::ResourceType::Message,
         })
     })?;
-    Ok(StorageResponse::from(&updated))
+    Ok(StorageResponse::from(&updated).with_filesystem())
 }
 
 pub async fn delete(state: &AppState, id: u16) -> AppResult<()> {
@@ -114,6 +122,7 @@ mod tests {
             &state,
             1,
             Some("n".into()),
+            None,
             None,
             None,
             None,
@@ -197,6 +206,7 @@ mod tests {
             &state,
             7,
             Some("new".into()),
+            None,
             None,
             None,
             None,

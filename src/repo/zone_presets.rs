@@ -55,7 +55,7 @@ pub async fn create(
             _ => AlarmedPixels,
         }
     }
-    let am = AM {
+    let mut am = AM {
         id: Default::default(),
         name: Set(req.name.clone()),
         r#type: Set(parse_zone_type(&req.r#type)),
@@ -76,6 +76,7 @@ pub async fn create(
         overload_frames: Set(0),
         extend_alarm_frames: Set(0),
     };
+    req.thresholds.apply(&mut am);
     Ok(am.insert(db).await?)
 }
 
@@ -86,6 +87,7 @@ pub async fn update(
     r#type: Option<String>,
     units: Option<String>,
     check_method: Option<String>,
+    thresholds: &crate::dto::request::zone_presets::ZonePresetThresholds,
 ) -> AppResult<Option<ZonePresetModel>> {
     use sea_orm::{ActiveModelTrait, Set};
     let Some(model) = find_by_id(db, id).await? else {
@@ -130,6 +132,7 @@ pub async fn update(
     if let Some(v) = check_method {
         am.check_method = Set(parse_check_method(&v));
     }
+    thresholds.apply(&mut am);
     let updated = am.update(db).await?;
     Ok(Some(updated))
 }
@@ -194,6 +197,7 @@ mod tests {
             Some("inclusive".into()),
             None,
             None,
+            &Default::default(),
         )
         .await
         .unwrap()

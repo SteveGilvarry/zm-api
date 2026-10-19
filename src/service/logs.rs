@@ -12,7 +12,14 @@ const DEFAULT_PAGE_SIZE: u64 = 50;
 /// Translate request query params into the repo's filter options.
 fn options_from(params: &LogQueryParams) -> LogQueryOptions {
     LogQueryOptions {
-        component: params.component.clone(),
+        // One name or a comma list (#186).
+        components: params.component.as_deref().map(|raw| {
+            raw.split(',')
+                .map(str::trim)
+                .filter(|c| !c.is_empty())
+                .map(str::to_string)
+                .collect()
+        }),
         // Both lists passed `validate()` in the handler; a parse failure here
         // could only come from a caller that skipped it, and must still never
         // widen the filter, so it matches nothing.

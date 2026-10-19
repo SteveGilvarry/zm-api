@@ -22,6 +22,8 @@ pub struct UserResponse {
     pub groups: String,
     pub devices: String,
     pub snapshots: String,
+    /// The user's role, whose permissions add to the levels above.
+    pub role_id: Option<u32>,
 }
 
 impl From<&crate::entity::users::Model> for UserResponse {
@@ -45,6 +47,7 @@ impl From<&crate::entity::users::Model> for UserResponse {
             groups: format!("{:?}", m.groups),
             devices: format!("{:?}", m.devices),
             snapshots: format!("{:?}", m.snapshots),
+            role_id: m.role_id,
         }
     }
 }

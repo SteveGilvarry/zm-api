@@ -1936,6 +1936,215 @@
         ]
       }
     },
+    "/api/v3/encoder-templates": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "List encoder templates",
+        "operationId": "list_encoder_templates",
+        "responses": {
+          "200": {
+            "description": "Encoder templates",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EncoderTemplateResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Create a encoder template",
+        "operationId": "create_encoder_template",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEncoderTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncoderTemplateResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/encoder-templates/{id}": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Get one encoder template",
+        "operationId": "get_encoder_template",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Encoder template ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Encoder template",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncoderTemplateResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Update a encoder template",
+        "operationId": "update_encoder_template",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Encoder template ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateEncoderTemplateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncoderTemplateResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Delete a encoder template",
+        "operationId": "delete_encoder_template",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Encoder template ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/event-data": {
       "get": {
         "tags": [
@@ -2428,6 +2637,15 @@
             }
           },
           {
+            "name": "q",
+            "in": "query",
+            "description": "Free-text search over id, monitor, storage, name, cause, start/end time, length, frames, scores, archived, emailed, notes and disk space; any may match",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "tag_id",
             "in": "query",
             "description": "Events with any of these tag ids (comma-separated), `none` for untagged events, `any` for events with at least one tag. Legacy's `0` and `-1` mean `none` and `any`.",
@@ -2866,6 +3084,17 @@
               "type": "integer",
               "format": "int64"
             }
+          },
+          {
+            "name": "monitor_id",
+            "in": "query",
+            "description": "Count only this monitor's events (a per-monitor hourly histogram)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
           }
         ],
         "responses": {
@@ -2901,6 +3130,68 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/events/export": {
+      "post": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Export events as a zip",
+        "description": "Streams a zip, built as it goes, with a `{event_id}/` folder per event\nholding the parts asked for: `details` (`event.json`), `frames`\n(`frames.json`), `images`, `video` and `misc` (the event directory's other\nfiles). Every id is checked first: one that doesn't exist or isn't\nvisible to the caller is a 404 and nothing is sent.",
+        "operationId": "exportEvents",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The zip",
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No ids, or more than 500",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "An event doesn't exist or isn't visible",
             "content": {
               "application/json": {
                 "schema": {
@@ -3362,6 +3653,65 @@
         ]
       }
     },
+    "/api/v3/events/{id}/stream/link": {
+      "post": {
+        "tags": [
+          "Event Playback"
+        ],
+        "summary": "Mint a signed link to an event's HLS playlist",
+        "operationId": "createEventMediaLink",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Event ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMediaLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Signed playlist link",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaLinkResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/events/{id}/stream/media.mp4": {
       "get": {
         "tags": [
@@ -3501,11 +3851,10 @@
           {
             "name": "seq",
             "in": "path",
-            "description": "Zero-based segment index",
+            "description": "Zero-based segment index with its `.m4s` extension, as the playlist lists it; a bare index is also accepted",
             "required": true,
             "schema": {
-              "type": "integer",
-              "minimum": 0
+              "type": "string"
             }
           }
         ],
@@ -3706,6 +4055,250 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/events/{id}/videos": {
+      "get": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "List an event's video files",
+        "description": "Generated files and the recording, with the options read back from a\ngenerated file's name.",
+        "operationId": "listEventVideos",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Event ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Video files",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EventVideoResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Generate a video for an event",
+        "description": "Queues a `video` job, ZoneMinder's Generate Video: from the recording\nwhen the event has one, else from its capture JPEGs. Poll\n`GET /api/v3/jobs/{id}`; when it is `done`, `output` names the file in\n`GET /api/v3/events/{id}/videos`.",
+        "operationId": "generateEventVideo",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Event ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerateVideoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaJobResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad options, or a format not in ZM_FFMPEG_FORMATS",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/events/{id}/videos/{name}": {
+      "get": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Download one of an event's video files",
+        "operationId": "downloadEventVideo",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Event ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "File name, from the listing",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Delete a generated video",
+        "description": "The event's recording can't be deleted here (409).",
+        "operationId": "deleteEventVideo",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Event ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "File name, from the listing",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The event's recording",
             "content": {
               "application/json": {
                 "schema": {
@@ -4834,6 +5427,157 @@
         }
       }
     },
+    "/api/v3/jobs": {
+      "get": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "List media jobs",
+        "description": "Newest first, at most 500, for the events the caller can see.",
+        "operationId": "listMediaJobs",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "description": "`queued`, `running`, `done`, `failed` or `cancelled`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Jobs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MediaJobResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/jobs/{id}": {
+      "get": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Get a media job",
+        "operationId": "getMediaJob",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Job ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaJobResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Cancel or remove a media job",
+        "description": "Cancels a queued job; removes a finished one's record (its file stays).\nA running job is a 409.",
+        "operationId": "deleteMediaJob",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Job ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Cancelled or removed"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/live/sessions": {
       "get": {
         "tags": [
@@ -4933,6 +5677,65 @@
           },
           "404": {
             "description": "Init segment not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/live/{monitor_id}/hls/link": {
+      "post": {
+        "tags": [
+          "Live Streaming"
+        ],
+        "summary": "Mint a signed link to a monitor's live HLS playlist",
+        "operationId": "createLiveMediaLink",
+        "parameters": [
+          {
+            "name": "monitor_id",
+            "in": "path",
+            "description": "Monitor/Camera ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMediaLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Signed playlist link",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaLinkResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -5371,12 +6174,12 @@
           {
             "name": "component",
             "in": "query",
-            "description": "Filter by component (e.g., 'zmc', 'zma', 'zmdc', 'web')",
+            "description": "Component name, or a comma list of them (e.g. 'zmc,zma')",
             "required": false,
             "schema": {
               "type": "string"
             },
-            "example": "zmc"
+            "example": "zmc,zma"
           },
           {
             "name": "min_level",
@@ -5538,7 +6341,7 @@
           {
             "name": "component",
             "in": "query",
-            "description": "Only clear logs from this component",
+            "description": "Only clear logs from this component, or a comma list of them",
             "required": false,
             "schema": {
               "type": "string"
@@ -6022,6 +6825,215 @@
           },
           "401": {
             "description": "Unauthorized or current password incorrect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/menu-items": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "List menu items",
+        "operationId": "list_menu_items",
+        "responses": {
+          "200": {
+            "description": "Menu items",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MenuItemResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Create a menu item",
+        "operationId": "create_menu_item",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMenuItemRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MenuItemResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/menu-items/{id}": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Get one menu item",
+        "operationId": "get_menu_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Menu item ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Menu item",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MenuItemResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Update a menu item",
+        "operationId": "update_menu_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Menu item ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMenuItemRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MenuItemResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Delete a menu item",
+        "operationId": "delete_menu_item",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Menu item ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -7171,6 +8183,429 @@
         ]
       }
     },
+    "/api/v3/monitors/{id}/actions": {
+      "get": {
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "List a monitor's actions",
+        "operationId": "listMonitorActions",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The monitor's actions, in sequence order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MonitorActionResponse"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "Add a monitor action",
+        "description": "A type the target's control can't perform is a 400. zmc reads the list at\nstart, so the monitor's daemons restart.",
+        "operationId": "createMonitorAction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMonitorActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitorActionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The target can't perform it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/monitors/{id}/actions/targets": {
+      "get": {
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "Monitors an action can drive",
+        "description": "Each controllable monitor whose control can do at least one action type,\nwith those types and its audio file range (ZoneMinder's\n`MonitorAction::targetCandidates`).",
+        "operationId": "listMonitorActionTargets",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Action targets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ActionTargetResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/monitors/{id}/actions/{action_id}": {
+      "get": {
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "Get one monitor action",
+        "operationId": "getMonitorAction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "action_id",
+            "in": "path",
+            "description": "Action ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Monitor action",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitorActionResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "Delete a monitor action",
+        "operationId": "deleteMonitorAction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "action_id",
+            "in": "path",
+            "description": "Action ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "Change a monitor action",
+        "operationId": "updateMonitorAction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "action_id",
+            "in": "path",
+            "description": "Action ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMonitorActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitorActionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The target can't perform it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/monitors/{id}/actions/{action_id}/run": {
+      "post": {
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "Run a Manual action",
+        "description": "Sends the stored action's command to the target's control. Needs Control\nview on the monitor and on the target; the command comes from the row,\nnot the request.",
+        "operationId": "runMonitorAction",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "action_id",
+            "in": "path",
+            "description": "Action ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command sent",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not an enabled Manual action, or the control can't do it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/monitors/{id}/alarm": {
       "patch": {
         "tags": [
@@ -7243,6 +8678,56 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/monitors/{id}/audio-level": {
+      "get": {
+        "tags": [
+          "Monitors"
+        ],
+        "summary": "The monitor's live audio level",
+        "description": "- What the monitor editor's level meter polls once a second. Each call asks\n  zmc to keep measuring for ten more seconds, even with audio detection\n  off. `level` and `alarm` are null while zmc isn't running.",
+        "operationId": "get_audio_level",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor identifier",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Live audio level",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioLevelResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -7582,7 +9067,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateStateRequest"
+                "$ref": "#/components/schemas/MonitorStateRequest"
               }
             }
           },
@@ -8489,6 +9974,248 @@
         ]
       }
     },
+    "/api/v3/notifications": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "List push registrations",
+        "description": "The caller's own; every user's for a System editor.",
+        "operationId": "listNotifications",
+        "responses": {
+          "200": {
+            "description": "Push registrations",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NotificationResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Register a push token",
+        "description": "A token already registered to the caller is updated in place (200);\na new one is created (201). Another user's token is a 403.",
+        "operationId": "registerNotification",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateNotificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Already registered; updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The token belongs to another user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/notifications/{id}": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Get one push registration",
+        "operationId": "getNotification",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Notification ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Push registration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or another user's",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Remove a push registration",
+        "operationId": "deleteNotification",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Notification ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Not found, or another user's",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Notifications"
+        ],
+        "summary": "Change a push registration",
+        "description": "Typically `last_notified_at` and `badge_count` after a push.",
+        "operationId": "updateNotification",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Notification ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNotificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found, or another user's",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The new token is already registered",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/object-types": {
       "get": {
         "tags": [
@@ -8752,6 +10479,254 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/ptz/monitors/{id}/audio/play/{file}": {
+      "post": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "Play one of the device's sounds",
+        "description": "- `file` must be within the control's `min_audio_file..=max_audio_file`.",
+        "operationId": "ptzAudioPlay",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "file",
+            "in": "path",
+            "description": "Sound number, as the device numbers them",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Out of range, or the control can't play audio",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/ptz/monitors/{id}/audio/stop": {
+      "post": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "Stop audio playback",
+        "operationId": "ptzAudioStop",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The control can't do this",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/ptz/monitors/{id}/audio/volume/down": {
+      "post": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "Turn the audio volume down",
+        "operationId": "ptzAudioVolumeDown",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The control can't do this",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/ptz/monitors/{id}/audio/volume/up": {
+      "post": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "Turn the audio volume up",
+        "operationId": "ptzAudioVolumeUp",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The control can't do this",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -9162,6 +11137,124 @@
         ]
       }
     },
+    "/api/v3/ptz/monitors/{id}/indicator-light/off": {
+      "post": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "Turn the indicator light off",
+        "operationId": "ptzIndicatorLightOff",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The control can't do this",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/ptz/monitors/{id}/indicator-light/on": {
+      "post": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "Turn the indicator light on",
+        "operationId": "ptzIndicatorLightOn",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The control can't do this",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/ptz/monitors/{id}/iris/auto": {
       "post": {
         "tags": [
@@ -9422,6 +11515,174 @@
           },
           "500": {
             "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/ptz/monitors/{id}/light": {
+      "get": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "The lights' current state, as the camera reports it",
+        "description": "- `light` / `indicator_light` are `on`, `off`, or null when the control has\n  no such light or the control daemon gave no answer.",
+        "operationId": "ptzLightStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Light state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LightStatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/ptz/monitors/{id}/light/off": {
+      "post": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "Turn the light off",
+        "operationId": "ptzLightOff",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The control can't do this",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/ptz/monitors/{id}/light/on": {
+      "post": {
+        "tags": [
+          "PTZ"
+        ],
+        "summary": "Turn the light on",
+        "operationId": "ptzLightOn",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Monitor ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Command executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PtzCommandResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The control can't do this",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Monitor not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -11123,6 +13384,74 @@
         ]
       }
     },
+    "/api/v3/reports/event-audit": {
+      "get": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Audit events over a window: per monitor, counts, gaps, and missing or\nempty media",
+        "description": "- Legacy's \"Audit Events Report\". Events overlapping `[start, end)` are\n  counted per monitor; each one's media is checked on disk.\n- Defaults to the hour ending an hour ago, as legacy does. At most 10000\n  events; a wider window is a 400.",
+        "operationId": "event_audit",
+        "parameters": [
+          {
+            "name": "start",
+            "in": "query",
+            "description": "Window start (RFC 3339)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "description": "Window end (RFC 3339)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "monitor_id",
+            "in": "query",
+            "description": "Only this monitor",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Per-monitor audit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventAuditResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad window, or too many events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/reports/{id}": {
       "get": {
         "tags": [
@@ -11233,6 +13562,238 @@
           },
           "400": {
             "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/roles": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "List roles",
+        "operationId": "list_roles",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number (1-indexed)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "example": 1
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "description": "Items per page (max 1000)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "example": 25
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of roles",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedRolesResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Create a role",
+        "operationId": "create_role",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/roles/{id}": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Get a role",
+        "operationId": "get_role",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Role ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Role not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Update a role",
+        "operationId": "update_role",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Role ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Role not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Delete a role. Its users keep their own permission levels.",
+        "operationId": "delete_role",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Role ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Role not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -13110,6 +15671,73 @@
         ]
       }
     },
+    "/api/v3/system/menu": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "The navbar: enabled menu items in order",
+        "description": "- Needs a login but no feature permission: every user's navbar renders it.",
+        "operationId": "get_navbar",
+        "responses": {
+          "200": {
+            "description": "Enabled menu items, in order",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MenuItemResponse"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/system/privacy": {
+      "post": {
+        "tags": [
+          "System"
+        ],
+        "summary": "Record the answer to the privacy statement",
+        "description": "- What ZoneMinder's privacy page does: the statement stops being shown,\n  and telemetry (`ZM_TELEMETRY_DATA`) follows the answer.\n- Requires System edit.",
+        "operationId": "record_privacy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrivacyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Privacy settings now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivacyResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/system/restart": {
       "post": {
         "tags": [
@@ -14476,6 +17104,65 @@
   },
   "components": {
     "schemas": {
+      "ActionTargetResponse": {
+        "type": "object",
+        "description": "A monitor an action can drive, and what it can do (ZoneMinder's\n`MonitorAction::targetCandidates`).",
+        "required": [
+          "id",
+          "name",
+          "device_class",
+          "types"
+        ],
+        "properties": {
+          "device_class": {
+            "type": "string",
+            "description": "`Camera` or `Speaker`."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_audio_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_audio_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActionType"
+            },
+            "description": "The action types its control can perform."
+          }
+        }
+      },
+      "ActionType": {
+        "type": "string",
+        "description": "What the action does to the target monitor's device.",
+        "enum": [
+          "LightOn",
+          "LightOff",
+          "IndicatorLightOn",
+          "IndicatorLightOff",
+          "AudioPlay",
+          "AudioStop"
+        ]
+      },
       "AiDatasetResponse": {
         "type": "object",
         "required": [
@@ -14615,7 +17302,7 @@
         "properties": {
           "action": {
             "type": "string",
-            "description": "Action to perform: \"on\" (trigger), \"off\"/\"cancel\" (cancel), \"status\" (get status)"
+            "description": "Action to perform: \"on\" (force an alarm), \"off\"/\"cancel\" (cancel a\nforced alarm), \"disable_alarms\" (force alarms off until\n\"enable_alarms\", ZoneMinder's `zmu -n` / `zmu -c`), \"status\""
           },
           "cause": {
             "type": [
@@ -15126,6 +17813,77 @@
           }
         }
       },
+      "AudioCapabilities": {
+        "type": "object",
+        "description": "Audio capabilities (#190)",
+        "required": [
+          "can_play",
+          "can_volume"
+        ],
+        "properties": {
+          "can_play": {
+            "type": "boolean",
+            "description": "`POST .../audio/play/{file}` and `.../audio/stop`"
+          },
+          "can_volume": {
+            "type": "boolean",
+            "description": "`POST .../audio/volume/{up|down}`"
+          },
+          "max_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The sound numbers `audio/play` accepts.",
+            "minimum": 0
+          }
+        }
+      },
+      "AudioLevelResponse": {
+        "type": "object",
+        "description": "A monitor's live audio level, for the monitor editor's meter (#180).",
+        "required": [
+          "threshold",
+          "detection"
+        ],
+        "properties": {
+          "alarm": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the level is over the threshold; null while zmc isn't running."
+          },
+          "detection": {
+            "type": "boolean",
+            "description": "Whether audio detection scores (`AudioDetection`)."
+          },
+          "level": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "0-100, the scale `audio_threshold` uses; null while zmc isn't running.",
+            "minimum": 0
+          },
+          "threshold": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The monitor's `AudioThreshold`.",
+            "minimum": 0
+          }
+        }
+      },
       "AxisCapabilities": {
         "type": "object",
         "description": "Capability flags for an axis (zoom, focus, iris, gain, white balance)",
@@ -15329,7 +18087,8 @@
           "category",
           "readonly",
           "private",
-          "system"
+          "system",
+          "source"
         ],
         "properties": {
           "category": {
@@ -15387,6 +18146,24 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "requires": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`Config.Requires`, raw: clauses like `ZM_OPT_USE_AUTH=1;ZM_AUTH_RELAY=hashed`\nthat must all hold for the option to apply (#183)."
+          },
+          "source": {
+            "type": "string",
+            "description": "`db`, or `file` when zm.conf or a conf.d file sets the option. A file\nwins everywhere, so `value` is then the file's (blank for a private\none) and the option can't be changed through the API."
+          },
+          "source_file": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The file that sets it, for `source: \"file\"`."
           },
           "system": {
             "type": "integer",
@@ -15479,9 +18256,23 @@
           "has_tilt_speed",
           "has_turbo_tilt",
           "can_auto_scan",
-          "num_scan_paths"
+          "num_scan_paths",
+          "can_light",
+          "can_indicator_light",
+          "can_audio_play",
+          "can_audio_volume"
         ],
         "properties": {
+          "can_audio_play": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "can_audio_volume": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "can_auto_focus": {
             "type": "integer",
             "format": "int32",
@@ -15552,6 +18343,11 @@
             "format": "int32",
             "minimum": 0
           },
+          "can_indicator_light": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "can_iris": {
             "type": "integer",
             "format": "int32",
@@ -15568,6 +18364,11 @@
             "minimum": 0
           },
           "can_iris_rel": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "can_light": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
@@ -15737,6 +18538,14 @@
             "format": "int32",
             "minimum": 0
           },
+          "max_audio_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "max_focus_range": {
             "type": [
               "integer",
@@ -15892,6 +18701,14 @@
             "minimum": 0
           },
           "max_zoom_step": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_audio_file": {
             "type": [
               "integer",
               "null"
@@ -16253,6 +19070,22 @@
           "name"
         ],
         "properties": {
+          "can_audio_play": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "can_audio_volume": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "can_auto_focus": {
             "type": [
               "integer",
@@ -16365,6 +19198,14 @@
             "format": "int32",
             "minimum": 0
           },
+          "can_indicator_light": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "can_iris": {
             "type": [
               "integer",
@@ -16390,6 +19231,14 @@
             "minimum": 0
           },
           "can_iris_rel": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "can_light": {
             "type": [
               "integer",
               "null"
@@ -16653,6 +19502,14 @@
             "format": "int32",
             "minimum": 0
           },
+          "max_audio_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "max_focus_range": {
             "type": [
               "integer",
@@ -16808,6 +19665,14 @@
             "minimum": 0
           },
           "max_zoom_step": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_audio_file": {
             "type": [
               "integer",
               "null"
@@ -17045,6 +19910,33 @@
           },
           "type": {
             "$ref": "#/components/schemas/DeviceType"
+          }
+        }
+      },
+      "CreateEncoderTemplateRequest": {
+        "type": "object",
+        "required": [
+          "encoder",
+          "name",
+          "params"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "encoder": {
+            "type": "string",
+            "description": "The encoder the parameters are for, e.g. `libx264`."
+          },
+          "name": {
+            "type": "string"
+          },
+          "params": {
+            "type": "string",
+            "description": "`key=value` lines handed to the encoder."
           }
         }
       },
@@ -17454,6 +20346,70 @@
           }
         }
       },
+      "CreateMediaLinkRequest": {
+        "type": "object",
+        "description": "Mint a signed playlist link.",
+        "properties": {
+          "ttl_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Lifetime in seconds, 60 to 31536000 (365 days). Default 2592000\n(30 days).",
+            "minimum": 0
+          }
+        }
+      },
+      "CreateMenuItemRequest": {
+        "type": "object",
+        "required": [
+          "menu_key"
+        ],
+        "properties": {
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "menu_key": {
+            "type": "string",
+            "description": "The navbar entry this row configures, e.g. `Console`."
+          },
+          "sort_order": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "CreateModelRequest": {
         "type": "object",
         "required": [
@@ -17469,6 +20425,65 @@
           },
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "CreateMonitorActionRequest": {
+        "type": "object",
+        "required": [
+          "action_type",
+          "target_monitor_id"
+        ],
+        "properties": {
+          "action_type": {
+            "$ref": "#/components/schemas/ActionType"
+          },
+          "audio_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The sound to play, for `AudioPlay`; within the target control's\n`min_audio_file..=max_audio_file`.",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Defaults to true."
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sequence": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "target_monitor_id": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The monitor whose device is driven; often not this one.",
+            "minimum": 0
+          },
+          "trigger_on": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TriggerOn",
+                "description": "Defaults to `EventStart`, as in ZoneMinder."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -17654,94 +20669,14 @@
         "type": "object",
         "required": [
           "name",
-          "deleted",
-          "storage_id",
-          "type",
-          "function",
-          "capturing",
-          "decoding_enabled",
-          "decoding",
-          "rtsp2_web_enabled",
-          "rtsp2_web_type",
-          "janus_enabled",
-          "janus_audio_enabled",
-          "restream",
-          "triggers",
-          "event_start_command",
-          "event_end_command",
-          "onvif_url",
-          "onvif_events_path",
-          "onvif_username",
-          "onvif_password",
-          "onvif_options",
-          "onvif_event_listener",
-          "use_amcrest_api",
-          "device",
-          "channel",
-          "format",
-          "port",
-          "sub_path",
-          "width",
-          "height",
-          "colours",
-          "palette",
-          "orientation",
-          "deinterlacing",
-          "save_jpe_gs",
-          "video_writer",
-          "record_audio",
-          "recording_source",
-          "brightness",
-          "contrast",
-          "hue",
-          "colour",
-          "event_prefix",
-          "label_x",
-          "label_y",
-          "label_size",
-          "image_buffer_count",
-          "max_image_buffer_count",
-          "warmup_count",
-          "pre_event_count",
-          "post_event_count",
-          "stream_replay_buffer",
-          "alarm_frame_count",
-          "section_length",
-          "section_length_warn",
-          "event_close_mode",
-          "min_section_length",
-          "motion_frame_skip",
-          "analysis_update_delay",
-          "fps_report_interval",
-          "ref_blend_perc",
-          "alarm_ref_blend_perc",
-          "controllable",
-          "track_motion",
-          "return_location",
-          "modect_during_ptz",
-          "default_rate",
-          "default_scale",
-          "default_codec",
-          "signal_check_points",
-          "signal_check_colour",
-          "web_colour",
-          "exif",
-          "zone_count",
-          "rtsp_server",
-          "rtsp_stream_name",
-          "soap_wsa_compl",
-          "importance",
-          "mqtt_enabled",
-          "mqtt_subscriptions",
-          "startup_delay",
-          "analysing",
-          "analysis_source",
-          "analysis_image",
-          "recording"
+          "type"
         ],
         "properties": {
           "alarm_frame_count": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -17753,12 +20688,22 @@
             "format": "double"
           },
           "alarm_ref_blend_perc": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "analysing": {
-            "$ref": "#/components/schemas/Analysing"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Analysing"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "analysis_fps_limit": {
             "type": [
@@ -17768,13 +20713,39 @@
             "format": "double"
           },
           "analysis_image": {
-            "$ref": "#/components/schemas/AnalysisImage"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisImage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "analysis_image_opacity": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Alpha applied when compositing the analysis image over the frame.",
+            "minimum": 0
           },
           "analysis_source": {
-            "$ref": "#/components/schemas/AnalysisSource"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "analysis_update_delay": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -17813,28 +20784,50 @@
             "format": "double"
           },
           "brightness": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "capturing": {
-            "$ref": "#/components/schemas/Capturing"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Capturing"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "channel": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "colour": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "colours": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "contrast": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "control_address": {
@@ -17858,7 +20851,10 @@
             "minimum": 0
           },
           "controllable": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -17881,34 +20877,73 @@
             ]
           },
           "decoding": {
-            "$ref": "#/components/schemas/Decoding"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Decoding"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "decoding_enabled": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "default_codec": {
-            "$ref": "#/components/schemas/DefaultCodec"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DefaultCodec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "default_player": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Player the web UI uses for this monitor by default."
           },
           "default_rate": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "default_scale": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "deinterlacing": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "deleted": {
-            "type": "boolean"
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "device": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "device_class": {
             "oneOf": [
@@ -17936,6 +20971,20 @@
               "null"
             ]
           },
+          "encoder_hw_accel_device": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Hardware encoder device (`EncoderHWAccelDevice`)."
+          },
+          "encoder_hw_accel_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Hardware encoder (`EncoderHWAccelName`)."
+          },
           "encoder_parameters": {
             "type": [
               "string",
@@ -17943,37 +20992,80 @@
             ]
           },
           "event_close_mode": {
-            "$ref": "#/components/schemas/EventCloseMode"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EventCloseMode"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "event_end_command": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "event_prefix": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "event_start_command": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "exif": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "format": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "fps_report_interval": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "function": {
-            "$ref": "#/components/schemas/Function"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Function"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "go2rtc_enabled": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Serve the monitor through go2rtc."
           },
           "height": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -17984,23 +21076,42 @@
             ]
           },
           "hue": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "image_buffer_count": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "importance": {
-            "$ref": "#/components/schemas/Importance"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Importance"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "janus_audio_enabled": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "janus_enabled": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "janus_profile_override": {
@@ -18023,17 +21134,26 @@
             ]
           },
           "label_size": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "label_x": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "label_y": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -18073,7 +21193,10 @@
             "format": "double"
           },
           "max_image_buffer_count": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -18084,12 +21207,18 @@
             ]
           },
           "min_section_length": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "modect_during_ptz": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -18102,16 +21231,25 @@
             "minimum": 0
           },
           "motion_frame_skip": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "mqtt_enabled": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "mqtt_subscriptions": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "name": {
             "type": "string"
@@ -18122,6 +21260,36 @@
               "null"
             ]
           },
+          "object_detection": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Detector to use, or `none` to disable object detection."
+          },
+          "object_detection_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Name of the AI model used for object detection."
+          },
+          "object_detection_nms_threshold": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Non-maximum-suppression threshold (0.0-1.0)."
+          },
+          "object_detection_object_threshold": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "float",
+            "description": "Object confidence threshold (0.0-1.0)."
+          },
           "onvif_alarm_text": {
             "type": [
               "string",
@@ -18129,23 +21297,41 @@
             ]
           },
           "onvif_event_listener": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "onvif_events_path": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "onvif_options": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "onvif_password": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "onvif_url": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "onvif_username": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "options": {
             "type": [
@@ -18154,7 +21340,14 @@
             ]
           },
           "orientation": {
-            "$ref": "#/components/schemas/Orientation"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Orientation"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "output_codec": {
             "type": [
@@ -18175,7 +21368,10 @@
             ]
           },
           "palette": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -18192,15 +21388,24 @@
             ]
           },
           "port": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "post_event_count": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "pre_event_count": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -18211,18 +21416,38 @@
             ]
           },
           "record_audio": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "description": "Boolean. The old `min = -1` accepted a value the column has no meaning for."
           },
           "recording": {
-            "$ref": "#/components/schemas/Recording"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Recording"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "recording_source": {
-            "$ref": "#/components/schemas/RecordingSource"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RecordingSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "ref_blend_perc": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -18235,7 +21460,10 @@
             "minimum": 0
           },
           "restream": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "return_delay": {
@@ -18247,15 +21475,28 @@
             "minimum": 0
           },
           "return_location": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "rtsp2_web_enabled": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "rtsp2_web_type": {
-            "$ref": "#/components/schemas/Rtsp2WebType"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Rtsp2WebType"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "rtsp_describe": {
             "type": [
@@ -18267,11 +21508,17 @@
             "minimum": 0
           },
           "rtsp_server": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "rtsp_stream_name": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "rtsp_user": {
             "type": [
@@ -18281,7 +21528,10 @@
             "format": "int32"
           },
           "save_jpe_gs": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "description": "`Monitors.SaveJPEGs` is a two-bit mask, not a flag: bit 0 saves\ncaptured frames and bit 1 saves analysis images, so 3 means both — and\n3 is the column default, which the old `max = 1` rejected (GH #39)."
           },
@@ -18292,12 +21542,18 @@
             ]
           },
           "section_length": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "section_length_warn": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "sequence": {
@@ -18317,33 +21573,65 @@
             "minimum": 0
           },
           "signal_check_colour": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "signal_check_points": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "soap_wsa_compl": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "startup_delay": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "storage_id": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
+          "stream_channel": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StreamChannel",
+                "description": "Stream source channel."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "stream_replay_buffer": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "sub_path": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "track_delay": {
             "type": [
@@ -18354,18 +21642,27 @@
             "minimum": 0
           },
           "track_motion": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "triggers": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "type": {
             "$ref": "#/components/schemas/MonitorType"
           },
           "use_amcrest_api": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           },
           "user": {
@@ -18391,25 +21688,59 @@
             "minimum": 0
           },
           "video_writer": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "description": "0 disabled, 1 encode, 2 camera passthrough."
           },
+          "wall_clock_timestamps": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Stamp events with wall-clock rather than stream timestamps."
+          },
           "warmup_count": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "web_colour": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "what_display": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WhatDisplay",
+                "description": "What the live view renders: video, audio visualization, or both."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "width": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
           "zone_count": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32"
           }
         }
@@ -18433,6 +21764,84 @@
           "user_id": {
             "type": "integer",
             "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "CreateNotificationRequest": {
+        "type": "object",
+        "description": "Register a push token. A token already registered is updated in place,\nas ZoneMinder's `notifications.json` does.",
+        "required": [
+          "token",
+          "platform"
+        ],
+        "properties": {
+          "app_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "badge_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "interval": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Minimum seconds between pushes.",
+            "minimum": 0
+          },
+          "last_notified_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "RFC 3339."
+          },
+          "monitor_list": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Comma-separated monitor ids to notify for; empty or absent for all."
+          },
+          "platform": {
+            "$ref": "#/components/schemas/PushPlatform"
+          },
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "push_state": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PushState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "token": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The owner. Only a System editor may set it; otherwise it is the caller.",
             "minimum": 0
           }
         }
@@ -18499,6 +21908,31 @@
             "example": "2025-01-01T00:00:00Z"
           }
         }
+      },
+      "CreateRoleRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/UserPermissionsInput"
+          },
+          {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "Create a role: a named permission set users hold through `role_id`.\nOmitted permission levels default to `None` (a role grants only what it\nnames)."
       },
       "CreateServerRequest": {
         "type": "object",
@@ -19071,6 +22505,15 @@
                   "null"
                 ]
               },
+              "role_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "The user's role (`GET /api/v3/roles`); its permissions add to the\nuser's own.",
+                "minimum": 0
+              },
               "username": {
                 "type": "string"
               }
@@ -19079,27 +22522,35 @@
         ]
       },
       "CreateZonePresetRequest": {
-        "type": "object",
-        "required": [
-          "name",
-          "type",
-          "units",
-          "check_method"
-        ],
-        "properties": {
-          "check_method": {
-            "type": "string"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ZonePresetThresholds",
+            "description": "The thresholds the preset applies to a zone (#188)."
           },
-          "name": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string"
-          },
-          "units": {
-            "type": "string"
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "type",
+              "units",
+              "check_method"
+            ],
+            "properties": {
+              "check_method": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string"
+              },
+              "units": {
+                "type": "string"
+              }
+            }
           }
-        }
+        ]
       },
       "CreateZoneRequest": {
         "type": "object",
@@ -19505,6 +22956,62 @@
           "X10"
         ]
       },
+      "EncoderTemplateResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "encoder",
+          "name",
+          "params"
+        ],
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "encoder": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "params": {
+            "type": "string"
+          }
+        }
+      },
+      "EventAuditResponse": {
+        "type": "object",
+        "description": "Legacy's \"Audit Events Report\": per monitor, the events overlapping a\nwindow, the gaps between them, and those whose media is missing or empty.",
+        "required": [
+          "start",
+          "end",
+          "monitors"
+        ],
+        "properties": {
+          "end": {
+            "type": "string",
+            "example": "2026-10-18T10:00:00Z"
+          },
+          "monitors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MonitorEventAudit"
+            }
+          },
+          "start": {
+            "type": "string",
+            "example": "2026-10-18T09:00:00Z"
+          }
+        }
+      },
       "EventCloseMode": {
         "type": "string",
         "enum": [
@@ -19711,6 +23218,33 @@
           }
         }
       },
+      "EventExportRequest": {
+        "type": "object",
+        "required": [
+          "ids"
+        ],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "description": "The events to export, at most 500."
+          },
+          "include": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ExportPart"
+            },
+            "description": "Defaults to `details` and `video`."
+          }
+        }
+      },
       "EventQueryParams": {
         "type": "object",
         "properties": {
@@ -19802,6 +23336,14 @@
             "format": "int64",
             "example": "20",
             "minimum": 0
+          },
+          "q": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Free-text search, as legacy's events search box: a substring match\nover Id, MonitorId, StorageId, Name, Cause, StartDateTime,\nEndDateTime, Length, Frames, AlarmFrames, TotScore, AvgScore,\nMaxScore, Archived, Emailed, Notes and DiskSpace, any of which may\nmatch (#136).",
+            "example": "Front"
           },
           "sort": {
             "oneOf": [
@@ -20003,6 +23545,16 @@
             "example": 100,
             "minimum": 0
           },
+          "max_score_frame_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The frame with the highest score (`MaxScoreFrameId`): what a client\nreports as the matching frame (#176).",
+            "example": 42,
+            "minimum": 0
+          },
           "messaged": {
             "type": "integer",
             "format": "int32",
@@ -20028,6 +23580,13 @@
           },
           "orientation": {
             "$ref": "#/components/schemas/Orientation"
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The event's directory, as the server resolves it from its storage and\nscheme (what ZoneMinder's event page shows as Path). Only on\n`GET /events/{id}`; whether the media is still there is what\n`GET /events/{id}/info` answers (#140)."
           },
           "save_jpe_gs": {
             "type": [
@@ -20444,6 +24003,73 @@
           }
         }
       },
+      "EventVideoResponse": {
+        "type": "object",
+        "description": "A video file in an event's directory.",
+        "required": [
+          "name",
+          "size_bytes",
+          "format",
+          "recorded"
+        ],
+        "properties": {
+          "format": {
+            "type": "string",
+            "description": "The file's extension."
+          },
+          "fps": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "From a generated file's name (zmvideo.pl's `-r`, `-R`, `-s` and `-S`\nparts), when present."
+          },
+          "recorded": {
+            "type": "boolean",
+            "description": "The event's own recording (`DefaultVideo`); it can't be deleted here."
+          },
+          "scale": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "size": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ExportPart": {
+        "type": "string",
+        "description": "What goes into each event's folder in the zip.",
+        "enum": [
+          "details",
+          "frames",
+          "images",
+          "video",
+          "misc"
+        ]
+      },
       "FilterExpr": {
         "oneOf": [
           {
@@ -20839,6 +24465,57 @@
           "Nodect"
         ]
       },
+      "GenerateVideoRequest": {
+        "type": "object",
+        "description": "`POST /api/v3/events/{id}/videos`: what zmvideo.pl's options set.",
+        "properties": {
+          "format": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "One of `ZM_FFMPEG_FORMATS`; defaults to its starred entry."
+          },
+          "fps": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "A fixed output frame rate. Exclusive with `rate`."
+          },
+          "overwrite": {
+            "type": "boolean",
+            "description": "Replace a file of the same name; otherwise an existing one is the result."
+          },
+          "rate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Playback speed relative to real time (2 is twice as fast). Exclusive\nwith `fps`."
+          },
+          "scale": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Scale relative to the event's size. Exclusive with `size`."
+          },
+          "size": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "An exact `WIDTHxHEIGHT`. Exclusive with `scale`."
+          },
+          "transform": {
+            "$ref": "#/components/schemas/VideoTransform"
+          }
+        }
+      },
       "GroupMonitorResponse": {
         "type": "object",
         "required": [
@@ -20934,6 +24611,44 @@
           "View",
           "Edit"
         ]
+      },
+      "LightCapabilities": {
+        "type": "object",
+        "description": "Light capabilities (#190)",
+        "required": [
+          "can_light",
+          "can_indicator_light"
+        ],
+        "properties": {
+          "can_indicator_light": {
+            "type": "boolean",
+            "description": "`POST .../indicator-light/{on|off}`"
+          },
+          "can_light": {
+            "type": "boolean",
+            "description": "`POST .../light/{on|off}`"
+          }
+        }
+      },
+      "LightStatusResponse": {
+        "type": "object",
+        "description": "The lights' state as the camera reports it (#190); null where the control\nhas no such light or the daemon gave no answer.",
+        "properties": {
+          "indicator_light": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`on` or `off`."
+          },
+          "light": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`on` or `off`."
+          }
+        }
       },
       "LiveProtocolStatus": {
         "type": "object",
@@ -21071,8 +24786,8 @@
               "string",
               "null"
             ],
-            "description": "Filter by component name (e.g., \"zmc\", \"zma\", \"zmdc\", \"web\")",
-            "example": "zmc"
+            "description": "Exact component name, or a comma list of them (`zmc,zma`).",
+            "example": "zmc,zma"
           },
           "end": {
             "type": [
@@ -21300,7 +25015,8 @@
         ],
         "properties": {
           "password": {
-            "type": "string"
+            "type": "string",
+            "description": "Whatever the account's password is. ZoneMinder sets no minimum (its\ndefault login is `admin`/`admin`), so a minimum here only locked\nexisting users out (#174); setting a password still enforces one."
           },
           "username": {
             "type": "string"
@@ -21411,6 +25127,166 @@
           }
         }
       },
+      "MediaJobResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "event_id",
+          "monitor_id",
+          "params",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "$ref": "#/components/schemas/DateTimeWrapper"
+          },
+          "created_by": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "finished_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DateTimeWrapper"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "kind": {
+            "type": "string",
+            "description": "`video` for now."
+          },
+          "monitor_id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "output": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For a video, the file name in the event's directory."
+          },
+          "params": {
+            "type": "object",
+            "description": "The parameters the job was queued with."
+          },
+          "started_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DateTimeWrapper"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "description": "`queued`, `running`, `done`, `failed` or `cancelled`."
+          }
+        }
+      },
+      "MediaLinkResponse": {
+        "type": "object",
+        "description": "A signed playlist link for a player that can only authenticate in the URL.",
+        "required": [
+          "playlist_url",
+          "token",
+          "expires_at"
+        ],
+        "properties": {
+          "expires_at": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unix time the link stops working."
+          },
+          "playlist_url": {
+            "type": "string",
+            "description": "The playlist path with its signature, ready for a player: prefix it\nwith the server's origin. The playlist signs every URI it lists.",
+            "example": "/api/v3/live/1/hls/master.m3u8?st=1.m.1.3.1760000000.1762592000.Q2…"
+          },
+          "token": {
+            "type": "string",
+            "description": "The signature alone (`st`), for building other URLs of the same\nmonitor or event."
+          }
+        }
+      },
+      "MenuItemResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "menu_key",
+          "enabled",
+          "sort_order",
+          "icon_type"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon_type": {
+            "type": "string",
+            "description": "`material`, `fontawesome`, `image` or `none`."
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Label to show instead of the entry's default one."
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "menu_key": {
+            "type": "string"
+          },
+          "sort_order": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "MessageResponse": {
         "type": "object",
         "required": [
@@ -21443,6 +25319,154 @@
           },
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "MonitorActionResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "monitor_id",
+          "target_monitor_id",
+          "label",
+          "enabled",
+          "sequence"
+        ],
+        "properties": {
+          "action_type": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ActionType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "audio_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "label": {
+            "type": "string"
+          },
+          "monitor_id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "target_monitor_id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "trigger_on": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TriggerOn",
+                "description": "`null` for a value this build doesn't know (a newer ZoneMinder)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "MonitorEventAudit": {
+        "type": "object",
+        "required": [
+          "monitor_id",
+          "event_count",
+          "first_event_id",
+          "last_event_id",
+          "missing_files",
+          "zero_size"
+        ],
+        "properties": {
+          "event_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "first_event_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "first_start": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Start of the first event in the window."
+          },
+          "last_end": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "End of the last event in the window."
+          },
+          "last_event_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_gap_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "min_gap_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Smallest and largest gap, in seconds, from one event's end to the\nnext one's start: negative where events overlap. Null with fewer than\ntwo events."
+          },
+          "missing_files": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "description": "Events whose video (or, without one, whose directory) isn't on disk."
+          },
+          "monitor_id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "zero_size": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "description": "Events whose video file is empty."
           }
         }
       },
@@ -22494,6 +26518,18 @@
           }
         }
       },
+      "MonitorStateRequest": {
+        "type": "object",
+        "description": "Body of `PATCH /monitors/{id}/state`. Distinct from the run-state\n`UpdateStateRequest` in `dto::request::states`: the two shared a name, and\nthe OpenAPI spec documented this endpoint with the other one's body (#158).",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "state": {
+            "type": "string"
+          }
+        }
+      },
       "MonitorStatusResponse": {
         "type": "object",
         "required": [
@@ -22505,6 +26541,27 @@
           "updated_on"
         ],
         "properties": {
+          "alarm_state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Live alarm state from the monitor's shared memory: `idle`,\n`prealarm`, `alarm` or `alert` (what `zmu -s` reports). Only on\n`GET /monitor-status/{id}`, and only while zmc is running."
+          },
+          "alarms_disabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether alarms are forced off (`zmu -n`, or `disable_alarms` on the\nalarm endpoint). Same availability as `alarm_state`."
+          },
+          "analysing": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the monitor is analysing right now. Same availability."
+          },
           "analysis_fps": {
             "type": "string"
           },
@@ -22573,6 +26630,106 @@
         "type": "string",
         "description": "Local wall-clock time with no offset, as stored by ZoneMinder",
         "example": "2025-04-24T12:34:56"
+      },
+      "NotificationResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "token",
+          "interval",
+          "badge_count",
+          "updated_on"
+        ],
+        "properties": {
+          "app_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "badge_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_on": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DateTimeWrapper"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "interval": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "last_notified_at": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DateTimeWrapper",
+                "description": "UTC, like event times."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "monitor_list": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "platform": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PushPlatform",
+                "description": "`null` for a value this build doesn't know."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "push_state": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PushState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "token": {
+            "type": "string"
+          },
+          "updated_on": {
+            "$ref": "#/components/schemas/DateTimeWrapper"
+          },
+          "user_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
       },
       "ObjectTypeResponse": {
         "type": "object",
@@ -23659,6 +27816,44 @@
           }
         }
       },
+      "PaginatedRolesResponse": {
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "per_page",
+          "current_page",
+          "last_page"
+        ],
+        "properties": {
+          "current_page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoleResponse"
+            }
+          },
+          "last_page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "per_page": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "PaginatedServerStatsResponse": {
         "type": "object",
         "description": "Paginated response for server stats",
@@ -24387,6 +28582,39 @@
           }
         }
       },
+      "PrivacyRequest": {
+        "type": "object",
+        "description": "Record the answer to the privacy statement (#189).",
+        "required": [
+          "accept"
+        ],
+        "properties": {
+          "accept": {
+            "type": "boolean",
+            "description": "Accept (send telemetry) or decline."
+          }
+        }
+      },
+      "PrivacyResponse": {
+        "type": "object",
+        "description": "The privacy settings after recording an answer.",
+        "properties": {
+          "show_privacy": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "`ZM_SHOW_PRIVACY`: whether the statement is still to be shown."
+          },
+          "telemetry": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "`ZM_TELEMETRY_DATA`: whether telemetry is sent."
+          }
+        }
+      },
       "ProcessState": {
         "type": "string",
         "description": "State of a managed daemon process.",
@@ -24446,6 +28674,10 @@
           "scan"
         ],
         "properties": {
+          "audio": {
+            "$ref": "#/components/schemas/AudioCapabilities",
+            "description": "Audio capabilities"
+          },
           "control_id": {
             "type": "integer",
             "format": "int32",
@@ -24463,6 +28695,10 @@
           "iris": {
             "$ref": "#/components/schemas/AxisCapabilities",
             "description": "Iris capabilities"
+          },
+          "light": {
+            "$ref": "#/components/schemas/LightCapabilities",
+            "description": "Light capabilities"
           },
           "name": {
             "type": "string",
@@ -24817,6 +29053,21 @@
           }
         }
       },
+      "PushPlatform": {
+        "type": "string",
+        "enum": [
+          "android",
+          "ios",
+          "web"
+        ]
+      },
+      "PushState": {
+        "type": "string",
+        "enum": [
+          "enabled",
+          "disabled"
+        ]
+      },
       "Recording": {
         "type": "string",
         "enum": [
@@ -24941,6 +29192,62 @@
           "EventSummary",
           "Event"
         ]
+      },
+      "RoleResponse": {
+        "type": "object",
+        "description": "A ZoneMinder 1.39 role. A user holding it (`role_id`) gets, per feature,\nthe higher of their own level and the role's.",
+        "required": [
+          "id",
+          "name",
+          "stream",
+          "events",
+          "control",
+          "monitors",
+          "groups",
+          "devices",
+          "snapshots",
+          "system"
+        ],
+        "properties": {
+          "control": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "devices": {
+            "type": "string"
+          },
+          "events": {
+            "type": "string"
+          },
+          "groups": {
+            "type": "string"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "monitors": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "snapshots": {
+            "type": "string"
+          },
+          "stream": {
+            "type": "string"
+          },
+          "system": {
+            "type": "string"
+          }
+        }
       },
       "Rtsp2WebType": {
         "type": "string",
@@ -25671,6 +29978,36 @@
           }
         }
       },
+      "StorageFilesystem": {
+        "type": "object",
+        "required": [
+          "total_bytes",
+          "used_bytes",
+          "available_bytes",
+          "usage_percent"
+        ],
+        "properties": {
+          "available_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "usage_percent": {
+            "type": "number",
+            "format": "double"
+          },
+          "used_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "StorageResponse": {
         "type": "object",
         "required": [
@@ -25698,6 +30035,17 @@
           "enabled": {
             "type": "integer",
             "format": "int32"
+          },
+          "filesystem": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StorageFilesystem",
+                "description": "The filesystem the storage's path is on, as `df` reports it: the\ndisk's own size and use, not the capacity declared for retention. Null\nwhen the path can't be read from this server (#145)."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "id": {
             "type": "integer",
@@ -25731,6 +30079,14 @@
             ]
           }
         }
+      },
+      "StreamChannel": {
+        "type": "string",
+        "enum": [
+          "Restream",
+          "CameraDirectPrimary",
+          "CameraDirectSecondary"
+        ]
       },
       "StreamEndpoints": {
         "type": "object",
@@ -26096,6 +30452,17 @@
           "refresh"
         ]
       },
+      "TriggerOn": {
+        "type": "string",
+        "description": "When an action fires. zmc fires all but `Manual`, which a client runs\nwith `POST /monitors/{id}/actions/{action_id}/run`.",
+        "enum": [
+          "EventStart",
+          "EventEnd",
+          "Alarm",
+          "AlarmEnd",
+          "Manual"
+        ]
+      },
       "TriggerX10Response": {
         "type": "object",
         "required": [
@@ -26291,6 +30658,22 @@
       "UpdateControlRequest": {
         "type": "object",
         "properties": {
+          "can_audio_play": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "can_audio_volume": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "can_auto_focus": {
             "type": [
               "integer",
@@ -26403,6 +30786,14 @@
             "format": "int32",
             "minimum": 0
           },
+          "can_indicator_light": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "can_iris": {
             "type": [
               "integer",
@@ -26428,6 +30819,14 @@
             "minimum": 0
           },
           "can_iris_rel": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "can_light": {
             "type": [
               "integer",
               "null"
@@ -26691,6 +31090,14 @@
             "format": "int32",
             "minimum": 0
           },
+          "max_audio_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "max_focus_range": {
             "type": [
               "integer",
@@ -26846,6 +31253,14 @@
             "minimum": 0
           },
           "max_zoom_step": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_audio_file": {
             "type": [
               "integer",
               "null"
@@ -27093,6 +31508,36 @@
               {
                 "type": "null"
               }
+            ]
+          }
+        }
+      },
+      "UpdateEncoderTemplateRequest": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`null` clears it; omit to leave it unchanged."
+          },
+          "encoder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "params": {
+            "type": [
+              "string",
+              "null"
             ]
           }
         }
@@ -27383,6 +31828,49 @@
           }
         }
       },
+      "UpdateMenuItemRequest": {
+        "type": "object",
+        "description": "Partial update. For `label`, `icon` and `link`, `null` clears the value.",
+        "properties": {
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "icon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "icon_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "link": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sort_order": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "UpdateModelRequest": {
         "type": "object",
         "properties": {
@@ -27397,6 +31885,68 @@
             "type": [
               "string",
               "null"
+            ]
+          }
+        }
+      },
+      "UpdateMonitorActionRequest": {
+        "type": "object",
+        "properties": {
+          "action_type": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ActionType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "audio_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "`null` clears it; omit to leave it unchanged.",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sequence": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "target_monitor_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "trigger_on": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TriggerOn"
+              },
+              {
+                "type": "null"
+              }
             ]
           }
         }
@@ -27803,6 +32353,13 @@
               }
             ]
           },
+          "default_player": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Player the web UI uses for this monitor by default."
+          },
           "default_rate": {
             "type": [
               "integer",
@@ -27861,6 +32418,20 @@
               "string",
               "null"
             ]
+          },
+          "encoder_hw_accel_device": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Hardware encoder device (`EncoderHWAccelDevice`)."
+          },
+          "encoder_hw_accel_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Hardware encoder (`EncoderHWAccelName`)."
           },
           "encoder_parameters": {
             "type": [
@@ -27929,6 +32500,14 @@
                 "type": "null"
               }
             ]
+          },
+          "go2rtc_enabled": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Serve the monitor through go2rtc."
           },
           "height": {
             "type": [
@@ -28480,6 +33059,17 @@
             "format": "int32",
             "minimum": 0
           },
+          "stream_channel": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StreamChannel",
+                "description": "Stream source channel."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "stream_replay_buffer": {
             "type": [
               "integer",
@@ -28563,6 +33153,14 @@
             "format": "int32",
             "description": "0 disabled, 1 encode, 2 camera passthrough."
           },
+          "wall_clock_timestamps": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Stamp events with wall-clock rather than stream timestamps."
+          },
           "warmup_count": {
             "type": [
               "integer",
@@ -28575,6 +33173,17 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "what_display": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WhatDisplay",
+                "description": "What the live view renders: video, audio visualization, or both."
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "width": {
@@ -28651,6 +33260,87 @@
           }
         }
       },
+      "UpdateNotificationRequest": {
+        "type": "object",
+        "properties": {
+          "app_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "badge_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "interval": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "last_notified_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "monitor_list": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`null` clears it; omit to leave it unchanged."
+          },
+          "platform": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PushPlatform"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "profile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "push_state": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PushState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "token": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "System editors only.",
+            "minimum": 0
+          }
+        }
+      },
       "UpdateObjectTypeRequest": {
         "type": "object",
         "properties": {
@@ -28713,6 +33403,32 @@
             "example": "2025-01-01T00:00:00Z"
           }
         }
+      },
+      "UpdateRoleRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/UserPermissionsInput"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "`null` clears it; omit to leave it unchanged."
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Partial update of a role."
       },
       "UpdateServerRequest": {
         "type": "object",
@@ -29019,6 +33735,14 @@
       "UpdateStorageRequest": {
         "type": "object",
         "properties": {
+          "do_delete": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Whether ZoneMinder may delete media from this area (`DoDelete`, 0/1);\nthe reaper and event deletes honour it (#185)."
+          },
           "enabled": {
             "type": [
               "integer",
@@ -29199,6 +33923,15 @@
                   "null"
                 ]
               },
+              "role_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "The user's role; `null` removes it. Omit to leave it unchanged.",
+                "minimum": 0
+              },
               "token_min_expiry": {
                 "type": [
                   "integer",
@@ -29214,33 +33947,41 @@
         "description": "Partial update: every field is optional and only provided fields change."
       },
       "UpdateZonePresetRequest": {
-        "type": "object",
-        "properties": {
-          "check_method": {
-            "type": [
-              "string",
-              "null"
-            ]
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/ZonePresetThresholds",
+            "description": "Thresholds to change; omitted ones are left alone (#188)."
           },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "type": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "units": {
-            "type": [
-              "string",
-              "null"
-            ]
+          {
+            "type": "object",
+            "properties": {
+              "check_method": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "units": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
           }
-        }
+        ]
       },
       "UpdateZoneRequest": {
         "type": "object",
@@ -29634,6 +34375,15 @@
           "phone": {
             "type": "string"
           },
+          "role_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The user's role, whose permissions add to the levels above.",
+            "minimum": 0
+          },
           "snapshots": {
             "type": "string"
           },
@@ -29669,6 +34419,14 @@
             "description": "ZoneMinder version"
           }
         }
+      },
+      "VideoTransform": {
+        "type": "string",
+        "description": "A filter for the generated video, as ZoneMinder's Generate Video offers.",
+        "enum": [
+          "none",
+          "greyscale"
+        ]
       },
       "WebRtcSignalingMessage": {
         "oneOf": [
@@ -29894,6 +34652,14 @@
           }
         }
       },
+      "WhatDisplay": {
+        "type": "string",
+        "enum": [
+          "OnlyVideo",
+          "OnlyAudioVisualization",
+          "VideoAudioVisualization"
+        ]
+      },
       "WorkerStatus": {
         "type": "object",
         "description": "What zm-api knows about a worker right now.",
@@ -30018,25 +34784,240 @@
           "name",
           "type",
           "units",
-          "check_method"
+          "check_method",
+          "overload_frames",
+          "extend_alarm_frames"
         ],
         "properties": {
           "check_method": {
             "type": "string"
+          },
+          "extend_alarm_frames": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "filter_x": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "filter_y": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           },
           "id": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
           },
+          "max_alarm_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_blob_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_blobs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_filter_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_pixel_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_alarm_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_blob_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_blobs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_filter_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_pixel_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The thresholds the preset applies, named as on `ZoneResponse` (#188).",
+            "minimum": 0
+          },
           "name": {
             "type": "string"
+          },
+          "overload_frames": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "type": {
             "type": "string"
           },
           "units": {
             "type": "string"
+          }
+        }
+      },
+      "ZonePresetThresholds": {
+        "type": "object",
+        "description": "A zone preset's thresholds, named as on `ZoneResponse` so a client can copy\nthem to a zone one to one. On update, an omitted field is left alone.",
+        "properties": {
+          "extend_alarm_frames": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "filter_x": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "filter_y": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_alarm_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_blob_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_blobs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_filter_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "max_pixel_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_alarm_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_blob_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_blobs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_filter_pixels": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "min_pixel_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "overload_frames": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -30297,6 +35278,10 @@
     {
       "name": "Monitors",
       "description": "Monitor management endpoints"
+    },
+    {
+      "name": "Notifications",
+      "description": "Push token registrations"
     },
     {
       "name": "Monitors Permissions",

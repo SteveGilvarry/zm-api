@@ -18,7 +18,13 @@ fi
 check "startup migrations created zm-api's own tables" own_tables_exist
 check_eq "GET /monitors" "200" "$(api_status GET /api/v3/monitors)"
 check_eq "GET /events" "200" "$(api_status GET '/api/v3/events?limit=1')"
-check_eq "daemon control is off in passive mode" "503" "$(api_status GET /api/v3/daemons)"
+# Passive mode reads ZoneMinder's daemons through its zmdc.sock (#156); with
+# no ZoneMinder there is no zmdc.sock to read.
+if has_zoneminder; then
+  check_eq "daemon status comes from zmdc.sock" "200" "$(api_status GET /api/v3/daemons)"
+else
+  check_eq "no zmdc.sock, no daemon status" "503" "$(api_status GET /api/v3/daemons)"
+fi
 
 if has_zoneminder; then
   section "Against the running ZoneMinder"
@@ -31,6 +37,7 @@ if has_zoneminder; then
     api_json GET '/api/v3/events?limit=1' '.items | length > 0'
   check "snapshot from the stream socket is a JPEG" snapshot_is_jpeg
   check "live HLS from the stream socket has segments" hls_has_segments
+  check "live HLS plays in ffprobe from a signed link" hls_plays_from_a_signed_link
   if has_chromium; then
     check "live WebRTC plays in a headless browser" webrtc_plays
   else
@@ -40,6 +47,19 @@ if has_zoneminder; then
   section "ZoneMinder still in charge"
   check "zoneminder.service running" svc_active zoneminder.service
     check_eq "zmc is supervised by zmdc.pl" "$(zmdc_pid)" "$(zmc_parent)"
+
+  section "Daemons through zmdc.sock"
+  check "daemon status is read from zmdc.sock" api_json GET /api/v3/system/status \
+    '.running and ([.daemons[] | select(.id | startswith("zmc"))] | length > 0)'
+  check "live alarm state is read from shared memory" \
+    api_json GET "/api/v3/monitor-status/${mid}" '.alarm_state | IN("idle","prealarm","alarm","alert")'
+  check "alarms can be disabled and re-enabled" alarms_toggle_through_shm
+  check "live audio level is read from shared memory" \
+    api_json GET "/api/v3/monitors/${mid}/audio-level" '.level != null'
+  check "stopping the monitor through the API stops zmc" monitor_stop_stops_zmc
+  check "starting it again starts zmc" monitor_start_starts_zmc
+  check_eq "zmc is supervised by zmdc.pl again" "$(zmdc_pid)" "$(zmc_parent)"
+  check "capturing again" wait_until 60 capturing
 
   # #82: a zm-api restart once deleted ZoneMinder's socket directory.
   before="$(inode "$(socks_dir)/zmdc.sock")"

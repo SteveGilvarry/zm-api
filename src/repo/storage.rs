@@ -90,6 +90,7 @@ pub async fn update(
     scheme: Option<String>,
     server_id: Option<u32>,
     url: Option<String>,
+    do_delete: Option<i8>,
 ) -> AppResult<Option<StorageModel>> {
     use sea_orm::{ActiveModelTrait, Set};
     let Some(model) = find_by_id(db, id).await? else {
@@ -131,6 +132,9 @@ pub async fn update(
     }
     if let Some(v) = url {
         am.url = Set(Some(v));
+    }
+    if let Some(v) = do_delete {
+        am.do_delete = Set(v);
     }
     let updated = am.update(db).await?;
     Ok(Some(updated))
@@ -185,6 +189,7 @@ mod tests {
             3,
             Some("new".into()),
             Some("/data".into()),
+            None,
             None,
             None,
             None,

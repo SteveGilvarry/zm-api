@@ -45,8 +45,16 @@ pub async fn list(
 
     let options = events_repo::EventQueryOptions {
         monitor_id: params.monitor_id,
-        start_time: params.start_time.as_ref().map(|dt| dt.0.naive_utc()),
-        end_time: params.end_time.as_ref().map(|dt| dt.0.naive_utc()),
+        // The columns hold server-local wall-clock time; the filter is a UTC
+        // instant (#173).
+        start_time: params
+            .start_time
+            .as_ref()
+            .map(|dt| crate::util::utc_to_naive_local(dt.0)),
+        end_time: params
+            .end_time
+            .as_ref()
+            .map(|dt| crate::util::utc_to_naive_local(dt.0)),
         sort_field: params.sort.unwrap_or_default(),
         sort_direction: params.direction.unwrap_or_default(),
         alarm_frames_min: params.alarm_frames_min,
@@ -54,6 +62,7 @@ pub async fn list(
         cause: params.cause.clone().filter(|s| !s.is_empty()),
         name: params.name.clone().filter(|s| !s.is_empty()),
         notes: params.notes.clone().filter(|s| !s.is_empty()),
+        q: params.q.clone().filter(|s| !s.trim().is_empty()),
         storage_id: params.storage_id,
         tags: params
             .tag_id
@@ -125,6 +134,7 @@ pub async fn list_all(
             cause: None,
             name: None,
             notes: None,
+            q: None,
             tag_id: None,
             tag_op: None,
             totals: false,
@@ -163,6 +173,7 @@ pub async fn list_by_monitor(
             cause: None,
             name: None,
             notes: None,
+            q: None,
             tag_id: None,
             tag_op: None,
             totals: false,
@@ -188,7 +199,13 @@ pub async fn get_by_id(
         return Err(event_not_found(id));
     }
     let tag_summaries: Vec<TagSummary> = tags.iter().map(TagSummary::from).collect();
-    Ok(EventResponse::with_tags(event, tag_summaries))
+    let path = crate::service::event_storage::event_directory(state, &event)
+        .await
+        .ok()
+        .map(|p| p.display().to_string());
+    let mut response = EventResponse::with_tags(event, tag_summaries);
+    response.path = path;
+    Ok(response)
 }
 
 /// Create a new event
@@ -213,8 +230,12 @@ pub async fn create(
         secondary_storage_id: Set(event.secondary_storage_id),
         name: Set(event.name),
         cause: Set(event.cause),
-        start_date_time: Set(event.start_date_time.map(|dt| dt.0.naive_utc())),
-        end_date_time: Set(event.end_date_time.map(|dt| dt.0.naive_utc())),
+        start_date_time: Set(event
+            .start_date_time
+            .map(|dt| crate::util::utc_to_naive_local(dt.0))),
+        end_date_time: Set(event
+            .end_date_time
+            .map(|dt| crate::util::utc_to_naive_local(dt.0))),
         width: Set(event.width),
         height: Set(event.height),
         length: Set(event.length.0),
@@ -319,9 +340,16 @@ pub async fn delete(state: &AppState, id: u32, scope: &MonitorScope) -> AppResul
 pub async fn get_event_counts(
     state: &AppState,
     hours: i64,
+    monitor_id: Option<u32>,
     scope: &MonitorScope,
 ) -> AppResult<EventCountsResponse> {
-    let filter = scope.visible_ids(Level::View);
+    // One monitor's histogram (#36), or every monitor the caller can see. A
+    // monitor outside the caller's scope counts nothing.
+    let filter = match monitor_id {
+        Some(id) if scope.allows(id, Level::View) => Some(vec![id]),
+        Some(_) => Some(Vec::new()),
+        None => scope.visible_ids(Level::View),
+    };
     let counts = events_repo::get_counts_by_hour(state, hours, filter.as_deref()).await?;
 
     let event_counts = counts

@@ -21,10 +21,46 @@ fn database_url(args: &[String]) -> String {
             return args[i + 1].clone();
         }
     }
-    std::env::var("DATABASE_URL").unwrap_or_else(|_| {
-        eprintln!("error: pass -u <url> or set DATABASE_URL");
+    if let Ok(url) = std::env::var("DATABASE_URL") {
+        return url;
+    }
+    zmconf_url().unwrap_or_else(|| {
+        eprintln!("error: pass -u <url>, set DATABASE_URL, or run where zm.conf is readable");
         std::process::exit(2);
     })
+}
+
+/// The URL ZoneMinder's own `zm.conf` (and `conf.d`) describes, so the
+/// account that runs ZoneMinder needs no `-u` (#147).
+fn zmconf_url() -> Option<String> {
+    let c = zm_api::configure::zmconf::ZmConfig::load();
+    let (user, name) = (c.db_user()?, c.db_name()?);
+    Some(zm_api::configure::db::DatabaseConfig::create_url(
+        user,
+        c.db_pass().unwrap_or_default(),
+        c.db_host().unwrap_or("localhost"),
+        c.db_port().unwrap_or(3306),
+        name,
+    ))
+}
+
+/// `status`: say first whether ZoneMinder's schema is behind this build.
+async fn report_schema(url: &str) {
+    let conn =
+        match Database::connect(ConnectOptions::new(url).sqlx_logging(false).to_owned()).await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("error: cannot connect: {e}");
+                std::process::exit(1);
+            }
+        };
+    match zm_api::migration::schema_check::check(&conn).await {
+        Ok(state) => match state.explain() {
+            Some(msg) => println!("DB behind binary: {msg}"),
+            None => println!("DB schema is current for this binary"),
+        },
+        Err(e) => eprintln!("could not check the schema version: {e}"),
+    }
 }
 
 #[tokio::main]
@@ -54,5 +90,18 @@ async fn main() {
         return;
     }
 
+    // The SeaORM CLI reads `-u` or DATABASE_URL; hand it zm.conf's when
+    // neither is given.
+    if !args.iter().any(|a| a == "-u" || a == "--database-url")
+        && std::env::var("DATABASE_URL").is_err()
+        && !args.iter().any(|a| a == "-h" || a == "--help")
+    {
+        if let Some(url) = zmconf_url() {
+            std::env::set_var("DATABASE_URL", url);
+        }
+    }
+    if args.first().map(String::as_str) == Some("status") {
+        report_schema(&database_url(&args)).await;
+    }
     sea_orm_migration::cli::run_cli(zm_api::migration::Migrator).await;
 }

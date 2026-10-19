@@ -110,6 +110,28 @@ stopped_cleanly() {
 zmc_pid()     { pgrep -x -o zmc; }
 zmc_parent()  { ps -o ppid= -p "$(zmc_pid)" | tr -d ' '; }
 zmc_user()    { ps -o user= -p "$(zmc_pid)" | tr -d ' '; }
+no_zmc()      { ! zmc_pid >/dev/null; }
+
+# Passive mode: monitor state changes go to ZoneMinder's zmdc.sock (#155).
+monitor_state() {
+  api PATCH "/api/v3/monitors/$(monitor_id)/state" -H 'content-type: application/json' \
+    -d "{\"state\":\"$1\"}" >/dev/null
+}
+# The live alarm state and Disable/Enable Alarms (zmu -n / -c) go through
+# zmc's shared memory (#139).
+alarm_action() {
+  api PATCH "/api/v3/monitors/$(monitor_id)/alarm" -H 'content-type: application/json' \
+    -d "{\"action\":\"$1\"}" >/dev/null
+}
+alarms_disabled_is() {
+  api_json GET "/api/v3/monitor-status/$(monitor_id)" ".alarms_disabled == $1"
+}
+alarms_toggle_through_shm() {
+  alarm_action disable_alarms && wait_until 10 alarms_disabled_is true \
+    && alarm_action enable_alarms && wait_until 10 alarms_disabled_is false
+}
+monitor_stop_stops_zmc()   { monitor_state stop && wait_until 30 no_zmc; }
+monitor_start_starts_zmc() { monitor_state start && wait_until 30 zmc_pid; }
 
 # Capture is live when zmc has refreshed Monitor_Status within the last
 # few seconds and reports frames arriving.
@@ -188,6 +210,32 @@ hls_has_segments() {
   local rc=1
   if wait_until 30 api_grep GET "/api/v3/live/${id}/hls/live.m3u8" '\.m4s'; then
     rc=0
+  fi
+  api DELETE "/api/v3/live/${id}/stop" >/dev/null 2>&1 || true
+  return $rc
+}
+
+# A player that can't send a header (FFmpeg, so Home Assistant) plays live
+# HLS through a signed link: the playlist signs every URI it lists (#153).
+hls_plays_from_a_signed_link() {
+  local id link url rc=1
+  id="$(monitor_id)"
+  api POST "/api/v3/live/${id}/start" -H 'content-type: application/json' \
+    -d '{"enable_hls":true}' >/dev/null || return 1
+  wait_until 30 api_grep GET "/api/v3/live/${id}/hls/live.m3u8" '\.m4s' || return 1
+  link="$(api POST "/api/v3/live/${id}/hls/link" -H 'content-type: application/json' \
+    -d '{"ttl_seconds":600}' | jq -r .playlist_url)" || return 1
+  url="${API}${link}"
+  # No access token may appear in what the player is given.
+  if curl -sS -m 20 "$url" | grep -q 'token='; then
+    note "signed playlist lists an access token"
+  else
+    local packets
+    packets="$(timeout 40 ffprobe -v error -rw_timeout 15000000 -read_intervals '%+4' \
+      -select_streams v:0 -count_packets -show_entries stream=nb_read_packets \
+      -of csv=p=0 "$url" 2>>"$ARTIFACTS/ffprobe-signed-hls.log" | head -1)"
+    note "ffprobe read ${packets:-no} video packets through the signed link"
+    [[ "${packets:-0}" -gt 0 ]] && rc=0
   fi
   api DELETE "/api/v3/live/${id}/stop" >/dev/null 2>&1 || true
   return $rc

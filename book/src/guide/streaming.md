@@ -21,6 +21,29 @@ GET /api/v3/live/{monitor_id}/hls/{segment}
 Fragmented MP4, with low-latency HLS available. Higher latency than WebRTC but
 far easier to proxy and cache.
 
+### Players that cannot send a header
+
+FFmpeg, VLC, Safari's native player and Home Assistant request every URI a
+playlist lists exactly as written, so they cannot use a header token. Give
+them a signed link instead:
+
+```
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' -d '{"ttl_seconds": 2592000}' \
+  https://zm.example/api/v3/live/1/hls/link
+# {"playlist_url":"/api/v3/live/1/hls/master.m3u8?st=…","token":"…","expires_at":…}
+
+ffplay "https://zm.example/api/v3/live/1/hls/master.m3u8?st=…"
+```
+
+The link opens that monitor's live media and nothing else. Every URI the
+playlist lists carries a signature valid for a few minutes, refreshed each
+time the player refetches the playlist; child playlists carry the link itself.
+Revoking it, and why each integration wants its own user, is covered under
+[Media URLs](authentication.md#media-urls). Recorded events work the same way
+with `POST /api/v3/events/{id}/stream/link`; their segment signatures last four
+hours, enough to watch, pause and seek.
+
 ## WebRTC
 
 Lower latency, at the cost of a signalling handshake and UDP.
@@ -56,7 +79,8 @@ GET    /api/v3/live/sources
 GET    /api/v3/monitors/{monitor_id}/snapshot
 ```
 
-The snapshot route accepts `?token=<JWT>` because `<img>` cannot set headers.
+The snapshot route accepts a signed link's `?st=` or `?token=<JWT>`, because
+`<img>` cannot set headers.
 
 ## Still images are rotated for you
 

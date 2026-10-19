@@ -890,3 +890,235 @@ pub async fn move_relative(
     let result = service::ptz::move_relative(&state, ptz_manager, id, request).await?;
     Ok(Json(result))
 }
+
+/// Turn the light on
+#[utoipa::path(
+    post,
+    path = "/api/v3/ptz/monitors/{id}/light/on",
+    operation_id = "ptzLightOn",
+    tag = "PTZ",
+    params(("id" = u32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Command executed", body = PtzCommandResponse),
+        (status = 400, description = "The control can't do this", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn light_on(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<PtzCommandResponse>> {
+    let ptz_manager = state.ptz_manager();
+    Ok(Json(
+        service::ptz::light(&state, ptz_manager, id, false, true).await?,
+    ))
+}
+
+/// Turn the light off
+#[utoipa::path(
+    post,
+    path = "/api/v3/ptz/monitors/{id}/light/off",
+    operation_id = "ptzLightOff",
+    tag = "PTZ",
+    params(("id" = u32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Command executed", body = PtzCommandResponse),
+        (status = 400, description = "The control can't do this", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn light_off(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<PtzCommandResponse>> {
+    let ptz_manager = state.ptz_manager();
+    Ok(Json(
+        service::ptz::light(&state, ptz_manager, id, false, false).await?,
+    ))
+}
+
+/// Turn the indicator light on
+#[utoipa::path(
+    post,
+    path = "/api/v3/ptz/monitors/{id}/indicator-light/on",
+    operation_id = "ptzIndicatorLightOn",
+    tag = "PTZ",
+    params(("id" = u32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Command executed", body = PtzCommandResponse),
+        (status = 400, description = "The control can't do this", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn indicator_light_on(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<PtzCommandResponse>> {
+    let ptz_manager = state.ptz_manager();
+    Ok(Json(
+        service::ptz::light(&state, ptz_manager, id, true, true).await?,
+    ))
+}
+
+/// Turn the indicator light off
+#[utoipa::path(
+    post,
+    path = "/api/v3/ptz/monitors/{id}/indicator-light/off",
+    operation_id = "ptzIndicatorLightOff",
+    tag = "PTZ",
+    params(("id" = u32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Command executed", body = PtzCommandResponse),
+        (status = 400, description = "The control can't do this", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn indicator_light_off(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<PtzCommandResponse>> {
+    let ptz_manager = state.ptz_manager();
+    Ok(Json(
+        service::ptz::light(&state, ptz_manager, id, true, false).await?,
+    ))
+}
+
+/// Stop audio playback
+#[utoipa::path(
+    post,
+    path = "/api/v3/ptz/monitors/{id}/audio/stop",
+    operation_id = "ptzAudioStop",
+    tag = "PTZ",
+    params(("id" = u32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Command executed", body = PtzCommandResponse),
+        (status = 400, description = "The control can't do this", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn audio_stop(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<PtzCommandResponse>> {
+    let ptz_manager = state.ptz_manager();
+    Ok(Json(
+        service::ptz::audio(&state, ptz_manager, id, None).await?,
+    ))
+}
+
+/// Turn the audio volume up
+#[utoipa::path(
+    post,
+    path = "/api/v3/ptz/monitors/{id}/audio/volume/up",
+    operation_id = "ptzAudioVolumeUp",
+    tag = "PTZ",
+    params(("id" = u32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Command executed", body = PtzCommandResponse),
+        (status = 400, description = "The control can't do this", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn audio_volume_up(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<PtzCommandResponse>> {
+    let ptz_manager = state.ptz_manager();
+    Ok(Json(
+        service::ptz::audio_volume(&state, ptz_manager, id, true).await?,
+    ))
+}
+
+/// Turn the audio volume down
+#[utoipa::path(
+    post,
+    path = "/api/v3/ptz/monitors/{id}/audio/volume/down",
+    operation_id = "ptzAudioVolumeDown",
+    tag = "PTZ",
+    params(("id" = u32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Command executed", body = PtzCommandResponse),
+        (status = 400, description = "The control can't do this", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn audio_volume_down(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<PtzCommandResponse>> {
+    let ptz_manager = state.ptz_manager();
+    Ok(Json(
+        service::ptz::audio_volume(&state, ptz_manager, id, false).await?,
+    ))
+}
+
+/// Play one of the device's sounds
+///
+/// - `file` must be within the control's `min_audio_file..=max_audio_file`.
+#[utoipa::path(
+    post,
+    path = "/api/v3/ptz/monitors/{id}/audio/play/{file}",
+    operation_id = "ptzAudioPlay",
+    tag = "PTZ",
+    params(
+        ("id" = u32, Path, description = "Monitor ID"),
+        ("file" = u32, Path, description = "Sound number, as the device numbers them")
+    ),
+    responses(
+        (status = 200, description = "Command executed", body = PtzCommandResponse),
+        (status = 400, description = "Out of range, or the control can't play audio", body = AppResponseError),
+        (status = 404, description = "Monitor not found", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn audio_play(
+    Path((id, file)): Path<(u32, u32)>,
+    State(state): State<AppState>,
+) -> AppResult<Json<PtzCommandResponse>> {
+    let ptz_manager = state.ptz_manager();
+    Ok(Json(
+        service::ptz::audio(&state, ptz_manager, id, Some(file)).await?,
+    ))
+}
+
+/// The lights' current state, as the camera reports it
+///
+/// - `light` / `indicator_light` are `on`, `off`, or null when the control has
+///   no such light or the control daemon gave no answer.
+#[utoipa::path(
+    get,
+    path = "/api/v3/ptz/monitors/{id}/light",
+    operation_id = "ptzLightStatus",
+    tag = "PTZ",
+    params(("id" = u32, Path, description = "Monitor ID")),
+    responses(
+        (status = 200, description = "Light state", body = crate::dto::response::ptz::LightStatusResponse),
+        (status = 404, description = "Monitor not found", body = AppResponseError)
+    ),
+    security(("jwt" = []))
+)]
+#[instrument(skip(state))]
+pub async fn light_status(
+    Path(id): Path<u32>,
+    State(state): State<AppState>,
+) -> AppResult<Json<crate::dto::response::ptz::LightStatusResponse>> {
+    let ptz_manager = state.ptz_manager();
+    Ok(Json(
+        service::ptz::light_status(&state, ptz_manager, id).await?,
+    ))
+}

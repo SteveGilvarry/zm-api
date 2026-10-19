@@ -112,47 +112,126 @@ impl UserPermissions {
     }
 }
 
+/// The levels of one permission row: a user's own, or a role's (the two
+/// tables share their permission columns).
+#[allow(clippy::too_many_arguments)]
+fn levels(
+    stream: &enums::Stream,
+    events: &enums::Events,
+    control: &enums::Control,
+    monitors: &enums::Monitors,
+    groups: &enums::Groups,
+    devices: &enums::Devices,
+    snapshots: &enums::Snapshots,
+    system: &enums::System,
+) -> UserPermissions {
+    UserPermissions {
+        stream: match stream {
+            enums::Stream::None => Level::None,
+            enums::Stream::View => Level::View,
+        },
+        events: from_nve(events),
+        control: match control {
+            enums::Control::None => Level::None,
+            enums::Control::View => Level::View,
+            enums::Control::Edit => Level::Edit,
+        },
+        monitors: match monitors {
+            enums::Monitors::None => Level::None,
+            enums::Monitors::View => Level::View,
+            // `Create` is a stronger form of write access than `Edit`.
+            enums::Monitors::Edit | enums::Monitors::Create => Level::Edit,
+        },
+        groups: match groups {
+            enums::Groups::None => Level::None,
+            enums::Groups::View => Level::View,
+            enums::Groups::Edit => Level::Edit,
+        },
+        devices: match devices {
+            enums::Devices::None => Level::None,
+            enums::Devices::View => Level::View,
+            enums::Devices::Edit => Level::Edit,
+        },
+        snapshots: match snapshots {
+            enums::Snapshots::None => Level::None,
+            enums::Snapshots::View => Level::View,
+            enums::Snapshots::Edit => Level::Edit,
+        },
+        system: match system {
+            enums::System::None => Level::None,
+            enums::System::View => Level::View,
+            enums::System::Edit => Level::Edit,
+        },
+    }
+}
+
+/// The user's own permission columns, ignoring any role. For what a user
+/// may actually do, see [`effective_permissions`].
 impl From<&UserModel> for UserPermissions {
     fn from(u: &UserModel) -> Self {
+        levels(
+            &u.stream,
+            &u.events,
+            &u.control,
+            &u.monitors,
+            &u.groups,
+            &u.devices,
+            &u.snapshots,
+            &u.system,
+        )
+    }
+}
+
+impl From<&crate::entity::user_roles::Model> for UserPermissions {
+    fn from(r: &crate::entity::user_roles::Model) -> Self {
+        levels(
+            &r.stream,
+            &r.events,
+            &r.control,
+            &r.monitors,
+            &r.groups,
+            &r.devices,
+            &r.snapshots,
+            &r.system,
+        )
+    }
+}
+
+impl UserPermissions {
+    /// Per feature, the higher of the two: how ZoneMinder 1.39 combines a
+    /// user's own levels with their role's (`User::permissionLevels`).
+    pub fn max(self, other: Self) -> Self {
         Self {
-            stream: match u.stream {
-                enums::Stream::None => Level::None,
-                enums::Stream::View => Level::View,
-            },
-            events: from_nve(&u.events),
-            control: match u.control {
-                enums::Control::None => Level::None,
-                enums::Control::View => Level::View,
-                enums::Control::Edit => Level::Edit,
-            },
-            monitors: match u.monitors {
-                enums::Monitors::None => Level::None,
-                enums::Monitors::View => Level::View,
-                // `Create` is a stronger form of write access than `Edit`.
-                enums::Monitors::Edit | enums::Monitors::Create => Level::Edit,
-            },
-            groups: match u.groups {
-                enums::Groups::None => Level::None,
-                enums::Groups::View => Level::View,
-                enums::Groups::Edit => Level::Edit,
-            },
-            devices: match u.devices {
-                enums::Devices::None => Level::None,
-                enums::Devices::View => Level::View,
-                enums::Devices::Edit => Level::Edit,
-            },
-            snapshots: match u.snapshots {
-                enums::Snapshots::None => Level::None,
-                enums::Snapshots::View => Level::View,
-                enums::Snapshots::Edit => Level::Edit,
-            },
-            system: match u.system {
-                enums::System::None => Level::None,
-                enums::System::View => Level::View,
-                enums::System::Edit => Level::Edit,
-            },
+            stream: self.stream.max(other.stream),
+            events: self.events.max(other.events),
+            control: self.control.max(other.control),
+            monitors: self.monitors.max(other.monitors),
+            groups: self.groups.max(other.groups),
+            devices: self.devices.max(other.devices),
+            snapshots: self.snapshots.max(other.snapshots),
+            system: self.system.max(other.system),
         }
     }
+}
+
+/// What `user` may do: their own levels raised by their role's, if they
+/// have one (#143). A role that no longer exists adds nothing.
+pub async fn effective_permissions(
+    db: &sea_orm::DatabaseConnection,
+    user: &UserModel,
+) -> crate::error::AppResult<UserPermissions> {
+    use sea_orm::EntityTrait;
+    let own = UserPermissions::from(user);
+    let Some(role_id) = user.role_id else {
+        return Ok(own);
+    };
+    let role = crate::entity::user_roles::Entity::find_by_id(role_id)
+        .one(db)
+        .await?;
+    Ok(match role {
+        Some(r) => own.max(UserPermissions::from(&r)),
+        None => own,
+    })
 }
 
 fn from_nve(e: &enums::Events) -> Level {
@@ -193,9 +272,20 @@ fn required_level(feature: Feature, method: &Method) -> Level {
 async fn enforce(
     state: AppState,
     feature: Feature,
+    level: Option<Level>,
     request: Request,
     next: Next,
 ) -> Result<Response, AppError> {
+    // A signed media URL was checked by `media_grant_layer`, including the
+    // feature this resource's media belongs to and the user's current access.
+    if request
+        .extensions()
+        .get::<crate::service::media_grant::MediaGrant>()
+        .is_some()
+    {
+        return Ok(next.run(request).await);
+    }
+
     // Self-contained: decode the bearer token (header or `?token=` for media
     // elements) rather than relying on auth middleware ordering.
     let token = extract_token_from_header(&request)
@@ -214,7 +304,7 @@ async fn enforce(
         ));
     }
 
-    let required = required_level(feature, request.method());
+    let required = level.unwrap_or_else(|| required_level(feature, request.method()));
     let granted = claims.perms.level(feature);
 
     if granted >= required {
@@ -234,7 +324,20 @@ async fn enforce(
 /// state is needed for the token-revocation check.
 pub fn protect(router: Router<AppState>, feature: Feature, state: AppState) -> Router<AppState> {
     router.layer(from_fn(move |req: Request, next: Next| {
-        enforce(state.clone(), feature, req, next)
+        enforce(state.clone(), feature, None, req, next)
+    }))
+}
+
+/// Like [`protect`], but requiring `level` whatever the method: for a POST
+/// that only reads, such as minting a read-only media link.
+pub fn protect_at(
+    router: Router<AppState>,
+    feature: Feature,
+    level: Level,
+    state: AppState,
+) -> Router<AppState> {
+    router.layer(from_fn(move |req: Request, next: Next| {
+        enforce(state.clone(), feature, Some(level), req, next)
     }))
 }
 
@@ -278,6 +381,25 @@ mod tests {
             assert_eq!(p.level(f), Level::Edit);
         }
         assert_eq!(p.level(Feature::Stream), Level::View);
+    }
+
+    #[test]
+    fn a_role_raises_levels_and_never_lowers_them() {
+        let own = UserPermissions {
+            events: Level::Edit,
+            ..Default::default()
+        };
+        let role = UserPermissions {
+            stream: Level::View,
+            events: Level::View,
+            system: Level::Edit,
+            ..Default::default()
+        };
+        let eff = own.max(role);
+        assert_eq!(eff.stream, Level::View);
+        assert_eq!(eff.events, Level::Edit);
+        assert_eq!(eff.system, Level::Edit);
+        assert_eq!(eff.control, Level::None);
     }
 
     #[test]

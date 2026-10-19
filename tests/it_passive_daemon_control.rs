@@ -1,0 +1,104 @@
+//! In passive mode, monitor changes reach ZoneMinder's daemons through its
+//! `zmdc.sock`, and daemon status is read from it (#155, #156).
+//!
+//! A fake zmdc.sock records what zm-api sends and answers like zmdc.pl.
+//! Requires the test database:
+//!   APP_PROFILE=test-db cargo nextest run --test it_passive_daemon_control --run-ignored all
+
+mod common;
+
+use std::sync::{Arc, Mutex};
+
+use axum::http::StatusCode;
+use common::fixtures::{insert_monitor, RowGuard};
+use common::harness::{superuser_token, TestApp};
+use serde_json::json;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+/// Listen on `dir/zmdc.sock`; record each message and reply with `reply`.
+fn fake_zmdc(dir: &std::path::Path, reply: &'static str) -> Arc<Mutex<Vec<String>>> {
+    let listener = tokio::net::UnixListener::bind(dir.join("zmdc.sock")).unwrap();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let log = Arc::clone(&seen);
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = listener.accept().await {
+            let mut msg = String::new();
+            let _ = s.read_to_string(&mut msg).await;
+            log.lock().unwrap().push(msg);
+            let _ = s.write_all(reply.as_bytes()).await;
+        }
+    });
+    seen
+}
+
+async fn passive_app(dir: &std::path::Path) -> TestApp {
+    let dir = dir.to_path_buf();
+    TestApp::spawn_with(move |state| {
+        assert!(state.daemon_manager.is_none(), "passive: no daemon manager");
+        let mut config = (*state.config).clone();
+        config.daemon.socket_path = dir;
+        config.daemon.socket_name = "zmdc.sock".to_string();
+        state.config = Arc::new(config);
+    })
+    .await
+}
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn monitor_state_and_delete_go_to_zmdc() {
+    let tmp = tempfile::tempdir().unwrap();
+    let seen = fake_zmdc(tmp.path(), "");
+    let app = passive_app(tmp.path()).await;
+    let token = superuser_token();
+    let m = insert_monitor(&app.db, "PassiveCtl").await.unwrap();
+    let _g = RowGuard::monitor(m.id);
+
+    let resp = app
+        .patch_json(
+            &format!("/api/v3/monitors/{}/state", m.id),
+            &token,
+            &json!({ "state": "stop" }),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::OK, "{}", resp.text());
+    assert!(
+        seen.lock()
+            .unwrap()
+            .contains(&format!("stop;zmc;-m;{}", m.id)),
+        "zmdc got {:?}",
+        seen.lock().unwrap()
+    );
+
+    seen.lock().unwrap().clear();
+    let resp = app
+        .delete(&format!("/api/v3/monitors/{}", m.id), &token)
+        .await;
+    assert!(resp.status().is_success(), "{}", resp.text());
+    assert!(seen
+        .lock()
+        .unwrap()
+        .contains(&format!("stop;zmc;-m;{}", m.id)));
+}
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn daemon_and_system_status_come_from_zmdc() {
+    let tmp = tempfile::tempdir().unwrap();
+    let seen = fake_zmdc(
+        tmp.path(),
+        "'zmc -m 1' running since 26/10/18 10:00:00, pid = 4321, valid\n",
+    );
+    let app = passive_app(tmp.path()).await;
+    let token = superuser_token();
+
+    let resp = app.get("/api/v3/daemons", &token).await;
+    assert_eq!(resp.status(), StatusCode::OK, "{}", resp.text());
+    assert!(resp.text().contains("4321"), "{}", resp.text());
+
+    let resp = app.get("/api/v3/system/status", &token).await;
+    assert_eq!(resp.status(), StatusCode::OK, "{}", resp.text());
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["running"], true);
+    assert_eq!(body["daemons"][0]["pid"], 4321);
+    assert!(seen.lock().unwrap().iter().all(|m| m == "status"));
+}

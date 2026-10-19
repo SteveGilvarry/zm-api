@@ -20,7 +20,7 @@ check "zm-api stopped cleanly for the switch" stopped_cleanly
 section "zm-api is passive again"
 check "API answers" wait_until 60 api_up
 TOKEN="$(login)" || { bad "login"; finish; }
-check_eq "daemon control is off" "503" "$(api_status GET /api/v3/daemons)"
+check_eq "daemon status comes from zmdc.sock again" "200" "$(api_status GET /api/v3/daemons)"
 check "snapshot from the stream socket is a JPEG" snapshot_is_jpeg
 
 finish

@@ -258,6 +258,12 @@ async fn set_config(conn: &DatabaseConnection, name: &str, value: &str) -> Resul
 
 /// Whether a version Config row holding `current` should be raised to
 /// `target`: when it is missing, empty or lower. Never lowers it.
+/// Whether the bridge installs its trigger set: only on a database at or
+/// below the cutover, whose triggers the chain wrote.
+fn should_converge_triggers(db_version: &str) -> bool {
+    !version_lt(chain::CUTOVER_ZM_VERSION, db_version.trim())
+}
+
 fn should_raise_version(current: Option<&str>, target: &str) -> bool {
     match current.map(str::trim) {
         None | Some("") => true,
@@ -355,15 +361,25 @@ async fn run_locked(conn: &DatabaseConnection) -> Result<(), DbErr> {
 
     // The chain's last trigger rewrite (1.39.26) leaves the four-trigger set;
     // drop everything any 1.39 install may carry and install exactly that.
-    info!("converging triggers onto the current set");
-    for name in triggers::mysql_triggers().iter().map(|(n, _)| *n) {
-        conn.execute_unprepared(&format!("DROP TRIGGER IF EXISTS `{name}`"))
-            .await?;
-    }
-    for (name, create) in super::upstream::current_mysql_triggers() {
-        conn.execute_unprepared(&format!("DROP TRIGGER IF EXISTS `{name}`"))
-            .await?;
-        conn.execute_unprepared(create).await?;
+    // Not on a database ZoneMinder already took past the cutover: its
+    // triggers are upstream's newer ones, and these copies would revert them
+    // (#162).
+    if should_converge_triggers(&version) {
+        info!("converging triggers onto the current set");
+        for name in triggers::mysql_triggers().iter().map(|(n, _)| *n) {
+            conn.execute_unprepared(&format!("DROP TRIGGER IF EXISTS `{name}`"))
+                .await?;
+        }
+        for (name, create) in super::upstream::current_mysql_triggers() {
+            conn.execute_unprepared(&format!("DROP TRIGGER IF EXISTS `{name}`"))
+                .await?;
+            conn.execute_unprepared(create).await?;
+        }
+    } else {
+        info!(
+            "database at {version} is newer than the {} cutover; leaving its triggers",
+            chain::CUTOVER_ZM_VERSION
+        );
     }
 
     // The database now embodies the baseline and every mirrored update.
@@ -716,6 +732,16 @@ mod tests {
         assert!(!should_raise_version(Some("1.39.36"), "1.39.33"));
         assert!(!should_raise_version(Some("1.40.0"), "1.39.33"));
         assert!(!should_raise_version(Some(" 1.39.36 "), "1.39.33"));
+    }
+
+    #[test]
+    fn triggers_are_left_alone_on_a_database_past_the_cutover() {
+        // Regression (#162): the bridge rewrote triggers to its own copies
+        // even when ZoneMinder had already taken the database further.
+        assert!(should_converge_triggers("1.38.3"));
+        assert!(should_converge_triggers(chain::CUTOVER_ZM_VERSION));
+        assert!(!should_converge_triggers("1.40.0"));
+        assert!(!should_converge_triggers("99.0.0"));
     }
 
     #[test]

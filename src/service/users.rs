@@ -29,6 +29,16 @@ pub async fn get_by_id(state: &AppState, id: u32) -> AppResult<UserResponse> {
     Ok(UserResponse::from(&item))
 }
 
+/// A user's `role_id` must name a role, not fail on the foreign key.
+async fn ensure_role_exists(state: &AppState, role_id: u32) -> AppResult<()> {
+    use sea_orm::EntityTrait;
+    crate::entity::user_roles::Entity::find_by_id(role_id)
+        .one(state.db())
+        .await?
+        .map(|_| ())
+        .ok_or_else(|| AppError::BadRequestError(format!("role {role_id} does not exist")))
+}
+
 pub async fn update(
     state: &AppState,
     id: u32,
@@ -43,6 +53,9 @@ pub async fn update(
     // an admin revoke-all takes effect immediately, not just on restart.
     if let Some(floor) = req.token_min_expiry {
         state.revocations.revoke(id, floor as i64);
+    }
+    if let Some(Some(role_id)) = req.role_id {
+        ensure_role_exists(state, role_id).await?;
     }
     let item = repo::users::update(state.db(), id, &req, hashed_password).await?;
     let item = item.ok_or_else(|| {
@@ -63,6 +76,9 @@ pub async fn create(
     // account unusable (the bcrypt login verifier can never match a plaintext
     // value). See docs/REVIEW_FIXES_PLAN.md §1.1.
     req.password = crate::util::password::hash(req.password).await?;
+    if let Some(role_id) = req.role_id {
+        ensure_role_exists(state, role_id).await?;
+    }
     let model = repo::users::create(state.db(), &req).await?;
     Ok(UserResponse::from(&model))
 }
@@ -157,6 +173,7 @@ mod tests {
             token_min_expiry: 0,
             api_enabled: 1,
             home_view: "console".into(),
+            role_id: None,
         }
     }
 

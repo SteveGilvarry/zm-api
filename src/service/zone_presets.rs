@@ -44,9 +44,18 @@ pub async fn update(
     r#type: Option<String>,
     units: Option<String>,
     check_method: Option<String>,
+    thresholds: &crate::dto::request::zone_presets::ZonePresetThresholds,
 ) -> AppResult<ZonePresetResponse> {
-    let updated =
-        repo::zone_presets::update(state.db(), id, name, r#type, units, check_method).await?;
+    let updated = repo::zone_presets::update(
+        state.db(),
+        id,
+        name,
+        r#type,
+        units,
+        check_method,
+        thresholds,
+    )
+    .await?;
     let updated = updated.ok_or_else(|| {
         crate::error::AppError::NotFoundError(crate::error::Resource {
             details: vec![("id".into(), id.to_string())],
@@ -141,6 +150,7 @@ mod tests {
             Some("inclusive".into()),
             None,
             None,
+            &Default::default(),
         )
         .await
         .unwrap();
@@ -160,6 +170,7 @@ mod tests {
             r#type: "active".into(),
             units: "pixels".into(),
             check_method: "alarmedpixels".into(),
+            thresholds: Default::default(),
         };
         assert_eq!(create(&state_create, req).await.unwrap().name, "np");
 

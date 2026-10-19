@@ -205,14 +205,38 @@ fn read_swap_info() -> io::Result<(u64, u64)> {
 }
 
 /// Read disk usage information for the root filesystem.
-///
-/// Uses nix::sys::statvfs to get filesystem statistics for "/".
 fn read_disk_info() -> io::Result<DiskInfo> {
+    disk_info_at(std::path::Path::new("/"))
+}
+
+/// Size and use of the filesystem `path` is on, `df`-style.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FilesystemUsage {
+    pub total_bytes: u64,
+    pub used_bytes: u64,
+    /// What an unprivileged writer can still use (excludes reserved blocks).
+    pub available_bytes: u64,
+    pub usage_percent: f64,
+}
+
+/// [`FilesystemUsage`] for the filesystem holding `path`.
+pub fn filesystem_usage(path: &std::path::Path) -> io::Result<FilesystemUsage> {
+    let d = disk_info_at(path)?;
+    Ok(FilesystemUsage {
+        total_bytes: d.total,
+        used_bytes: d.used,
+        available_bytes: d.free,
+        usage_percent: d.usage_percent,
+    })
+}
+
+/// Uses nix::sys::statvfs to get filesystem statistics for `path`.
+fn disk_info_at(path: &std::path::Path) -> io::Result<DiskInfo> {
     #[cfg(unix)]
     {
         use nix::sys::statvfs::statvfs;
 
-        let stat = statvfs("/").map_err(io::Error::other)?;
+        let stat = statvfs(path).map_err(io::Error::other)?;
 
         // Calculate sizes in bytes (cast to u64 for cross-platform compatibility)
         // The statvfs fields are u32 on some platforms (macOS) and u64 on others (Linux)
@@ -248,6 +272,7 @@ fn read_disk_info() -> io::Result<DiskInfo> {
     #[cfg(not(unix))]
     {
         // Non-Unix systems: return zeros
+        let _ = path;
         Ok(DiskInfo::default())
     }
 }
@@ -265,6 +290,16 @@ pub fn get_free_memory() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filesystem_usage_reads_the_disk_a_path_is_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let u = filesystem_usage(dir.path()).unwrap();
+        assert!(u.total_bytes > 0);
+        assert!(u.used_bytes <= u.total_bytes);
+        assert!((0.0..=100.0).contains(&u.usage_percent));
+        assert!(filesystem_usage(std::path::Path::new("/no/such/dir")).is_err());
+    }
 
     #[test]
     fn test_collect_stats_does_not_panic() {

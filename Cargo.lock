@@ -624,6 +624,7 @@ checksum = "9d5755640120b24961f8231e05892e4a4f7e0d04e8aeca161508c9c397946970"
 dependencies = [
  "compression-codecs",
  "compression-core",
+ "futures-io",
  "pin-project-lite",
  "tokio",
 ]
@@ -726,6 +727,22 @@ dependencies = [
  "serde",
  "thiserror 1.0.69",
  "webpki-roots 0.26.11",
+]
+
+[[package]]
+name = "async_zip"
+version = "0.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "00b9f7252833d5ed4b00aa9604b563529dd5e11de9c23615de2dcdf91eb87b52"
+dependencies = [
+ "async-compression",
+ "chrono",
+ "crc32fast",
+ "futures-lite",
+ "pin-project",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -7702,6 +7719,7 @@ dependencies = [
  "argon2",
  "assert-json-diff",
  "async-trait",
+ "async_zip",
  "axum",
  "axum-extra",
  "axum-server",
@@ -7719,6 +7737,7 @@ dependencies = [
  "futures",
  "futures-util",
  "garde",
+ "hmac 0.13.0",
  "iana-time-zone",
  "image",
  "insta",

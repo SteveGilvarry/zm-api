@@ -129,6 +129,9 @@ impl AppServer {
         // Capture the daemon manager before `self.state` is consumed by the
         // router, so managed daemons can be drained after the server exits.
         let daemon_manager = self.state.daemon_manager.clone();
+        if self.state.schema_behind.is_none() {
+            tokio::spawn(crate::service::media_jobs::worker(self.state.clone()));
+        }
         let router = create_router_app(self.state);
 
         // One shutdown signal, observed by the HTTP drain and by the daemon

@@ -12,8 +12,19 @@ supervising `zmdc.pl`, `zmc`, `zmfilter` and the rest, exactly as before zm-api
 was installed. Installing the package changes nothing about how ZoneMinder
 records, which is what makes it safe to drop onto a live box.
 
-The daemon-control endpoints (`/api/v3/daemons*`, `/api/v3/system/*`) are still
-registered but return 503.
+zm-api reads and controls ZoneMinder's daemons the way ZoneMinder's own web UI
+does, through `zmdc.pl`'s `zmdc.sock`:
+
+- `GET /api/v3/daemons*` and `GET /api/v3/system/status` list what `zmdc.pl`
+  supervises, with this host's load, memory and disk.
+- `POST /api/v3/daemons/{id}/start|stop|restart|reload` send that command to
+  `zmdc.pl`.
+- Creating, editing and deleting a monitor, and `PATCH
+  /api/v3/monitors/{id}/state`, start, restart and stop its `zmc` (and
+  `zmcontrol.pl` for a controllable monitor) as ZoneMinder's API does.
+
+`/api/v3/system/startup`, `shutdown` and `restart` still need takeover; in
+passive mode `zoneminder.service` owns that.
 
 ## Takeover
 

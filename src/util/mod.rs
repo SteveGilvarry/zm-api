@@ -5,6 +5,7 @@ pub mod dir;
 pub mod file;
 pub mod hash;
 pub mod key;
+pub mod media_url;
 pub mod middleware;
 pub mod password;
 pub mod path;
@@ -37,9 +38,28 @@ pub fn naive_local_to_utc(ndt: chrono::NaiveDateTime) -> chrono::DateTime<chrono
     }
 }
 
+/// The server-local wall-clock time of a UTC instant: the inverse of
+/// [`naive_local_to_utc`], for values compared against or written to
+/// ZoneMinder's local-time columns (`Events.StartDateTime` and the like).
+/// UTC to local is never ambiguous, so this needs no DST handling (#173).
+pub fn utc_to_naive_local(dt: chrono::DateTime<chrono::Utc>) -> chrono::NaiveDateTime {
+    dt.with_timezone(&chrono::Local).naive_local()
+}
+
 #[cfg(test)]
 mod naive_local_to_utc_tests {
-    use super::naive_local_to_utc;
+    use super::{naive_local_to_utc, utc_to_naive_local};
+
+    /// A client's UTC instant reaches the column as the wall-clock the column
+    /// stores, whatever the server's zone.
+    #[test]
+    fn utc_to_local_inverts_local_to_utc() {
+        let ndt = chrono::NaiveDate::from_ymd_opt(2026, 10, 18)
+            .unwrap()
+            .and_hms_opt(11, 21, 23)
+            .unwrap();
+        assert_eq!(utc_to_naive_local(naive_local_to_utc(ndt)), ndt);
+    }
     use chrono::{Local, NaiveDate, TimeZone};
 
     /// TZ-independent: interpreting the result back in the local zone must yield

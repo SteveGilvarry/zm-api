@@ -43,6 +43,19 @@ const AUTHENTICATED_UNGATED: &[(&str, &str)] = &[
     ("/api/v3/me/password", "self-service password change"),
     ("/api/v3/auth/logout", "revokes the caller's own tokens"),
     (
+        "/api/v3/notifications",
+        "the caller's own push tokens, as ZoneMinder's API allows any user",
+    ),
+    (
+        "/api/v3/notifications/{id}",
+        "the caller's own push tokens; another user's row is a 404",
+    ),
+    (
+        "/api/v3/system/menu",
+        "the navbar's entries: every user's UI renders it, including a \
+         System:None operator",
+    ),
+    (
         "/api/v3/system/locale",
         "timezone and date formats: every client needs these to render \
          timestamps, including a System:None operator",

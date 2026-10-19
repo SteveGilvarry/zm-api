@@ -56,7 +56,7 @@ async fn exists(
     Ok(conn.query_one_raw(stmt).await?.is_some())
 }
 
-async fn table_exists(conn: &DatabaseConnection, table: &str) -> Result<bool, DbErr> {
+pub(crate) async fn table_exists(conn: &DatabaseConnection, table: &str) -> Result<bool, DbErr> {
     exists(
         conn,
         "SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
@@ -80,7 +80,10 @@ async fn column_exists(
     .await
 }
 
-async fn migration_recorded(conn: &DatabaseConnection, name: &str) -> Result<bool, DbErr> {
+pub(crate) async fn migration_recorded(
+    conn: &DatabaseConnection,
+    name: &str,
+) -> Result<bool, DbErr> {
     if !table_exists(conn, "seaql_migrations").await? {
         return Ok(false);
     }
@@ -149,7 +152,7 @@ pub async fn record_through_version(conn: &DatabaseConnection, version: &str) ->
 /// Which ZoneMinder version an externally created schema is at: the Config
 /// row ZoneMinder itself maintains, else the latest vendored version when
 /// the schema carries that version's markers.
-async fn detect_version(conn: &DatabaseConnection) -> Result<Option<String>, DbErr> {
+pub(crate) async fn detect_version(conn: &DatabaseConnection) -> Result<Option<String>, DbErr> {
     if let Some(v) = config_value(conn, "ZM_DYN_DB_VERSION").await? {
         return Ok(Some(v));
     }

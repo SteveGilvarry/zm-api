@@ -127,3 +127,13 @@ pub struct PtzCapabilitiesResponse {
     #[serde(flatten)]
     pub capabilities: PtzCapabilities,
 }
+
+/// The lights' state as the camera reports it (#190); null where the control
+/// has no such light or the daemon gave no answer.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LightStatusResponse {
+    /// `on` or `off`.
+    pub light: Option<String>,
+    /// `on` or `off`.
+    pub indicator_light: Option<String>,
+}

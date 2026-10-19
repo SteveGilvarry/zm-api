@@ -40,6 +40,7 @@ use crate::{
         ("cause" = Option<String>, Query, description = "Substring match on cause", example = "Motion"),
         ("name" = Option<String>, Query, description = "Substring match on name", example = "Front"),
         ("notes" = Option<String>, Query, description = "Substring match on notes"),
+        ("q" = Option<String>, Query, description = "Free-text search over id, monitor, storage, name, cause, start/end time, length, frames, scores, archived, emailed, notes and disk space; any may match"),
         ("tag_id" = Option<String>, Query, description = "Events with any of these tag ids (comma-separated), `none` for untagged events, `any` for events with at least one tag. Legacy's `0` and `-1` mean `none` and `any`.", example = "1,4"),
         ("tag_op" = Option<String>, Query, description = "`in` (default) keeps what tag_id matches, `not_in` keeps the rest", example = "in"),
         ("totals" = Option<bool>, Query, description = "Also return total_length_seconds and total_disk_space summed over the whole result. Costs a second aggregate query."),
@@ -195,6 +196,12 @@ pub async fn delete_event(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// `GET /events/counts/{hours}` query.
+#[derive(Debug, serde::Deserialize)]
+pub struct EventCountsQuery {
+    pub monitor_id: Option<u32>,
+}
+
 /// Get event counts grouped by hour
 #[utoipa::path(
     get,
@@ -202,7 +209,8 @@ pub async fn delete_event(
     operation_id = "getEventCounts",
     tag = "Events",
     params(
-        ("hours" = i64, Path, description = "Number of hours to count back from now")
+        ("hours" = i64, Path, description = "Number of hours to count back from now"),
+        ("monitor_id" = Option<u32>, Query, description = "Count only this monitor's events (a per-monitor hourly histogram)")
     ),
     responses(
         (status = 200, description = "Event counts grouped by hour", body = EventCountsResponse),
@@ -218,9 +226,10 @@ pub async fn delete_event(
 pub async fn get_event_counts(
     State(state): State<AppState>,
     Path(hours): Path<i64>,
+    Query(query): Query<EventCountsQuery>,
     scope: MonitorScope,
 ) -> AppResult<Json<EventCountsResponse>> {
-    let counts = service::events::get_event_counts(&state, hours, &scope).await?;
+    let counts = service::events::get_event_counts(&state, hours, query.monitor_id, &scope).await?;
 
     Ok(Json(counts))
 }

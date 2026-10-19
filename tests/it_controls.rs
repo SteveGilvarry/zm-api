@@ -121,3 +121,41 @@ async fn create_control_with_invalid_body_is_rejected() {
         resp.text()
     );
 }
+
+/// Light and audio capabilities round-trip on create and update (#177).
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn light_and_audio_capabilities_round_trip() {
+    let app = TestApp::spawn().await;
+    let token = superuser_token();
+    let create = app
+        .post_json(
+            "/api/v3/controls",
+            &token,
+            &json!({ "name": unique_name("LightCtl"), "can_light": 1, "can_audio_play": 1,
+                     "min_audio_file": 1, "max_audio_file": 4 }),
+        )
+        .await;
+    assert!(create.status().is_success(), "{}", create.text());
+    let c: ControlResponse = create.json();
+    let _g = RowGuard::control(c.id);
+    assert_eq!(
+        (c.can_light, c.can_audio_play, c.can_indicator_light),
+        (1, 1, 0)
+    );
+    assert_eq!((c.min_audio_file, c.max_audio_file), (Some(1), Some(4)));
+
+    let upd = app
+        .patch_json(
+            &format!("/api/v3/controls/{}", c.id),
+            &token,
+            &json!({ "can_indicator_light": 1, "can_audio_volume": 1 }),
+        )
+        .await;
+    assert!(upd.status().is_success(), "{}", upd.text());
+    let u: ControlResponse = upd.json();
+    assert_eq!(
+        (u.can_indicator_light, u.can_audio_volume, u.can_light),
+        (1, 1, 1)
+    );
+}

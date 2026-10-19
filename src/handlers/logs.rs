@@ -23,7 +23,7 @@ use tracing::{info, instrument};
     params(
         ("page" = Option<u64>, Query, description = "Page number (1-indexed)", example = 1),
         ("page_size" = Option<u64>, Query, description = "Number of items per page (max 1000)", example = 50),
-        ("component" = Option<String>, Query, description = "Filter by component (e.g., 'zmc', 'zma', 'zmdc', 'web')", example = "zmc"),
+        ("component" = Option<String>, Query, description = "Component name, or a comma list of them (e.g. 'zmc,zma')", example = "zmc,zma"),
         ("min_level" = Option<String>, Query, description = "Severity threshold: fatal|error|warning|info|debug, returns that severity or worse", example = "error"),
         ("level" = Option<String>, Query, description = "Exact Logs.Level match, one value or a comma list (inverted scale: 0=Info, -1=Warning, -2=Error, -3=Fatal, -4=Panic, -5=Audit, positive=debug)", example = "-1,-5"),
         ("ids" = Option<String>, Query, description = "Only these log ids, comma-separated", example = "101,102"),
@@ -66,7 +66,7 @@ pub async fn list_logs(
     operation_id = "clearLogs",
     tag = "Logs",
     params(
-        ("component" = Option<String>, Query, description = "Only clear logs from this component"),
+        ("component" = Option<String>, Query, description = "Only clear logs from this component, or a comma list of them"),
         ("min_level" = Option<String>, Query, description = "Only clear this severity or worse (fatal|error|warning|info|debug)"),
         ("level" = Option<String>, Query, description = "Only clear these exact Logs.Level values (one or a comma list)"),
         ("ids" = Option<String>, Query, description = "Only clear these log ids, comma-separated. An empty or unparseable list is a 400, never \"clear everything\"."),

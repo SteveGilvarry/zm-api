@@ -204,8 +204,8 @@ struct SharedData {
     recording: u8,                  // +95
     signal: u8,                     // +96
     format: u8,                     // +97
-    reserved1: u8,                  // +98
-    reserved2: u8,                  // +99
+    audio_level: u8,                // +98 (1.39; reserved on 1.38) 0-100
+    audio_alarm: u8,                // +99 (1.39) audio_level crossed AudioThreshold
     imagesize: u32,                 // +100
     last_frame_score: u32,          // +104
     audio_frequency: u32,           // +108
@@ -684,6 +684,32 @@ impl MonitorShm {
         Ok(())
     }
 
+    /// The audio level zmc last published, 0-100 (#180). Zero is a real
+    /// reading: silence, or nothing measured.
+    pub fn get_audio_level(&self) -> u8 {
+        self.shared_data().audio_level
+    }
+
+    /// Whether the audio level is over the monitor's `AudioThreshold`.
+    pub fn get_audio_alarm(&self) -> bool {
+        self.shared_data().audio_alarm != 0
+    }
+
+    /// Ask zmc to keep measuring the audio level until the unix time `until`,
+    /// even with AudioDetection off: what ZoneMinder's monitor editor does
+    /// while its level meter is on screen (`audio_level_until`, 1.39's
+    /// 888-byte `SharedData` at +880). Returns false, writing nothing, on a
+    /// layout without the field.
+    pub fn request_audio_level(&mut self, until: u32) -> Result<bool> {
+        const AUDIO_LEVEL_UNTIL: usize = 880;
+        if self.trigger_offset < AUDIO_LEVEL_UNTIL + 4 {
+            return Ok(false);
+        }
+        self.mmap[AUDIO_LEVEL_UNTIL..AUDIO_LEVEL_UNTIL + 4].copy_from_slice(&until.to_ne_bytes());
+        self.mmap.flush()?;
+        Ok(true)
+    }
+
     /// Get the path to the shared memory file.
     pub fn shm_path(&self) -> &PathBuf {
         &self.shm_path
@@ -874,6 +900,45 @@ mod tests {
         assert!(
             buf[872..888].iter().all(|&b| b == 0),
             "SharedData tail untouched"
+        );
+    }
+
+    /// The audio level and alarm are read at +98/+99, and the measuring
+    /// request lands at +880 on 1.39 and is refused on 1.38's shorter struct
+    /// (#180).
+    #[test]
+    fn audio_level_is_read_and_requested_where_zmc_keeps_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().to_str().unwrap();
+        fake_segment(dir.path(), 6, 888, 560);
+        let path = dir.path().join("zm.mmap.6");
+        let mut buf = std::fs::read(&path).unwrap();
+        buf[98] = 42;
+        buf[99] = 1;
+        std::fs::write(&path, &buf).unwrap();
+        let mut shm = MonitorShm::connect_with_path(6, p, "zm.mmap").unwrap();
+        assert_eq!(shm.get_audio_level(), 42);
+        assert!(shm.get_audio_alarm());
+        assert!(shm.request_audio_level(1_760_000_010).unwrap());
+        drop(shm);
+        let buf = read_segment(dir.path(), 6);
+        assert_eq!(
+            u32::from_ne_bytes(buf[880..884].try_into().unwrap()),
+            1_760_000_010
+        );
+        assert_eq!(
+            u32::from_ne_bytes(buf[888..892].try_into().unwrap()),
+            560,
+            "TriggerData untouched"
+        );
+
+        fake_segment(dir.path(), 7, 872, 560);
+        let mut old = MonitorShm::connect_with_path(7, p, "zm.mmap").unwrap();
+        assert!(!old.request_audio_level(1).unwrap());
+        drop(old);
+        assert_eq!(
+            u32::from_ne_bytes(read_segment(dir.path(), 7)[872..876].try_into().unwrap()),
+            560
         );
     }
 

@@ -27,6 +27,7 @@ pub mod daemon; // Daemon control
 pub mod devices; // Devices
 #[cfg(feature = "onvif-discovery")]
 pub mod discovery; // ONVIF camera discovery
+pub mod event_audit; // Audit Events Report
 pub mod event_data; // Event Data
 pub mod event_summaries; // Event Summaries (pre-calculated counts)
 pub mod events; // Add events module
@@ -40,20 +41,25 @@ pub mod groups_permissions; // Groups Permissions
 pub mod live; // Live streaming (unified)
 pub mod logs; // Logs
 pub mod manufacturers; // Manufacturers
+pub mod media_jobs; // generated event videos, media job queue (#187)
 pub mod models; // Models
+pub mod monitor_actions; // MonitorActions (#179)
 pub mod monitor_presets; // Monitor Presets
 pub mod monitor_status; // Monitor Status
 pub mod monitors;
 pub mod monitors_permissions; // Monitors Permissions
 pub mod montage_layouts; // Montage Layouts
+pub mod notifications; // push token registrations (#175)
 pub mod object_types; // Object Types
 pub mod ptz; // PTZ control
 pub mod reports; // Reports
+pub mod roles; // Roles (ZoneMinder 1.39)
 pub mod search; // Natural-language / semantic event search
 pub mod server;
 pub mod server_stats; // Server Stats
 pub mod servers; // Server info list
 pub mod sessions; // Sessions
+pub mod settings_tables; // EncoderTemplates, Menu_Items
 pub mod snapshots; // Snapshots
 pub mod snapshots_events; // Snapshots Events
 pub mod states; // States
@@ -538,6 +544,32 @@ pub fn create_router_app(state: AppState) -> Router {
         Router::new()
     };
     let user_routes = protect(users::add_user_routes(Router::new()), Feature::System);
+    let role_routes = protect(roles::add_role_routes(Router::new()), Feature::System);
+    let event_audit_routes = protect(
+        event_audit::add_event_audit_routes(Router::new()),
+        Feature::Events,
+    );
+    let settings_table_routes = protect(
+        settings_tables::add_settings_table_routes(Router::new()),
+        Feature::System,
+    );
+    // MonitorActions: editing is the monitor's (row-level guarded); running a
+    // Manual action needs only Control view, checked on both monitors inside.
+    let monitor_action_routes = protect(
+        monitor_actions::add_monitor_action_routes(Router::new()).route_layer(
+            axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::service::monitor_acl::monitor_path_guard,
+            ),
+        ),
+        Feature::Monitors,
+    );
+    let monitor_action_run_route = authz::protect_at(
+        monitor_actions::add_monitor_action_run_route(Router::new()),
+        Feature::Control,
+        authz::Level::View,
+        state.clone(),
+    );
     let user_preference_routes = protect(
         user_preferences::add_user_preference_routes(Router::new()),
         Feature::System,
@@ -552,11 +584,27 @@ pub fn create_router_app(state: AppState) -> Router {
     // byte-range video, chunked HLS playlists, JPEG snapshots, SSE and
     // WebSocket upgrades, all of which `CompressionLayer` would buffer,
     // invalidate (Range) or corrupt.
+    // `?st=` signed media URLs are checked ahead of every streaming route's
+    // own auth, which then honours the grant (see service::media_grant).
     let streaming = Router::new()
         .merge(live_routes) // Live streaming (unified)
         .merge(events_playback_routes) // Event playback
         .merge(snapshot_routes)
-        .merge(snapshot_event_routes);
+        .merge(snapshot_event_routes)
+        .merge(protect(
+            media_jobs::add_event_video_routes(Router::new()),
+            Feature::Events,
+        ))
+        .merge(crate::util::authz::protect_at(
+            events_playback::add_event_export_route(Router::new()),
+            Feature::Events,
+            crate::util::authz::Level::View,
+            state.clone(),
+        ))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::service::media_grant::media_grant_layer,
+        ));
 
     // Build the served OpenAPI document, merging in feature-gated fragments
     // (utoipa's derive cannot `#[cfg]` individual path/schema entries, so the
@@ -577,6 +625,17 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(zone_routes)
         .merge(filter_routes)
         .merge(user_routes)
+        .merge(role_routes)
+        .merge(event_audit_routes)
+        .merge(settings_table_routes)
+        .merge(monitor_action_routes)
+        .merge(monitor_action_run_route)
+        .merge(notifications::add_notification_routes(Router::new()))
+        .merge(protect(
+            media_jobs::add_job_routes(Router::new()),
+            Feature::Events,
+        ))
+        .merge(settings_tables::add_navbar_route(Router::new()))
         .merge(group_routes)
         .merge(server_info_routes)
         .merge(log_routes)
@@ -609,7 +668,13 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(event_tag_routes)
         .merge(search_routes)
         .merge(daemon_routes) // Daemon control
-        .merge(ptz_routes); // PTZ control
+        .merge(ptz_routes) // PTZ control
+        .merge(crate::util::authz::protect_at(
+            events_playback::add_event_link_route(Router::new()),
+            Feature::Events,
+            crate::util::authz::Level::View,
+            state.clone(),
+        ));
 
     // ONVIF discovery (feature-gated). Feeds monitor creation, so gated like
     // monitor management; merged before the compression layer so its JSON
@@ -625,7 +690,14 @@ pub fn create_router_app(state: AppState) -> Router {
 
     let api = api.layer(CompressionLayer::new());
 
-    let app = Router::new().merge(api).merge(streaming);
+    let app =
+        Router::new()
+            .merge(api)
+            .merge(streaming)
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                crate::util::middleware::schema_gate,
+            ));
 
     // The browser UI (zm-web), when this binary is serving it. Mounted as the
     // fallback so every real route above still wins; only unmatched paths reach

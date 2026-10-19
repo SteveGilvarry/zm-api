@@ -31,10 +31,18 @@ impl TestApp {
     /// `DatabaseConnection` is not `Clone`, so two connections are opened: one
     /// drives the application, the other (`self.db`) is for fixtures.
     pub async fn spawn() -> Self {
+        Self::spawn_with(|_| {}).await
+    }
+
+    /// [`spawn`](Self::spawn), adjusting the state (its config, say) before
+    /// the router is built.
+    #[allow(dead_code)]
+    pub async fn spawn_with(adjust: impl FnOnce(&mut AppState)) -> Self {
         let expect_msg = "connect to test database (is it running on :3307?)";
         let fixture_db = get_test_db().await.expect(expect_msg);
         let app_db = get_test_db().await.expect(expect_msg);
-        let state = AppState::for_test_with_db(app_db);
+        let mut state = AppState::for_test_with_db(app_db);
+        adjust(&mut state);
         let router = zm_api::routes::create_router_app(state);
         Self {
             db: fixture_db,
@@ -48,10 +56,17 @@ impl TestApp {
     /// failures, RBAC denials, middleware behaviour — so they need no real
     /// database and can run in the standard `cargo test` pass.
     pub fn mock() -> Self {
+        Self::mock_with(|_| {})
+    }
+
+    /// [`mock`](Self::mock), adjusting the state before the router is built.
+    #[allow(dead_code)]
+    pub fn mock_with(adjust: impl FnOnce(&mut AppState)) -> Self {
         use sea_orm::{DatabaseBackend, MockDatabase};
         let fixture_db = MockDatabase::new(DatabaseBackend::MySql).into_connection();
         let app_db = MockDatabase::new(DatabaseBackend::MySql).into_connection();
-        let state = AppState::for_test_with_db(app_db);
+        let mut state = AppState::for_test_with_db(app_db);
+        adjust(&mut state);
         let router = zm_api::routes::create_router_app(state);
         Self {
             db: fixture_db,
@@ -102,6 +117,16 @@ impl TestApp {
     /// Authenticated `POST` with a JSON body.
     pub async fn post_json<T: Serialize>(&self, path: &str, token: &str, body: &T) -> TestResponse {
         self.request(Method::POST, path)
+            .bearer(token)
+            .json(body)
+            .send()
+            .await
+    }
+
+    /// Authenticated `PUT` with a JSON body.
+    #[allow(dead_code)]
+    pub async fn put_json<T: Serialize>(&self, path: &str, token: &str, body: &T) -> TestResponse {
+        self.request(Method::PUT, path)
             .bearer(token)
             .json(body)
             .send()

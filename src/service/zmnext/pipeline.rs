@@ -248,20 +248,7 @@ pub fn generate_pipeline(
         capture_children.push(build_store_node(monitor_id, cfg, mode, events_root));
     }
     if synopsis {
-        // Export the synopsis ingredients: object cutouts/tubes (review_export →
-        // 0x0306 review_assets). Only synopsis-enabled cameras pay this. Background
-        // plates come from `motion_pixel_diff`'s `plate_export` option, not a
-        // plugin; this generator doesn't place that stage yet.
-        capture_children.push(json!({
-            "id": "review",
-            "kind": "review_export",
-            "cfg": {
-                "monitor_id": monitor_id,
-                "root": events_root.to_string_lossy(),
-                "mask_format": "polygon",
-            },
-            "queue_depth": 8,
-        }));
+        capture_children.extend(synopsis_nodes(monitor_id));
     }
     if let Some((host, port)) = mqtt_host_port(cfg.mqtt_url.as_deref()) {
         capture_children.push(json!({
@@ -280,6 +267,101 @@ pub fn generate_pipeline(
         capture_children,
     );
     pipeline_doc(monitor_id, capture)
+}
+
+/// The synopsis ingredient stages (#128), as zm-next's
+/// `pipelines/synopsis_smoke.template.json` lays them out, with cfg keys from
+/// the plugins' schemas:
+///
+/// * `review_export` samples object cutouts from **decoded RGB** frames, so it
+///   sits under its own `decode_ffmpeg(rgb24)`; on each event clip it writes
+///   the cutouts and the latest plate under the event and emits 0x0306
+///   `review_assets`. (Under `capture` it was fed compressed packets and
+///   produced nothing.)
+/// * Background plates come from `motion_pixel_diff`'s `plate_export`, behind
+///   a `decode_ffmpeg(gray)`.
+///
+/// Both need the decoded frame size, and `motion_pixel_diff` a plate
+/// directory; [`fill_monitor_frame`] sets those when the pipeline is composed,
+/// so a graph seeded or stored before they were known still gets them.
+fn synopsis_nodes(monitor_id: u32) -> [Value; 2] {
+    [
+        json!({
+            "id": "decode_review",
+            "kind": "decode_ffmpeg",
+            "cfg": { "output_format": "rgb24" },
+            "queue_depth": 4,
+            "children": [{
+                "id": "review",
+                "kind": "review_export",
+                "cfg": { "monitor_id": monitor_id },
+                "queue_depth": 4,
+            }],
+        }),
+        json!({
+            "id": "decode_plates",
+            "kind": "decode_ffmpeg",
+            "cfg": { "output_format": "gray" },
+            "queue_depth": 4,
+            "children": [{
+                "id": "plates",
+                "kind": "motion_pixel_diff",
+                "cfg": { "monitor_id": monitor_id, "plate_export": true, "plate_refresh_secs": 120 },
+                "queue_depth": 4,
+            }],
+        }),
+    ]
+}
+
+/// Give the synopsis stages what only the monitor knows: the decoded frame
+/// size (`review_export`, `motion_pixel_diff`; from `Monitors.Width/Height`,
+/// the capture resolution `decode_ffmpeg` outputs at `scale: orig`) and the
+/// plate directory. A value already set in the graph is kept. With no frame
+/// size known (0), nothing is set and `review_export` buffers nothing.
+pub fn fill_monitor_frame(doc: &mut Value, width: u32, height: u32, plate_dir: &Path) {
+    fn walk(node: &mut Value, width: u32, height: u32, plate_dir: &str) {
+        let kind = node.get("kind").and_then(Value::as_str).map(str::to_string);
+        if matches!(
+            kind.as_deref(),
+            Some("review_export") | Some("motion_pixel_diff")
+        ) {
+            if let Some(obj) = node.as_object_mut() {
+                let cfg = obj.entry("cfg").or_insert_with(|| json!({}));
+                if let Some(c) = cfg.as_object_mut() {
+                    let unset = |c: &serde_json::Map<String, Value>, k: &str| {
+                        c.get(k).and_then(Value::as_u64).unwrap_or(0) == 0
+                    };
+                    if width > 0 && height > 0 {
+                        if unset(c, "frame_width") {
+                            c.insert("frame_width".into(), json!(width));
+                        }
+                        if unset(c, "frame_height") {
+                            c.insert("frame_height".into(), json!(height));
+                        }
+                    }
+                    let exports = c.get("plate_export").and_then(Value::as_bool) == Some(true);
+                    let no_dir = c
+                        .get("plate_dir")
+                        .and_then(Value::as_str)
+                        .is_none_or(str::is_empty);
+                    if kind.as_deref() == Some("motion_pixel_diff") && exports && no_dir {
+                        c.insert("plate_dir".into(), json!(plate_dir));
+                    }
+                }
+            }
+        }
+        if let Some(children) = node.get_mut("children").and_then(Value::as_array_mut) {
+            for child in children.iter_mut() {
+                walk(child, width, height, plate_dir);
+            }
+        }
+    }
+    let plate_dir = plate_dir.to_string_lossy().into_owned();
+    if let Some(plugins) = doc.get_mut("plugins").and_then(Value::as_array_mut) {
+        for p in plugins.iter_mut() {
+            walk(p, width, height, &plate_dir);
+        }
+    }
 }
 
 /// Build the **default processing graph** to seed a monitor that's being switched
@@ -963,8 +1045,8 @@ mod tests {
         assert_eq!(plain_children.len(), 2);
         assert!(plain_children[0]["cfg"].get("mask_format").is_none());
 
-        // synopsis enabled → polygon masks + tracker on detect, plus a
-        // review_export sibling under capture.
+        // synopsis enabled → polygon masks + tracker on detect, plus the two
+        // decode branches feeding review_export and motion_pixel_diff.
         let syn = generate_pipeline(
             3,
             "rtsp://c",
@@ -986,8 +1068,148 @@ mod tests {
             .iter()
             .map(|c| c["kind"].as_str().unwrap())
             .collect();
-        assert!(kinds.contains(&"review_export"), "kinds: {kinds:?}");
+        assert!(
+            !kinds.contains(&"review_export"),
+            "not under capture: {kinds:?}"
+        );
         assert!(!kinds.contains(&"plate_export"), "kinds: {kinds:?}");
+        let under = |format: &str| {
+            syn["plugins"][0]["children"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|c| c["kind"] == "decode_ffmpeg" && c["cfg"]["output_format"] == format)
+                .unwrap_or_else(|| panic!("a decode_ffmpeg({format}) branch"))["children"][0]
+                .clone()
+        };
+        assert_eq!(under("rgb24")["kind"], "review_export");
+        let plates = under("gray");
+        assert_eq!(plates["kind"], "motion_pixel_diff");
+        assert_eq!(plates["cfg"]["plate_export"], true);
+    }
+
+    /// The keys each synopsis plugin's schema declares (zm-next
+    /// `plugins/*/*.schema.json`, `additionalProperties: false`): a key outside
+    /// these makes the worker refuse the pipeline.
+    #[test]
+    fn synopsis_stages_only_use_keys_their_schemas_declare() {
+        const REVIEW: &[&str] = &[
+            "cutout_max_edge",
+            "feather",
+            "frame_height",
+            "frame_width",
+            "max_samples",
+            "monitor_id",
+            "ring_size",
+            "sample_fps",
+            "stream_filter",
+        ];
+        const MOTION: &[&str] = &[
+            "background_learning_rate",
+            "downscale",
+            "enable_background_update",
+            "enable_filtering",
+            "enable_motion_map",
+            "frame_height",
+            "frame_width",
+            "min_pixels",
+            "monitor_id",
+            "out_height",
+            "out_width",
+            "plate_dir",
+            "plate_export",
+            "plate_on_illum_change",
+            "plate_refresh_secs",
+            "threshold",
+            "zone_aware",
+        ];
+        const DECODE: &[&str] = &[
+            "codec",
+            "gpu_output",
+            "hw_decode",
+            "hwaccel",
+            "output_format",
+            "scale",
+            "stream_filter",
+            "threads",
+        ];
+        let mut doc = generate_pipeline(
+            3,
+            "rtsp://c",
+            "",
+            "",
+            &[],
+            &test_cfg(),
+            StoreMode::Event,
+            Path::new("/e"),
+            true,
+        );
+        fill_monitor_frame(&mut doc, 1920, 1080, Path::new("/e/plates/3"));
+        fn check(node: &Value, seen: &mut Vec<String>) {
+            let kind = node["kind"].as_str().unwrap_or_default();
+            let allowed: Option<&[&str]> = match kind {
+                "review_export" => Some(REVIEW),
+                "motion_pixel_diff" => Some(MOTION),
+                "decode_ffmpeg" => Some(DECODE),
+                _ => None,
+            };
+            if let (Some(allowed), Some(cfg)) = (allowed, node["cfg"].as_object()) {
+                for k in cfg.keys() {
+                    assert!(
+                        allowed.contains(&k.as_str()),
+                        "{kind} does not declare `{k}`"
+                    );
+                }
+                seen.push(kind.to_string());
+            }
+            for c in node["children"].as_array().into_iter().flatten() {
+                check(c, seen);
+            }
+        }
+        let mut seen = Vec::new();
+        check(&doc["plugins"][0], &mut seen);
+        assert!(seen.contains(&"review_export".to_string()));
+        assert!(seen.contains(&"motion_pixel_diff".to_string()));
+    }
+
+    #[test]
+    fn a_seeded_synopsis_graph_passes_graph_validation() {
+        let g = default_processing_graph(&test_cfg(), true);
+        assert!(
+            crate::service::zmnext::graph::validate_graph(&g).is_ok(),
+            "{:?}",
+            crate::service::zmnext::graph::validate_graph(&g)
+        );
+    }
+
+    #[test]
+    fn fill_sets_the_frame_size_and_plate_dir_but_keeps_explicit_values() {
+        let mut doc = json!({ "plugins": [ { "kind": "capture_rtsp_multi", "children": [
+            { "kind": "decode_ffmpeg", "children": [
+                { "kind": "review_export", "cfg": { "monitor_id": 3 } } ] },
+            { "kind": "decode_ffmpeg", "children": [
+                { "kind": "motion_pixel_diff", "cfg": { "plate_export": true, "frame_width": 640 } } ] }
+        ] } ] });
+        fill_monitor_frame(&mut doc, 1920, 1080, Path::new("/e/plates/3"));
+        let kids = &doc["plugins"][0]["children"];
+        let review = &kids[0]["children"][0]["cfg"];
+        assert_eq!(
+            (
+                review["frame_width"].clone(),
+                review["frame_height"].clone()
+            ),
+            (json!(1920), json!(1080))
+        );
+        assert!(review.get("plate_dir").is_none());
+        let motion = &kids[1]["children"][0]["cfg"];
+        assert_eq!(motion["frame_width"], 640, "an explicit size is kept");
+        assert_eq!(motion["frame_height"], 1080);
+        assert_eq!(motion["plate_dir"], "/e/plates/3");
+
+        // Unknown size: nothing set.
+        let mut doc = json!({ "plugins": [ { "kind": "review_export", "cfg": {} } ] });
+        fill_monitor_frame(&mut doc, 0, 0, Path::new("/p"));
+        assert!(doc["plugins"][0]["cfg"].get("frame_width").is_none());
     }
 
     #[test]

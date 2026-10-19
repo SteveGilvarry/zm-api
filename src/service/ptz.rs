@@ -314,6 +314,132 @@ pub async fn power(
     execute_command(ptz_manager, &monitor, &control, command).await
 }
 
+fn unsupported(what: &str) -> AppError {
+    AppError::BadRequestError(format!("This monitor's control does not support {what}"))
+}
+
+/// The white light or the indicator light, `on` or `off` (#190).
+#[instrument(skip(state, ptz_manager))]
+pub async fn light(
+    state: &AppState,
+    ptz_manager: &PtzManager,
+    monitor_id: u32,
+    indicator: bool,
+    on: bool,
+) -> AppResult<PtzCommandResponse> {
+    let (monitor, control) = get_monitor_and_control(state, monitor_id).await?;
+    let command = match (indicator, on) {
+        (false, _) if control.can_light == 0 => return Err(unsupported("a light")),
+        (true, _) if control.can_indicator_light == 0 => {
+            return Err(unsupported("an indicator light"))
+        }
+        (false, true) => PtzCommand::LightOn,
+        (false, false) => PtzCommand::LightOff,
+        (true, true) => PtzCommand::IndicatorLightOn,
+        (true, false) => PtzCommand::IndicatorLightOff,
+    };
+    execute_command(ptz_manager, &monitor, &control, command).await
+}
+
+/// Play sound `file` (within the control's `MinAudioFile..=MaxAudioFile`), or
+/// stop playing.
+#[instrument(skip(state, ptz_manager))]
+pub async fn audio(
+    state: &AppState,
+    ptz_manager: &PtzManager,
+    monitor_id: u32,
+    file: Option<u32>,
+) -> AppResult<PtzCommandResponse> {
+    let (monitor, control) = get_monitor_and_control(state, monitor_id).await?;
+    if control.can_audio_play == 0 {
+        return Err(unsupported("audio playback"));
+    }
+    let command = match file {
+        None => PtzCommand::AudioStop,
+        Some(file) => {
+            match (control.min_audio_file, control.max_audio_file) {
+                (Some(min), Some(max)) if (min..=max).contains(&file) => {}
+                (Some(min), Some(max)) => {
+                    return Err(AppError::BadRequestError(format!(
+                        "audio file {file} is outside this control's {min}..={max}"
+                    )))
+                }
+                _ => return Err(unsupported("numbered audio files")),
+            }
+            PtzCommand::AudioPlay { file }
+        }
+    };
+    execute_command(ptz_manager, &monitor, &control, command).await
+}
+
+/// Audio volume `up` or `down`.
+#[instrument(skip(state, ptz_manager))]
+pub async fn audio_volume(
+    state: &AppState,
+    ptz_manager: &PtzManager,
+    monitor_id: u32,
+    up: bool,
+) -> AppResult<PtzCommandResponse> {
+    let (monitor, control) = get_monitor_and_control(state, monitor_id).await?;
+    if control.can_audio_volume == 0 {
+        return Err(unsupported("audio volume"));
+    }
+    let command = if up {
+        PtzCommand::AudioVolumeUp
+    } else {
+        PtzCommand::AudioVolumeDown
+    };
+    execute_command(ptz_manager, &monitor, &control, command).await
+}
+
+/// The lights' state as the control module reports it: zmcontrol.pl answers
+/// a status query with `{"result": {...}}`, the white light under
+/// `WhiteLight` and the indicator under `Enable` (as ZoneMinder's watch page
+/// reads them). `None` when there's no answer or no such light.
+#[instrument(skip(state, ptz_manager))]
+pub async fn light_status(
+    state: &AppState,
+    ptz_manager: &PtzManager,
+    monitor_id: u32,
+) -> AppResult<crate::dto::response::ptz::LightStatusResponse> {
+    let (monitor, control) = get_monitor_and_control(state, monitor_id).await?;
+    let mut out = crate::dto::response::ptz::LightStatusResponse {
+        light: None,
+        indicator_light: None,
+    };
+    if control.can_light != 0 {
+        if let Ok(r) = ptz_manager
+            .execute_with_models(&monitor, &control, PtzCommand::LightStatus)
+            .await
+        {
+            out.light = light_state(&r.message, "WhiteLight");
+        }
+    }
+    if control.can_indicator_light != 0 {
+        if let Ok(r) = ptz_manager
+            .execute_with_models(&monitor, &control, PtzCommand::IndicatorLightStatus)
+            .await
+        {
+            out.indicator_light = light_state(&r.message, "Enable");
+        }
+    }
+    Ok(out)
+}
+
+/// `on`/`off` from a zmcontrol.pl status reply, or `None`.
+pub(crate) fn light_state(reply: &str, key: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(reply.trim()).ok()?;
+    match v.get("result")?.get(key)? {
+        serde_json::Value::String(s) if s.eq_ignore_ascii_case("on") => Some("on".into()),
+        serde_json::Value::String(s) if s.eq_ignore_ascii_case("off") => Some("off".into()),
+        serde_json::Value::Bool(b) => Some(if *b { "on" } else { "off" }.into()),
+        serde_json::Value::Number(n) => {
+            Some(if n.as_i64() == Some(0) { "off" } else { "on" }.into())
+        }
+        _ => None,
+    }
+}
+
 #[instrument(skip(state, ptz_manager))]
 pub async fn goto_preset(
     state: &AppState,
@@ -469,6 +595,24 @@ async fn execute_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn light_state_reads_zmcontrols_reply() {
+        assert_eq!(
+            light_state(r#"{"result":{"WhiteLight":"On"}}"#, "WhiteLight").as_deref(),
+            Some("on")
+        );
+        assert_eq!(
+            light_state(r#"{"result":{"Enable":false}}"#, "Enable").as_deref(),
+            Some("off")
+        );
+        assert_eq!(
+            light_state(r#"{"result":{"Enable":1}}"#, "Enable").as_deref(),
+            Some("on")
+        );
+        assert_eq!(light_state(r#"{"result":null}"#, "WhiteLight"), None);
+        assert_eq!(light_state("Command sent via socket", "WhiteLight"), None);
+    }
     use crate::entity::monitors::Model as MonitorModel;
     use sea_orm::{DatabaseBackend, MockDatabase};
 
