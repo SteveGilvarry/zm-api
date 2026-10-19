@@ -17,6 +17,8 @@ use zm_api::entity::sea_orm_active_enums::Scheme;
 #[ignore = "requires the test database (APP_PROFILE=test-db)"]
 async fn a_jpeg_event_gets_a_generated_video() {
     let app = TestApp::spawn().await;
+    // media_jobs is zm-api's own table, created by its migrations.
+    common::test_db::migrate_test_db(&app.db).await;
     let token = superuser_token();
     let tmp = tempfile::tempdir().unwrap();
     let monitor = insert_monitor(&app.db, "Video").await.unwrap();
