@@ -39,11 +39,24 @@ async fn ensure_role_exists(state: &AppState, role_id: u32) -> AppResult<()> {
         .ok_or_else(|| AppError::BadRequestError(format!("role {role_id} does not exist")))
 }
 
+/// A revocation floor that kills every token issued up to now, including
+/// those minted earlier in the current second (see `service::auth::logout`).
+fn revoke_now_floor() -> u64 {
+    (chrono::Utc::now().timestamp() + 1) as u64
+}
+
 pub async fn update(
     state: &AppState,
     id: u32,
-    req: crate::dto::request::UpdateUserRequest,
+    mut req: crate::dto::request::UpdateUserRequest,
 ) -> AppResult<UserResponse> {
+    // Tokens carry the permissions they were issued with. When an admin
+    // changes those, disables the user or resets their password, revoke the
+    // outstanding tokens so the user can't keep acting on the old grants.
+    if req.changes_access() {
+        let floor = revoke_now_floor();
+        req.token_min_expiry = Some(req.token_min_expiry.map_or(floor, |f| f.max(floor)));
+    }
     // Hash a new password before it reaches the DB (never store plaintext).
     let hashed_password = match &req.password {
         Some(pw) if !pw.is_empty() => Some(crate::util::password::hash(pw.clone()).await?),
@@ -86,6 +99,9 @@ pub async fn create(
 pub async fn delete(state: &AppState, id: u32) -> AppResult<()> {
     let ok = repo::users::delete_by_id(state.db(), id).await?;
     if ok {
+        // The row (and its TokenMinExpiry) is gone, so only the in-memory
+        // floor can stop the deleted user's live tokens.
+        state.revocations.revoke(id, revoke_now_floor() as i64);
         Ok(())
     } else {
         Err(crate::error::AppError::NotFoundError(
@@ -230,6 +246,61 @@ mod tests {
         .unwrap();
         assert_eq!(out.email, "new@example.com");
         assert_eq!(out.enabled, 0);
+    }
+
+    #[tokio::test]
+    async fn changing_a_users_access_revokes_their_tokens() {
+        let user = mk_user(6, "erin");
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<UserModel, _, _>(vec![vec![user.clone()]])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
+            .append_query_results::<UserModel, _, _>(vec![vec![user]])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let issued = chrono::Utc::now().timestamp();
+        assert!(!state.revocations.is_revoked(6, issued));
+        update(
+            &state,
+            6,
+            crate::dto::request::UpdateUserRequest {
+                permissions: crate::dto::request::users::UserPermissionsInput {
+                    events: Some("None".into()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert!(state.revocations.is_revoked(6, issued));
+    }
+
+    #[test]
+    fn profile_edits_do_not_count_as_access_changes() {
+        let req = crate::dto::request::UpdateUserRequest {
+            email: Some("a@b.c".into()),
+            name: Some("A".into()),
+            home_view: Some("console".into()),
+            ..Default::default()
+        };
+        assert!(!req.changes_access());
+    }
+
+    #[tokio::test]
+    async fn deleting_a_user_revokes_their_tokens() {
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let issued = chrono::Utc::now().timestamp();
+        delete(&state, 9).await.unwrap();
+        assert!(state.revocations.is_revoked(9, issued));
     }
 
     #[tokio::test]

@@ -52,6 +52,114 @@ pub async fn find_by_user_id(
         .await?)
 }
 
+/// Which permission table a [`UserGrant`] row came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GrantKind {
+    /// `Monitors_Permissions`: `target_id` is a monitor id.
+    Monitor = 0,
+    /// `Groups_Permissions`: `target_id` is a group id.
+    Group = 1,
+    /// `Role_Monitors_Permissions` of the user's role: `target_id` is a monitor id.
+    RoleMonitor = 2,
+    /// `Role_Groups_Permissions` of the user's role: `target_id` is a group id.
+    RoleGroup = 3,
+}
+
+/// One row of a user's permission grants, direct or through their role.
+#[derive(Debug, Clone, PartialEq, Eq, FromQueryResult)]
+pub struct UserGrant {
+    /// A [`GrantKind`] discriminant.
+    pub kind: i32,
+    pub target_id: u32,
+    pub permission: Permission,
+}
+
+impl UserGrant {
+    pub fn kind(&self) -> GrantKind {
+        match self.kind {
+            1 => GrantKind::Group,
+            2 => GrantKind::RoleMonitor,
+            3 => GrantKind::RoleGroup,
+            _ => GrantKind::Monitor,
+        }
+    }
+}
+
+/// Every monitor and group grant that applies to a user, in one round trip:
+/// their own `Monitors_Permissions` and `Groups_Permissions` rows plus those of
+/// the role named by `Users.RoleId`. Row-level ACL resolution runs on every
+/// monitor-scoped request, and most users have no rows at all.
+pub async fn find_user_grants<C: ConnectionTrait>(
+    db: &C,
+    user_id: u32,
+) -> AppResult<Vec<UserGrant>> {
+    use crate::entity::groups_permissions;
+    use sea_orm::sea_query::{Alias, Expr, Query, SelectStatement, UnionType};
+
+    // Role grant tables have no generated entity; name them directly.
+    fn role_grants(table: &str, target: &str, kind: GrantKind, user_id: u32) -> SelectStatement {
+        let t = Alias::new(table);
+        let users = Alias::new("Users");
+        Query::select()
+            .expr_as(Expr::val(kind as i32), "kind")
+            .expr_as(Expr::col((t.clone(), Alias::new(target))), "target_id")
+            .expr_as(
+                Expr::col((t.clone(), Alias::new("Permission"))),
+                "permission",
+            )
+            .from(t.clone())
+            .inner_join(
+                users.clone(),
+                Expr::col((users.clone(), Alias::new("RoleId")))
+                    .equals((t.clone(), Alias::new("RoleId"))),
+            )
+            .and_where(Expr::col((users, Alias::new("Id"))).eq(user_id))
+            .to_owned()
+    }
+
+    let mut query = Query::select()
+        .expr_as(Expr::val(GrantKind::Monitor as i32), "kind")
+        .expr_as(Expr::col(Column::MonitorId), "target_id")
+        .expr_as(Expr::col(Column::Permission), "permission")
+        .from(MonitorsPermissions)
+        .and_where(Column::UserId.eq(user_id))
+        .to_owned();
+    query
+        .union(
+            UnionType::All,
+            Query::select()
+                .expr_as(Expr::val(GrantKind::Group as i32), "kind")
+                .expr_as(Expr::col(groups_permissions::Column::GroupId), "target_id")
+                .expr_as(
+                    Expr::col(groups_permissions::Column::Permission),
+                    "permission",
+                )
+                .from(groups_permissions::Entity)
+                .and_where(groups_permissions::Column::UserId.eq(user_id))
+                .to_owned(),
+        )
+        .union(
+            UnionType::All,
+            role_grants(
+                "Role_Monitors_Permissions",
+                "MonitorId",
+                GrantKind::RoleMonitor,
+                user_id,
+            ),
+        )
+        .union(
+            UnionType::All,
+            role_grants(
+                "Role_Groups_Permissions",
+                "GroupId",
+                GrantKind::RoleGroup,
+                user_id,
+            ),
+        );
+    let stmt = db.get_database_backend().build(&query);
+    Ok(UserGrant::find_by_statement(stmt).all(db).await?)
+}
+
 pub async fn create(
     db: &DatabaseConnection,
     req: &CreateMonitorPermissionRequest,

@@ -68,7 +68,7 @@ pub struct CreateStatRequest {
     pub score: u16,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, ToSchema)]
 pub struct UpdateStatRequest {
     pub monitor_id: Option<u32>,
     pub zone_id: Option<u32>,

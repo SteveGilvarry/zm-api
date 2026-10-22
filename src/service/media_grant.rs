@@ -128,17 +128,14 @@ pub async fn authorize(
         .filter(|u| u.enabled != 0)
         .ok_or_else(|| unauthorized("Signed URL has been revoked"))?;
     let feature = feature_for(signed.resource);
-    if crate::util::authz::effective_permissions(state.db(), &user)
-        .await?
-        .level(feature)
-        < Level::View
-    {
+    let perms = crate::util::authz::effective_permissions(state.db(), &user).await?;
+    if perms.level(feature) < Level::View {
         return Err(AppError::PermissionDeniedError(format!(
             "View access to {feature:?} required"
         )));
     }
     let monitor_id = signed.resource.monitor_id();
-    if !monitor_acl::resolve(state.db(), signed.uid)
+    if !monitor_acl::resolve(state.db(), signed.uid, perms.monitors)
         .await?
         .allows(monitor_id, Level::View)
     {

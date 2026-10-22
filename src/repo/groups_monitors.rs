@@ -14,10 +14,14 @@ pub async fn find_paginated(
     db: &DatabaseConnection,
     params: &PaginationParams,
     monitor_filter: Option<&[u32]>,
+    group_filter: Option<&[u32]>,
 ) -> AppResult<(Vec<GroupMonitorModel>, u64)> {
     let mut query = GroupsMonitors::find();
     if let Some(ids) = monitor_filter {
         query = query.filter(Column::MonitorId.is_in(ids.iter().copied()));
+    }
+    if let Some(ids) = group_filter {
+        query = query.filter(Column::GroupId.is_in(ids.iter().copied()));
     }
     let paginator = query.paginate(db, params.page_size());
     let total = paginator.num_items().await?;

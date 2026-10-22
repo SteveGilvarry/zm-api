@@ -201,6 +201,30 @@ pub struct UpdateUserRequest {
     pub permissions: UserPermissionsInput,
 }
 
+impl UpdateUserRequest {
+    /// Whether this update changes what the user may do or whether they may
+    /// sign in at all. Their existing tokens carry the old permissions, so
+    /// such a change must revoke them.
+    pub fn changes_access(&self) -> bool {
+        let p = &self.permissions;
+        self.password.as_deref().is_some_and(|pw| !pw.is_empty())
+            || self.enabled.is_some()
+            || self.api_enabled.is_some()
+            || [
+                &p.stream,
+                &p.events,
+                &p.control,
+                &p.monitors,
+                &p.groups,
+                &p.devices,
+                &p.snapshots,
+                &p.system,
+            ]
+            .iter()
+            .any(|level| level.is_some())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

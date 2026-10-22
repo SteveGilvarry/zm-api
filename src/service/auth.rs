@@ -158,6 +158,55 @@ mod tests {
         assert!(!resp.refresh_token.is_empty());
     }
 
+    /// A role granting `Edit` on Events and `Create` on Monitors, `None`
+    /// elsewhere.
+    fn role() -> crate::entity::user_roles::Model {
+        use crate::entity::sea_orm_active_enums as E;
+        crate::entity::user_roles::Model {
+            id: 7,
+            name: "operators".into(),
+            description: None,
+            stream: E::Stream::None,
+            events: E::Events::Edit,
+            control: E::Control::None,
+            monitors: E::Monitors::Create,
+            groups: E::Groups::None,
+            devices: E::Devices::None,
+            snapshots: E::Snapshots::None,
+            system: E::System::None,
+        }
+    }
+
+    /// ZoneMinder grants the higher of the user's and their role's level.
+    #[tokio::test]
+    async fn test_login_token_carries_role_permissions() {
+        let plain = "secret".to_string();
+        let hashed = crate::util::password::hash(plain.clone()).await.unwrap();
+        let mut user_row = mk_user("carol", &hashed);
+        user_row.role_id = Some(7);
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<crate::entity::users::Model, _, _>(vec![vec![user_row]])
+            .append_query_results(vec![vec![role()]])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+
+        let resp = login(
+            &state,
+            LoginRequest {
+                username: "carol".into(),
+                password: plain,
+            },
+        )
+        .await
+        .unwrap();
+        let claims = UserClaims::decode_access(&resp.access_token).unwrap();
+        // Raised by the role.
+        assert_eq!(claims.perms.events, crate::util::authz::Level::Edit);
+        assert_eq!(claims.perms.monitors, crate::util::authz::Level::Create);
+        // The user's own View is kept where the role grants None.
+        assert_eq!(claims.perms.system, crate::util::authz::Level::View);
+    }
+
     /// Both "wrong password" and "no such user" must surface the same
     /// generic 401-flavoured error — no leak of which side failed.
     #[tokio::test]

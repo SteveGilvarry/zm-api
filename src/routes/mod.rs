@@ -514,7 +514,7 @@ pub fn create_router_app(state: AppState) -> Router {
     let live_routes = protect(
         live::add_live_routes(Router::new()).route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
-            crate::service::monitor_acl::monitor_path_guard,
+            crate::service::monitor_acl::monitor_stream_guard,
         )),
         Feature::Stream,
     );
