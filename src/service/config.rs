@@ -124,6 +124,10 @@ pub async fn update_value(
         )));
     }
 
+    // zm-api keeps only allowlisted settings from ffmpeg option strings.
+    crate::service::video_encode::options::check(name, &req.value)
+        .map_err(AppError::BadRequestError)?;
+
     let updated = repo::config::update_value(state.db(), name, &req.value).await?;
     let updated =
         updated.ok_or_else(|| AppError::InternalServerError("Failed to update config".into()))?;
@@ -224,6 +228,30 @@ mod tests {
             .err()
             .unwrap();
         assert!(matches!(err, AppError::PermissionDeniedError(_)));
+    }
+
+    /// zm-api parses these into encoder settings; a value it would drop is
+    /// refused rather than stored and silently ignored.
+    #[tokio::test]
+    async fn test_update_refuses_ffmpeg_options_outside_the_allowlist() {
+        let name = "ZM_FFMPEG_OUTPUT_OPTIONS";
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<ConfigModel, _, _>(vec![vec![mk_config(name, "-r 25", 0)]])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let err = update_value(
+            &state,
+            name,
+            UpdateConfigRequest {
+                value: "-r 25 -vf movie=/etc/shadow".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(&err, AppError::BadRequestError(m) if m.contains("-vf movie=/etc/shadow")),
+            "{err:?}"
+        );
     }
 
     fn mk_config_cat(id: u16, name: &str, category: &str) -> ConfigModel {

@@ -5,10 +5,13 @@
 //! frame rate, a scale or size, optionally greyscale, named the way
 //! `zmvideo.pl` names its files so both list each other's.
 //!
-//! One worker runs jobs in order. ffmpeg is run without a shell; the only
-//! free text that reaches it is the admin-set `ZM_FFMPEG_*_OPTIONS`.
+//! One worker runs jobs in order. Videos are made in-process with libav
+//! ([`crate::service::video_encode`]); no program is run, and
+//! `ZM_FFMPEG_*_OPTIONS` only contribute allowlisted encoder settings.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use sea_orm::sea_query::Expr;
@@ -24,6 +27,7 @@ use crate::entity::media_jobs;
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::server::state::AppState;
 use crate::service::monitor_acl::MonitorScope;
+use crate::service::video_encode;
 use crate::util::authz::Level;
 
 pub const KIND_VIDEO: &str = "video";
@@ -32,8 +36,8 @@ const RUNNING: &str = "running";
 const DONE: &str = "done";
 const FAILED: &str = "failed";
 const CANCELLED: &str = "cancelled";
-/// A generation that takes longer than this is killed.
-const FFMPEG_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+/// A generation that takes longer than this is stopped.
+const VIDEO_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 fn now() -> chrono::NaiveDateTime {
     chrono::Utc::now().naive_utc()
@@ -142,7 +146,7 @@ pub fn formats(config: &str) -> (Vec<String>, Option<String>) {
     (all, default)
 }
 
-/// The ffmpeg arguments for a video job.
+/// How a video job reads and sizes its input.
 pub struct VideoPlan {
     pub input: String,
     pub from_video: bool,
@@ -207,42 +211,6 @@ pub fn plan_video(event: &VideoSource, req: &GenerateVideoRequest, digits: usize
         width: even(width),
         height: even(height),
     }
-}
-
-pub fn ffmpeg_args(
-    plan: &VideoPlan,
-    req: &GenerateVideoRequest,
-    input_options: &str,
-    output_options: &str,
-    output: &str,
-) -> Vec<String> {
-    let mut args: Vec<String> = vec!["-y".into(), "-nostdin".into()];
-    let mut filters = Vec::new();
-    if plan.from_video {
-        // A recording plays at its own rate; speed it up or down instead.
-        if let Some(r) = req.rate.filter(|r| (*r - 1.0).abs() > f64::EPSILON) {
-            filters.push(format!("setpts=PTS/{r}"));
-        }
-    } else {
-        args.extend(["-framerate".into(), format!("{:.2}", plan.frame_rate)]);
-    }
-    args.extend(input_options.split_whitespace().map(String::from));
-    args.extend(["-i".into(), plan.input.clone()]);
-    if let Some(f) = ffmpeg_filter(req.transform) {
-        filters.push(f.to_string());
-    }
-    filters.push(format!("scale={}:{}", plan.width, plan.height));
-    args.extend(["-vf".into(), filters.join(",")]);
-    if plan.from_video {
-        if req.fps.is_some() || req.rate.is_some() {
-            args.extend(["-r".into(), format!("{:.2}", plan.frame_rate)]);
-        }
-        // A sped-up track would drift; ZoneMinder drops audio here too.
-        args.push("-an".into());
-    }
-    args.extend(output_options.split_whitespace().map(String::from));
-    args.push(output.to_string());
-    args
 }
 
 // ---- Events and their files -------------------------------------------------
@@ -586,46 +554,56 @@ async fn run_video(state: &AppState, job: &media_jobs::Model) -> Result<String, 
     let plan = plan_video(&VideoSource::from(&event), &req, digits);
     // Written beside the target, then renamed, so a reader never sees half.
     let partial = format!(".{name}.part.{format}");
-    let args = ffmpeg_args(
-        &plan,
-        &req,
+    let (options, dropped) = video_encode::options::parse(
         &config(state, "ZM_FFMPEG_INPUT_OPTIONS")
             .await
             .unwrap_or_default(),
         &config(state, "ZM_FFMPEG_OUTPUT_OPTIONS")
             .await
             .unwrap_or_default(),
-        &partial,
     );
-    // ZoneMinder's configured ffmpeg, else the one on PATH.
-    let ffmpeg = config(state, "ZM_PATH_FFMPEG")
-        .await
-        .filter(|p| !p.is_empty() && Path::new(p).exists())
-        .unwrap_or_else(|| "ffmpeg".into());
-    let run = tokio::process::Command::new(&ffmpeg)
-        .args(&args)
-        .current_dir(&dir)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .output();
-    let out = match tokio::time::timeout(FFMPEG_TIMEOUT, run).await {
-        Ok(Ok(o)) => o,
-        Ok(Err(e)) => return Err(format!("could not run {ffmpeg}: {e}")),
-        Err(_) => {
-            let _ = tokio::fs::remove_file(dir.join(&partial)).await;
-            return Err("ffmpeg took too long".into());
+    if !dropped.is_empty() {
+        warn!(
+            "video for event {}: ignoring ZM_FFMPEG_*_OPTIONS {}",
+            event.id,
+            dropped.join(", ")
+        );
+    }
+    let source = if plan.from_video {
+        video_encode::Source::Recording(video_encode::file_in(&dir, &plan.input)?)
+    } else {
+        video_encode::Source::Jpegs {
+            dir: dir.clone(),
+            digits,
+            fps: plan.frame_rate,
         }
     };
-    if !out.status.success() {
+    let job = video_encode::Render {
+        source,
+        speed: req.rate,
+        fps: if plan.from_video { req.fps } else { None },
+        width: plan.width,
+        height: plan.height,
+        greyscale: req.transform == VideoTransform::Greyscale,
+        options,
+        output: dir.join(&partial),
+    };
+    let cancel = Arc::new(AtomicBool::new(false));
+    let run = tokio::task::spawn_blocking({
+        let cancel = cancel.clone();
+        move || video_encode::render(&job, &cancel)
+    });
+    let result = match tokio::time::timeout(VIDEO_TIMEOUT, run).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => Err(format!("video task failed: {e}")),
+        Err(_) => {
+            cancel.store(true, Ordering::Relaxed);
+            Err("making the video took too long".into())
+        }
+    };
+    if let Err(e) = result {
         let _ = tokio::fs::remove_file(dir.join(&partial)).await;
-        let err = String::from_utf8_lossy(&out.stderr);
-        let tail: Vec<&str> = err.lines().rev().take(5).collect();
-        return Err(format!(
-            "ffmpeg failed: {}",
-            tail.into_iter().rev().collect::<Vec<_>>().join(" | ")
-        ));
+        return Err(e);
     }
     tokio::fs::rename(dir.join(&partial), &target)
         .await
@@ -730,12 +708,7 @@ mod tests {
             "5 fps, twice as fast"
         );
         assert_eq!((plan.width, plan.height), (640, 480), "even");
-        let args = ffmpeg_args(&plan, &r, "", "-c:v libx264", "out.mp4");
-        assert_eq!(
-            args.join(" "),
-            "-y -nostdin -framerate 10.00 -i %05d-capture.jpg -vf hue=s=0,scale=640:480 \
-             -c:v libx264 out.mp4"
-        );
+        assert!(!plan.from_video);
     }
 
     #[test]
@@ -752,10 +725,13 @@ mod tests {
             scale: Some(0.5),
             ..req()
         };
-        let args = ffmpeg_args(&plan_video(&event, &r, 5), &r, "", "", "o.mp4");
-        assert_eq!(
-            args.join(" "),
-            "-y -nostdin -i 12-video.mp4 -vf setpts=PTS/4,scale=960:540 -r 20.00 -an o.mp4"
+        let plan = plan_video(&event, &r, 5);
+        assert!(plan.from_video);
+        assert_eq!(plan.input, "12-video.mp4");
+        assert_eq!((plan.width, plan.height), (960, 540));
+        assert!(
+            (plan.frame_rate - 20.0).abs() < 1e-9,
+            "5 fps, four times as fast"
         );
     }
 }
