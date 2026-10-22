@@ -34,7 +34,7 @@ use crate::service;
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn get_status(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -60,7 +60,7 @@ pub async fn get_status(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn get_capabilities(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -81,7 +81,7 @@ pub async fn get_capabilities(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn list_protocols(
     State(state): State<AppState>,
 ) -> AppResult<Json<PtzProtocolListResponse>> {
@@ -106,7 +106,7 @@ pub async fn list_protocols(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn move_up(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -134,7 +134,7 @@ pub async fn move_up(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn move_down(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -162,7 +162,7 @@ pub async fn move_down(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn move_left(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -190,7 +190,7 @@ pub async fn move_left(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn move_right(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -218,7 +218,7 @@ pub async fn move_right(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn move_up_left(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -246,7 +246,7 @@ pub async fn move_up_left(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn move_up_right(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -274,7 +274,7 @@ pub async fn move_up_right(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn move_down_left(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -303,7 +303,7 @@ pub async fn move_down_left(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn move_down_right(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -330,7 +330,7 @@ pub async fn move_down_right(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn move_stop(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -356,7 +356,7 @@ pub async fn move_stop(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn zoom_in(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -384,7 +384,7 @@ pub async fn zoom_in(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn zoom_out(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -410,7 +410,7 @@ pub async fn zoom_out(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn zoom_stop(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -436,7 +436,7 @@ pub async fn zoom_stop(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn focus_near(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -464,7 +464,7 @@ pub async fn focus_near(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn focus_far(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -490,7 +490,7 @@ pub async fn focus_far(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn focus_auto(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -515,7 +515,7 @@ pub async fn focus_auto(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn focus_stop(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -540,7 +540,7 @@ pub async fn focus_stop(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn iris_open(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -565,7 +565,7 @@ pub async fn iris_open(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn iris_close(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -590,7 +590,7 @@ pub async fn iris_close(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn iris_auto(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -615,7 +615,7 @@ pub async fn iris_auto(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn iris_stop(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -640,7 +640,7 @@ pub async fn iris_stop(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn power_wake(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -665,7 +665,7 @@ pub async fn power_wake(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn power_sleep(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -690,7 +690,7 @@ pub async fn power_sleep(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn power_reset(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -715,7 +715,7 @@ pub async fn power_reset(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn power_reboot(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -742,7 +742,7 @@ pub async fn power_reboot(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn goto_preset(
     Path((id, preset_id)): Path<(u32, u32)>,
     State(state): State<AppState>,
@@ -771,7 +771,7 @@ pub async fn goto_preset(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn set_preset(
     Path((id, preset_id)): Path<(u32, u32)>,
     State(state): State<AppState>,
@@ -801,7 +801,7 @@ pub async fn set_preset(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn clear_preset(
     Path((id, preset_id)): Path<(u32, u32)>,
     State(state): State<AppState>,
@@ -825,7 +825,7 @@ pub async fn clear_preset(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn goto_home(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -851,7 +851,7 @@ pub async fn goto_home(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn move_absolute(
     Path(id): Path<u32>,
     State(state): State<AppState>,
@@ -879,7 +879,7 @@ pub async fn move_absolute(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn move_relative(
     Path(id): Path<u32>,
     State(state): State<AppState>,

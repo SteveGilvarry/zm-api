@@ -70,7 +70,7 @@ fn apply_sorting<E: EntityTrait>(
 }
 
 /// Find all events with pagination and filtering/sorting options
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn find_all(
     state: &AppState,
     page: u64,
@@ -185,7 +185,7 @@ fn filtered(options: &EventQueryOptions) -> Select<Events> {
 }
 
 /// Find events with full query options
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn find_with_options(
     state: &AppState,
     options: EventQueryOptions,
@@ -204,7 +204,7 @@ pub async fn find_with_options(
 
 /// Summed `Length` (seconds) and `DiskSpace` (bytes) of every event the options
 /// match, not of one page.
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn totals_with_options(
     state: &AppState,
     options: &EventQueryOptions,
@@ -230,7 +230,7 @@ pub async fn totals_with_options(
 
 /// Find events matching a prebuilt `Condition` (the compiled filter AST), with
 /// row-level ACL, sorting, and pagination. Used by the filter `/preview`.
-#[instrument(skip(state, condition))]
+#[instrument(level = "debug", skip(state, condition))]
 pub async fn find_with_condition(
     state: &AppState,
     condition: Condition,
@@ -256,7 +256,7 @@ pub async fn find_with_condition(
 }
 
 /// Find events by monitor ID with optional date range filter (legacy helper)
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn find_by_monitor_id(
     state: &AppState,
     monitor_id: u32,
@@ -280,25 +280,25 @@ pub async fn find_by_monitor_id(
 }
 
 /// Find event by ID
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn find_by_id(state: &AppState, id: u64) -> Result<Option<events::Model>, DbErr> {
     Events::find_by_id(id).one(state.db()).await
 }
 
 /// Create new event
-#[instrument(skip(state, event))]
+#[instrument(level = "debug", skip(state, event))]
 pub async fn create(state: &AppState, event: events::ActiveModel) -> Result<events::Model, DbErr> {
     event.insert(state.db()).await
 }
 
 /// Update existing event
-#[instrument(skip(state, event))]
+#[instrument(level = "debug", skip(state, event))]
 pub async fn update(state: &AppState, event: events::ActiveModel) -> Result<events::Model, DbErr> {
     event.update(state.db()).await
 }
 
 /// Delete event by ID
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn delete(state: &AppState, id: u64) -> Result<DeleteResult, DbErr> {
     Events::delete_by_id(id).exec(state.db()).await
 }
@@ -357,7 +357,7 @@ where
 }
 
 /// Get event counts grouped by monitor over time period
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn get_counts_by_monitor(
     state: &AppState,
     hours_back: i64,
@@ -400,7 +400,7 @@ pub async fn get_counts_by_monitor(
 }
 
 /// Get event counts by hour for the last n hours
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn get_counts_by_hour(
     state: &AppState,
     hours_back: i64,
@@ -461,7 +461,7 @@ pub async fn get_counts_by_hour(
 }
 
 /// Find tags for a list of event IDs (batch loading to prevent N+1)
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn find_tags_for_events(
     state: &AppState,
     event_ids: &[u64],
@@ -504,7 +504,7 @@ pub async fn find_tags_for_events(
 }
 
 /// Find a single event with its tags
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn find_by_id_with_tags(
     state: &AppState,
     id: u64,

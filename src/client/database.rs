@@ -24,6 +24,11 @@ impl DatabaseClientExt for DatabaseClient {
             .acquire_timeout(Duration::from_secs(db_cfg.acquire_timeout_secs))
             .idle_timeout(Duration::from_secs(db_cfg.idle_timeout_secs))
             .max_lifetime(Duration::from_secs(db_cfg.max_lifetime_secs))
+            // Ping a pooled connection only after it has sat idle, not on every
+            // checkout: the default pings before every query, which costs a round
+            // trip per query. Idle connections are the ones a server timeout,
+            // proxy or firewall drops.
+            .test_before_acquire_if_idle_for(Duration::from_secs(30))
             // Per-statement logging is off unless explicitly enabled — see the
             // perf note on `DatabaseConfig::sqlx_logging`.
             .sqlx_logging(db_cfg.sqlx_logging)

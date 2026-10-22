@@ -28,7 +28,7 @@ pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<Us
 // column intended to let an admin disable the API for a user without
 // suspending their web-UI login — honour it at the auth boundary so a
 // disabled-API user can't acquire a token.
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn find_by_username_and_status(
     db: &DatabaseConnection,
     username: &str,

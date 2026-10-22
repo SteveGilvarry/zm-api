@@ -59,7 +59,7 @@ fn scoped(
 }
 
 /// Find all monitors visible to the caller.
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn find_all<C>(
     conn: &C,
     monitor_filter: Option<&[u32]>,
@@ -76,7 +76,7 @@ where
 /// Find monitors with pagination, restricted to the caller's allowlist.
 ///
 /// Soft-deleted rows (`Deleted = 1`) are left out unless `include_deleted`.
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn find_paginated<C>(
     conn: &C,
     params: &PaginationParams,
@@ -99,7 +99,7 @@ where
 }
 
 /// Find a monitor by its ID
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn find_by_id<C>(conn: &C, id: u32) -> AppResult<Option<entity::monitors::Model>>
 where
     C: ConnectionTrait,
@@ -109,7 +109,7 @@ where
 }
 
 /// Create a new monitor
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn create<C>(
     conn: &C,
     monitor: entity::monitors::ActiveModel,
@@ -122,7 +122,7 @@ where
 }
 
 /// Update an existing monitor
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn update<C>(
     conn: &C,
     monitor: entity::monitors::ActiveModel,
@@ -135,7 +135,7 @@ where
 }
 
 /// Delete a monitor by ID
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn delete<C>(conn: &C, monitor: entity::monitors::Model) -> AppResult<()>
 where
     C: ConnectionTrait,

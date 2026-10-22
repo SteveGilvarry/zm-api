@@ -18,7 +18,7 @@ fn summary_not_found(monitor_id: u32) -> AppError {
 }
 
 /// List all event summaries
-#[instrument(skip(state, scope))]
+#[instrument(level = "debug", skip(state, scope))]
 pub async fn list_all(
     state: &AppState,
     scope: &MonitorScope,
@@ -33,7 +33,7 @@ pub async fn list_all(
 }
 
 /// List event summaries with pagination
-#[instrument(skip(state, scope))]
+#[instrument(level = "debug", skip(state, scope))]
 pub async fn list_paginated(
     state: &AppState,
     params: &PaginationParams,
@@ -48,7 +48,7 @@ pub async fn list_paginated(
 }
 
 /// Get event summary for a specific monitor
-#[instrument(skip(state, scope))]
+#[instrument(level = "debug", skip(state, scope))]
 pub async fn get_by_monitor_id(
     state: &AppState,
     monitor_id: u32,

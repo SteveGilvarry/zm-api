@@ -5,7 +5,7 @@ use axum::{
 };
 // use chrono::Utc; // not needed in this module
 use garde::Validate;
-use tracing::{info, instrument};
+use tracing::{debug, instrument};
 
 use crate::{
     dto::{
@@ -56,14 +56,14 @@ use crate::{
         ("jwt" = [])
     )
 )]
-#[instrument(skip(state, scope))]
+#[instrument(level = "debug", skip(state, scope))]
 pub async fn list_events(
     State(state): State<AppState>,
     Query(params): Query<EventQueryParams>,
     scope: MonitorScope,
 ) -> AppResult<Json<PaginatedEventsResponse>> {
     params.validate().map_err(AppError::InvalidInputError)?;
-    info!("Listing events with params: {:?}", params);
+    debug!("Listing events with params: {:?}", params);
 
     let events = service::events::list(&state, &params, &scope).await?;
 
@@ -89,7 +89,7 @@ pub async fn list_events(
         ("jwt" = [])
     )
 )]
-#[instrument(skip(state, scope))]
+#[instrument(level = "debug", skip(state, scope))]
 pub async fn get_event(
     State(state): State<AppState>,
     Path(id): Path<u32>,
@@ -117,7 +117,7 @@ pub async fn get_event(
         ("jwt" = [])
     )
 )]
-#[instrument(skip(state, event, scope))]
+#[instrument(level = "debug", skip(state, event, scope))]
 pub async fn create_event(
     State(state): State<AppState>,
     scope: MonitorScope,
@@ -151,7 +151,7 @@ pub async fn create_event(
         ("jwt" = [])
     )
 )]
-#[instrument(skip(state, event_update, scope))]
+#[instrument(level = "debug", skip(state, event_update, scope))]
 pub async fn update_event(
     State(state): State<AppState>,
     Path(id): Path<u32>,
@@ -185,7 +185,7 @@ pub async fn update_event(
         ("jwt" = [])
     )
 )]
-#[instrument(skip(state, scope))]
+#[instrument(level = "debug", skip(state, scope))]
 pub async fn delete_event(
     State(state): State<AppState>,
     Path(id): Path<u32>,
@@ -222,7 +222,7 @@ pub struct EventCountsQuery {
         ("jwt" = [])
     )
 )]
-#[instrument(skip(state, scope))]
+#[instrument(level = "debug", skip(state, scope))]
 pub async fn get_event_counts(
     State(state): State<AppState>,
     Path(hours): Path<i64>,
@@ -253,7 +253,7 @@ pub async fn get_event_counts(
         ("jwt" = [])
     )
 )]
-#[instrument(skip(state, scope))]
+#[instrument(level = "debug", skip(state, scope))]
 pub async fn get_event_counts_by_monitor(
     State(state): State<AppState>,
     Path(hours): Path<i64>,

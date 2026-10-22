@@ -757,6 +757,15 @@ recognisable path forward.
 
 ### Changed
 
+- **Requests use about a third less CPU.** Measured across 19 read endpoints:
+  1.56x less CPU per request and 1.75x lower median latency. Per-request
+  INFO logs and `#[instrument]` spans are now DEBUG (the bunyan layer wrote
+  a START and END line for every span). Log output to stdout no longer
+  blocks the request. A verified access token is cached until it expires, so
+  its RSA signature is checked once rather than two or three times per
+  request; revocation is still checked on every request. Pooled connections
+  are pinged only after 30 s idle, not before every query.
+
 - **Dependencies brought up to current releases.** Every semver-compatible
   update was taken, and these crossed a major line: sea-orm and
   sea-orm-migration 1.1 → 2.0 with sqlx 0.8 → 0.9 (raw statements go through

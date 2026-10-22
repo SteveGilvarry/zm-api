@@ -15,7 +15,7 @@ pub const ZM_VERSION_KEY: &str = "ZM_DYN_CURR_VERSION";
 pub const ZM_DB_VERSION_KEY: &str = "ZM_DYN_DB_VERSION";
 
 /// Fetch a specific config value by name
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn get_config_value(db: &DatabaseConnection, name: &str) -> AppResult<Option<String>> {
     let config = Config::find().filter(Column::Name.eq(name)).one(db).await?;
 
@@ -23,7 +23,7 @@ pub async fn get_config_value(db: &DatabaseConnection, name: &str) -> AppResult<
 }
 
 /// Get the current ZoneMinder version
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn get_zm_version(db: &DatabaseConnection) -> AppResult<String> {
     match get_config_value(db, ZM_VERSION_KEY).await? {
         Some(version) => Ok(version),
@@ -32,7 +32,7 @@ pub async fn get_zm_version(db: &DatabaseConnection) -> AppResult<String> {
 }
 
 /// Get the ZoneMinder database version
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn get_zm_db_version(db: &DatabaseConnection) -> AppResult<String> {
     match get_config_value(db, ZM_DB_VERSION_KEY).await? {
         Some(version) => Ok(version),
@@ -41,14 +41,14 @@ pub async fn get_zm_db_version(db: &DatabaseConnection) -> AppResult<String> {
 }
 
 /// List all config entries
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn list_all(db: &DatabaseConnection) -> AppResult<Vec<config::Model>> {
     let items = Config::find().all(db).await?;
     Ok(items)
 }
 
 /// List config entries with pagination
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn find_paginated(
     db: &DatabaseConnection,
     params: &PaginationParams,
@@ -62,7 +62,7 @@ pub async fn find_paginated(
 }
 
 /// List config entries with pagination, optional category filter and name search
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn find_filtered(
     db: &DatabaseConnection,
     params: &ConfigQueryParams,
@@ -91,7 +91,7 @@ struct CategoryCount {
 }
 
 /// List distinct categories with their config entry counts
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn list_categories(db: &DatabaseConnection) -> AppResult<Vec<CategoryCountResponse>> {
     use sea_orm::sea_query::Expr;
 
@@ -117,14 +117,14 @@ pub async fn list_categories(db: &DatabaseConnection) -> AppResult<Vec<CategoryC
 }
 
 /// Find a config entry by name
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn find_by_name(db: &DatabaseConnection, name: &str) -> AppResult<Option<config::Model>> {
     let item = Config::find().filter(Column::Name.eq(name)).one(db).await?;
     Ok(item)
 }
 
 /// Update a config value by name
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn update_value(
     db: &DatabaseConnection,
     name: &str,

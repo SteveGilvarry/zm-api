@@ -7,7 +7,7 @@ use sea_orm::*;
 //
 // `owner` scopes the result to a single user's filters (`Some(uid)`); `None` is
 // unrestricted (used for admins / System-level access). See `service::filters`.
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn find_all(db: &DatabaseConnection, owner: Option<u32>) -> AppResult<Vec<FilterModel>> {
     let mut query = Filters::find();
     if let Some(uid) = owner {
@@ -16,7 +16,7 @@ pub async fn find_all(db: &DatabaseConnection, owner: Option<u32>) -> AppResult<
     Ok(query.all(db).await?)
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn find_paginated(
     db: &DatabaseConnection,
     params: &PaginationParams,
@@ -34,12 +34,12 @@ pub async fn find_paginated(
     Ok((items, total))
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn find_by_id(db: &DatabaseConnection, id: u32) -> AppResult<Option<FilterModel>> {
     Ok(Filters::find_by_id(id).one(db).await?)
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn update(
     db: &DatabaseConnection,
     id: u32,
@@ -135,7 +135,7 @@ pub async fn update(
     Ok(Some(updated))
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn create(
     db: &DatabaseConnection,
     req: &crate::dto::request::CreateFilterRequest,
@@ -181,7 +181,7 @@ pub async fn create(
     Ok(am.insert(db).await?)
 }
 
-#[tracing::instrument(skip_all)]
+#[tracing::instrument(level = "debug", skip_all)]
 pub async fn delete_by_id(db: &DatabaseConnection, id: u32) -> AppResult<bool> {
     use sea_orm::EntityTrait;
     let res = Filters::delete_by_id(id).exec(db).await?;

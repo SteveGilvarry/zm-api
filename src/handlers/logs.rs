@@ -43,12 +43,12 @@ use tracing::{info, instrument};
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn list_logs(
     State(state): State<AppState>,
     Query(params): Query<LogQueryParams>,
 ) -> AppResult<Json<PaginatedLogsResponse>> {
-    info!("Listing logs with params: {:?}", params);
+    tracing::debug!("Listing logs with params: {:?}", params);
     // Without this the declared bounds are inert: page_size=0 reaches
     // `div_ceil` and SeaORM's `paginate`, both of which panic on zero.
     params.validate().map_err(AppError::InvalidInputError)?;
@@ -83,7 +83,7 @@ pub async fn list_logs(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn clear_logs(
     State(state): State<AppState>,
     Query(params): Query<LogQueryParams>,

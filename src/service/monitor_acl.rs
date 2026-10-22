@@ -239,8 +239,7 @@ async fn resolve_from_request(
     let token = extract_token(headers, uri)
         .ok_or_else(|| AppError::UnauthorizedError("Authentication required".to_string()))?;
     let claims = UserClaims::decode_access(&token)
-        .map_err(|_| AppError::UnauthorizedError("Invalid token".to_string()))?
-        .claims;
+        .map_err(|_| AppError::UnauthorizedError("Invalid token".to_string()))?;
     resolve(state.db(), claims.uid).await
 }
 

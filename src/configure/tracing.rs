@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use tracing::{subscriber, Subscriber};
 use tracing_appender::{
-    non_blocking::WorkerGuard,
+    non_blocking::{NonBlockingBuilder, WorkerGuard},
     rolling::{RollingFileAppender, Rotation},
 };
 use tracing_bunyan_formatter::{BunyanFormattingLayer, JsonStorageLayer};
@@ -32,19 +32,27 @@ pub fn get_log_dir() -> PathBuf {
     PathBuf::from("logs")
 }
 
-fn create_subscriber<W>(
+fn create_subscriber<O, W>(
     name: &str,
     env_filter: EnvFilter,
+    stdout: O,
     writer: W,
 ) -> impl Subscriber + Sync + Send
 where
+    O: for<'a> MakeWriter<'a> + Send + Sync + 'static,
     W: for<'a> MakeWriter<'a> + Send + Sync + 'static,
 {
     Registry::default()
         .with(env_filter)
         .with(JsonStorageLayer)
-        .with(BunyanFormattingLayer::new(name.into(), std::io::stdout))
+        .with(BunyanFormattingLayer::new(name.into(), stdout))
         .with(BunyanFormattingLayer::new(name.into(), writer))
+}
+
+/// Keeps both background log writers alive; dropping it flushes them.
+pub struct LogGuards {
+    _stdout: WorkerGuard,
+    _file: WorkerGuard,
 }
 
 pub fn init_subscriber<S>(subscriber: S) -> anyhow::Result<()>
@@ -56,14 +64,24 @@ where
     Ok(())
 }
 
-pub fn init() -> AppResult<WorkerGuard> {
+pub fn init() -> AppResult<LogGuards> {
     let log_dir = get_log_dir();
     let file_appender = RollingFileAppender::new(Rotation::DAILY, &log_dir, "zm-api.log");
     let (file_appender, file_appender_guard) = tracing_appender::non_blocking(file_appender);
+    // Stdout (the journal, under systemd) is written from a background thread
+    // like the file, so a request never blocks on the write. Not lossy: when the
+    // buffer is full the logging thread waits rather than dropping lines.
+    let (stdout, stdout_guard) = NonBlockingBuilder::default()
+        .lossy(false)
+        .finish(std::io::stdout());
     init_subscriber(create_subscriber(
         "zm-api",
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        stdout,
         file_appender,
     ))?;
-    Ok(file_appender_guard)
+    Ok(LogGuards {
+        _stdout: stdout_guard,
+        _file: file_appender_guard,
+    })
 }
