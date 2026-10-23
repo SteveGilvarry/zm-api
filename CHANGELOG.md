@@ -687,6 +687,15 @@ recognisable path forward.
 
 ### Security
 
+- **ONVIF inspect can't reach the server itself.** `POST
+  /api/v3/discovery/inspect` accepted loopback addresses, so a Monitors Edit
+  user could probe the server's own ports and read back what answered. It now
+  refuses loopback, the unspecified address, the server's own interface
+  addresses and the cloud metadata addresses (169.254.169.254,
+  fd00:ec2::254). It no longer follows redirects, and says only that a device
+  didn't answer as ONVIF instead of passing on transport or parse errors.
+  Cameras on private and link-local addresses work as before.
+
 - **Camera passwords inside monitor URLs are hidden from viewers.** `pass`
   and `onvif_password` were already left out of monitor responses, but a
   password in `path`, `second_path`, `control_address` or `onvif_url`
