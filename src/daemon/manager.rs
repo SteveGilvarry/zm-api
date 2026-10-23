@@ -335,6 +335,18 @@ impl DaemonManager {
             _ => self.config.resolve_daemon_path(&command),
         };
 
+        // The daemon will read further inputs from the database itself. Refuse
+        // to start it when one of those would reach a shell or module loader
+        // (rows written behind the API's back, e.g. straight into MySQL).
+        if let Some(db) = &self.db {
+            if let Err(reason) = check_stored_inputs(db, &command, &daemon_args, &full_path).await {
+                error!("Refusing to start {id}: {reason}");
+                return Ok(DaemonResponse::error(format!(
+                    "Refusing to start {id}: {reason}"
+                )));
+            }
+        }
+
         info!("Starting daemon: {} {:?}", full_path.display(), daemon_args);
 
         // Check if command exists
@@ -2720,6 +2732,246 @@ impl DaemonManager {
     }
 }
 
+/// Check the database values a daemon will act on before starting it.
+///
+/// The API validates these fields on write, but rows can also arrive from
+/// ZoneMinder's own UI or straight from SQL. ZoneMinder puts them where they
+/// can change a command:
+/// - `Monitors.Device` into `zmdc.pl start zmc -d '<Device>'` (shell);
+/// - `Monitors.Path`/`SecondPath` into go2rtc, which runs `exec:` sources;
+/// - `Controls.Protocol` into a Perl module load in `zmcontrol.pl`;
+/// - `Storage.Path` into `df` and `rm -rf` (shell) in `zmfilter.pl`/`zmaudit.pl`.
+///
+/// `EventStartCommand`/`EventEndCommand` and `AutoExecuteCmd` are commands by
+/// design; who may set them is enforced on write (System Edit).
+async fn check_stored_inputs(
+    db: &DatabaseConnection,
+    command: &str,
+    args: &[String],
+    binary: &std::path::Path,
+) -> Result<(), String> {
+    let monitor_id = match (command, args) {
+        ("zmc" | "zma" | "zmtrack.pl", [flag, id]) if flag == "-m" => id.parse::<u32>().ok(),
+        ("zmcontrol.pl", [flag, id]) if flag == "--id" => id.parse::<u32>().ok(),
+        _ => None,
+    };
+    let db_err = |e: crate::error::AppError| format!("could not read its settings: {e}");
+
+    if let Some(mid) = monitor_id {
+        let Some(monitor) = crate::repo::monitors::find_by_id(db, mid)
+            .await
+            .map_err(db_err)?
+        else {
+            return Ok(());
+        };
+        let protocol = if matches!(command, "zmcontrol.pl" | "zmtrack.pl") {
+            match monitor.control_id {
+                Some(cid) => crate::repo::controls::find_by_id(db, cid)
+                    .await
+                    .map_err(db_err)?
+                    .map(|c| {
+                        crate::ptz::capabilities::perl_module_name(c.protocol.as_deref(), &c.name)
+                            .to_string()
+                    }),
+                None => None,
+            }
+        } else {
+            None
+        };
+        return unsafe_monitor_inputs(&monitor, protocol.as_deref());
+    }
+
+    if command == "zmfilter.pl" && !zmfilter_escapes_tags(binary) {
+        for filter in crate::repo::filters::find_all(db, None)
+            .await
+            .map_err(db_err)?
+        {
+            let cmd = filter.auto_execute_cmd.as_deref().unwrap_or("");
+            if filter.auto_execute != 0 && uses_text_tags(cmd) {
+                return Err(format!(
+                    "filter {} puts event or monitor text into its AutoExecute command, and \
+                     this zmfilter.pl passes that text to the shell unescaped. Upgrade \
+                     ZoneMinder or use only %EID% and %MID% in the command",
+                    filter.id
+                ));
+            }
+        }
+    }
+
+    if matches!(command, "zmfilter.pl" | "zmaudit.pl") {
+        for storage in crate::repo::storage::find_all(db).await.map_err(db_err)? {
+            if crate::dto::request::monitor::is_safe_storage_path(&storage.path, &()).is_err() {
+                return Err(format!(
+                    "Storage {} has a Path a shell would not read literally",
+                    storage.id
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Every stored value that ZoneMinder could turn into a changed command line,
+/// one line per finding. Reports only: nothing is changed. zm-api already
+/// refuses to start the daemons that would use these rows, but ZoneMinder's
+/// own tools can still run outside zm-api, so an operator needs to know.
+fn unsafe_stored_values(
+    monitors: &[crate::entity::monitors::Model],
+    controls: &[crate::entity::controls::Model],
+    storages: &[crate::entity::storage::Model],
+    filters: &[crate::entity::filters::Model],
+    zmfilter_escapes: bool,
+) -> Vec<String> {
+    let modules: std::collections::HashMap<u32, &str> = controls
+        .iter()
+        .map(|c| {
+            (
+                c.id,
+                crate::ptz::capabilities::perl_module_name(c.protocol.as_deref(), &c.name),
+            )
+        })
+        .collect();
+    let mut out = Vec::new();
+    for m in monitors {
+        let module = m.control_id.and_then(|id| modules.get(&id).copied());
+        if let Err(reason) = unsafe_monitor_inputs(m, module) {
+            out.push(reason);
+        }
+    }
+    for c in controls {
+        let module = modules[&c.id];
+        if crate::dto::request::monitor::is_perl_module_name(module, &()).is_err() {
+            out.push(format!(
+                "control {} loads {module:?}, which is not a module name",
+                c.id
+            ));
+        }
+    }
+    for st in storages {
+        if crate::dto::request::monitor::is_safe_storage_path(&st.path, &()).is_err() {
+            out.push(format!(
+                "Storage {} has a Path a shell would not read literally",
+                st.id
+            ));
+        }
+    }
+    if !zmfilter_escapes {
+        for f in filters {
+            let cmd = f.auto_execute_cmd.as_deref().unwrap_or("");
+            if f.auto_execute != 0 && uses_text_tags(cmd) {
+                out.push(format!(
+                    "filter {} puts event or monitor text into its AutoExecute command, \
+                     which this ZoneMinder passes to the shell unescaped",
+                    f.id
+                ));
+            }
+        }
+    }
+    out
+}
+
+/// Load the rows [`unsafe_stored_values`] inspects and report its findings.
+pub async fn find_unsafe_stored_values(
+    db: &DatabaseConnection,
+    zmfilter: &std::path::Path,
+) -> crate::error::AppResult<Vec<String>> {
+    let monitors = crate::repo::monitors::find_all(db, None).await?;
+    let controls = crate::repo::controls::find_all(db).await?;
+    let storages = crate::repo::storage::find_all(db).await?;
+    let filters = crate::repo::filters::find_all(db, None).await?;
+    Ok(unsafe_stored_values(
+        &monitors,
+        &controls,
+        &storages,
+        &filters,
+        zmfilter_escapes_tags(zmfilter),
+    ))
+}
+
+impl DaemonManager {
+    /// Log [`find_unsafe_stored_values`] at startup and then hourly, so rows
+    /// written through ZoneMinder's UI or straight into MySQL get noticed.
+    pub fn spawn_unsafe_value_report(self: &Arc<Self>) {
+        let Some(db) = self.db.clone() else {
+            return;
+        };
+        let zmfilter = self.config.resolve_daemon_path("zmfilter.pl");
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(3600));
+            loop {
+                tick.tick().await;
+                match find_unsafe_stored_values(&db, &zmfilter).await {
+                    Ok(findings) => {
+                        for f in findings {
+                            error!("Unsafe stored value (reported, not changed): {f}");
+                        }
+                    }
+                    Err(e) => warn!("Could not check stored values for command safety: {e}"),
+                }
+            }
+        });
+    }
+}
+
+/// Whether the installed `zmfilter.pl` keeps tag values out of the shell's
+/// parsing. Upstream's fix (commit 2cd086392) passes them in `ZM_TAG_n`
+/// environment variables; earlier versions paste them into the command line.
+fn zmfilter_escapes_tags(binary: &std::path::Path) -> bool {
+    std::fs::read_to_string(binary).is_ok_and(|src| src.contains("ZM_TAG_"))
+}
+
+/// Whether an AutoExecute command uses a `%TAG%` other than the numeric event
+/// and monitor ids. The rest (names, cause, notes, tags, paths) carry text a
+/// non-admin user can set.
+fn uses_text_tags(cmd: &str) -> bool {
+    let mut rest = cmd;
+    while let Some(start) = rest.find('%') {
+        let after = &rest[start + 1..];
+        let Some(end) = after.find('%') else {
+            return false;
+        };
+        let tag = &after[..end];
+        if !tag.is_empty()
+            && tag.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+            && !matches!(tag, "EID" | "MID")
+        {
+            return true;
+        }
+        rest = &after[end..];
+    }
+    false
+}
+
+/// The first stored monitor value that could change a command, if any.
+fn unsafe_monitor_inputs(
+    monitor: &crate::entity::monitors::Model,
+    protocol: Option<&str>,
+) -> Result<(), String> {
+    use crate::dto::request::monitor as v;
+    let id = monitor.id;
+    if v::is_safe_device_path(&monitor.device, &()).is_err() {
+        return Err(format!("monitor {id} has an unsafe Device"));
+    }
+    for (name, value) in [
+        ("Path", &monitor.path),
+        ("SecondPath", &monitor.second_path),
+    ] {
+        if let Some(value) = value {
+            if v::is_safe_capture_path(value, &()).is_err() {
+                return Err(format!("monitor {id} has an unsafe {name}"));
+            }
+        }
+    }
+    if let Some(p) = protocol {
+        if v::is_perl_module_name(p, &()).is_err() {
+            return Err(format!(
+                "monitor {id}'s control Protocol is not a module name"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Whitelist validator for daemon spawn requests.
 ///
 /// `start_daemon` (and therefore every restart path) routes through this
@@ -3274,6 +3526,206 @@ pub async fn kill_orphan_daemons() {
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     info!("Orphan daemon cleanup complete");
+}
+
+#[cfg(test)]
+mod stored_input_tests {
+    use super::*;
+
+    fn monitor(device: &str, path: Option<&str>) -> crate::entity::monitors::Model {
+        crate::entity::monitors::Model {
+            id: 7,
+            device: device.into(),
+            path: path.map(Into::into),
+            ..crate::ptz::manager::tests::test_monitor()
+        }
+    }
+
+    #[test]
+    fn a_device_that_breaks_out_of_its_quotes_is_refused() {
+        let m = monitor("/dev/video0'; touch /tmp/pwned; '", None);
+        assert!(unsafe_monitor_inputs(&m, None).is_err());
+    }
+
+    #[test]
+    fn a_go2rtc_exec_path_is_refused() {
+        let m = monitor("", Some("exec:/bin/sh -c id"));
+        assert!(unsafe_monitor_inputs(&m, None).is_err());
+    }
+
+    #[test]
+    fn a_traversing_control_protocol_is_refused() {
+        let m = monitor("", Some("rtsp://10.0.0.5/live"));
+        assert!(unsafe_monitor_inputs(&m, Some("../../../../tmp/x")).is_err());
+        assert!(unsafe_monitor_inputs(&m, Some("onvif")).is_ok());
+    }
+
+    #[test]
+    fn text_tags_are_spotted_but_id_tags_are_not() {
+        assert!(uses_text_tags("/usr/local/bin/notify '%EN%'"));
+        assert!(uses_text_tags("notify %EID% %MN%"));
+        assert!(uses_text_tags("notify %ETAGS%"));
+        assert!(!uses_text_tags("notify %EID% %MID%"));
+        assert!(!uses_text_tags("printf '50%' done"));
+        assert!(!uses_text_tags(""));
+    }
+
+    #[test]
+    fn an_old_zmfilter_is_detected_by_its_missing_tag_escaping() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join("old.pl");
+        std::fs::write(&old, "my $output = qx($command);\n").unwrap();
+        let new = dir.path().join("new.pl");
+        std::fs::write(&new, "$tag_env{'ZM_TAG_'.$n++} = $value;\n").unwrap();
+        assert!(!zmfilter_escapes_tags(&old));
+        assert!(zmfilter_escapes_tags(&new));
+        assert!(!zmfilter_escapes_tags(&dir.path().join("missing.pl")));
+    }
+
+    fn control(id: u32, protocol: Option<&str>, name: &str) -> crate::entity::controls::Model {
+        let mut c = crate::entity::controls::Model {
+            id: 0,
+            name: String::new(),
+            protocol: None,
+            can_wake: 0,
+            can_sleep: 0,
+            can_reset: 0,
+            can_reboot: 0,
+            can_zoom: 0,
+            can_auto_zoom: 0,
+            can_zoom_abs: 0,
+            can_zoom_rel: 0,
+            can_zoom_con: 0,
+            min_zoom_range: None,
+            max_zoom_range: None,
+            min_zoom_step: None,
+            max_zoom_step: None,
+            has_zoom_speed: 0,
+            min_zoom_speed: None,
+            max_zoom_speed: None,
+            can_focus: 0,
+            can_auto_focus: 0,
+            can_focus_abs: 0,
+            can_focus_rel: 0,
+            can_focus_con: 0,
+            min_focus_range: None,
+            max_focus_range: None,
+            min_focus_step: None,
+            max_focus_step: None,
+            has_focus_speed: 0,
+            min_focus_speed: None,
+            max_focus_speed: None,
+            can_iris: 0,
+            can_auto_iris: 0,
+            can_iris_abs: 0,
+            can_iris_rel: 0,
+            can_iris_con: 0,
+            min_iris_range: None,
+            max_iris_range: None,
+            min_iris_step: None,
+            max_iris_step: None,
+            has_iris_speed: 0,
+            min_iris_speed: None,
+            max_iris_speed: None,
+            can_gain: 0,
+            can_auto_gain: 0,
+            can_gain_abs: 0,
+            can_gain_rel: 0,
+            can_gain_con: 0,
+            min_gain_range: None,
+            max_gain_range: None,
+            min_gain_step: None,
+            max_gain_step: None,
+            has_gain_speed: 0,
+            min_gain_speed: None,
+            max_gain_speed: None,
+            can_white: 0,
+            can_auto_white: 0,
+            can_white_abs: 0,
+            can_white_rel: 0,
+            can_white_con: 0,
+            min_white_range: None,
+            max_white_range: None,
+            min_white_step: None,
+            max_white_step: None,
+            has_white_speed: 0,
+            min_white_speed: None,
+            max_white_speed: None,
+            has_presets: 0,
+            num_presets: 0,
+            has_home_preset: 0,
+            can_set_presets: 0,
+            can_move: 0,
+            can_move_diag: 0,
+            can_move_map: 0,
+            can_move_abs: 0,
+            can_move_rel: 0,
+            can_move_con: 0,
+            can_pan: 0,
+            min_pan_range: None,
+            max_pan_range: None,
+            min_pan_step: None,
+            max_pan_step: None,
+            has_pan_speed: 0,
+            min_pan_speed: None,
+            max_pan_speed: None,
+            has_turbo_pan: 0,
+            turbo_pan_speed: None,
+            can_tilt: 0,
+            min_tilt_range: None,
+            max_tilt_range: None,
+            min_tilt_step: None,
+            max_tilt_step: None,
+            has_tilt_speed: 0,
+            min_tilt_speed: None,
+            max_tilt_speed: None,
+            has_turbo_tilt: 0,
+            turbo_tilt_speed: None,
+            can_auto_scan: 0,
+            num_scan_paths: 0,
+            can_light: 0,
+            can_indicator_light: 0,
+            can_audio_play: 0,
+            min_audio_file: None,
+            max_audio_file: None,
+            can_audio_volume: 0,
+        };
+        c.id = id;
+        c.protocol = protocol.map(Into::into);
+        c.name = name.into();
+        c
+    }
+
+    #[test]
+    fn the_report_lists_every_unsafe_row_and_nothing_else() {
+        let mut bad_dev = monitor("/dev/video0'; id; '", None);
+        bad_dev.id = 1;
+        let mut uses_bad_control = monitor("", Some("rtsp://cam/1"));
+        uses_bad_control.id = 2;
+        uses_bad_control.control_id = Some(9);
+        let good = monitor("/dev/video1", None);
+        let controls = vec![
+            control(9, None, "../../tmp/x"),
+            control(10, Some("onvif"), "ONVIF"),
+        ];
+        let findings = unsafe_stored_values(
+            &[bad_dev, uses_bad_control, good],
+            &controls,
+            &[],
+            &[],
+            true,
+        );
+        assert_eq!(findings.len(), 3, "{findings:?}");
+        assert!(findings[0].contains("monitor 1"));
+        assert!(findings[1].contains("monitor 2"));
+        assert!(findings[2].contains("control 9"));
+    }
+
+    #[test]
+    fn ordinary_monitors_pass() {
+        assert!(unsafe_monitor_inputs(&monitor("/dev/video0", None), None).is_ok());
+        assert!(unsafe_monitor_inputs(&monitor("", Some("rtsp://cam/1")), None).is_ok());
+    }
 }
 
 #[cfg(test)]

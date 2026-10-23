@@ -326,13 +326,26 @@ pub async fn get_live_stats(
         ("jwt" = [])
     )
 )]
-pub async fn list_live_sessions(State(state): State<AppState>) -> AppResult<Json<Vec<u32>>> {
+pub async fn list_live_sessions(
+    State(state): State<AppState>,
+    scope: crate::service::monitor_acl::MonitorScope,
+) -> AppResult<Json<Vec<u32>>> {
     let coordinator = state.live_coordinator.as_ref().ok_or_else(|| {
         AppError::ServiceUnavailableError("Live streaming not configured".to_string())
     })?;
 
     let sessions = coordinator.list_sessions().await;
-    Ok(Json(sessions))
+    Ok(Json(visible_monitor_ids(&scope, sessions)))
+}
+
+/// The monitor ids the caller may view; the rest are left out.
+fn visible_monitor_ids(
+    scope: &crate::service::monitor_acl::MonitorScope,
+    ids: Vec<u32>,
+) -> Vec<u32> {
+    ids.into_iter()
+        .filter(|id| scope.allows(*id, crate::util::authz::Level::View))
+        .collect()
 }
 
 // ============================================================================
@@ -1535,16 +1548,25 @@ pub async fn stream_monitor_events(
         ("jwt" = [])
     )
 )]
-pub async fn get_live_sources(State(state): State<AppState>) -> AppResult<Json<serde_json::Value>> {
+pub async fn get_live_sources(
+    State(state): State<AppState>,
+    scope: crate::service::monitor_acl::MonitorScope,
+) -> AppResult<Json<serde_json::Value>> {
     let coordinator = state.live_coordinator.as_ref().ok_or_else(|| {
         AppError::ServiceUnavailableError("Live streaming not configured".to_string())
     })?;
 
     let source_router = coordinator.source_router();
-    let stats = source_router.stats().await;
+    let stats: Vec<_> = source_router
+        .stats()
+        .await
+        .into_iter()
+        .filter(|s| scope.allows(s.monitor_id, crate::util::authz::Level::View))
+        .collect();
 
+    // Count only what the caller can see, so the total doesn't reveal others.
     Ok(Json(serde_json::json!({
-        "active_sources": source_router.active_source_count(),
+        "active_sources": stats.len(),
         "sources": stats
     })))
 }
@@ -1552,6 +1574,18 @@ pub async fn get_live_sources(State(state): State<AppState>) -> AppResult<Json<s
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_sessions_hide_monitors_outside_the_scope() {
+        use crate::service::monitor_acl::MonitorScope;
+        use crate::util::authz::Level;
+        let scope = MonitorScope::Restricted(std::collections::HashMap::from([(3, Level::View)]));
+        assert_eq!(visible_monitor_ids(&scope, vec![1, 3, 5]), vec![3]);
+        assert_eq!(
+            visible_monitor_ids(&MonitorScope::All, vec![1, 3]),
+            vec![1, 3]
+        );
+    }
 
     #[test]
     fn test_parse_segment_sequence() {

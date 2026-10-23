@@ -24605,11 +24605,12 @@
       },
       "Level": {
         "type": "string",
-        "description": "A permission level, ordered `None < View < Edit`.",
+        "description": "A permission level, ordered `None < View < Edit < Create`.\n\n`Create` only exists for `Monitors`: ZoneMinder lets `Edit` change\nexisting monitors but only `Create` add new ones.",
         "enum": [
           "None",
           "View",
-          "Edit"
+          "Edit",
+          "Create"
         ]
       },
       "LightCapabilities": {

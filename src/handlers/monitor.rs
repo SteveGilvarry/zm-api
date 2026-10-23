@@ -15,6 +15,7 @@ use crate::error::AppResult;
 use crate::server::state::AppState;
 use crate::service;
 use crate::service::monitor_acl::MonitorScope;
+use crate::util::claim::UserClaims;
 
 /// List all monitors with pagination.
 ///
@@ -110,10 +111,21 @@ pub async fn get_monitor(
 )]
 pub async fn create_monitor(
     State(state): State<AppState>,
+    claims: UserClaims,
     scope: MonitorScope,
     Json(req): Json<CreateMonitorRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
+    // `Monitors: Create` is checked by the route's `require_monitor_create`.
     req.validate().map_err(AppError::InvalidInputError)?;
+    // A new monitor has no event commands, so any value is a change.
+    service::monitor::ensure_may_set_event_commands(
+        &claims.perms,
+        [
+            req.event_start_command.as_deref(),
+            req.event_end_command.as_deref(),
+        ],
+        ["", ""],
+    )?;
     // Row-level ACL: creating a monitor is a whole-system operation with no
     // pre-existing monitor row to scope against. A user whose access is
     // restricted to specific monitors must not be able to mint new ones — only
@@ -157,13 +169,14 @@ pub async fn create_monitor(
 pub async fn update_monitor(
     State(state): State<AppState>,
     Path(id): Path<u32>,
+    claims: UserClaims,
     scope: MonitorScope,
     Json(req): Json<UpdateMonitorRequest>,
 ) -> AppResult<Json<MonitorResponse>> {
     req.validate().map_err(AppError::InvalidInputError)?;
     // Log the id only: the request body carries camera RTSP/ONVIF credentials.
     info!("Editing monitor with ID: {id}.");
-    match service::monitor::update(&state, id, req, &scope).await {
+    match service::monitor::update(&state, id, req, &scope, &claims.perms).await {
         Ok(monitor) => Ok(Json(monitor)),
         Err(e) => {
             warn!("Failed to edit monitor: {e:?}.");

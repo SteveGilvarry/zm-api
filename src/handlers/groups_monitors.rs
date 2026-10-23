@@ -28,8 +28,10 @@ pub async fn list_groups_monitors(
     State(state): State<AppState>,
     Query(params): Query<PaginationParams>,
     scope: MonitorScope,
+    groups: crate::service::group_acl::GroupScope,
 ) -> AppResult<Json<PaginatedGroupMonitorsResponse>> {
-    let result = crate::service::groups_monitors::list_paginated(&state, &params, &scope).await?;
+    let result =
+        crate::service::groups_monitors::list_paginated(&state, &params, &scope, &groups).await?;
     Ok(Json(PaginatedGroupMonitorsResponse::from(result)))
 }
 
@@ -46,8 +48,9 @@ pub async fn get_group_monitor(
     Path(id): Path<u32>,
     State(state): State<AppState>,
     scope: MonitorScope,
+    groups: crate::service::group_acl::GroupScope,
 ) -> AppResult<Json<GroupMonitorResponse>> {
-    let item = crate::service::groups_monitors::get_by_id(&state, id, &scope).await?;
+    let item = crate::service::groups_monitors::get_by_id(&state, id, &scope, &groups).await?;
     Ok(Json(item))
 }
 
@@ -63,9 +66,10 @@ pub async fn get_group_monitor(
 pub async fn create_group_monitor(
     State(state): State<AppState>,
     scope: MonitorScope,
+    groups: crate::service::group_acl::GroupScope,
     Json(req): Json<CreateGroupMonitorRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<GroupMonitorResponse>)> {
-    let item = crate::service::groups_monitors::create(&state, req, &scope).await?;
+    let item = crate::service::groups_monitors::create(&state, req, &scope, &groups).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 
@@ -82,7 +86,8 @@ pub async fn delete_group_monitor(
     Path(id): Path<u32>,
     State(state): State<AppState>,
     scope: MonitorScope,
+    groups: crate::service::group_acl::GroupScope,
 ) -> AppResult<axum::http::StatusCode> {
-    crate::service::groups_monitors::delete(&state, id, &scope).await?;
+    crate::service::groups_monitors::delete(&state, id, &scope, &groups).await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }

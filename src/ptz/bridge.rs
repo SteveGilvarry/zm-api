@@ -339,6 +339,16 @@ impl PerlControlProxy {
         }
     }
 
+    fn ensure_loadable_protocol(&self) -> PtzResult<()> {
+        let module = self.capabilities.perl_module_name();
+        if crate::dto::request::monitor::is_perl_module_name(module, &()).is_err() {
+            return Err(PtzError::PerlBridgeError(format!(
+                "control protocol {module:?} is not a module name; refusing to run zmcontrol.pl"
+            )));
+        }
+        Ok(())
+    }
+
     /// Scale a percentage speed (0-100) to the camera's speed range
     fn scale_speed(&self, percent: u8, is_pan: bool) -> i32 {
         let (min, max) = if is_pan {
@@ -367,6 +377,9 @@ impl PerlControlProxy {
     /// Execute zmcontrol.pl with the given arguments
     #[instrument(skip(self), fields(monitor_id = self.config.monitor_id))]
     async fn execute_zmcontrol(&self, args: Vec<String>) -> PtzResult<PtzCommandResult> {
+        // zmcontrol.pl loads `ZoneMinder::Control::<Protocol>` from the stored
+        // control; anything but a bare module name could load another file.
+        self.ensure_loadable_protocol()?;
         debug!(
             path = %self.zmcontrol_path,
             args = ?args,
@@ -543,6 +556,31 @@ mod tests {
         caps.pan_tilt.pan_speed.min = Some(0);
         caps.pan_tilt.pan_speed.max = Some(100);
         caps
+    }
+
+    #[tokio::test]
+    async fn a_traversing_protocol_never_reaches_zmcontrol() {
+        let mut caps = test_capabilities();
+        caps.protocol = Some("../../../../tmp/evil".to_string());
+        // A path that would run if the guard let it through.
+        let proxy = PerlControlProxy::new(test_config(), caps, Some("/bin/true".into()), None);
+        let err = proxy
+            .execute_zmcontrol(vec!["--id".into(), "1".into()])
+            .await
+            .expect_err("must refuse");
+        assert!(matches!(err, PtzError::PerlBridgeError(m) if m.contains("module name")));
+    }
+
+    #[tokio::test]
+    async fn an_empty_protocol_falls_back_to_the_name_and_is_checked_too() {
+        let mut caps = test_capabilities();
+        caps.protocol = None;
+        caps.name = "../../../../tmp/evil".to_string();
+        let proxy = PerlControlProxy::new(test_config(), caps, Some("/bin/true".into()), None);
+        assert!(proxy
+            .execute_zmcontrol(vec!["--id".into(), "1".into()])
+            .await
+            .is_err());
     }
 
     #[test]

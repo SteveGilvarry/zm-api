@@ -197,6 +197,21 @@ impl PtzCapabilities {
     pub fn supports_absolute_move(&self) -> bool {
         self.pan_tilt.can_move_abs
     }
+
+    /// The Perl module `zmcontrol.pl` loads for this control.
+    pub fn perl_module_name(&self) -> &str {
+        perl_module_name(self.protocol.as_deref(), &self.name)
+    }
+}
+
+/// The name ZoneMinder loads as `ZoneMinder::Control::<name>`: the control's
+/// `Protocol`, or its free-text `Name` when `Protocol` is empty
+/// (`ZoneMinder::Monitor::Control`).
+pub fn perl_module_name<'a>(protocol: Option<&'a str>, name: &'a str) -> &'a str {
+    match protocol {
+        Some(p) if !p.is_empty() => p,
+        _ => name,
+    }
 }
 
 /// Convert from database Controls model to PtzCapabilities

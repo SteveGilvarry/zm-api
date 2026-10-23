@@ -305,7 +305,9 @@ impl AppState {
             manager.set_native_maintenance(crate::daemon::manager::NativeJobs::from(
                 &config.maintenance,
             ));
-            Some(Arc::new(manager))
+            let manager = Arc::new(manager);
+            manager.spawn_unsafe_value_report();
+            Some(manager)
         } else {
             tracing::info!("Daemon controller disabled in configuration");
             None
