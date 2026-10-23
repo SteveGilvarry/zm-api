@@ -16,7 +16,7 @@ use common::fixtures::{insert_monitor, insert_user_with_id, unique_name, RowGuar
 use common::harness::{token_for, TestApp};
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde_json::json;
-use zm_api::dto::response::MediaLinkResponse;
+use zm_api::dto::response::{MediaLinkResponse, RtspLinkResponse};
 use zm_api::entity::sea_orm_active_enums::{Events, Monitors, Stream};
 use zm_api::util::authz::UserPermissions;
 use zm_api::util::media_url::{sign, sign_until, MediaResource};
@@ -264,4 +264,59 @@ async fn minting_needs_a_header_token() {
         .await
         .status();
     assert_eq!(code, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn an_rtsp_link_is_a_signed_link_to_the_monitor() {
+    const UID: u32 = 990_774;
+    let app = TestApp::spawn_with(|state| {
+        let mut config = (*state.config).clone();
+        config.streaming.rtsp.enabled = true;
+        config.streaming.rtsp.public_host = Some("cams.example.com".into());
+        config.streaming.rtsp.tls_port = Some(8322);
+        state.config = std::sync::Arc::new(config);
+    })
+    .await;
+    let (_u, _m, monitor_id) = viewer_and_monitor(&app, UID).await;
+
+    let resp = app
+        .post_json(
+            &format!("/api/v3/live/{monitor_id}/rtsp/link"),
+            &viewer_token(UID),
+            &json!({ "ttl_seconds": 3600 }),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::OK, "{}", resp.text());
+    let link: RtspLinkResponse = resp.json();
+    let st = urlencoding::encode(&link.token).into_owned();
+    assert_eq!(
+        link.url,
+        format!("rtsp://cams.example.com:8554/live/{monitor_id}?st={st}")
+    );
+    assert_eq!(
+        link.tls_url,
+        Some(format!(
+            "rtsps://cams.example.com:8322/live/{monitor_id}?st={st}"
+        ))
+    );
+    let grant = zm_api::util::media_url::verify(&link.token).unwrap();
+    assert_eq!(grant.resource, MediaResource::Monitor(monitor_id));
+    assert_eq!(grant.uid, UID);
+}
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn no_rtsp_link_while_the_server_is_off() {
+    const UID: u32 = 990_775;
+    let app = TestApp::spawn().await;
+    let (_u, _m, monitor_id) = viewer_and_monitor(&app, UID).await;
+    let resp = app
+        .post_json(
+            &format!("/api/v3/live/{monitor_id}/rtsp/link"),
+            &viewer_token(UID),
+            &json!({}),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
