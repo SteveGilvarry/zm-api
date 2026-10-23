@@ -241,6 +241,16 @@ async fn snapshot_events_of_hidden_monitors_are_filtered() {
     )
     .await
     .expect("grant permission");
+    // ZoneMinder shows a monitor no row names at the base level, so hiding
+    // one takes an explicit None row.
+    grant_monitor_permission(
+        &app.db,
+        monitor_b.id,
+        ACL_TEST_UID_SNAP_EVTS,
+        Permission::None,
+    )
+    .await
+    .expect("deny permission");
     let token = token_for(ACL_TEST_UID_SNAP_EVTS, UserPermissions::superuser());
 
     // List: only link_a should be returned.

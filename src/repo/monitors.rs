@@ -58,6 +58,22 @@ fn scoped(
     }
 }
 
+/// Every monitor's id, soft-deleted ones included.
+#[tracing::instrument(level = "debug", skip_all)]
+pub async fn find_all_ids<C>(conn: &C) -> AppResult<Vec<u32>>
+where
+    C: ConnectionTrait,
+{
+    use sea_orm::QuerySelect;
+    let ids = entity::monitors::Entity::find()
+        .select_only()
+        .column(entity::monitors::Column::Id)
+        .into_tuple::<u32>()
+        .all(conn)
+        .await?;
+    Ok(ids)
+}
+
 /// Find all monitors visible to the caller.
 #[tracing::instrument(level = "debug", skip_all)]
 pub async fn find_all<C>(
