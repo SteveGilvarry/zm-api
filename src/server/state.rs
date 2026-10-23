@@ -51,6 +51,9 @@ pub struct AppState {
     /// Where media jobs are kept: zm-api's table if the database has it,
     /// else a file in zm-api's state directory. Decided on first use.
     pub media_job_store: crate::service::media_job_store::SharedJobStore,
+    /// Live WebRTC session slots, shared by WebSocket signalling and WHEP
+    /// (`streaming.webrtc.max_connections`).
+    pub webrtc_slots: Arc<crate::streaming::live::slots::WebRtcSlots>,
 }
 
 impl AppState {
@@ -355,6 +358,7 @@ impl AppState {
             media_job_wake: Arc::new(tokio::sync::Notify::new()),
             whep: Default::default(),
             media_job_store: Default::default(),
+            webrtc_slots: Default::default(),
         })
     }
 
@@ -396,6 +400,7 @@ impl AppState {
             media_job_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
             whep: Default::default(),
             media_job_store: Default::default(),
+            webrtc_slots: Default::default(),
         }
     }
 

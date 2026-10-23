@@ -318,6 +318,10 @@ async fn enforce(
     let granted = claims.perms.level(feature);
 
     if granted >= required {
+        // Handlers behind `protect` alone (the live WebSocket) read who the
+        // caller is from here.
+        let mut request = request;
+        request.extensions_mut().insert(claims);
         Ok(next.run(request).await)
     } else {
         Err(AppError::PermissionDeniedError(format!(

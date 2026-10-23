@@ -55,6 +55,8 @@ struct Entry {
     uid: u32,
     manager: Arc<WebRtcLiveManager>,
     stop: Arc<Notify>,
+    /// Freed when the session's entry is removed.
+    _slot: crate::streaming::live::slots::WebRtcSlot,
 }
 
 /// The WHEP sessions of this zm-api process.
@@ -86,11 +88,9 @@ impl WhepSessions {
             .as_ref()
             .ok_or_else(|| WhepError::Unavailable("Live streaming not configured".into()))?;
         let limit = state.config.streaming.webrtc.max_connections as usize;
-        if state.whep.len() >= limit {
-            return Err(WhepError::Unavailable(format!(
-                "WebRTC session limit ({limit}) reached"
-            )));
-        }
+        let slot = state.webrtc_slots.try_acquire(limit).ok_or_else(|| {
+            WhepError::Unavailable(format!("WebRTC session limit ({limit}) reached"))
+        })?;
         if !router.is_available(monitor_id) {
             return Err(WhepError::NotFound(format!(
                 "No stream for monitor {monitor_id}"
@@ -143,6 +143,7 @@ impl WhepSessions {
                 uid,
                 manager: manager.clone(),
                 stop: stop.clone(),
+                _slot: slot,
             },
         );
         info!("WHEP session {session_id} for monitor {monitor_id}, user {uid}");

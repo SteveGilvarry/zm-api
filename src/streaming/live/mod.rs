@@ -8,6 +8,7 @@
 pub mod audio;
 pub mod coordinator;
 pub mod hls;
+pub mod slots;
 pub mod webrtc;
 pub mod whep;
 
