@@ -14,10 +14,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use sea_orm::sea_query::Expr;
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, NotSet, QueryFilter, QueryOrder, QuerySelect, Set,
-};
 use tracing::{info, warn};
 
 use crate::dto::request::media_jobs::{GenerateVideoRequest, JobListQuery, VideoTransform};
@@ -26,16 +22,15 @@ use crate::entity::events::Model as EventModel;
 use crate::entity::media_jobs;
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::server::state::AppState;
+use crate::service::media_job_store::{self as store, JobFilter, JobStore, NewJob};
 use crate::service::monitor_acl::MonitorScope;
 use crate::service::video_encode;
 use crate::util::authz::Level;
 
 pub const KIND_VIDEO: &str = "video";
-const QUEUED: &str = "queued";
-const RUNNING: &str = "running";
+use store::{QUEUED, RUNNING};
 const DONE: &str = "done";
 const FAILED: &str = "failed";
-const CANCELLED: &str = "cancelled";
 /// A generation that takes longer than this is stopped.
 const VIDEO_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
@@ -373,22 +368,20 @@ pub async fn enqueue_video(
         None => "mp4".into(),
     };
     req.format = Some(format);
-    let job = media_jobs::ActiveModel {
-        id: NotSet,
-        kind: Set(KIND_VIDEO.into()),
-        event_id: Set(event.id),
-        monitor_id: Set(event.monitor_id),
-        params: Set(serde_json::to_string(&req)?),
-        status: Set(QUEUED.into()),
-        output: Set(None),
-        error: Set(None),
-        created_by: Set(Some(uid)),
-        created_at: Set(now()),
-        started_at: Set(None),
-        finished_at: Set(None),
-    }
-    .insert(state.db())
-    .await?;
+    let job = jobs(state)
+        .await
+        .insert(
+            state.db(),
+            NewJob {
+                kind: KIND_VIDEO.into(),
+                event_id: event.id,
+                monitor_id: event.monitor_id,
+                params: serde_json::to_string(&req)?,
+                created_by: Some(uid),
+                created_at: now(),
+            },
+        )
+        .await?;
     state.media_job_wake.notify_one();
     Ok(MediaJobResponse::from(&job))
 }
@@ -398,20 +391,14 @@ pub async fn list_jobs(
     scope: &MonitorScope,
     q: JobListQuery,
 ) -> AppResult<Vec<MediaJobResponse>> {
-    let mut query = media_jobs::Entity::find()
-        .order_by_desc(media_jobs::Column::Id)
-        .limit(500);
-    if let Some(e) = q.event_id {
-        query = query.filter(media_jobs::Column::EventId.eq(e));
-    }
-    if let Some(s) = q.status {
-        query = query.filter(media_jobs::Column::Status.eq(s));
-    }
-    if let Some(ids) = scope.visible_ids(Level::View) {
-        query = query.filter(media_jobs::Column::MonitorId.is_in(ids));
-    }
-    Ok(query
-        .all(state.db())
+    let filter = JobFilter {
+        event_id: q.event_id,
+        status: q.status,
+        monitor_ids: scope.visible_ids(Level::View),
+    };
+    Ok(jobs(state)
+        .await
+        .list(state.db(), &filter)
         .await?
         .iter()
         .map(MediaJobResponse::from)
@@ -424,8 +411,9 @@ async fn visible_job(
     id: u32,
     level: Level,
 ) -> AppResult<media_jobs::Model> {
-    media_jobs::Entity::find_by_id(id)
-        .one(state.db())
+    jobs(state)
+        .await
+        .get(state.db(), id)
         .await?
         .filter(|j| scope.allows(j.monitor_id, level))
         .ok_or_else(|| job_not_found(id))
@@ -445,28 +433,25 @@ pub async fn get_job(
 /// is a 409. The generated file stays; delete it through the event's videos.
 pub async fn delete_job(state: &AppState, scope: &MonitorScope, id: u32) -> AppResult<()> {
     let job = visible_job(state, scope, id, Level::Edit).await?;
+    let store = jobs(state).await;
     match job.status.as_str() {
         RUNNING => Err(AppError::ConflictError("the job is running".into())),
         QUEUED => {
-            let res = media_jobs::Entity::update_many()
-                .col_expr(media_jobs::Column::Status, Expr::value(CANCELLED))
-                .col_expr(media_jobs::Column::FinishedAt, Expr::value(now()))
-                .filter(media_jobs::Column::Id.eq(id))
-                .filter(media_jobs::Column::Status.eq(QUEUED))
-                .exec(state.db())
-                .await?;
-            if res.rows_affected == 0 {
+            if !store.cancel_queued(state.db(), id, now()).await? {
                 return Err(AppError::ConflictError("the job has started".into()));
             }
             Ok(())
         }
-        _ => {
-            media_jobs::Entity::delete_by_id(id)
-                .exec(state.db())
-                .await?;
-            Ok(())
-        }
+        _ => store.delete(state.db(), id).await,
     }
+}
+
+/// The job store, decided on first use (see [`crate::service::media_job_store`]).
+async fn jobs(state: &AppState) -> &JobStore {
+    state
+        .media_job_store
+        .get_or_init(|| JobStore::open(state.db(), store::state_dir()))
+        .await
 }
 
 // ---- Worker ---------------------------------------------------------------------
@@ -474,14 +459,10 @@ pub async fn delete_job(state: &AppState, scope: &MonitorScope, id: u32) -> AppR
 /// Run queued jobs until none is left; returns how many ran. The worker
 /// calls it; so can a test.
 pub async fn run_pending(state: &AppState) -> usize {
+    let store = jobs(state).await;
     let mut ran = 0;
     loop {
-        let next = media_jobs::Entity::find()
-            .filter(media_jobs::Column::Status.eq(QUEUED))
-            .order_by_asc(media_jobs::Column::Id)
-            .one(state.db())
-            .await;
-        let job = match next {
+        let job = match store.next_queued(state.db()).await {
             Ok(Some(j)) => j,
             Ok(None) => return ran,
             Err(e) => {
@@ -490,37 +471,32 @@ pub async fn run_pending(state: &AppState) -> usize {
             }
         };
         // Claim it; another instance may have.
-        let claimed = media_jobs::Entity::update_many()
-            .col_expr(media_jobs::Column::Status, Expr::value(RUNNING))
-            .col_expr(media_jobs::Column::StartedAt, Expr::value(now()))
-            .filter(media_jobs::Column::Id.eq(job.id))
-            .filter(media_jobs::Column::Status.eq(QUEUED))
-            .exec(state.db())
+        if !store
+            .claim(state.db(), job.id, now())
             .await
-            .map(|r| r.rows_affected == 1)
-            .unwrap_or(false);
-        if !claimed {
+            .unwrap_or(false)
+        {
             continue;
         }
         let result = match job.kind.as_str() {
             KIND_VIDEO => run_video(state, &job).await,
             other => Err(format!("unknown job kind {other}")),
         };
-        let mut am: media_jobs::ActiveModel = job.clone().into();
-        am.finished_at = Set(Some(now()));
+        let mut finished = job.clone();
+        finished.finished_at = Some(now());
         match result {
             Ok(output) => {
                 info!("media job {} done: {output}", job.id);
-                am.status = Set(DONE.into());
-                am.output = Set(Some(output));
+                finished.status = DONE.into();
+                finished.output = Some(output);
             }
             Err(e) => {
                 warn!("media job {} failed: {e}", job.id);
-                am.status = Set(FAILED.into());
-                am.error = Set(Some(e));
+                finished.status = FAILED.into();
+                finished.error = Some(e);
             }
         }
-        if let Err(e) = am.update(state.db()).await {
+        if let Err(e) = store.finish(state.db(), finished).await {
             warn!("media job {}: recording the result: {e}", job.id);
         }
         ran += 1;
@@ -614,12 +590,7 @@ async fn run_video(state: &AppState, job: &media_jobs::Model) -> Result<String, 
 /// The queue's worker: re-queues jobs a restart interrupted, then runs jobs
 /// as they arrive.
 pub async fn worker(state: AppState) {
-    if let Err(e) = media_jobs::Entity::update_many()
-        .col_expr(media_jobs::Column::Status, Expr::value(QUEUED))
-        .filter(media_jobs::Column::Status.eq(RUNNING))
-        .exec(state.db())
-        .await
-    {
+    if let Err(e) = jobs(&state).await.requeue_running(state.db()).await {
         warn!("media jobs: re-queueing interrupted jobs: {e}");
     }
     loop {
