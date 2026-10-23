@@ -31,6 +31,18 @@ pub fn routes() -> Router<AppState> {
         .route("/hls/{segment}", get(live::get_live_segment))
         // WebRTC endpoints (WebSocket signaling)
         .route("/webrtc/ws", get(live::webrtc_websocket_handler))
+        // WHEP (RFC 9725): the viewer sends the offer. Header token only.
+        .route(
+            "/webrtc/whep",
+            post(crate::handlers::whep::whep_offer)
+                .route_layer(axum::middleware::from_fn(auth_middleware)),
+        )
+        .route(
+            "/webrtc/whep/{session_id}",
+            axum::routing::patch(crate::handlers::whep::whep_trickle)
+                .delete(crate::handlers::whep::whep_delete)
+                .route_layer(axum::middleware::from_fn(auth_middleware)),
+        )
 }
 
 /// Add live streaming routes to the router

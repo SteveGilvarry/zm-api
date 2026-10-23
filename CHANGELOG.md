@@ -10,6 +10,16 @@ recognisable path forward.
 
 ### Added
 
+- **WHEP for live WebRTC** (RFC 9725): `POST /api/v3/live/{monitor_id}/webrtc/whep`
+  takes the viewer's SDP offer and answers `201` with the SDP answer
+  (zm-api's candidates included) and the session in `Location`;
+  `PATCH` it with trickled candidates, `DELETE` it to stop. Clients whose
+  browser makes the offer (Home Assistant's camera WebRTC, WHEP players) can
+  now play zm-api's WebRTC without go2rtc. `406` when the offer can't receive
+  the camera's codec. A session's user is checked again every minute.
+- `[streaming.webrtc]` `nat_ips` (advertise a public address, for 1:1 NAT or
+  containers) and `udp_port_min`/`udp_port_max` (media ports from a range
+  instead of ephemeral ones), for WHEP and the WebSocket path alike.
 - **Generate a video for an event** (#187), the first kind in the media job
   queue of `docs/FILTERS_PLAN.md`. `POST /api/v3/events/{id}/videos` queues
   ZoneMinder's Generate Video, with a format from `ZM_FFMPEG_FORMATS`, a

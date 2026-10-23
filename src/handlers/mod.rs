@@ -58,3 +58,4 @@ pub mod search;
 pub mod server;
 pub mod settings_tables;
 pub mod synopsis;
+pub mod whep;

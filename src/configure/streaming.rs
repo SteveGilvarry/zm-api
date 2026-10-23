@@ -103,6 +103,13 @@ pub struct WebRtcConfig {
     pub connection_timeout_seconds: u64,
     pub stun_servers: Vec<String>,
     pub turn: Option<TurnConfig>,
+    /// Public IPs to advertise instead of this host's own, for 1:1 NAT or a
+    /// container whose address browsers can't reach. Empty: the host's own.
+    pub nat_ips: Vec<String>,
+    /// UDP port range for media (one port per session). Unset: ephemeral
+    /// ports chosen by the OS.
+    pub udp_port_min: Option<u16>,
+    pub udp_port_max: Option<u16>,
 }
 
 impl Default for WebRtcConfig {
@@ -117,6 +124,9 @@ impl Default for WebRtcConfig {
                 "stun:stun1.l.google.com:19302".to_string(),
             ],
             turn: None,
+            nat_ips: Vec::new(),
+            udp_port_min: None,
+            udp_port_max: None,
         }
     }
 }

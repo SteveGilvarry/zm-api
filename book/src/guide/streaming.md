@@ -68,6 +68,44 @@ password = "…"
 
 Media is relayed through TURN, so size it accordingly.
 
+### WHEP: the viewer makes the offer
+
+`POST /api/v3/live/{monitor_id}/webrtc/whep` is WebRTC the standard way
+(WHEP, RFC 9725), for clients whose browser side makes the offer: Home
+Assistant's camera WebRTC, OBS, WHEP players. Send the browser's SDP offer with
+a header token:
+
+```
+curl -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/sdp' \
+  --data-binary @offer.sdp -i https://zm.example/api/v3/live/1/webrtc/whep
+# 201 Created
+# Location: /api/v3/live/1/webrtc/whep/5b0c…
+# Content-Type: application/sdp
+# (the answer, with zm-api's ICE candidates in it)
+```
+
+- The answer carries zm-api's candidates, so a client that gathers its own
+  before sending the offer needs nothing more. A trickling client sends its
+  candidates with `PATCH {Location}` (`application/trickle-ice-sdpfrag`).
+- `DELETE {Location}` ends the session. It also ends when the connection fails
+  or closes, when the camera's stream stops, or when the user loses access
+  (checked every minute).
+- `406` means the offer can't receive the camera's codec: an H.265 camera
+  and a browser without H.265. Fall back to HLS or RTSP.
+- Video is the camera's own stream, not re-encoded. AAC audio becomes Opus,
+  G.711 passes through.
+
+The media path is the same UDP as above: the viewer's browser must reach
+zm-api. Behind 1:1 NAT or in a container, advertise the public address and fix
+the port range:
+
+```toml
+[streaming.webrtc]
+nat_ips = ["203.0.113.10"]
+udp_port_min = 50000
+udp_port_max = 50099
+```
+
 ## Session control and snapshots
 
 ```

@@ -6078,6 +6078,171 @@
         ]
       }
     },
+    "/api/v3/live/{monitor_id}/webrtc/whep": {
+      "post": {
+        "tags": [
+          "Live Streaming"
+        ],
+        "summary": "Start a WHEP session: the body is the viewer's SDP offer",
+        "description": "Answers `201 Created` with the SDP answer (this side's candidates\nincluded) and the session's URL in `Location`. `406` when the offer can't\nreceive the camera's codec (an H.265 camera, a browser without H.265).",
+        "operationId": "whepOffer",
+        "parameters": [
+          {
+            "name": "monitor_id",
+            "in": "path",
+            "description": "Monitor/Camera ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "SDP offer",
+          "content": {
+            "application/sdp": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "SDP answer; session URL in Location",
+            "content": {
+              "application/sdp": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a usable SDP offer"
+          },
+          "404": {
+            "description": "No stream for the monitor"
+          },
+          "406": {
+            "description": "The offer can't receive the camera's codec"
+          },
+          "415": {
+            "description": "Body is not application/sdp"
+          },
+          "503": {
+            "description": "Streaming off or session limit reached"
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
+    "/api/v3/live/{monitor_id}/webrtc/whep/{session_id}": {
+      "delete": {
+        "tags": [
+          "Live Streaming"
+        ],
+        "summary": "End a WHEP session",
+        "operationId": "whepDelete",
+        "parameters": [
+          {
+            "name": "monitor_id",
+            "in": "path",
+            "description": "Monitor/Camera ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "WHEP session",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session ended"
+          },
+          "404": {
+            "description": "No such session"
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Live Streaming"
+        ],
+        "summary": "Send the viewer's trickled ICE candidates to a WHEP session",
+        "operationId": "whepTrickle",
+        "parameters": [
+          {
+            "name": "monitor_id",
+            "in": "path",
+            "description": "Monitor/Camera ID",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "path",
+            "description": "WHEP session",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/trickle-ice-sdpfrag": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Candidates added"
+          },
+          "404": {
+            "description": "No such session"
+          },
+          "415": {
+            "description": "Body is not application/trickle-ice-sdpfrag"
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/live/{monitor_id}/webrtc/ws": {
       "get": {
         "tags": [
