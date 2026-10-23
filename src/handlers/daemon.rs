@@ -25,7 +25,7 @@ use garde::Validate;
     tag = "Daemons"
 )]
 pub async fn list_daemons(State(state): State<AppState>) -> AppResult<Json<DaemonListResponse>> {
-    info!("Listing all daemons");
+    tracing::debug!("Listing all daemons");
     let response = service::daemon::get_all_daemons(&state).await?;
     Ok(Json(response))
 }
@@ -49,7 +49,7 @@ pub async fn get_daemon(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<DaemonStatusResponse>> {
-    info!("Getting daemon status: {}", id);
+    tracing::debug!("Getting daemon status: {}", id);
     let response = service::daemon::get_daemon(&state, &id).await?;
     Ok(Json(response))
 }
@@ -163,7 +163,7 @@ pub async fn reload_daemon(
 pub async fn get_system_status(
     State(state): State<AppState>,
 ) -> AppResult<Json<SystemStatusResponse>> {
-    info!("Getting system status");
+    tracing::debug!("Getting system status");
     let response = service::daemon::get_system_status(&state).await?;
     Ok(Json(response))
 }

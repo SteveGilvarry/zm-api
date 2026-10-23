@@ -41,7 +41,7 @@ pub async fn list_configs(
     Extension(claims): Extension<UserClaims>,
     Query(params): Query<ConfigQueryParams>,
 ) -> AppResult<Json<PaginatedConfigsResponse>> {
-    info!("Listing config entries with pagination");
+    tracing::debug!("Listing config entries with pagination");
     params.validate().map_err(AppError::InvalidInputError)?;
     let mut result = service::config::list_filtered(&state, &params).await?;
     if !can_see_private(&claims) {
@@ -81,7 +81,7 @@ fn mask_private(c: &mut ConfigResponse) {
 pub async fn list_categories(
     State(state): State<AppState>,
 ) -> AppResult<Json<Vec<CategoryCountResponse>>> {
-    info!("Listing config categories");
+    tracing::debug!("Listing config categories");
     let categories = service::config::list_categories(&state).await?;
     Ok(Json(categories))
 }
@@ -107,7 +107,7 @@ pub async fn get_config(
     Extension(claims): Extension<UserClaims>,
     Path(name): Path<String>,
 ) -> AppResult<Json<ConfigResponse>> {
-    info!("Get config by name: {}", name);
+    tracing::debug!("Get config by name: {}", name);
     let mut item = service::config::get_by_name(&state, &name).await?;
     if !can_see_private(&claims) {
         mask_private(&mut item);

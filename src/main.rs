@@ -90,7 +90,7 @@ async fn main() -> AppResult<()> {
     // REVIEW_FIXES_PLAN §5.2.
     ffmpeg_next::init().ok();
 
-    let _file_appender_guard = configure::tracing::init()?;
+    let _log_guards = configure::tracing::init()?;
     info!("The initialization of Tracing was successful.");
     let config = CONFIG.clone();
     info!("Reading the config file was successful.");

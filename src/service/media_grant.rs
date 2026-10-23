@@ -238,9 +238,7 @@ pub fn uri_signer(
     // A legacy `?token=<access JWT>` request: list signed URIs instead of
     // copying the access token into them. Child playlists last as long as
     // the token did.
-    let claims = UserClaims::decode_access(&query_param(uri, "token")?)
-        .ok()?
-        .claims;
+    let claims = UserClaims::decode_access(&query_param(uri, "token")?).ok()?;
     Some(UriSigner {
         playlist: media_url::sign_until(resource, claims.uid, claims.exp),
         media: media_url::sign_until(resource, claims.uid, media_exp(claims.exp)),

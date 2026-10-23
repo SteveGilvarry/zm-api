@@ -33,7 +33,7 @@ pub async fn get_monitor_pipeline(
     Path(id): Path<u32>,
     scope: MonitorScope,
 ) -> AppResult<Json<MonitorPipelineResponse>> {
-    info!("Viewing zm-next pipeline graph for monitor {id}.");
+    tracing::debug!("Viewing zm-next pipeline graph for monitor {id}.");
     Ok(Json(
         service::monitor_pipeline::get(&state, id, &scope).await?,
     ))

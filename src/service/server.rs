@@ -36,7 +36,7 @@ pub async fn get_locale(state: &AppState) -> AppResult<LocaleResponse> {
 // API version (from Cargo.toml via constant)
 
 pub async fn get_version(state: &AppState) -> AppResult<VersionResponse> {
-    info!("Getting ZoneMinder and API version information");
+    tracing::debug!("Getting ZoneMinder and API version information");
 
     // Fetch version information from the database
     let zm_version = repo::config::get_zm_version(state.db()).await?;

@@ -148,7 +148,7 @@ pub struct InspectResult {
 /// Multicasts a `Probe` for `NetworkVideoTransmitter` devices and collects
 /// `ProbeMatches` for `timeout`, de-duplicating by endpoint reference. Returns an
 /// empty vector when no cameras answer (not an error).
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn probe(state: &AppState, timeout: Duration) -> AppResult<Vec<CameraCandidate>> {
     info!(?timeout, "Running ONVIF WS-Discovery probe.");
     let client = DiscoveryClient::new(timeout);
@@ -210,7 +210,7 @@ async fn existing_monitor_for_url(state: &AppState, url: &str) -> Option<u32> {
 ///
 /// `creds` are the optional WS-Security credentials for the device; pass `None`
 /// for cameras with authentication disabled.
-#[instrument(skip(state, creds), fields(xaddr = %xaddr))]
+#[instrument(level = "debug", skip(state, creds), fields(xaddr = %xaddr))]
 pub async fn inspect(
     state: &AppState,
     xaddr: &str,
@@ -298,7 +298,7 @@ pub async fn inspect(
 /// ONVIF URL + credentials. RTSP credentials are stored in the monitor's
 /// `User`/`Pass` (cameras typically share them with ONVIF), so the zm-next
 /// worker authenticates via the out-of-band credential path.
-#[instrument(skip(state, req), fields(xaddr = %req.xaddr))]
+#[instrument(level = "debug", skip(state, req), fields(xaddr = %req.xaddr))]
 pub async fn onboard(state: &AppState, req: OnboardRequest) -> AppResult<MonitorResponse> {
     let creds = if req.username.is_empty() {
         None

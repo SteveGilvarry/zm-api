@@ -72,7 +72,7 @@ pub struct DiscoveryApiDoc;
     ),
     tag = "Discovery"
 )]
-#[instrument(skip(state, req))]
+#[instrument(level = "debug", skip(state, req))]
 pub async fn probe(
     State(state): State<AppState>,
     scope: MonitorScope,
@@ -120,7 +120,7 @@ pub async fn probe(
     ),
     tag = "Discovery"
 )]
-#[instrument(skip(state, req), fields(xaddr = %req.xaddr))]
+#[instrument(level = "debug", skip(state, req), fields(xaddr = %req.xaddr))]
 pub async fn inspect(
     State(state): State<AppState>,
     scope: MonitorScope,
@@ -169,7 +169,7 @@ pub async fn inspect(
     security(("jwt" = [])),
     tag = "Discovery"
 )]
-#[instrument(skip(state, req), fields(xaddr = %req.xaddr))]
+#[instrument(level = "debug", skip(state, req), fields(xaddr = %req.xaddr))]
 pub async fn onboard(
     State(state): State<AppState>,
     scope: MonitorScope,

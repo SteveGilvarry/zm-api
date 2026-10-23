@@ -4,7 +4,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use crate::{server::state::AppState, util::claim::UserClaims};
 
@@ -13,7 +13,7 @@ pub async fn auth_middleware(
     request: Request,
     next: Next,
 ) -> Result<Response, (StatusCode, String)> {
-    info!("Authenticating request: {}", request.uri());
+    debug!("Authenticating request: {}", request.uri());
 
     // Extract the authorization header
     let auth_header = request
@@ -42,9 +42,8 @@ pub async fn auth_middleware(
 
     // Verify the token
     match UserClaims::decode_access(token) {
-        Ok(token_data) => {
+        Ok(user_claims) => {
             // Add user claims to request extensions for handlers to access
-            let user_claims = token_data.claims;
             let mut request = request;
             request.extensions_mut().insert(user_claims);
 
@@ -78,7 +77,7 @@ pub async fn authenticated_middleware(
     })?;
 
     let claims = match UserClaims::decode_access(&token) {
-        Ok(data) => data.claims,
+        Ok(claims) => claims,
         Err(e) => {
             warn!("JWT token verification failed: {e}");
             return Err((StatusCode::UNAUTHORIZED, "Invalid token".to_string()));
@@ -140,9 +139,8 @@ pub async fn media_auth_middleware(
 
     // Verify the token
     match UserClaims::decode_access(&token) {
-        Ok(token_data) => {
+        Ok(user_claims) => {
             // Add user claims to request extensions for handlers to access
-            let user_claims = token_data.claims;
             let mut request = request;
             request.extensions_mut().insert(user_claims);
 

@@ -60,7 +60,7 @@ fn ptz_to_app_error(e: PtzError) -> AppError {
     }
 }
 
-#[instrument(skip(state, ptz_manager))]
+#[instrument(level = "debug", skip(state, ptz_manager))]
 pub async fn get_status(
     state: &AppState,
     ptz_manager: &PtzManager,
@@ -109,7 +109,7 @@ pub async fn get_status(
     })
 }
 
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn get_capabilities(
     state: &AppState,
     monitor_id: u32,
@@ -155,7 +155,7 @@ pub fn list_protocols(ptz_manager: &PtzManager) -> PtzProtocolListResponse {
     }
 }
 
-#[instrument(skip(state, ptz_manager))]
+#[instrument(level = "debug", skip(state, ptz_manager))]
 pub async fn move_direction(
     state: &AppState,
     ptz_manager: &PtzManager,
@@ -184,7 +184,7 @@ pub async fn move_direction(
     execute_command(ptz_manager, &monitor, &control, command).await
 }
 
-#[instrument(skip(state, ptz_manager))]
+#[instrument(level = "debug", skip(state, ptz_manager))]
 pub async fn move_stop(
     state: &AppState,
     ptz_manager: &PtzManager,
@@ -194,7 +194,7 @@ pub async fn move_stop(
     execute_command(ptz_manager, &monitor, &control, PtzCommand::MoveStop).await
 }
 
-#[instrument(skip(state, ptz_manager))]
+#[instrument(level = "debug", skip(state, ptz_manager))]
 pub async fn zoom(
     state: &AppState,
     ptz_manager: &PtzManager,
@@ -217,7 +217,7 @@ pub async fn zoom(
     execute_command(ptz_manager, &monitor, &control, command).await
 }
 
-#[instrument(skip(state, ptz_manager))]
+#[instrument(level = "debug", skip(state, ptz_manager))]
 pub async fn zoom_stop(
     state: &AppState,
     ptz_manager: &PtzManager,
@@ -227,7 +227,7 @@ pub async fn zoom_stop(
     execute_command(ptz_manager, &monitor, &control, PtzCommand::ZoomStop).await
 }
 
-#[instrument(skip(state, ptz_manager))]
+#[instrument(level = "debug", skip(state, ptz_manager))]
 pub async fn focus(
     state: &AppState,
     ptz_manager: &PtzManager,
@@ -250,7 +250,7 @@ pub async fn focus(
     execute_command(ptz_manager, &monitor, &control, command).await
 }
 
-#[instrument(skip(state, ptz_manager))]
+#[instrument(level = "debug", skip(state, ptz_manager))]
 pub async fn focus_stop(
     state: &AppState,
     ptz_manager: &PtzManager,
@@ -265,7 +265,7 @@ pub async fn focus_stop(
 /// The command layer and zmcontrol mappings already existed; these were simply
 /// unreachable because no route invoked them, even though
 /// `capabilities.iris` advertises them to clients (GH #37).
-#[instrument(skip(state, ptz_manager))]
+#[instrument(level = "debug", skip(state, ptz_manager))]
 pub async fn iris(
     state: &AppState,
     ptz_manager: &PtzManager,
@@ -292,7 +292,7 @@ pub async fn iris(
 /// As with iris, the `PtzCommand` variants and zmcontrol names already existed
 /// and `capabilities.can_wake/can_sleep/can_reset/can_reboot` advertise them;
 /// only the routes were missing (GH #37).
-#[instrument(skip(state, ptz_manager))]
+#[instrument(level = "debug", skip(state, ptz_manager))]
 pub async fn power(
     state: &AppState,
     ptz_manager: &PtzManager,
@@ -440,7 +440,7 @@ pub(crate) fn light_state(reply: &str, key: &str) -> Option<String> {
     }
 }
 
-#[instrument(skip(state, ptz_manager))]
+#[instrument(level = "debug", skip(state, ptz_manager))]
 pub async fn goto_preset(
     state: &AppState,
     ptz_manager: &PtzManager,
@@ -457,7 +457,7 @@ pub async fn goto_preset(
     .await
 }
 
-#[instrument(skip(state, ptz_manager))]
+#[instrument(level = "debug", skip(state, ptz_manager))]
 pub async fn set_preset(
     state: &AppState,
     ptz_manager: &PtzManager,
@@ -473,7 +473,7 @@ pub async fn set_preset(
     execute_command(ptz_manager, &monitor, &control, command).await
 }
 
-#[instrument(skip(state, ptz_manager))]
+#[instrument(level = "debug", skip(state, ptz_manager))]
 pub async fn clear_preset(
     state: &AppState,
     ptz_manager: &PtzManager,
@@ -490,7 +490,7 @@ pub async fn clear_preset(
     .await
 }
 
-#[instrument(skip(state, ptz_manager))]
+#[instrument(level = "debug", skip(state, ptz_manager))]
 pub async fn goto_home(
     state: &AppState,
     ptz_manager: &PtzManager,
@@ -500,7 +500,7 @@ pub async fn goto_home(
     execute_command(ptz_manager, &monitor, &control, PtzCommand::GotoHome).await
 }
 
-#[instrument(skip(state, ptz_manager))]
+#[instrument(level = "debug", skip(state, ptz_manager))]
 pub async fn move_absolute(
     state: &AppState,
     ptz_manager: &PtzManager,
@@ -522,7 +522,7 @@ pub async fn move_absolute(
     .await
 }
 
-#[instrument(skip(state, ptz_manager))]
+#[instrument(level = "debug", skip(state, ptz_manager))]
 pub async fn move_relative(
     state: &AppState,
     ptz_manager: &PtzManager,

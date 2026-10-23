@@ -47,10 +47,10 @@ pub async fn get_locale(State(state): State<AppState>) -> AppResult<Json<LocaleR
     tag = "Server"
 )]
 pub async fn get_version(State(state): State<AppState>) -> AppResult<Json<VersionResponse>> {
-    info!("Handling request to get ZoneMinder version information");
+    tracing::debug!("Handling request to get ZoneMinder version information");
     match service::server::get_version(&state).await {
         Ok(version_info) => {
-            info!("Successfully retrieved version information");
+            tracing::debug!("Successfully retrieved version information");
             Ok(Json(version_info))
         }
         Err(e) => {

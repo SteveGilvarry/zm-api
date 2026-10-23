@@ -34,7 +34,7 @@ fn event_not_found(id: u32) -> AppError {
 }
 
 /// List events with full query parameters support
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn list(
     state: &AppState,
     params: &EventQueryParams,
@@ -112,7 +112,7 @@ pub async fn list(
 }
 
 /// List all events with pagination (legacy helper)
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn list_all(
     state: &AppState,
     page: Option<u64>,
@@ -146,7 +146,7 @@ pub async fn list_all(
 }
 
 /// List events by monitor ID with pagination (legacy helper)
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn list_by_monitor(
     state: &AppState,
     monitor_id: u32,
@@ -185,7 +185,7 @@ pub async fn list_by_monitor(
 }
 
 /// Get event by ID
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn get_by_id(
     state: &AppState,
     id: u32,
@@ -209,7 +209,7 @@ pub async fn get_by_id(
 }
 
 /// Create a new event
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn create(
     state: &AppState,
     event: EventCreateRequest,
@@ -249,7 +249,7 @@ pub async fn create(
 }
 
 /// Update an existing event
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn update(
     state: &AppState,
     id: u32,
@@ -318,7 +318,7 @@ pub async fn update(
 /// orphaned directory is preferable to reporting a delete failure after the row
 /// is already gone. Previously the media was never removed, so every deletion
 /// leaked the recorded video and frames on disk.
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn delete(state: &AppState, id: u32, scope: &MonitorScope) -> AppResult<()> {
     // Fetch first so the event's monitor can be checked against the ACL and its
     // on-disk location resolved from its own fields.
@@ -336,7 +336,7 @@ pub async fn delete(state: &AppState, id: u32, scope: &MonitorScope) -> AppResul
 }
 
 /// Get event counts for the last n hours (grouped by hour)
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn get_event_counts(
     state: &AppState,
     hours: i64,
@@ -367,7 +367,7 @@ pub async fn get_event_counts(
 }
 
 /// Get event counts for the last n hours (grouped by monitor)
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn get_event_counts_by_monitor(
     state: &AppState,
     hours: i64,

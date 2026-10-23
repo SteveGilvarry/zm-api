@@ -6,7 +6,7 @@ use crate::error::AppResult;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
 /// Get a monitor with its PTZ control configuration
-#[tracing::instrument(skip(db))]
+#[tracing::instrument(level = "debug", skip(db))]
 pub async fn get_monitor_with_control(
     db: &DatabaseConnection,
     monitor_id: u32,
@@ -29,7 +29,7 @@ pub async fn get_monitor_with_control(
 }
 
 /// Get all controllable monitors with their control configurations
-#[tracing::instrument(skip(db))]
+#[tracing::instrument(level = "debug", skip(db))]
 pub async fn get_all_controllable_monitors(
     db: &DatabaseConnection,
 ) -> AppResult<Vec<(MonitorModel, ControlModel)>> {
@@ -56,7 +56,7 @@ pub async fn get_all_controllable_monitors(
 }
 
 /// Get control by ID
-#[tracing::instrument(skip(db))]
+#[tracing::instrument(level = "debug", skip(db))]
 pub async fn get_control_by_id(
     db: &DatabaseConnection,
     control_id: u32,
@@ -65,7 +65,7 @@ pub async fn get_control_by_id(
 }
 
 /// Check if a monitor is controllable
-#[tracing::instrument(skip(db))]
+#[tracing::instrument(level = "debug", skip(db))]
 pub async fn is_monitor_controllable(db: &DatabaseConnection, monitor_id: u32) -> AppResult<bool> {
     let monitor = Monitors::find_by_id(monitor_id).one(db).await?;
 

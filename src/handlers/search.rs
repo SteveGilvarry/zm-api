@@ -111,7 +111,7 @@ fn parse_classes(raw: Option<&str>) -> Vec<String> {
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state, scope))]
+#[instrument(level = "debug", skip(state, scope))]
 pub async fn search_events(
     State(state): State<AppState>,
     scope: MonitorScope,
@@ -178,7 +178,7 @@ pub async fn search_events(
     ),
     security(("jwt" = []))
 )]
-#[instrument(skip(state, scope))]
+#[instrument(level = "debug", skip(state, scope))]
 pub async fn similar_events(
     State(state): State<AppState>,
     scope: MonitorScope,

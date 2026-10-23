@@ -293,8 +293,7 @@ async fn enforce(
         .ok_or_else(|| AppError::UnauthorizedError("Authentication required".to_string()))?;
 
     let claims = UserClaims::decode_access(&token)
-        .map_err(|_| AppError::UnauthorizedError("Invalid token".to_string()))?
-        .claims;
+        .map_err(|_| AppError::UnauthorizedError("Invalid token".to_string()))?;
 
     // Server-side revocation floor (logout, password change, user disable):
     // an in-memory check, so the media hot path stays free of DB round-trips.

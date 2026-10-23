@@ -14,7 +14,7 @@ fn scoped(query: Select<EventSummaries>, monitor_filter: Option<&[u32]>) -> Sele
 }
 
 /// Find all event summaries
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn find_all(
     state: &AppState,
     monitor_filter: Option<&[u32]>,
@@ -26,7 +26,7 @@ pub async fn find_all(
 }
 
 /// Find event summaries with pagination
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn find_paginated(
     state: &AppState,
     params: &PaginationParams,
@@ -43,7 +43,7 @@ pub async fn find_paginated(
 }
 
 /// Find event summary by monitor ID
-#[instrument(skip(state))]
+#[instrument(level = "debug", skip(state))]
 pub async fn find_by_monitor_id(
     state: &AppState,
     monitor_id: u32,

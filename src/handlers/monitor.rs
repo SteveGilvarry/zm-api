@@ -42,7 +42,7 @@ pub async fn list_monitors(
     Query(params): Query<MonitorListParams>,
     scope: MonitorScope,
 ) -> AppResult<Json<PaginatedMonitorsResponse>> {
-    info!("Listing all monitors with pagination.");
+    tracing::debug!("Listing all monitors with pagination.");
     params.validate().map_err(AppError::InvalidInputError)?;
     match service::monitor::list_paginated(
         &state,
@@ -82,7 +82,7 @@ pub async fn get_monitor(
     Path(id): Path<u32>,
     scope: MonitorScope,
 ) -> AppResult<Json<MonitorResponse>> {
-    info!("Viewing monitor with ID: {id}.");
+    tracing::debug!("Viewing monitor with ID: {id}.");
     match service::monitor::get_by_id(&state, id, &scope).await {
         Ok(monitor) => Ok(Json(monitor)),
         Err(e) => {
