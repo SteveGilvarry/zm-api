@@ -12,6 +12,7 @@ pub struct CreateControlRequest {
     #[serde(rename = "type", default)]
     pub r#type: Option<MonitorType>,
     #[garde(inner(length(max = 64)))]
+    #[garde(inner(custom(crate::dto::request::monitor::is_perl_module_name)))]
     pub protocol: Option<String>,
     pub can_wake: Option<u8>,
     pub can_sleep: Option<u8>,
@@ -127,6 +128,7 @@ pub struct UpdateControlRequest {
     #[serde(rename = "type")]
     pub r#type: Option<MonitorType>,
     #[garde(inner(length(max = 64)))]
+    #[garde(inner(custom(crate::dto::request::monitor::is_perl_module_name)))]
     pub protocol: Option<String>,
     pub can_wake: Option<u8>,
     pub can_sleep: Option<u8>,

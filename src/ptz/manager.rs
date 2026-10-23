@@ -554,7 +554,7 @@ impl Default for PtzManager {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::entity::monitors::Model as MonitorModel;
     use crate::entity::sea_orm_active_enums::{
@@ -563,7 +563,7 @@ mod tests {
         Rtsp2WebType, StreamChannel,
     };
 
-    fn test_monitor() -> MonitorModel {
+    pub(crate) fn test_monitor() -> MonitorModel {
         MonitorModel {
             id: 1,
             name: "Test Camera".to_string(),

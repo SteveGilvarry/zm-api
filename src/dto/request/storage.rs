@@ -7,6 +7,7 @@ pub struct CreateStorageRequest {
     #[garde(length(chars, max = 64))]
     pub name: String,
     #[garde(length(chars, max = 64))]
+    #[garde(custom(crate::dto::request::monitor::is_safe_storage_path))]
     pub path: String,
     #[garde(skip)]
     pub r#type: String,
