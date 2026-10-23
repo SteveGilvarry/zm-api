@@ -53,7 +53,7 @@ fn can_manage_all(claims: &UserClaims) -> bool {
 
 /// `AutoExecuteCmd` is run by `zmfilter.pl` through a shell, so setting it, or
 /// changing a filter that runs one, is shell access on the server. ZoneMinder
-/// keeps both to System editors (`Filter::canEdit`, GHSA-vcrj-35c6-g97c).
+/// keeps both to System editors (`Filter::canEdit`).
 fn refuse_command_change(
     claims: &UserClaims,
     auto_execute: Option<u8>,

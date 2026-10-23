@@ -18,6 +18,15 @@ recognisable path forward.
   shared memory four times a second and events from the `Events` table, and
   runs only while someone is subscribed. Heartbeat every 15 s; the stream
   ends at token expiry or loss of access.
+- **RTSP server for live video** (`[streaming.rtsp]`, off by default). Players
+  that take one URL (Home Assistant, VLC, NVRs) get a monitor's live video at
+  `rtsp://host:8554/live/{id}?st=…`, from
+  `POST /api/v3/live/{monitor_id}/rtsp/link`. The credential is the signed link
+  HLS already uses: one monitor, view only, an expiry, revoked with its user,
+  and checked again every minute while a stream plays. ZoneMinder's
+  `zm_rtsp_server` takes a username and password in the URL instead. H.264 or
+  H.265, RTP interleaved on the RTSP connection (TCP; UDP gets 461), RTSPS on
+  `tls_port` with `server.tls`'s certificate. Video only for now.
 - **Generate a video for an event** (#187), the first kind in the media job
   queue of `docs/FILTERS_PLAN.md`. `POST /api/v3/events/{id}/videos` queues
   ZoneMinder's Generate Video, with a format from `ZM_FFMPEG_FORMATS`, a
@@ -703,9 +712,9 @@ recognisable path forward.
 - **Stored values can't change the commands ZoneMinder runs.** Anything that
   becomes part of a command now needs `System: Edit` or is checked first:
   - Filters with `AutoExecute` or a command, and monitor
-    `EventStartCommand`/`EventEndCommand`, need `System: Edit` (ZoneMinder
-    GHSA-vcrj-35c6-g97c). Other users can't edit a filter that already runs
-    a command.
+    `EventStartCommand`/`EventEndCommand`, need `System: Edit`, as in
+    ZoneMinder. Other users can't edit a filter that already runs a
+    command.
   - Monitor `Path`/`SecondPath` must use a known capture scheme or be a
     local path (go2rtc runs `exec:` sources). `Device` must be under `/dev/`.
     `Storage.Path` is limited to characters a shell treats literally.

@@ -5191,6 +5191,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
+ "log",
  "once_cell",
  "ring",
  "rustls-pki-types",
@@ -7759,6 +7760,7 @@ dependencies = [
  "rust_decimal",
  "rustls",
  "rustls-acme",
+ "rustls-pki-types",
  "sea-orm",
  "sea-orm-migration",
  "sentry",
@@ -7774,6 +7776,7 @@ dependencies = [
  "tikv-jemalloc-ctl",
  "tikv-jemallocator",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite 0.30.0",
  "tokio-util",
  "tower",

@@ -48,6 +48,9 @@ pub struct AppState {
     pub media_job_wake: Arc<tokio::sync::Notify>,
     /// The live event stream's hub (`GET /api/v3/events/stream`).
     pub event_hub: Arc<crate::service::event_stream::EventHub>,
+    /// Where media jobs are kept: zm-api's table if the database has it,
+    /// else a file in zm-api's state directory. Decided on first use.
+    pub media_job_store: crate::service::media_job_store::SharedJobStore,
 }
 
 impl AppState {
@@ -351,6 +354,7 @@ impl AppState {
             schema_behind,
             media_job_wake: Arc::new(tokio::sync::Notify::new()),
             event_hub: Default::default(),
+            media_job_store: Default::default(),
         })
     }
 
@@ -391,6 +395,7 @@ impl AppState {
             schema_behind: None,
             media_job_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
             event_hub: Default::default(),
+            media_job_store: Default::default(),
         }
     }
 

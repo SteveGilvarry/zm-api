@@ -17,9 +17,9 @@
 //! * A user with **no** rows anywhere gets their base `Monitors` level on every
 //!   monitor: `Edit` is [`MonitorScope::All`], `View` is
 //!   [`MonitorScope::ViewOnly`], `None` sees nothing.
-//! * Once a user has any row, the rows become an allowlist
-//!   ([`MonitorScope::Restricted`]). Monitors no row mentions are hidden, which
-//!   is stricter than ZoneMinder (it falls back to the base level there).
+//! * Once a user has any row, each monitor a row decides gets that row's
+//!   level, and every other monitor gets the base `Monitors` level, as in
+//!   ZoneMinder ([`MonitorScope::Restricted`] lists every monitor).
 
 use std::collections::{HashMap, HashSet};
 
@@ -154,58 +154,116 @@ pub async fn resolve(
         group_members(db, &granted).await?
     };
 
-    // Highest-priority layer first; the first layer that mentions a monitor
-    // decides it.
-    let layers = [
-        direct_layer(&user_direct),
-        group_layer(&user_groups, &members),
-        direct_layer(&role_direct),
-        group_layer(&role_groups, &members),
-    ];
-    let mut map: HashMap<u32, Level> = HashMap::new();
-    for layer in layers {
-        for (mid, level) in layer {
-            map.entry(mid).or_insert(level);
-        }
+    let user = Layer::new(&user_direct, &user_groups, &members);
+    let role = Layer::new(&role_direct, &role_groups, &members);
+
+    // Every monitor a row mentions, plus every monitor when the base level
+    // reaches them all.
+    let mut ids: HashSet<u32> = user.monitors().chain(role.monitors()).collect();
+    if base > Level::None {
+        ids.extend(repo::monitors::find_all_ids(db).await?);
     }
-    map.retain(|_, level| *level > Level::None);
+
+    let map = ids
+        .into_iter()
+        .filter_map(|mid| {
+            if !visible(mid, &user, &role, base) {
+                return None;
+            }
+            let level = if editable(mid, &user, &role, base) {
+                Level::Edit
+            } else {
+                Level::View
+            };
+            Some((mid, level))
+        })
+        .collect();
 
     Ok(MonitorScope::Restricted(map))
 }
 
-/// Direct per-monitor grants. `Inherit` rows are left out so the next layer
-/// decides; `None` is kept as an explicit deny.
-fn direct_layer(rows: &[(u32, Permission)]) -> HashMap<u32, Level> {
-    rows.iter()
-        .filter_map(|(mid, p)| permission_level(p).map(|level| (*mid, level)))
-        .collect()
+/// One owner's rows (the user's or their role's), per monitor.
+struct Layer {
+    /// Direct grants, `Inherit` left out.
+    direct: HashMap<u32, Level>,
+    /// Group grants per monitor: whether any group denies it, and the best
+    /// `View`/`Edit` any group gives it.
+    groups: HashMap<u32, (bool, Option<Level>)>,
 }
 
-/// Group grants applied to the groups' monitors. A `None` group denies its
-/// monitors outright; otherwise the highest grant wins.
-fn group_layer(
-    rows: &[(u32, Permission)],
-    members: &HashMap<u32, HashSet<u32>>,
-) -> HashMap<u32, Level> {
-    let mut out: HashMap<u32, Level> = HashMap::new();
-    let mut denied: HashSet<u32> = HashSet::new();
-    for (gid, p) in rows {
-        let Some(level) = permission_level(p) else {
-            continue;
-        };
-        for mid in members.get(gid).into_iter().flatten() {
-            if level == Level::None {
-                denied.insert(*mid);
-            } else {
-                let entry = out.entry(*mid).or_insert(Level::None);
-                *entry = (*entry).max(level);
+impl Layer {
+    fn new(
+        direct: &[(u32, Permission)],
+        groups: &[(u32, Permission)],
+        members: &HashMap<u32, HashSet<u32>>,
+    ) -> Self {
+        let direct = direct
+            .iter()
+            .filter_map(|(mid, p)| permission_level(p).map(|level| (*mid, level)))
+            .collect();
+        let mut by_monitor: HashMap<u32, (bool, Option<Level>)> = HashMap::new();
+        for (gid, p) in groups {
+            let Some(level) = permission_level(p) else {
+                continue;
+            };
+            for mid in members.get(gid).into_iter().flatten() {
+                let entry = by_monitor.entry(*mid).or_default();
+                if level == Level::None {
+                    entry.0 = true;
+                } else {
+                    entry.1 = entry.1.max(Some(level));
+                }
             }
         }
+        Layer {
+            direct,
+            groups: by_monitor,
+        }
     }
-    for mid in denied {
-        out.insert(mid, Level::None);
+
+    fn monitors(&self) -> impl Iterator<Item = u32> + '_ {
+        self.direct.keys().chain(self.groups.keys()).copied()
     }
-    out
+
+    /// `Some(answer)` when this layer decides whether `mid` is visible.
+    fn visible(&self, mid: u32) -> Option<bool> {
+        if let Some(level) = self.direct.get(&mid) {
+            return Some(*level > Level::None);
+        }
+        match self.groups.get(&mid) {
+            Some((true, _)) => Some(false),
+            Some((false, Some(_))) => Some(true),
+            _ => None,
+        }
+    }
+
+    /// `Some(answer)` when this layer decides whether `mid` is editable. A
+    /// group only ever grants: a `None` or `View` group leaves it to the
+    /// next layer.
+    fn editable(&self, mid: u32) -> Option<bool> {
+        if let Some(level) = self.direct.get(&mid) {
+            return Some(*level >= Level::Edit);
+        }
+        match self.groups.get(&mid) {
+            Some((_, Some(Level::Edit))) => Some(true),
+            _ => None,
+        }
+    }
+}
+
+/// ZoneMinder's `visibleMonitor`: the user's rows, then the role's, then the
+/// base `Monitors` level.
+fn visible(mid: u32, user: &Layer, role: &Layer, base: Level) -> bool {
+    user.visible(mid)
+        .or_else(|| role.visible(mid))
+        .unwrap_or(base > Level::None)
+}
+
+/// ZoneMinder's `editableMonitor`, the same order with its own rules.
+fn editable(mid: u32, user: &Layer, role: &Layer, base: Level) -> bool {
+    user.editable(mid)
+        .or_else(|| role.editable(mid))
+        .unwrap_or(base >= Level::Edit)
 }
 
 /// A grant row's level, or `None` for `Inherit` (no opinion).
@@ -461,24 +519,35 @@ mod tests {
         }
     }
 
+    /// Every monitor id the mock database holds.
+    const MONITORS: [u32; 8] = [10, 11, 20, 21, 22, 30, 31, 99];
+
     /// A mock DB answering the grants query, then (when there are group grants)
-    /// the group hierarchy and the group-monitor links.
+    /// the group hierarchy and the group-monitor links, then (when there are
+    /// grants) every monitor id.
     fn mock(
         grants: Vec<UserGrant>,
         groups: Vec<groups::Model>,
         links: Vec<groups_monitors::Model>,
     ) -> sea_orm::DatabaseConnection {
+        let has_grants = !grants.is_empty();
         let has_groups = grants
             .iter()
             .any(|g| matches!(g.kind(), GrantKind::Group | GrantKind::RoleGroup));
-        let db = MockDatabase::new(DatabaseBackend::MySql).append_query_results(vec![grants]);
+        let mut db = MockDatabase::new(DatabaseBackend::MySql).append_query_results(vec![grants]);
         if has_groups {
-            db.append_query_results(vec![groups])
-                .append_query_results(vec![links])
-                .into_connection()
-        } else {
-            db.into_connection()
+            db = db
+                .append_query_results(vec![groups])
+                .append_query_results(vec![links]);
         }
+        if has_grants {
+            let ids: Vec<std::collections::BTreeMap<&str, sea_orm::Value>> = MONITORS
+                .iter()
+                .map(|id| std::collections::BTreeMap::from([("Id", sea_orm::Value::from(*id))]))
+                .collect();
+            db = db.append_query_results(vec![ids]);
+        }
+        db.into_connection()
     }
 
     #[tokio::test]
@@ -516,7 +585,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn direct_grants_form_an_allowlist() {
+    async fn direct_grants_decide_only_their_monitors() {
         let db = mock(
             vec![
                 mon_perm(1, 10, Permission::View),
@@ -533,8 +602,44 @@ mod tests {
         assert!(!scope.allows(10, Level::Edit));
         // Monitor 11: read and write.
         assert!(scope.allows(11, Level::Edit));
-        // Monitor 99: no row at all.
-        assert!(!scope.allows(99, Level::View));
+        // Monitor 99: no row, so the base Monitors level (#203).
+        assert!(scope.allows(99, Level::Edit));
+    }
+
+    /// zm-holodeck's `scoped` user (#203): Monitors Edit and one row hiding
+    /// monitor B. ZoneMinder shows every other monitor, editable.
+    #[tokio::test]
+    async fn one_denied_monitor_hides_only_that_monitor() {
+        let db = mock(vec![mon_perm(1, 11, Permission::None)], vec![], vec![]);
+        let scope = resolve(&db, 7, Level::Edit).await.unwrap();
+        assert!(!scope.allows(11, Level::View));
+        assert!(scope.allows(10, Level::Edit));
+        let mut visible = scope.visible_ids(Level::View).unwrap();
+        visible.sort_unstable();
+        assert_eq!(visible, [10, 20, 21, 22, 30, 31, 99]);
+    }
+
+    #[tokio::test]
+    async fn unlisted_monitors_follow_a_view_base_level() {
+        let db = mock(vec![mon_perm(1, 11, Permission::Edit)], vec![], vec![]);
+        let scope = resolve(&db, 7, Level::View).await.unwrap();
+        assert!(scope.allows(11, Level::Edit));
+        assert!(scope.allows(10, Level::View));
+        assert!(!scope.allows(10, Level::Edit));
+    }
+
+    #[tokio::test]
+    async fn with_a_none_base_only_granted_monitors_show() {
+        let db = mock(vec![mon_perm(1, 11, Permission::View)], vec![], vec![]);
+        let scope = resolve(&db, 7, Level::None).await.unwrap();
+        assert_eq!(scope.visible_ids(Level::View), Some(vec![11]));
+    }
+
+    #[tokio::test]
+    async fn a_create_base_level_edits_unlisted_monitors() {
+        let db = mock(vec![mon_perm(1, 11, Permission::None)], vec![], vec![]);
+        let scope = resolve(&db, 7, Level::Create).await.unwrap();
+        assert!(scope.allows(10, Level::Edit));
     }
 
     #[tokio::test]
@@ -545,11 +650,38 @@ mod tests {
             vec![grp_mon(1, 5, 20), grp_mon(2, 5, 21)],
         );
 
-        let scope = resolve(&db, 7, Level::Edit).await.unwrap();
+        let scope = resolve(&db, 7, Level::View).await.unwrap();
         assert!(scope.allows(20, Level::View));
         assert!(scope.allows(21, Level::View));
         // Group grant is View only.
         assert!(!scope.allows(20, Level::Edit));
+    }
+
+    /// `editableMonitor` only takes `Edit` from a group: a `View` group
+    /// shows the monitor and leaves editing to the base level.
+    #[tokio::test]
+    async fn a_view_group_does_not_cap_an_edit_base_level() {
+        let db = mock(
+            vec![grp_perm(1, 5, Permission::View)],
+            vec![group(5, None)],
+            vec![grp_mon(1, 5, 20)],
+        );
+        let scope = resolve(&db, 7, Level::Edit).await.unwrap();
+        assert!(scope.allows(20, Level::Edit));
+    }
+
+    /// `editableMonitor` takes `Edit` from a group over a `View` base level.
+    #[tokio::test]
+    async fn an_edit_group_raises_a_view_base_level() {
+        let db = mock(
+            vec![grp_perm(1, 5, Permission::Edit)],
+            vec![group(5, None)],
+            vec![grp_mon(1, 5, 20)],
+        );
+        let scope = resolve(&db, 7, Level::View).await.unwrap();
+        assert!(scope.allows(20, Level::Edit));
+        assert!(!scope.allows(21, Level::Edit));
+        assert!(scope.allows(21, Level::View));
     }
 
     #[tokio::test]
@@ -627,12 +759,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn role_grants_restrict_a_user_with_no_rows_of_their_own() {
+    async fn role_grants_apply_to_a_user_with_no_rows_of_their_own() {
         let db = mock(vec![role_mon(10, Permission::View)], vec![], vec![]);
         let scope = resolve(&db, 7, Level::Edit).await.unwrap();
         assert!(scope.allows(10, Level::View));
         assert!(!scope.allows(10, Level::Edit));
-        assert!(!scope.allows(11, Level::View));
+        // No row: the base level.
+        assert!(scope.allows(11, Level::Edit));
     }
 
     #[tokio::test]

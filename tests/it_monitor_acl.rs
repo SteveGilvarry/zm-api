@@ -59,6 +59,10 @@ async fn restricted_user_sees_only_permitted_monitors() {
         .await
         .expect("insert monitor B");
     let _mon_b = RowGuard::monitor(monitor_b.id);
+    let monitor_c = insert_monitor(&app.db, "AclUnlisted")
+        .await
+        .expect("insert monitor C");
+    let _mon_c = RowGuard::monitor(monitor_c.id);
 
     // The permission row's `UserId` FK requires the user to exist first.
     insert_user_with_id(&app.db, ACL_TEST_UID, "AclUser")
@@ -66,10 +70,15 @@ async fn restricted_user_sees_only_permitted_monitors() {
         .expect("insert acl user");
     let _user = RowGuard::user(ACL_TEST_UID);
 
-    // The user is granted View on A only — which makes their scope Restricted.
+    // The user is granted View on A and denied B.
     grant_monitor_permission(&app.db, monitor_a.id, ACL_TEST_UID, Permission::View)
         .await
         .expect("grant permission");
+    // ZoneMinder shows a monitor no row names at the base level, so hiding
+    // one takes an explicit None row.
+    grant_monitor_permission(&app.db, monitor_b.id, ACL_TEST_UID, Permission::None)
+        .await
+        .expect("deny permission");
     // Declared last so it drops first: the permission rows reference both the
     // user and monitor, so they must be removed before those parents.
     let _perms = monitor_permissions_guard(ACL_TEST_UID);
@@ -91,6 +100,11 @@ async fn restricted_user_sees_only_permitted_monitors() {
     assert!(
         !body.contains(&monitor_b.name),
         "monitor outside the ACL scope must not be listed"
+    );
+    // No row names C: it takes the user's Monitors level, as in ZoneMinder (#203).
+    assert!(
+        body.contains(&monitor_c.name),
+        "a monitor no row names follows the base level"
     );
 
     // Item: the permitted monitor is reachable.
@@ -190,6 +204,11 @@ async fn events_of_hidden_monitors_are_filtered() {
     grant_monitor_permission(&app.db, visible.id, ACL_TEST_UID_EVENTS, Permission::View)
         .await
         .expect("grant permission");
+    // ZoneMinder shows a monitor no row names at the base level, so hiding
+    // one takes an explicit None row.
+    grant_monitor_permission(&app.db, hidden.id, ACL_TEST_UID_EVENTS, Permission::None)
+        .await
+        .expect("deny permission");
     let _perms = monitor_permissions_guard(ACL_TEST_UID_EVENTS);
     let token = token_for(ACL_TEST_UID_EVENTS, UserPermissions::superuser());
 
@@ -266,6 +285,11 @@ async fn playback_of_hidden_monitor_events_is_blocked() {
     grant_monitor_permission(&app.db, visible.id, ACL_TEST_UID_PLAYBACK, Permission::View)
         .await
         .expect("grant permission");
+    // ZoneMinder shows a monitor no row names at the base level, so hiding
+    // one takes an explicit None row.
+    grant_monitor_permission(&app.db, hidden.id, ACL_TEST_UID_PLAYBACK, Permission::None)
+        .await
+        .expect("deny permission");
     let _perms = monitor_permissions_guard(ACL_TEST_UID_PLAYBACK);
     let token = token_for(ACL_TEST_UID_PLAYBACK, UserPermissions::superuser());
 

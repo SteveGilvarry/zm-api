@@ -9,6 +9,7 @@ pub struct StreamingConfig {
     pub zoneminder: ZoneMinderConfig,
     pub webrtc: WebRtcConfig,
     pub hls: HlsConfig,
+    pub rtsp: RtspConfig,
 }
 
 impl Default for StreamingConfig {
@@ -20,6 +21,7 @@ impl Default for StreamingConfig {
             zoneminder: ZoneMinderConfig::default(),
             webrtc: WebRtcConfig::default(),
             hls: HlsConfig::default(),
+            rtsp: RtspConfig::default(),
         }
     }
 }
@@ -187,6 +189,41 @@ impl Default for HlsStorageConfig {
         Self {
             path: "/tmp/hls".to_string(),
             retention_minutes: 10,
+        }
+    }
+}
+
+/// zm-api's own RTSP server (`streaming::rtsp`): live video for players that
+/// only take a URL (Home Assistant, VLC, NVRs), opened by a signed link
+/// from `POST /api/v3/live/{id}/rtsp/link`. Off by default.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct RtspConfig {
+    pub enabled: bool,
+    /// Address to listen on.
+    pub bind: String,
+    /// Plain RTSP port. ZoneMinder's own `zm_rtsp_server` defaults to 8554
+    /// too: run one or the other, or move this one.
+    pub port: u16,
+    /// RTSPS (RTSP over TLS) port, using `server.tls`'s certificate and key.
+    /// Unset: no RTSPS listener.
+    pub tls_port: Option<u16>,
+    /// Host name to put in the links. Unset: the host the link request was
+    /// sent to.
+    pub public_host: Option<String>,
+    /// Most connections at once, across both listeners.
+    pub max_connections: usize,
+}
+
+impl Default for RtspConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind: "0.0.0.0".to_string(),
+            port: 8554,
+            tls_port: None,
+            public_host: None,
+            max_connections: 64,
         }
     }
 }
