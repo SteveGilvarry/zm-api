@@ -1,6 +1,6 @@
 //! Generated event videos through the media job queue (#187).
 //!
-//! Requires the test database, and ffmpeg on PATH for the generation step:
+//! Requires the test database:
 //!   APP_PROFILE=test-db cargo nextest run --test it_media_jobs --run-ignored all
 
 mod common;
@@ -86,22 +86,11 @@ async fn a_jpeg_event_gets_a_generated_video() {
     assert_eq!(job["status"], "queued");
     let job_id = job["id"].as_u64().unwrap();
 
-    let have_ffmpeg = std::process::Command::new("ffmpeg")
-        .args([
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "testsrc=size=64x48:rate=10",
-        ])
-        .args(["-frames:v", "10", "%05d-capture.jpg"])
-        .current_dir(&dir)
-        .status()
-        .is_ok_and(|s| s.success());
-    if !have_ffmpeg {
-        eprintln!("ffmpeg not on PATH; skipping the generation step");
-        return;
+    // Ten capture JPEGs, as zmc names them.
+    for i in 1..=10u8 {
+        image::RgbImage::from_pixel(64, 48, image::Rgb([i * 20, 100, 50]))
+            .save(dir.join(format!("{i:05}-capture.jpg")))
+            .unwrap();
     }
     let state = zm_api::server::state::AppState::for_test_with_db(app.db.clone());
     assert!(zm_api::service::media_jobs::run_pending(&state).await >= 1);

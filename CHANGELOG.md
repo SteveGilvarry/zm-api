@@ -20,8 +20,8 @@ recognisable path forward.
   the event's video files with the options read back from their names, and
   `GET`/`DELETE .../videos/{name}` downloads or deletes one (not the
   recording). `GET /api/v3/jobs[/{id}]` shows the queue, and `DELETE` cancels
-  a queued job or removes a finished one. ffmpeg runs without a shell, one
-  job at a time, and jobs a restart interrupted run again.
+  a queued job or removes a finished one. Videos are made in-process with
+  libav, one job at a time, and jobs a restart interrupted run again.
 
 - **Event export** (#30): `POST /api/v3/events/export {ids, include}`
   streams a zip, built as it goes, with a `{event_id}/` folder per event.
@@ -677,6 +677,20 @@ recognisable path forward.
   default, and any other table that drifts is logged by name.
 
 ### Security
+
+- **Event videos no longer run the ffmpeg program.** Media jobs ran the
+  binary named by `ZM_PATH_FFMPEG` with `ZM_FFMPEG_INPUT_OPTIONS` and
+  `ZM_FFMPEG_OUTPUT_OPTIONS` as arguments, so anyone who could write the
+  Config table chose the program and its arguments. Videos are now
+  decoded, filtered, encoded and muxed in-process with libav.
+  `ZM_PATH_FFMPEG` is ignored. The option strings are parsed into an
+  allowlist of encoder and muxer settings (`-r`, `-c:v`, `-pix_fmt`,
+  `-preset`, `-tune`, `-profile:v`, `-level`, `-crf`, `-qp`, `-b:v`,
+  `-maxrate`, `-minrate`, `-bufsize`, `-g`, `-bf`, `-threads`,
+  `-movflags`). Anything else is dropped and logged, and
+  `PUT /api/v3/configs/{name}` refuses it. A recording is opened only if
+  `DefaultVideo` is a plain file name, and only as a local file in a
+  recording container, so it can't name a URL, a playlist or another file.
 
 - **Stored values can't change the commands ZoneMinder runs.** Anything that
   becomes part of a command now needs `System: Edit` or is checked first:
