@@ -687,6 +687,15 @@ recognisable path forward.
 
 ### Security
 
+- **Filters with automatic actions need Edit on every monitor.** `zmfilter.pl`
+  runs a saved filter over every monitor's events, whoever owns it. A user
+  limited to some monitors could save a filter with AutoDelete, AutoEmail or
+  another automatic action, and it would delete or send events from monitors
+  they can't see. `POST` and `PUT /api/v3/filters` now refuse such a filter
+  (403) unless the caller has Edit on every monitor or System Edit. Restricted
+  users can still save filters without actions, and can turn the actions off
+  on a filter they own. Filters already in the database are unchanged.
+
 - **`/api/v3/sessions` is removed.** It gave read and write access to
   ZoneMinder's PHP web sessions to anyone with System access. A System View
   user could read another user's session id, which is the classic UI's login
