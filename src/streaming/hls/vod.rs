@@ -5,12 +5,16 @@
 //! AVCC→Annex B conversion and the SPS/PPS/VPS extraction from the `avcC`/`hvcC`
 //! extradata are done in-Rust here, then fed to the existing [`HlsSegmenter`].
 //!
-//! Results are cached per event id (a recorded file is immutable). Generation
-//! is single-flighted so concurrent requests don't re-segment the same event.
+//! Results are cached per event: at most [`CACHE_BYTES`] in all, least
+//! recently used out first, each dropped after [`CACHE_IDLE`] unused, and
+//! keyed on the file's size and modification time so a re-made video is
+//! packaged again. Generation is single-flighted so concurrent requests don't
+//! re-segment the same event.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 
 use dashmap::DashMap;
 use tokio::sync::Mutex;
@@ -23,6 +27,11 @@ use crate::streaming::source::media::{avcc_to_annexb, parse_extradata};
 /// keeps seek granularity reasonable without producing too many segments.
 const VOD_SEGMENT_SECONDS: u64 = 4;
 
+/// Memory the packaged events may hold in all.
+const CACHE_BYTES: usize = 256 * 1024 * 1024;
+/// An event not played for this long is dropped from the cache.
+const CACHE_IDLE: Duration = Duration::from_secs(10 * 60);
+
 /// Packaged HLS-VOD assets for one event: the fMP4 init segment, the media
 /// segments, and the VOD playlist that references them.
 pub struct VodAssets {
@@ -31,9 +40,134 @@ pub struct VodAssets {
     pub playlist: String,
 }
 
-fn cache() -> &'static DashMap<u64, Arc<VodAssets>> {
-    static CACHE: OnceLock<DashMap<u64, Arc<VodAssets>>> = OnceLock::new();
-    CACHE.get_or_init(DashMap::new)
+impl VodAssets {
+    fn bytes(&self) -> usize {
+        self.init.len() + self.segments.iter().map(Vec::len).sum::<usize>() + self.playlist.len()
+    }
+}
+
+/// Which version of a video file the assets were made from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FileStamp {
+    len: u64,
+    modified: Option<SystemTime>,
+}
+
+impl FileStamp {
+    fn of(path: &Path) -> Option<Self> {
+        let m = std::fs::metadata(path).ok()?;
+        Some(Self {
+            len: m.len(),
+            modified: m.modified().ok(),
+        })
+    }
+}
+
+struct Cached {
+    stamp: FileStamp,
+    assets: Arc<VodAssets>,
+    bytes: usize,
+    used: Instant,
+}
+
+/// Packaged events, bounded by bytes and idle time.
+struct VodCache {
+    entries: HashMap<u64, Cached>,
+    bytes: usize,
+    cap: usize,
+    idle: Duration,
+}
+
+impl VodCache {
+    fn new(cap: usize, idle: Duration) -> Self {
+        Self {
+            entries: HashMap::new(),
+            bytes: 0,
+            cap,
+            idle,
+        }
+    }
+
+    #[cfg(test)]
+    fn bytes(&self) -> usize {
+        self.bytes
+    }
+
+    fn remove(&mut self, id: u64) {
+        if let Some(c) = self.entries.remove(&id) {
+            self.bytes -= c.bytes;
+        }
+    }
+
+    fn expire(&mut self, now: Instant) {
+        let idle = self.idle;
+        let old: Vec<u64> = self
+            .entries
+            .iter()
+            .filter(|(_, c)| now.saturating_duration_since(c.used) > idle)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in old {
+            self.remove(id);
+        }
+    }
+
+    fn get(&mut self, id: u64, stamp: FileStamp, now: Instant) -> Option<Arc<VodAssets>> {
+        self.expire(now);
+        match self.entries.get_mut(&id) {
+            Some(c) if c.stamp == stamp => {
+                c.used = now;
+                Some(c.assets.clone())
+            }
+            Some(_) => {
+                self.remove(id);
+                None
+            }
+            None => None,
+        }
+    }
+
+    fn insert(&mut self, id: u64, stamp: FileStamp, assets: Arc<VodAssets>, now: Instant) {
+        let bytes = assets.bytes();
+        if bytes > self.cap {
+            return;
+        }
+        self.remove(id);
+        while self.bytes + bytes > self.cap {
+            let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, c)| c.used)
+                .map(|(id, _)| *id)
+            else {
+                break;
+            };
+            self.remove(oldest);
+        }
+        self.bytes += bytes;
+        self.entries.insert(
+            id,
+            Cached {
+                stamp,
+                assets,
+                bytes,
+                used: now,
+            },
+        );
+    }
+}
+
+fn cache() -> &'static std::sync::Mutex<VodCache> {
+    static CACHE: OnceLock<std::sync::Mutex<VodCache>> = OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(VodCache::new(CACHE_BYTES, CACHE_IDLE)))
+}
+
+fn cached(id: u64, stamp: Option<FileStamp>) -> Option<Arc<VodAssets>> {
+    let stamp = stamp?;
+    cache()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(id, stamp, Instant::now())
 }
 
 fn locks() -> &'static DashMap<u64, Arc<Mutex<()>>> {
@@ -47,27 +181,44 @@ pub async fn get_or_build(
     video_path: PathBuf,
     info: MediaInfo,
 ) -> Result<Arc<VodAssets>, String> {
-    if let Some(a) = cache().get(&event_id) {
-        return Ok(a.clone());
+    let stamp = FileStamp::of(&video_path);
+    if let Some(a) = cached(event_id, stamp) {
+        return Ok(a);
     }
     // Single-flight: serialize concurrent first-time builds for the same event.
     let lock = locks()
         .entry(event_id)
         .or_insert_with(|| Arc::new(Mutex::new(())))
         .clone();
-    let _guard = lock.lock().await;
-    if let Some(a) = cache().get(&event_id) {
-        return Ok(a.clone());
-    }
-
-    let target = Duration::from_secs(VOD_SEGMENT_SECONDS);
-    let assets = Arc::new(
-        tokio::task::spawn_blocking(move || package_blocking(&video_path, info, target))
-            .await
-            .map_err(|e| format!("vod task failed: {e}"))??,
-    );
-    cache().insert(event_id, assets.clone());
-    Ok(assets)
+    let result = {
+        let _guard = lock.lock().await;
+        match cached(event_id, stamp) {
+            Some(a) => Ok(a),
+            None => {
+                let target = Duration::from_secs(VOD_SEGMENT_SECONDS);
+                let built = tokio::task::spawn_blocking(move || {
+                    package_blocking(&video_path, info, target)
+                })
+                .await
+                .map_err(|e| format!("vod task failed: {e}"))
+                .and_then(|r| r)
+                .map(Arc::new);
+                if let (Ok(assets), Some(stamp)) = (&built, stamp) {
+                    cache().lock().unwrap_or_else(|p| p.into_inner()).insert(
+                        event_id,
+                        stamp,
+                        assets.clone(),
+                        Instant::now(),
+                    );
+                }
+                built
+            }
+        }
+    };
+    // The lock only matters while a build runs; don't keep one per event
+    // ever played.
+    locks().remove_if(&event_id, |_, l| Arc::strong_count(l) <= 2);
+    result
 }
 
 fn package_blocking(path: &Path, info: MediaInfo, target: Duration) -> Result<VodAssets, String> {
@@ -185,6 +336,70 @@ fn build_playlist(segments: &[FMP4Segment], target: Duration) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assets(bytes: usize) -> Arc<VodAssets> {
+        Arc::new(VodAssets {
+            init: vec![0; bytes],
+            segments: Vec::new(),
+            playlist: String::new(),
+        })
+    }
+
+    fn stamp(n: u64) -> FileStamp {
+        FileStamp {
+            len: n,
+            modified: None,
+        }
+    }
+
+    #[test]
+    fn the_cache_evicts_the_least_recently_used_past_its_byte_cap() {
+        let t0 = Instant::now();
+        let mut c = VodCache::new(100, Duration::from_secs(600));
+        c.insert(1, stamp(1), assets(40), t0);
+        c.insert(2, stamp(2), assets(40), t0);
+        // Touch 1, so 2 is now the least recently used.
+        assert!(c.get(1, stamp(1), t0 + Duration::from_secs(1)).is_some());
+        c.insert(3, stamp(3), assets(40), t0 + Duration::from_secs(2));
+        assert!(c.get(2, stamp(2), t0 + Duration::from_secs(3)).is_none());
+        assert!(c.get(1, stamp(1), t0 + Duration::from_secs(3)).is_some());
+        assert!(c.get(3, stamp(3), t0 + Duration::from_secs(3)).is_some());
+        assert!(c.bytes() <= 100);
+    }
+
+    #[test]
+    fn idle_entries_expire() {
+        let t0 = Instant::now();
+        let mut c = VodCache::new(1000, Duration::from_secs(60));
+        c.insert(1, stamp(1), assets(10), t0);
+        assert!(c.get(1, stamp(1), t0 + Duration::from_secs(59)).is_some());
+        assert!(c
+            .get(1, stamp(1), t0 + Duration::from_secs(59 + 61))
+            .is_none());
+        assert_eq!(c.bytes(), 0);
+    }
+
+    #[test]
+    fn a_changed_file_is_not_served_from_the_cache() {
+        let t0 = Instant::now();
+        let mut c = VodCache::new(1000, Duration::from_secs(60));
+        c.insert(1, stamp(10), assets(10), t0);
+        assert!(c.get(1, stamp(11), t0).is_none());
+        assert_eq!(c.bytes(), 0);
+    }
+
+    #[test]
+    fn an_event_bigger_than_the_cache_is_not_kept() {
+        let t0 = Instant::now();
+        let mut c = VodCache::new(100, Duration::from_secs(60));
+        c.insert(1, stamp(1), assets(10), t0);
+        c.insert(2, stamp(2), assets(500), t0);
+        assert!(c.get(2, stamp(2), t0).is_none());
+        assert!(
+            c.get(1, stamp(1), t0).is_some(),
+            "a too-big event evicts nothing"
+        );
+    }
     use crate::streaming::source::VideoCodec;
 
     fn seg(duration: Duration) -> FMP4Segment {

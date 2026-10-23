@@ -687,6 +687,16 @@ recognisable path forward.
 
 ### Security
 
+- **Event playback no longer keeps every played event in memory.** HLS
+  playback of a recorded event (`/events/{id}/stream/...`) packaged the
+  video into memory and kept it there for the life of the process. Playing
+  events one after another grew memory without limit. The cache now holds at
+  most 256 MiB, drops the least recently played event first and any event
+  not played for 10 minutes, and doesn't keep an event bigger than that. It
+  also notices when an event's video file changes (a recording still being
+  written, or a regenerated video) and packages it again instead of serving
+  the old one.
+
 - **Tags only show events the caller can see.** `GET /api/v3/tags/{id}`
   listed every event with the tag, including ones on monitors the caller is
   denied, and `GET /api/v3/tags` counted them in `event_count`. Both now use
