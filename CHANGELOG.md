@@ -687,6 +687,12 @@ recognisable path forward.
 
 ### Security
 
+- **Tags only show events the caller can see.** `GET /api/v3/tags/{id}`
+  listed every event with the tag, including ones on monitors the caller is
+  denied, and `GET /api/v3/tags` counted them in `event_count`. Both now use
+  the caller's visible monitors, as `/events` does. `page=0` on a tag is
+  page 1, where it used to overflow.
+
 - **ONVIF inspect can't reach the server itself.** `POST
   /api/v3/discovery/inspect` accepted loopback addresses, so a Monitors Edit
   user could probe the server's own ports and read back what answered. It now

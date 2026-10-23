@@ -69,46 +69,51 @@ pub async fn delete_by_id(db: &DatabaseConnection, id: u64) -> AppResult<bool> {
     Ok(res.rows_affected > 0)
 }
 
-/// Get event counts for all tags
-pub async fn get_event_counts(db: &DatabaseConnection) -> AppResult<HashMap<u64, u64>> {
-    // Fetch all event-tag associations and count by tag_id
-    let associations = events_tags::Entity::find().all(db).await?;
-
-    let mut counts: HashMap<u64, u64> = HashMap::new();
-    for assoc in associations {
-        *counts.entry(assoc.tag_id).or_insert(0) += 1;
+/// Each tag's event count, over `monitors` only when given (a restricted
+/// caller's visible monitors).
+pub async fn get_event_counts(
+    db: &DatabaseConnection,
+    monitors: Option<&[u32]>,
+) -> AppResult<HashMap<u64, u64>> {
+    let mut q = events_tags::Entity::find()
+        .select_only()
+        .column(events_tags::Column::TagId)
+        .column_as(events_tags::Column::EventId.count(), "n")
+        .group_by(events_tags::Column::TagId);
+    if let Some(ids) = monitors {
+        q = q
+            .join(JoinType::InnerJoin, events_tags::Relation::Events.def())
+            .filter(events::Column::MonitorId.is_in(ids.iter().copied()));
     }
-
-    Ok(counts)
+    let rows: Vec<(u64, i64)> = q.into_tuple().all(db).await?;
+    Ok(rows
+        .into_iter()
+        .map(|(tag, n)| (tag, u64::try_from(n).unwrap_or(0)))
+        .collect())
 }
 
-/// Get paginated events for a specific tag
+/// A page of a tag's events, newest first, over `monitors` only when given.
+/// `page` is 0-based.
 pub async fn find_events_for_tag(
     db: &DatabaseConnection,
     tag_id: u64,
+    monitors: Option<&[u32]>,
     page: u64,
     page_size: u64,
 ) -> AppResult<(Vec<events::Model>, u64)> {
-    // Get event IDs associated with this tag
-    let associations = events_tags::Entity::find()
-        .filter(events_tags::Column::TagId.eq(tag_id))
-        .all(db)
-        .await?;
-
-    let event_ids: Vec<u64> = associations.iter().map(|a| a.event_id).collect();
-    let total = event_ids.len() as u64;
-
-    if event_ids.is_empty() {
-        return Ok((vec![], 0));
+    let tagged = sea_query::Query::select()
+        .column(events_tags::Column::EventId)
+        .from(events_tags::Entity)
+        .and_where(events_tags::Column::TagId.eq(tag_id))
+        .to_owned();
+    let mut q = events::Entity::find().filter(events::Column::Id.in_subquery(tagged));
+    if let Some(ids) = monitors {
+        q = q.filter(events::Column::MonitorId.is_in(ids.iter().copied()));
     }
-
-    // Paginate and fetch events
-    let paginator = events::Entity::find()
-        .filter(events::Column::Id.is_in(event_ids))
+    let paginator = q
         .order_by_desc(events::Column::StartDateTime)
         .paginate(db, page_size);
-
+    let total = paginator.num_items().await?;
     let events_list = paginator.fetch_page(page).await?;
-
     Ok((events_list, total))
 }

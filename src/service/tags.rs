@@ -6,13 +6,16 @@ use crate::dto::{PaginatedResponse, PaginationParams};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
+use crate::service::monitor_acl::MonitorScope;
+use crate::util::authz::Level;
 
 /// Default page size for paginated event listing
 const DEFAULT_PAGE_SIZE: u64 = 20;
 
-pub async fn list_all(state: &AppState) -> AppResult<Vec<TagResponse>> {
+pub async fn list_all(state: &AppState, scope: &MonitorScope) -> AppResult<Vec<TagResponse>> {
     let items = repo::tags::find_all(state.db()).await?;
-    let counts = repo::tags::get_event_counts(state.db()).await?;
+    let visible = scope.visible_ids(Level::View);
+    let counts = repo::tags::get_event_counts(state.db(), visible.as_deref()).await?;
 
     Ok(items
         .iter()
@@ -26,9 +29,11 @@ pub async fn list_all(state: &AppState) -> AppResult<Vec<TagResponse>> {
 pub async fn list_paginated(
     state: &AppState,
     params: &PaginationParams,
+    scope: &MonitorScope,
 ) -> AppResult<PaginatedTagsResponse> {
     let (items, total) = repo::tags::find_paginated(state.db(), params).await?;
-    let counts = repo::tags::get_event_counts(state.db()).await?;
+    let visible = scope.visible_ids(Level::View);
+    let counts = repo::tags::get_event_counts(state.db(), visible.as_deref()).await?;
 
     let responses: Vec<TagResponse> = items
         .iter()
@@ -60,9 +65,10 @@ pub async fn get_by_id_with_events(
     id: u64,
     page: Option<u64>,
     page_size: Option<u64>,
+    scope: &MonitorScope,
 ) -> AppResult<TagDetailResponse> {
-    let page = page.unwrap_or(1);
-    let page_size = page_size.unwrap_or(DEFAULT_PAGE_SIZE);
+    let page = page.unwrap_or(1).max(1);
+    let page_size = page_size.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, 1000);
 
     let tag = repo::tags::find_by_id(state.db(), id).await?;
     let tag = tag.ok_or_else(|| {
@@ -72,8 +78,11 @@ pub async fn get_by_id_with_events(
         })
     })?;
 
+    // Only events on monitors the caller can see, as `/events` lists them.
+    let visible = scope.visible_ids(Level::View);
     let (events, total) =
-        repo::tags::find_events_for_tag(state.db(), id, page - 1, page_size).await?;
+        repo::tags::find_events_for_tag(state.db(), id, visible.as_deref(), page - 1, page_size)
+            .await?;
 
     let total_pages = if total == 0 {
         0

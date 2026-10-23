@@ -353,3 +353,79 @@ async fn restricted_user_cannot_tag_event_of_hidden_monitor() {
         create.text()
     );
 }
+
+const TAG_DETAIL_ACL_UID: u32 = 990_403;
+
+/// `GET /tags/{id}` lists the tag's events, and `GET /tags` counts them:
+/// both only over monitors the caller can see.
+#[tokio::test]
+#[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
+async fn a_tag_shows_only_events_the_caller_can_see() {
+    let app = TestApp::spawn().await;
+    let visible = insert_monitor(&app.db, "TagVisible")
+        .await
+        .expect("monitor");
+    let _mv = RowGuard::monitor(visible.id);
+    let hidden = insert_monitor(&app.db, "TagHidden").await.expect("monitor");
+    let _mh = RowGuard::monitor(hidden.id);
+    let ev_visible = insert_event(&app.db, visible.id, "TagEvVisible").await;
+    let _ev = guard_event(ev_visible);
+    let ev_hidden = insert_event(&app.db, hidden.id, "TagEvHidden").await;
+    let _eh = guard_event(ev_hidden);
+    let tag_id = insert_tag(&app.db, "TagDetailAcl").await;
+    let _t = RowGuard::tag(tag_id);
+    insert_event_tag(&app.db, tag_id, ev_visible).await;
+    let _a1 = guard_event_tag(tag_id, ev_visible);
+    insert_event_tag(&app.db, tag_id, ev_hidden).await;
+    let _a2 = guard_event_tag(tag_id, ev_hidden);
+
+    insert_user_with_id(&app.db, TAG_DETAIL_ACL_UID, "TagDetailUser")
+        .await
+        .expect("insert user");
+    let _ug = RowGuard::new(
+        format!("Users#{TAG_DETAIL_ACL_UID}"),
+        move |db| async move {
+            let _ = common::fixtures::cleanup_user(&db, TAG_DETAIL_ACL_UID).await;
+        },
+    );
+    grant_monitor_permission(&app.db, hidden.id, TAG_DETAIL_ACL_UID, Permission::None)
+        .await
+        .expect("deny permission");
+    let _pg = monitor_permissions_guard(TAG_DETAIL_ACL_UID);
+    let token = token_for(TAG_DETAIL_ACL_UID, UserPermissions::superuser());
+
+    let resp = app.get(&format!("/api/v3/tags/{tag_id}"), &token).await;
+    assert_status(&resp, StatusCode::OK);
+    let body: serde_json::Value = resp.json();
+    let ids: Vec<u64> = body["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["id"].as_u64().unwrap())
+        .collect();
+    assert_eq!(ids, [ev_visible], "{body}");
+    assert_eq!(body["total_events"], 1);
+
+    let resp = app.get("/api/v3/tags?page=1&page_size=1000", &token).await;
+    assert_status(&resp, StatusCode::OK);
+    let body: serde_json::Value = resp.json();
+    let tag = body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["id"] == tag_id)
+        .expect("tag listed");
+    assert_eq!(tag["event_count"], 1, "{tag}");
+
+    // An admin sees both.
+    let resp = app
+        .get(&format!("/api/v3/tags/{tag_id}"), &superuser_token())
+        .await;
+    assert_eq!(resp.json::<serde_json::Value>()["total_events"], 2);
+
+    // Page 0 is page 1, not an overflow.
+    let resp = app
+        .get(&format!("/api/v3/tags/{tag_id}?page=0"), &token)
+        .await;
+    assert_status(&resp, StatusCode::OK);
+}
