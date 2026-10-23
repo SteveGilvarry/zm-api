@@ -344,3 +344,31 @@ async fn control_gates_ptz() {
         "everything-but-Control must not reach PTZ"
     );
 }
+
+#[tokio::test]
+async fn monitors_edit_cannot_add_monitors() {
+    // ZoneMinder: `Edit` changes existing monitors; adding one needs `Create`.
+    let perms = UserPermissions {
+        monitors: Level::Edit,
+        ..UserPermissions::default()
+    };
+    let t = token(perms);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/v3/monitors")
+        .header("Authorization", format!("Bearer {t}"))
+        .header("Content-Type", "application/json")
+        .body(Body::from(r#"{"name":"x"}"#))
+        .unwrap();
+    let resp = router().oneshot(req).await.unwrap();
+    let got = resp.status();
+    let body = axum::body::to_bytes(resp.into_body(), 1 << 16)
+        .await
+        .unwrap();
+    assert_eq!(
+        got,
+        StatusCode::FORBIDDEN,
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
+}

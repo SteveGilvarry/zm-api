@@ -678,6 +678,24 @@ recognisable path forward.
 
 ### Security
 
+- **Monitor access follows ZoneMinder's rules.** A user's monitors are
+  decided as ZoneMinder's `visibleMonitor` and `editableMonitor` decide
+  them: their own per-monitor grant, then their groups (a `None` group
+  denies), then their role's monitors and groups, then their `Monitors`
+  level. A group grant now covers its child groups. A user with no grant
+  rows got every monitor before; they now get what their `Monitors` level
+  allows, so `Monitors: None` sees none. The grants are read in one query.
+- **Adding a monitor needs `Monitors: Create`** (or `System: Edit`), as in
+  ZoneMinder. `Edit` changes existing monitors only.
+- **Live streaming needs `View` on the monitor**, not `Edit`, for every
+  method, since ZoneMinder treats watching as a read.
+- **`/live/sessions` and `/live/sources` list only the caller's monitors.**
+- **Group membership changes need `Edit` on the group**, and reads list only
+  groups the caller can see.
+- **Moving a stat to another monitor needs `Edit` on that monitor.**
+- **Admin changes to a user's access, and deleting a user, revoke their
+  tokens at once.**
+
 - **Private config values are hidden below System Edit** (#184).
   `GET /api/v3/configs` and `GET /api/v3/configs/{name}` returned `Private`
   options in clear to anyone with System View, `ZM_AUTH_HASH_SECRET`

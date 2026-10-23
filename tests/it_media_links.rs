@@ -17,7 +17,7 @@ use common::harness::{token_for, TestApp};
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use serde_json::json;
 use zm_api::dto::response::MediaLinkResponse;
-use zm_api::entity::sea_orm_active_enums::{Events, Stream};
+use zm_api::entity::sea_orm_active_enums::{Events, Monitors, Stream};
 use zm_api::util::authz::UserPermissions;
 use zm_api::util::media_url::{sign, sign_until, MediaResource};
 
@@ -126,7 +126,12 @@ async fn viewer_and_monitor(app: &TestApp, uid: u32) -> (RowGuard, RowGuard, u32
     am.enabled = Set(1);
     am.stream = Set(Stream::View);
     am.events = Set(Events::View);
-    am.update(&app.db).await.expect("grant stream/events view");
+    // With no per-monitor grants, ZoneMinder shows a user the monitors their
+    // Monitors level allows (`visibleMonitor`).
+    am.monitors = Set(Monitors::View);
+    am.update(&app.db)
+        .await
+        .expect("grant stream/events/monitors view");
     let user_guard = RowGuard::user(uid);
     let monitor = insert_monitor(&app.db, "MediaLinkMon")
         .await
@@ -139,6 +144,7 @@ fn viewer_token(uid: u32) -> String {
     let perms = UserPermissions {
         stream: zm_api::util::authz::Level::View,
         events: zm_api::util::authz::Level::View,
+        monitors: zm_api::util::authz::Level::View,
         ..Default::default()
     };
     token_for(uid, perms)

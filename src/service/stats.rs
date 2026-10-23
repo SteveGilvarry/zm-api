@@ -70,6 +70,13 @@ pub async fn update(
     if !scope.allows(existing.monitor_id, Level::Edit) {
         return Err(stat_not_found(id));
     }
+    // Moving the stat needs Edit on the monitor it moves to as well.
+    if req
+        .monitor_id
+        .is_some_and(|m| !scope.allows(m, Level::Edit))
+    {
+        return Err(stat_not_found(id));
+    }
     let updated = repo::stats::update(state.db(), id, &req)
         .await?
         .ok_or_else(|| stat_not_found(id))?;
@@ -88,5 +95,49 @@ pub async fn delete(state: &AppState, id: u32, scope: &MonitorScope) -> AppResul
         Ok(())
     } else {
         Err(stat_not_found(id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entity::stats::Model;
+    use sea_orm::{DatabaseBackend, MockDatabase};
+    use std::collections::HashMap;
+
+    #[tokio::test]
+    async fn a_stat_cannot_be_moved_to_a_monitor_outside_the_scope() {
+        let stat = Model {
+            id: 3,
+            monitor_id: 1,
+            zone_id: 1,
+            event_id: 1,
+            frame_id: 1,
+            pixel_diff: 0,
+            alarm_pixels: 0,
+            filter_pixels: 0,
+            blob_pixels: 0,
+            blobs: 0,
+            min_blob_size: 0,
+            max_blob_size: 0,
+            min_x: 0,
+            max_x: 0,
+            min_y: 0,
+            max_y: 0,
+            score: 0,
+        };
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results(vec![vec![stat]])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let scope = MonitorScope::Restricted(HashMap::from([(1, Level::Edit)]));
+        let req = UpdateStatRequest {
+            monitor_id: Some(2),
+            ..Default::default()
+        };
+        let err = update(&state, 3, req, &scope)
+            .await
+            .expect_err("must refuse");
+        assert!(matches!(err, AppError::NotFoundError(_)), "{err:?}");
     }
 }
