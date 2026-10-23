@@ -11,6 +11,7 @@ pub mod event_audit;
 pub mod event_data;
 pub mod event_export;
 pub mod event_storage;
+pub mod event_stream;
 pub mod event_summaries;
 pub mod events;
 pub mod events_tags;

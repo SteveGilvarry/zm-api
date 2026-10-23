@@ -44,6 +44,7 @@ pub mod zones;
 pub mod auth;
 pub mod event_audit;
 pub mod event_export;
+pub mod event_stream;
 pub mod events;
 pub mod events_playback;
 pub mod live;

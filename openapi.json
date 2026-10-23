@@ -3208,6 +3208,73 @@
         ]
       }
     },
+    "/api/v3/events/stream": {
+      "get": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "Live events and alarm states (Server-Sent Events)",
+        "description": "One stream for every monitor the caller may see (or `monitor_id`). The\nSSE `event` name is the message `type`:\n\n- `alarm_state` `{monitor_id, state, score}`: `idle`, `prealarm`,\n  `alarm`, `alert`, or `unknown`. Sent for every monitor on connect,\n  then on each change.\n- `event_start`, `event_end`, `event_updated` (its notes changed, where\n  object detection writes): `{event_id, monitor_id, name, cause, notes,\n  start_date_time, end_date_time, frames, alarm_frames, max_score, length}`.\n  The SSE `id` is the event id: reconnect with `Last-Event-ID` (or\n  `?since=`) to replay what was missed, up to 500 events.\n- `lagged`: the subscriber fell behind and missed messages; reconnect\n  with `Last-Event-ID`.\n\nA heartbeat comment every 15 s. The stream ends when the access token\nexpires, or when the user loses access (checked every minute).",
+        "operationId": "streamEvents",
+        "parameters": [
+          {
+            "name": "monitor_id",
+            "in": "query",
+            "description": "Only this monitor.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "description": "Replay events with a higher id first (as `Last-Event-ID` does), at\nmost 500.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "401": {
+            "description": "No or bad token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No Events access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppResponseError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "jwt": []
+          }
+        ]
+      }
+    },
     "/api/v3/events/{id}": {
       "get": {
         "tags": [

@@ -10,6 +10,14 @@ recognisable path forward.
 
 ### Added
 
+- **Live event stream**, `GET /api/v3/events/stream` (Server-Sent Events):
+  `event_start`, `event_end` and `event_updated` (notes changed, where object
+  detection writes) for every monitor the caller may see, and each monitor's
+  `alarm_state` on connect and on change. Reconnect with `Last-Event-ID` or
+  `?since=` to replay missed events. One watcher reads alarm state from
+  shared memory four times a second and events from the `Events` table, and
+  runs only while someone is subscribed. Heartbeat every 15 s; the stream
+  ends at token expiry or loss of access.
 - **Generate a video for an event** (#187), the first kind in the media job
   queue of `docs/FILTERS_PLAN.md`. `POST /api/v3/events/{id}/videos` queues
   ZoneMinder's Generate Video, with a format from `ZM_FFMPEG_FORMATS`, a

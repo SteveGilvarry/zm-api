@@ -46,6 +46,8 @@ pub struct AppState {
     pub schema_behind: Option<Arc<str>>,
     /// Wakes the media job worker when a job is queued.
     pub media_job_wake: Arc<tokio::sync::Notify>,
+    /// The live event stream's hub (`GET /api/v3/events/stream`).
+    pub event_hub: Arc<crate::service::event_stream::EventHub>,
 }
 
 impl AppState {
@@ -348,6 +350,7 @@ impl AppState {
             revocations,
             schema_behind,
             media_job_wake: Arc::new(tokio::sync::Notify::new()),
+            event_hub: Default::default(),
         })
     }
 
@@ -387,6 +390,7 @@ impl AppState {
             revocations: std::sync::Arc::new(crate::util::revocation::TokenRevocations::default()),
             schema_behind: None,
             media_job_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
+            event_hub: Default::default(),
         }
     }
 
