@@ -14441,207 +14441,6 @@
         ]
       }
     },
-    "/api/v3/sessions": {
-      "get": {
-        "tags": [
-          "Sessions"
-        ],
-        "summary": "List all sessions with pagination.",
-        "description": "- Requires a valid JWT.",
-        "operationId": "list_sessions",
-        "parameters": [
-          {
-            "name": "page",
-            "in": "query",
-            "description": "Page number (1-indexed)",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64",
-              "minimum": 0
-            },
-            "example": 1
-          },
-          {
-            "name": "page_size",
-            "in": "query",
-            "description": "Items per page (max 1000)",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int64",
-              "minimum": 0
-            },
-            "example": 25
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Paginated list of PHP web-UI sessions (not API tokens)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PaginatedSessionsResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "jwt": []
-          }
-        ]
-      },
-      "post": {
-        "tags": [
-          "Sessions"
-        ],
-        "summary": "Create a new session entry.",
-        "description": "- Requires a valid JWT.",
-        "operationId": "create_session",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateSessionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Created session",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SessionResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "jwt": []
-          }
-        ]
-      }
-    },
-    "/api/v3/sessions/{id}": {
-      "get": {
-        "tags": [
-          "Sessions"
-        ],
-        "summary": "Get a session by id.",
-        "description": "- Requires a valid JWT; responds 404 if not found.",
-        "operationId": "get_session",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Session ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Session detail",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SessionResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "jwt": []
-          }
-        ]
-      },
-      "delete": {
-        "tags": [
-          "Sessions"
-        ],
-        "summary": "Delete a session by id.",
-        "description": "- Responds 204 on success, 404 if not found.\n- Requires a valid JWT.",
-        "operationId": "delete_session",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Session ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Deleted session"
-          }
-        },
-        "security": [
-          {
-            "jwt": []
-          }
-        ]
-      },
-      "patch": {
-        "tags": [
-          "Sessions"
-        ],
-        "summary": "Update a session entry.",
-        "description": "- Partial update.\n- Requires a valid JWT.",
-        "operationId": "update_session",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Session ID",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateSessionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Updated session",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SessionResponse"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "jwt": []
-          }
-        ]
-      }
-    },
     "/api/v3/snapshots": {
       "get": {
         "tags": [
@@ -22182,31 +21981,6 @@
           }
         }
       },
-      "CreateSessionRequest": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "access": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "minimum": 0
-          },
-          "data": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
-            "type": "string"
-          }
-        }
-      },
       "CreateSnapshotEventRequest": {
         "type": "object",
         "required": [
@@ -28003,45 +27777,6 @@
           }
         }
       },
-      "PaginatedSessionsResponse": {
-        "type": "object",
-        "description": "Paginated response for sessions",
-        "required": [
-          "items",
-          "total",
-          "per_page",
-          "current_page",
-          "last_page"
-        ],
-        "properties": {
-          "current_page": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SessionResponse"
-            }
-          },
-          "last_page": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "per_page": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          },
-          "total": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
-          }
-        }
-      },
       "PaginatedSnapshotEventsResponse": {
         "type": "object",
         "description": "Paginated response for snapshot-event associations",
@@ -29722,31 +29457,6 @@
         ],
         "properties": {
           "status": {
-            "type": "string"
-          }
-        }
-      },
-      "SessionResponse": {
-        "type": "object",
-        "required": [
-          "id"
-        ],
-        "properties": {
-          "access": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "minimum": 0
-          },
-          "data": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "id": {
             "type": "string"
           }
         }
@@ -33627,25 +33337,6 @@
           }
         }
       },
-      "UpdateSessionRequest": {
-        "type": "object",
-        "properties": {
-          "access": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "minimum": 0
-          },
-          "data": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
       "UpdateSnapshotRequest": {
         "type": "object",
         "properties": {
@@ -35421,10 +35112,6 @@
     {
       "name": "Servers",
       "description": "Server info endpoints"
-    },
-    {
-      "name": "Sessions",
-      "description": "ZoneMinder PHP web-UI login sessions — **not** API tokens. This API authenticates with JWTs from /auth/login; nothing here mints or revokes an API credential. Rows expire automatically under ZM_COOKIE_LIFETIME."
     },
     {
       "name": "Snapshots",

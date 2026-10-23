@@ -360,13 +360,6 @@ use crate::util::claim::UserClaims;
         crate::handlers::servers::list_servers,
         crate::handlers::servers::update_server,
 
-        // sessions
-        crate::handlers::sessions::create_session,
-        crate::handlers::sessions::delete_session,
-        crate::handlers::sessions::get_session,
-        crate::handlers::sessions::list_sessions,
-        crate::handlers::sessions::update_session,
-
         // snapshots
         crate::handlers::snapshots::create_snapshot,
         crate::handlers::snapshots::delete_snapshot,
@@ -714,11 +707,6 @@ use crate::util::claim::UserClaims;
             crate::dto::response::servers::ServerResponse,
             crate::dto::request::servers::UpdateServerRequest,
 
-            // sessions
-            crate::dto::request::sessions::CreateSessionRequest,
-            crate::dto::request::sessions::UpdateSessionRequest,
-            crate::dto::response::sessions::SessionResponse,
-
             // snapshots
             crate::dto::request::snapshots::CreateSnapshotRequest,
             crate::dto::request::snapshots::UpdateSnapshotRequest,
@@ -817,10 +805,6 @@ use crate::util::claim::UserClaims;
         (name = "Server", description = "Server information endpoints"),
         (name = "Server Stats", description = "Server performance statistics"),
         (name = "Servers", description = "Server info endpoints"),
-        (name = "Sessions", description = "ZoneMinder PHP web-UI login sessions — \
-            **not** API tokens. This API authenticates with JWTs from \
-            /auth/login; nothing here mints or revokes an API credential. \
-            Rows expire automatically under ZM_COOKIE_LIFETIME."),
         (name = "Snapshots", description = "System snapshots"),
         (name = "Snapshots Events", description = "Snapshot-event associations"),
         (name = "States", description = "Monitor states"),

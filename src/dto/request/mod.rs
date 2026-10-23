@@ -38,7 +38,6 @@ pub mod roles;
 pub mod search;
 pub mod server_stats;
 pub mod servers;
-pub mod sessions;
 pub mod settings_tables;
 pub mod snapshots;
 pub mod snapshots_events;

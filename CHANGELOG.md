@@ -687,6 +687,17 @@ recognisable path forward.
 
 ### Security
 
+- **`/api/v3/sessions` is removed.** It gave read and write access to
+  ZoneMinder's PHP web sessions to anyone with System access. A System View
+  user could read another user's session id, which is the classic UI's login
+  cookie, and the session data, which holds that user's row with its password
+  hash. With the admin's session id they could use the classic UI as admin. A
+  System Edit user could create or change session rows, and so forge a web
+  login as anyone. zm-api logs in with JWTs and never uses these sessions, so
+  the routes (`GET`/`POST /sessions`, `GET`/`PATCH`/`DELETE /sessions/{id}`)
+  are gone rather than restricted. The maintenance service still prunes
+  expired rows for installs that run the PHP UI.
+
 - **Event videos no longer run the ffmpeg program.** Media jobs ran the
   binary named by `ZM_PATH_FFMPEG` with `ZM_FFMPEG_INPUT_OPTIONS` and
   `ZM_FFMPEG_OUTPUT_OPTIONS` as arguments, so anyone who could write the

@@ -28,7 +28,6 @@ pub mod ptz;
 pub mod reports;
 pub mod server_stats;
 pub mod servers;
-pub mod sessions;
 pub mod snapshots;
 pub mod snapshots_events;
 pub mod states;

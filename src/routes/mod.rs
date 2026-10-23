@@ -58,7 +58,6 @@ pub mod search; // Natural-language / semantic event search
 pub mod server;
 pub mod server_stats; // Server Stats
 pub mod servers; // Server info list
-pub mod sessions; // Sessions
 pub mod settings_tables; // EncoderTemplates, Menu_Items
 pub mod snapshots; // Snapshots
 pub mod snapshots_events; // Snapshots Events
@@ -574,7 +573,6 @@ pub fn create_router_app(state: AppState) -> Router {
         user_preferences::add_user_preference_routes(Router::new()),
         Feature::System,
     );
-    let session_routes = protect(sessions::add_session_routes(Router::new()), Feature::System);
     let montage_layout_routes = protect(
         montage_layouts::add_montage_layout_routes(Router::new()),
         Feature::System,
@@ -652,7 +650,6 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(tag_routes)
         .merge(trigger_x10_routes)
         .merge(user_preference_routes)
-        .merge(session_routes)
         .merge(state_routes)
         .merge(stat_routes)
         .merge(frame_routes)
