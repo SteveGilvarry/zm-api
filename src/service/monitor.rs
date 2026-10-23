@@ -259,7 +259,7 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
 
 /// `EventStartCommand`/`EventEndCommand` are run by `zmc` (through `/bin/sh -c`
 /// when they hold a `%` tag), so changing one is shell access on the server.
-/// ZoneMinder keeps that to System editors (GHSA-vcrj-35c6-g97c). Sending the
+/// ZoneMinder keeps that to System editors. Sending the
 /// current value again is not a change.
 pub fn ensure_may_set_event_commands(
     perms: &crate::util::authz::UserPermissions,

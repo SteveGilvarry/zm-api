@@ -681,9 +681,9 @@ recognisable path forward.
 - **Stored values can't change the commands ZoneMinder runs.** Anything that
   becomes part of a command now needs `System: Edit` or is checked first:
   - Filters with `AutoExecute` or a command, and monitor
-    `EventStartCommand`/`EventEndCommand`, need `System: Edit` (ZoneMinder
-    GHSA-vcrj-35c6-g97c). Other users can't edit a filter that already runs
-    a command.
+    `EventStartCommand`/`EventEndCommand`, need `System: Edit`, as in
+    ZoneMinder. Other users can't edit a filter that already runs a
+    command.
   - Monitor `Path`/`SecondPath` must use a known capture scheme or be a
     local path (go2rtc runs `exec:` sources). `Device` must be under `/dev/`.
     `Storage.Path` is limited to characters a shell treats literally.
