@@ -67,5 +67,6 @@ pub mod user_preferences;
 pub mod users;
 pub mod video_encode;
 pub mod zmnext;
+pub mod zone_orientation;
 pub mod zone_presets;
 pub mod zones;

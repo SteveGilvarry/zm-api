@@ -241,6 +241,19 @@ recognisable path forward.
 
 ### Fixed
 
+- **A new monitor gets a full-frame zone.** ZoneMinder's monitor editor adds
+  an "All" zone to every monitor it creates, and `POST /api/v3/monitors` did
+  not, so a Modect monitor added through the API never alarmed. It now adds
+  "All" in the same transaction. It covers the whole picture with the
+  thresholds of ZoneMinder's "Default" zone preset, which are percentages of
+  the zone, so they fit any resolution or orientation. (ZoneMinder's PHP
+  editor still writes pixel counts into these columns, which zmc has read as
+  percentages since 1.39.3, so its new zones can't alarm. That needs fixing
+  upstream.)
+- **Zones turn with the monitor.** Changing a monitor's `orientation` now
+  moves its zones to match the turned or flipped picture, using the same
+  clockwise turns as zmc. Before, zones stayed put and covered a different
+  part of the scene. Percentage and pixel zones are both handled.
 - **A ZoneMinder schema older than this build no longer stops capture**
   (#147). At startup zm-api compares ZoneMinder's schema version with the
   one it mirrors. When the schema is behind, zm-api logs it as an error,
