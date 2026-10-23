@@ -28,6 +28,12 @@ pub fn routes() -> Router<AppState> {
             post(crate::handlers::media_links::create_live_link)
                 .route_layer(axum::middleware::from_fn(auth_middleware)),
         )
+        // Signed RTSP link (zm-api's RTSP server). Header token only.
+        .route(
+            "/rtsp/link",
+            post(crate::handlers::media_links::create_rtsp_link)
+                .route_layer(axum::middleware::from_fn(auth_middleware)),
+        )
         .route("/hls/{segment}", get(live::get_live_segment))
         // WebRTC endpoints (WebSocket signaling)
         .route("/webrtc/ws", get(live::webrtc_websocket_handler))

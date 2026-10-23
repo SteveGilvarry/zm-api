@@ -262,6 +262,11 @@ async fn restricted_user_cannot_read_event_tag_of_hidden_monitor() {
     grant_monitor_permission(&app.db, visible.id, ETAG_ACL_UID, Permission::View)
         .await
         .expect("grant permission");
+    // ZoneMinder shows a monitor no row names at the base level, so hiding
+    // one takes an explicit None row.
+    grant_monitor_permission(&app.db, hidden.id, ETAG_ACL_UID, Permission::None)
+        .await
+        .expect("deny permission");
     let _pg = monitor_permissions_guard(ETAG_ACL_UID);
 
     let token = token_for(ETAG_ACL_UID, UserPermissions::superuser());
@@ -323,6 +328,11 @@ async fn restricted_user_cannot_tag_event_of_hidden_monitor() {
     grant_monitor_permission(&app.db, visible.id, ETAG_ACL_CREATE_UID, Permission::View)
         .await
         .expect("grant permission");
+    // ZoneMinder shows a monitor no row names at the base level, so hiding
+    // one takes an explicit None row.
+    grant_monitor_permission(&app.db, hidden.id, ETAG_ACL_CREATE_UID, Permission::None)
+        .await
+        .expect("deny permission");
     let _pg = monitor_permissions_guard(ETAG_ACL_CREATE_UID);
     // Reclaim the association if the (buggy) create unexpectedly succeeds.
     let _link = guard_event_tag(tag_id, event_id);
