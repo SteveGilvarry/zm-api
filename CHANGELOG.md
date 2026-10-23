@@ -687,6 +687,14 @@ recognisable path forward.
 
 ### Security
 
+- **Camera passwords inside monitor URLs are hidden from viewers.** `pass`
+  and `onvif_password` were already left out of monitor responses, but a
+  password in `path`, `second_path`, `control_address` or `onvif_url`
+  (`rtsp://user:pass@host`, `user:pass@host`, or a `pwd=` query parameter)
+  went to anyone with Monitors View. `GET /api/v3/monitors` and
+  `/monitors/{id}` now show it as `***` unless the caller can edit that
+  monitor. Editors still see the URLs as stored, because they edit them.
+
 - **Filters with automatic actions need Edit on every monitor.** `zmfilter.pl`
   runs a saved filter over every monitor's events, whoever owns it. A user
   limited to some monitors could save a filter with AutoDelete, AutoEmail or
