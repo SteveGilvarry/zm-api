@@ -687,6 +687,16 @@ recognisable path forward.
 
 ### Security
 
+- **Rate limits can't be dodged with a forged `X-Forwarded-For`.** With
+  `trust_proxy_headers` on, which `prod.toml` sets, the limiters took the
+  leftmost `X-Forwarded-For` address from any connection. A client reaching
+  zm-api directly could send a new address with each request and get a fresh
+  login allowance every time. Even behind a proxy the leftmost address is the
+  one the client wrote. Now the headers are believed only on connections from
+  `server.middleware.trusted_proxies` (new; loopback by default, for Apache on
+  the same host). The client is the rightmost address that isn't a trusted
+  proxy. A proxy on another host needs adding to `trusted_proxies`.
+
 - **Event playback no longer keeps every played event in memory.** HLS
   playback of a recorded event (`/events/{id}/stream/...`) packaged the
   video into memory and kept it there for the life of the process. Playing
