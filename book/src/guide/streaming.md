@@ -68,6 +68,51 @@ password = "…"
 
 Media is relayed through TURN, so size it accordingly.
 
+## RTSP
+
+For players that take one URL and want a camera stream: Home Assistant's
+stream component, VLC, NVRs. zm-api serves each monitor's live video over RTSP,
+opened by a signed link instead of a username and password. It is off until you
+turn it on:
+
+```toml
+[streaming.rtsp]
+enabled = true
+port = 8554
+# RTSPS, with server.tls's certificate and key:
+tls_port = 8322
+# Host name in the links (default: the host the link request was sent to):
+public_host = "zm.example"
+```
+
+ZoneMinder's own `zm_rtsp_server` also defaults to port 8554. Run one or the
+other, or move this one.
+
+Mint a link the same way as for HLS:
+
+```
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' -d '{"ttl_seconds": 2592000}' \
+  https://zm.example/api/v3/live/1/rtsp/link
+# {"url":"rtsp://zm.example:8554/live/1?st=…","tls_url":"rtsps://zm.example:8322/live/1?st=…",…}
+
+ffplay -rtsp_transport tcp "rtsp://zm.example:8554/live/1?st=…"
+```
+
+- **What a link opens.** That monitor's live video, view only, until it expires.
+  A playing stream is checked again every minute, so logging the user out,
+  disabling them, or taking away Stream access or the monitor ends it.
+- **Transport.** RTP travels over the RTSP connection (interleaved TCP). A
+  client that asks for UDP gets `461 Unsupported Transport`, and FFmpeg and VLC
+  then retry over TCP.
+- **Codecs.** H.264 or H.265, whatever the camera sends. No audio yet.
+- **Errors.** A missing or bad link gets `401`, a link for another monitor
+  `403`, and a monitor with no stream yet `503`. After three failed links the
+  connection is closed.
+- **Plain RTSP is unencrypted.** Anyone who can watch the network sees the link
+  and the video. Use `rtsps://` where the player supports it (FFmpeg does, and
+  doesn't check the certificate by default).
+
 ## Session control and snapshots
 
 ```

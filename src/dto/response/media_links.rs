@@ -14,3 +14,18 @@ pub struct MediaLinkResponse {
     /// Unix time the link stops working.
     pub expires_at: i64,
 }
+
+/// Signed RTSP links to a monitor's live video, for players that take one
+/// URL (Home Assistant, VLC, NVRs).
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct RtspLinkResponse {
+    /// Plain RTSP. Video only, RTP over the RTSP connection (TCP).
+    #[schema(example = "rtsp://zm.lan:8554/live/1?st=1.m.1.3.1760000000.1762592000.Q2…")]
+    pub url: String,
+    /// RTSP over TLS, when the server has an RTSPS port.
+    pub tls_url: Option<String>,
+    /// The signature alone (`st`).
+    pub token: String,
+    /// Unix time the link stops working.
+    pub expires_at: i64,
+}
