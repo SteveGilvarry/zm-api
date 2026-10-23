@@ -88,6 +88,13 @@ impl TestApp {
         }
     }
 
+    /// The router itself, for tests that read a response's head without
+    /// waiting for its body (streams).
+    #[allow(dead_code)]
+    pub fn router(&self) -> Router {
+        self.router.clone()
+    }
+
     /// Begin building a request. The router is cloned per call so a single
     /// `TestApp` can serve any number of requests.
     pub fn request(&self, method: Method, path: &str) -> TestRequest {

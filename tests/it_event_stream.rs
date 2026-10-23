@@ -115,3 +115,33 @@ async fn the_stream_needs_a_token() {
         .await;
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
+
+/// `/events/stream` is its own route, not `/events/{id}` with id "stream"
+/// (which answers 400): the response is an event stream.
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn the_stream_route_is_not_an_event_id() {
+    use tower::ServiceExt;
+    let app = TestApp::spawn().await;
+    let req = axum::http::Request::builder()
+        .uri("/api/v3/events/stream")
+        .header(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {}", common::harness::superuser_token()),
+        )
+        .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+            [127, 0, 0, 1],
+            50000,
+        ))))
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = tokio::time::timeout(Duration::from_secs(10), app.router().oneshot(req))
+        .await
+        .expect("response head within 10 s")
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers()[axum::http::header::CONTENT_TYPE],
+        "text/event-stream"
+    );
+}
