@@ -22,12 +22,9 @@ use tracing::{debug, error, info, warn};
 
 use crate::error::{AppError, AppResponseError, AppResult};
 use crate::server::state::AppState;
-use crate::streaming::live::audio::AacToOpusTranscoder;
-use crate::streaming::live::webrtc::{
-    AccessUnitAssembler, AssembledAccessUnit, AudioTrackKind, WebRtcLiveConfig, WebRtcLiveManager,
-};
+use crate::streaming::live::webrtc::{WebRtcLiveConfig, WebRtcLiveManager};
 use crate::streaming::live::{CoordinatorError, LiveStreamConfig};
-use crate::streaming::source::{AudioCodec, CachedKeyframe, MonitorSource, VideoCodec};
+use crate::streaming::source::{CachedKeyframe, MonitorSource, VideoCodec};
 
 // ============================================================================
 // DTOs
@@ -739,25 +736,13 @@ pub async fn webrtc_websocket_handler(
 /// access-unit path then waits for the next keyframe). See REVIEW_FIXES_PLAN §2.1.
 async fn inject_startup_keyframe(
     webrtc_manager: &WebRtcLiveManager,
-    session_id: &str,
     source: &MonitorSource,
     pre_signaling: &Option<CachedKeyframe>,
-    au_assembler: &mut AccessUnitAssembler,
+    pump: &mut crate::streaming::live::webrtc::MediaPump,
 ) -> bool {
-    let Some(ck) = source.cached_keyframe().or_else(|| pre_signaling.clone()) else {
-        return false;
-    };
-    let au = AssembledAccessUnit {
-        data: ck.keyframe_au.clone(),
-        timestamp_us: ck.timestamp_us,
-        is_keyframe: true,
-    };
-    if let Err(e) = webrtc_manager.write_access_unit(session_id, &au).await {
-        warn!("Failed to inject startup keyframe: {}", e);
-        return false;
-    }
-    au_assembler.clear_needs_keyframe();
-    true
+    let keyframe = source.cached_keyframe().or_else(|| pre_signaling.clone());
+    pump.inject_keyframe(webrtc_manager, keyframe.as_ref())
+        .await
 }
 
 async fn handle_webrtc_websocket(
@@ -836,33 +821,8 @@ async fn handle_webrtc_websocket(
     // not implement AAC over RTP. The transcoder is created up front so a
     // missing libopus downgrades the offer to video-only instead of
     // advertising an audio m-line that could never carry media.
-    let mut audio_transcoder: Option<AacToOpusTranscoder> = None;
-    let audio_kind = match source.audio_codec() {
-        Some(AudioCodec::G711Ulaw) => Some(AudioTrackKind::Pcmu),
-        Some(AudioCodec::G711Alaw) => Some(AudioTrackKind::Pcma),
-        Some(AudioCodec::Aac) => match AacToOpusTranscoder::new() {
-            Ok(t) => {
-                audio_transcoder = Some(t);
-                Some(AudioTrackKind::Opus)
-            }
-            Err(e) => {
-                warn!(
-                    "Monitor {} has AAC audio but transcoding is unavailable ({}); \
-                     offering video-only",
-                    monitor_id, e
-                );
-                None
-            }
-        },
-        Some(other) => {
-            debug!(
-                "Monitor {} audio codec {:?} not supported over WebRTC; video-only",
-                monitor_id, other
-            );
-            None
-        }
-        None => None,
-    };
+    let (audio_kind, audio_transcoder) =
+        crate::streaming::live::webrtc::audio_plan(monitor_id, source.audio_codec());
 
     // Create WebRTC session. With trickle ICE the offer is returned immediately
     // (no ICE-gather wait); candidates stream out on `candidate_rx` and the
@@ -873,6 +833,7 @@ async fn handle_webrtc_websocket(
         mut pc_state_rx,
         mut ice_connected_rx,
         mut candidate_rx,
+        ..
     } = match webrtc_manager
         .create_session(monitor_id, codec, profile_level_id.as_deref(), audio_kind)
         .await
@@ -929,7 +890,8 @@ async fn handle_webrtc_websocket(
 
     // Assembles individual NAL units into complete access units (frames)
     // so the H264 payloader assigns one RTP timestamp per picture.
-    let mut au_assembler = AccessUnitAssembler::new();
+    let mut pump =
+        crate::streaming::live::webrtc::MediaPump::new(session_id.clone(), audio_transcoder);
 
     // Track if DTLS handshake is complete and we can stream media
     let mut streaming_started = false;
@@ -995,7 +957,7 @@ async fn handle_webrtc_websocket(
                                                     source_router.record_webrtc_connected(monitor_id, connect_at.elapsed().as_millis() as u64);
                                                     // Inject the freshest keyframe for instant video start
                                                     if !cache_injected {
-                                                        cache_injected = inject_startup_keyframe(&webrtc_manager, &session_id, &source, &cached, &mut au_assembler).await;
+                                                        cache_injected = inject_startup_keyframe(&webrtc_manager, &source, &cached, &mut pump).await;
                                                         if cache_injected {
                                                             info!("Injected startup keyframe for session {} (fast start)", session_id);
                                                         }
@@ -1069,7 +1031,7 @@ async fn handle_webrtc_websocket(
                                 source_router.record_webrtc_connected(monitor_id, connect_at.elapsed().as_millis() as u64);
                                 // Inject the freshest keyframe for instant video start
                                 if !cache_injected {
-                                    cache_injected = inject_startup_keyframe(&webrtc_manager, &session_id, &source, &cached, &mut au_assembler).await;
+                                    cache_injected = inject_startup_keyframe(&webrtc_manager, &source, &cached, &mut pump).await;
                                     if cache_injected {
                                         info!("Injected startup keyframe for session {} (fast start)", session_id);
                                     }
@@ -1175,16 +1137,12 @@ async fn handle_webrtc_websocket(
                         // Feed each NAL into the assembler; when a complete
                         // access unit (frame) is ready, send it as one sample
                         // so all NALs share a single RTP timestamp.
-                        if let Some(au) = au_assembler.push(&packet) {
-                            if let Err(e) = webrtc_manager.write_access_unit(&session_id, &au).await {
-                                debug!("Failed to write access unit: {}", e);
-                            } else if !first_rtp_recorded {
-                                first_rtp_recorded = true;
-                                source_router.record_webrtc_first_rtp(
-                                    monitor_id,
-                                    connect_at.elapsed().as_millis() as u64,
-                                );
-                            }
+                        if pump.video(&webrtc_manager, &packet).await && !first_rtp_recorded {
+                            first_rtp_recorded = true;
+                            source_router.record_webrtc_first_rtp(
+                                monitor_id,
+                                connect_at.elapsed().as_millis() as u64,
+                            );
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
@@ -1208,49 +1166,7 @@ async fn handle_webrtc_websocket(
                 }
             } => {
                 match result {
-                    Ok(packet) if streaming_started => match packet.codec {
-                        AudioCodec::G711Alaw | AudioCodec::G711Ulaw => {
-                            // G.711: 8 kHz, one byte per sample — pass through.
-                            let duration = Duration::from_micros(
-                                packet.data.len() as u64 * 1_000_000 / 8_000,
-                            );
-                            if let Err(e) = webrtc_manager
-                                .write_audio_sample(&session_id, &packet.data, duration)
-                                .await
-                            {
-                                debug!("Failed to write audio sample: {}", e);
-                            }
-                        }
-                        AudioCodec::Aac => {
-                            // ADTS AAC → Opus. Sub-millisecond per frame, so
-                            // inline in the async loop is fine.
-                            if let Some(transcoder) = audio_transcoder.as_mut() {
-                                match transcoder.transcode(&packet.data) {
-                                    Ok(frames) => {
-                                        for frame in frames {
-                                            if let Err(e) = webrtc_manager
-                                                .write_audio_sample(
-                                                    &session_id,
-                                                    &frame.data,
-                                                    frame.duration,
-                                                )
-                                                .await
-                                            {
-                                                debug!("Failed to write Opus frame: {}", e);
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        debug!(
-                                            "AAC→Opus transcode error for session {}: {}",
-                                            session_id, e
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        _ => {}
-                    },
+                    Ok(packet) if streaming_started => pump.audio(&webrtc_manager, &packet).await,
                     Ok(_) => {} // pre-DTLS audio: drained and dropped
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         debug!("WebRTC session {} audio lagged {} packets", session_id, n);

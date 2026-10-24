@@ -244,3 +244,72 @@ async fn snapshot_without_token_is_unauthorized() {
         resp.text()
     );
 }
+
+// ---- WHEP (RFC 9725) -------------------------------------------------------
+
+const OFFER: &str =
+    "v=0\r\no=- 1 1 IN IP4 0.0.0.0\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\n";
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn whep_needs_a_header_token() {
+    let app = TestApp::spawn().await;
+    let resp = app
+        .request(Method::POST, "/api/v3/live/1/webrtc/whep")
+        .raw_body(OFFER, "application/sdp")
+        .send()
+        .await;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn whep_takes_only_sdp() {
+    let app = TestApp::spawn().await;
+    let resp = app
+        .request(Method::POST, "/api/v3/live/1/webrtc/whep")
+        .bearer(&superuser_token())
+        .raw_body(OFFER, "application/json")
+        .send()
+        .await;
+    assert_eq!(resp.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+}
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn whep_without_live_streaming_is_unavailable() {
+    // The test state has no stream-socket router.
+    let app = TestApp::spawn().await;
+    let resp = app
+        .request(Method::POST, "/api/v3/live/1/webrtc/whep")
+        .bearer(&superuser_token())
+        .raw_body(OFFER, "application/sdp")
+        .send()
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "{}",
+        resp.text()
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires the test database (APP_PROFILE=test-db)"]
+async fn an_unknown_whep_session_is_not_found() {
+    let app = TestApp::spawn().await;
+    let path = "/api/v3/live/1/webrtc/whep/00000000-0000-0000-0000-000000000000";
+    let resp = app
+        .request(Method::PATCH, path)
+        .bearer(&superuser_token())
+        .raw_body("a=end-of-candidates\r\n", "application/trickle-ice-sdpfrag")
+        .send()
+        .await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let resp = app
+        .request(Method::DELETE, path)
+        .bearer(&superuser_token())
+        .send()
+        .await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}

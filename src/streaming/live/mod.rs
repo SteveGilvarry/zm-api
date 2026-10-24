@@ -9,5 +9,6 @@ pub mod audio;
 pub mod coordinator;
 pub mod hls;
 pub mod webrtc;
+pub mod whep;
 
 pub use coordinator::*;
