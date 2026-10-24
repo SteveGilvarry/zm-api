@@ -170,6 +170,7 @@ use crate::util::claim::UserClaims;
         crate::handlers::live::get_live_stats,
         crate::handlers::live::list_live_sessions,
         crate::handlers::live::get_live_master_playlist,
+        crate::handlers::event_stream::stream_events,
         crate::handlers::media_links::create_live_link,
         crate::handlers::whep::whep_offer,
         crate::handlers::whep::whep_trickle,

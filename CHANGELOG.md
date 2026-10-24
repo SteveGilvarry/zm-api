@@ -10,6 +10,14 @@ recognisable path forward.
 
 ### Added
 
+- **Live event stream**, `GET /api/v3/events/stream` (Server-Sent Events):
+  `event_start`, `event_end` and `event_updated` (notes changed, where object
+  detection writes) for every monitor the caller may see, and each monitor's
+  `alarm_state` on connect and on change. Reconnect with `Last-Event-ID` or
+  `?since=` to replay missed events. One watcher reads alarm state from
+  shared memory four times a second and events from the `Events` table, and
+  runs only while someone is subscribed. Heartbeat every 15 s; the stream
+  ends at token expiry or loss of access.
 - **WHEP for live WebRTC** (RFC 9725): `POST /api/v3/live/{monitor_id}/webrtc/whep`
   takes the viewer's SDP offer and answers `201` with the SDP answer
   (zm-api's candidates included) and the session in `Location`;
