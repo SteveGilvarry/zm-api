@@ -55,6 +55,7 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new(mut config: AppConfig) -> AppResult<Self> {
+        crate::configure::server::set_public_prefix(&config.server.public_prefix);
         let db = Arc::new(DatabaseClient::build_from_config(&config).await?);
 
         // zm-next is on only where it is installed: `enabled = "auto"` (the
@@ -116,7 +117,7 @@ impl AppState {
             tracing::info!("HLS streaming enabled, initializing session manager");
             let manager = Arc::new(HlsSessionManager::new(
                 config.streaming.hls.clone(),
-                "/api/v3/live", // Changed to use /api/v3/live/ prefix
+                &crate::configure::server::public_path("/api/v3/live"),
             ));
             // Start the background segment-cleanup loop (previously never
             // started — its handle was dropped on the floor). See §3.1.
