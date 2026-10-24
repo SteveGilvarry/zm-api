@@ -177,6 +177,81 @@ fn enum_str<T: serde::Serialize>(v: &T) -> String {
     }
 }
 
+/// Query parameters that carry a camera password.
+const PASSWORD_PARAMS: [&str; 4] = ["password", "pass", "passwd", "pwd"];
+
+/// `url` with any password replaced by `***`: the one in `user:pass@host`
+/// (with or without a scheme, as ZoneMinder's ControlAddress has none) and
+/// any `password=`-style query parameter. The user name and host stay.
+pub fn hide_url_password(url: &str) -> String {
+    let (scheme, rest) = match url.find("://") {
+        Some(i) => url.split_at(i + 3),
+        None => ("", url),
+    };
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at(end);
+    let authority = match authority.rfind('@') {
+        Some(at) => match authority[..at].split_once(':') {
+            Some((user, _)) => format!("{user}:***{}", &authority[at..]),
+            None => authority.to_string(),
+        },
+        None => authority.to_string(),
+    };
+    let tail = match tail.split_once('?') {
+        Some((path, query)) => {
+            let (query, fragment) = match query.split_once('#') {
+                Some((q, f)) => (q, Some(f)),
+                None => (query, None),
+            };
+            let query: Vec<String> = query
+                .split('&')
+                .map(|kv| match kv.split_once('=') {
+                    Some((k, _)) if PASSWORD_PARAMS.contains(&k.to_ascii_lowercase().as_str()) => {
+                        format!("{k}=***")
+                    }
+                    _ => kv.to_string(),
+                })
+                .collect();
+            let mut t = format!("{path}?{}", query.join("&"));
+            if let Some(f) = fragment {
+                t.push('#');
+                t.push_str(f);
+            }
+            t
+        }
+        None => tail.to_string(),
+    };
+    format!("{scheme}{authority}{tail}")
+}
+
+impl MonitorResponse {
+    /// Mask the camera passwords that ride inside URLs, for a caller who
+    /// may view this monitor but not edit it. (`pass` and `onvif_password`
+    /// are never in the response.) Editors see the URLs as stored, since
+    /// they edit them.
+    pub fn hide_credentials(&mut self) {
+        for v in [
+            &mut self.path,
+            &mut self.second_path,
+            &mut self.control_address,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            *v = hide_url_password(v);
+        }
+        self.onvif_url = hide_url_password(&self.onvif_url);
+    }
+
+    /// [`Self::hide_credentials`] unless `scope` may edit this monitor.
+    pub fn for_scope(mut self, scope: &crate::service::monitor_acl::MonitorScope) -> Self {
+        if !scope.allows(self.id, crate::util::authz::Level::Edit) {
+            self.hide_credentials();
+        }
+        self
+    }
+}
+
 impl From<monitors::Model> for MonitorResponse {
     fn from(model: monitors::Model) -> Self {
         Self {
@@ -332,6 +407,44 @@ impl From<monitors::Model> for MonitorResponse {
 mod tests {
     use super::*;
     use fake::{Fake, Faker};
+
+    #[test]
+    fn hides_the_password_in_a_url() {
+        for (raw, shown) in [
+            (
+                "rtsp://admin:hunter2@10.0.0.5:554/stream1",
+                "rtsp://admin:***@10.0.0.5:554/stream1",
+            ),
+            // ZoneMinder's ControlAddress has no scheme.
+            ("admin:hunter2@10.0.0.5", "admin:***@10.0.0.5"),
+            // A password with '@' in it: the host is after the last one.
+            ("rtsp://u:p@ss@cam/x", "rtsp://u:***@cam/x"),
+            (
+                "http://cam/snap.cgi?user=admin&pwd=hunter2&chn=1",
+                "http://cam/snap.cgi?user=admin&pwd=***&chn=1",
+            ),
+            ("http://cam/a?Password=x", "http://cam/a?Password=***"),
+            // Nothing secret: unchanged.
+            ("rtsp://admin@10.0.0.5/s", "rtsp://admin@10.0.0.5/s"),
+            ("/dev/video0", "/dev/video0"),
+            ("rtsp://10.0.0.5/live?ch=1", "rtsp://10.0.0.5/live?ch=1"),
+            ("", ""),
+        ] {
+            assert_eq!(hide_url_password(raw), shown, "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_viewer_sees_no_camera_passwords() {
+        let mut m: MonitorResponse = Faker.fake();
+        m.path = Some("rtsp://admin:hunter2@cam/1".into());
+        m.second_path = Some("rtsp://admin:hunter2@cam/2".into());
+        m.control_address = Some("admin:hunter2@cam".into());
+        m.onvif_url = "http://admin:hunter2@cam/onvif/device_service".into();
+        m.hide_credentials();
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(!json.contains("hunter2"), "{json}");
+    }
 
     /// Read access to a monitor must never expose the camera's own
     /// credentials: the serialized response has no password-bearing keys.

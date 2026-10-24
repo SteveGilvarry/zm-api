@@ -74,10 +74,11 @@ pub async fn update_filter(
     Path(id): Path<u32>,
     State(state): State<AppState>,
     claims: UserClaims,
+    scope: MonitorScope,
     Json(req): Json<UpdateFilterRequest>,
 ) -> AppResult<Json<FilterResponse>> {
     req.validate().map_err(AppError::InvalidInputError)?;
-    let item = crate::service::filters::update(&state, id, &req, &claims).await?;
+    let item = crate::service::filters::update(&state, id, &req, &claims, &scope).await?;
     Ok(Json(item))
 }
 
@@ -96,10 +97,11 @@ pub async fn update_filter(
 pub async fn create_filter(
     State(state): State<AppState>,
     claims: UserClaims,
+    scope: MonitorScope,
     Json(req): Json<CreateFilterRequest>,
 ) -> AppResult<(axum::http::StatusCode, Json<FilterResponse>)> {
     req.validate().map_err(AppError::InvalidInputError)?;
-    let item = crate::service::filters::create(&state, req, &claims).await?;
+    let item = crate::service::filters::create(&state, req, &claims, &scope).await?;
     Ok((axum::http::StatusCode::CREATED, Json(item)))
 }
 

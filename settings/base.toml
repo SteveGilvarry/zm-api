@@ -70,11 +70,16 @@ body_limit_bytes = 2097152
 # one request every four seconds.
 rate_limit_period_secs = 0
 rate_limit_burst = 0
-# Trust X-Forwarded-For / X-Real-IP for rate-limit keying. Keep false unless a
-# trusted reverse proxy sets these headers: when the service is exposed
-# directly they are attacker-controlled and would let a client bypass the
-# limiter by rotating the header. When false, the socket peer IP is used.
+# Key rate limits on the client address a reverse proxy passes on
+# (X-Forwarded-For / X-Real-IP) instead of the proxy's own. The headers are
+# believed only on connections from `trusted_proxies`; anyone else is keyed on
+# their own address whatever they send. The client is the rightmost
+# X-Forwarded-For address that isn't a trusted proxy, since proxies append to
+# what the client sent.
 trust_proxy_headers = false
+# Addresses or CIDRs. Loopback covers a proxy on the same host. Add a proxy's
+# address if it runs elsewhere.
+trusted_proxies = ["127.0.0.0/8", "::1/128"]
 # Dedicated tighter limit on the auth endpoints (/auth/*, /me*), on by default
 # so credential brute-forcing is throttled even when the global limiter is off.
 # Period is the replenish interval in seconds; burst is the allowance. Set

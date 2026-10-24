@@ -45,7 +45,6 @@ fn protected_routes() -> Vec<ProtectedRoute> {
         route(Method::GET, "/api/v3/daemons"),
         route(Method::GET, "/api/v3/users"),
         route(Method::GET, "/api/v3/user_preferences"),
-        route(Method::GET, "/api/v3/sessions"),
         route(Method::GET, "/api/v3/montage_layouts"),
         route(Method::POST, "/api/v3/system/shutdown"),
         // Invokes `systemctl restart/stop/start zoneminder` — must require
@@ -255,6 +254,34 @@ async fn superuser_token_clears_auth_and_rbac() {
             "{} {} rejected a superuser token",
             r.method,
             r.path
+        );
+    }
+}
+
+/// `/sessions` exposed ZoneMinder's PHP web sessions: the session id is the
+/// login cookie and the data holds the user row with its password hash. zm-api
+/// uses JWTs and never needs them, so the routes are gone for every method,
+/// even for an administrator.
+#[tokio::test]
+async fn php_session_routes_do_not_exist() {
+    let app = TestApp::mock();
+    let token = superuser_token();
+    for (method, path) in [
+        (Method::GET, "/api/v3/sessions"),
+        (Method::POST, "/api/v3/sessions"),
+        (Method::GET, "/api/v3/sessions/abc"),
+        (Method::PATCH, "/api/v3/sessions/abc"),
+        (Method::DELETE, "/api/v3/sessions/abc"),
+    ] {
+        let resp = app
+            .request(method.clone(), path)
+            .bearer(&token)
+            .send()
+            .await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::NOT_FOUND,
+            "{method} {path} should not exist"
         );
     }
 }
