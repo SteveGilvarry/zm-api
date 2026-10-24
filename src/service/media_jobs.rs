@@ -5,16 +5,15 @@
 //! frame rate, a scale or size, optionally greyscale, named the way
 //! `zmvideo.pl` names its files so both list each other's.
 //!
-//! One worker runs jobs in order. ffmpeg is run without a shell; the only
-//! free text that reaches it is the admin-set `ZM_FFMPEG_*_OPTIONS`.
+//! One worker runs jobs in order. Videos are made in-process with libav
+//! ([`crate::service::video_encode`]); no program is run, and
+//! `ZM_FFMPEG_*_OPTIONS` only contribute allowlisted encoder settings.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
-use sea_orm::sea_query::Expr;
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, NotSet, QueryFilter, QueryOrder, QuerySelect, Set,
-};
 use tracing::{info, warn};
 
 use crate::dto::request::media_jobs::{GenerateVideoRequest, JobListQuery, VideoTransform};
@@ -23,17 +22,17 @@ use crate::entity::events::Model as EventModel;
 use crate::entity::media_jobs;
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::server::state::AppState;
+use crate::service::media_job_store::{self as store, JobFilter, JobStore, NewJob};
 use crate::service::monitor_acl::MonitorScope;
+use crate::service::video_encode;
 use crate::util::authz::Level;
 
 pub const KIND_VIDEO: &str = "video";
-const QUEUED: &str = "queued";
-const RUNNING: &str = "running";
+use store::{QUEUED, RUNNING};
 const DONE: &str = "done";
 const FAILED: &str = "failed";
-const CANCELLED: &str = "cancelled";
-/// A generation that takes longer than this is killed.
-const FFMPEG_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+/// A generation that takes longer than this is stopped.
+const VIDEO_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 fn now() -> chrono::NaiveDateTime {
     chrono::Utc::now().naive_utc()
@@ -142,7 +141,7 @@ pub fn formats(config: &str) -> (Vec<String>, Option<String>) {
     (all, default)
 }
 
-/// The ffmpeg arguments for a video job.
+/// How a video job reads and sizes its input.
 pub struct VideoPlan {
     pub input: String,
     pub from_video: bool,
@@ -207,42 +206,6 @@ pub fn plan_video(event: &VideoSource, req: &GenerateVideoRequest, digits: usize
         width: even(width),
         height: even(height),
     }
-}
-
-pub fn ffmpeg_args(
-    plan: &VideoPlan,
-    req: &GenerateVideoRequest,
-    input_options: &str,
-    output_options: &str,
-    output: &str,
-) -> Vec<String> {
-    let mut args: Vec<String> = vec!["-y".into(), "-nostdin".into()];
-    let mut filters = Vec::new();
-    if plan.from_video {
-        // A recording plays at its own rate; speed it up or down instead.
-        if let Some(r) = req.rate.filter(|r| (*r - 1.0).abs() > f64::EPSILON) {
-            filters.push(format!("setpts=PTS/{r}"));
-        }
-    } else {
-        args.extend(["-framerate".into(), format!("{:.2}", plan.frame_rate)]);
-    }
-    args.extend(input_options.split_whitespace().map(String::from));
-    args.extend(["-i".into(), plan.input.clone()]);
-    if let Some(f) = ffmpeg_filter(req.transform) {
-        filters.push(f.to_string());
-    }
-    filters.push(format!("scale={}:{}", plan.width, plan.height));
-    args.extend(["-vf".into(), filters.join(",")]);
-    if plan.from_video {
-        if req.fps.is_some() || req.rate.is_some() {
-            args.extend(["-r".into(), format!("{:.2}", plan.frame_rate)]);
-        }
-        // A sped-up track would drift; ZoneMinder drops audio here too.
-        args.push("-an".into());
-    }
-    args.extend(output_options.split_whitespace().map(String::from));
-    args.push(output.to_string());
-    args
 }
 
 // ---- Events and their files -------------------------------------------------
@@ -405,22 +368,20 @@ pub async fn enqueue_video(
         None => "mp4".into(),
     };
     req.format = Some(format);
-    let job = media_jobs::ActiveModel {
-        id: NotSet,
-        kind: Set(KIND_VIDEO.into()),
-        event_id: Set(event.id),
-        monitor_id: Set(event.monitor_id),
-        params: Set(serde_json::to_string(&req)?),
-        status: Set(QUEUED.into()),
-        output: Set(None),
-        error: Set(None),
-        created_by: Set(Some(uid)),
-        created_at: Set(now()),
-        started_at: Set(None),
-        finished_at: Set(None),
-    }
-    .insert(state.db())
-    .await?;
+    let job = jobs(state)
+        .await
+        .insert(
+            state.db(),
+            NewJob {
+                kind: KIND_VIDEO.into(),
+                event_id: event.id,
+                monitor_id: event.monitor_id,
+                params: serde_json::to_string(&req)?,
+                created_by: Some(uid),
+                created_at: now(),
+            },
+        )
+        .await?;
     state.media_job_wake.notify_one();
     Ok(MediaJobResponse::from(&job))
 }
@@ -430,20 +391,14 @@ pub async fn list_jobs(
     scope: &MonitorScope,
     q: JobListQuery,
 ) -> AppResult<Vec<MediaJobResponse>> {
-    let mut query = media_jobs::Entity::find()
-        .order_by_desc(media_jobs::Column::Id)
-        .limit(500);
-    if let Some(e) = q.event_id {
-        query = query.filter(media_jobs::Column::EventId.eq(e));
-    }
-    if let Some(s) = q.status {
-        query = query.filter(media_jobs::Column::Status.eq(s));
-    }
-    if let Some(ids) = scope.visible_ids(Level::View) {
-        query = query.filter(media_jobs::Column::MonitorId.is_in(ids));
-    }
-    Ok(query
-        .all(state.db())
+    let filter = JobFilter {
+        event_id: q.event_id,
+        status: q.status,
+        monitor_ids: scope.visible_ids(Level::View),
+    };
+    Ok(jobs(state)
+        .await
+        .list(state.db(), &filter)
         .await?
         .iter()
         .map(MediaJobResponse::from)
@@ -456,8 +411,9 @@ async fn visible_job(
     id: u32,
     level: Level,
 ) -> AppResult<media_jobs::Model> {
-    media_jobs::Entity::find_by_id(id)
-        .one(state.db())
+    jobs(state)
+        .await
+        .get(state.db(), id)
         .await?
         .filter(|j| scope.allows(j.monitor_id, level))
         .ok_or_else(|| job_not_found(id))
@@ -477,28 +433,25 @@ pub async fn get_job(
 /// is a 409. The generated file stays; delete it through the event's videos.
 pub async fn delete_job(state: &AppState, scope: &MonitorScope, id: u32) -> AppResult<()> {
     let job = visible_job(state, scope, id, Level::Edit).await?;
+    let store = jobs(state).await;
     match job.status.as_str() {
         RUNNING => Err(AppError::ConflictError("the job is running".into())),
         QUEUED => {
-            let res = media_jobs::Entity::update_many()
-                .col_expr(media_jobs::Column::Status, Expr::value(CANCELLED))
-                .col_expr(media_jobs::Column::FinishedAt, Expr::value(now()))
-                .filter(media_jobs::Column::Id.eq(id))
-                .filter(media_jobs::Column::Status.eq(QUEUED))
-                .exec(state.db())
-                .await?;
-            if res.rows_affected == 0 {
+            if !store.cancel_queued(state.db(), id, now()).await? {
                 return Err(AppError::ConflictError("the job has started".into()));
             }
             Ok(())
         }
-        _ => {
-            media_jobs::Entity::delete_by_id(id)
-                .exec(state.db())
-                .await?;
-            Ok(())
-        }
+        _ => store.delete(state.db(), id).await,
     }
+}
+
+/// The job store, decided on first use (see [`crate::service::media_job_store`]).
+async fn jobs(state: &AppState) -> &JobStore {
+    state
+        .media_job_store
+        .get_or_init(|| JobStore::open(state.db(), store::state_dir()))
+        .await
 }
 
 // ---- Worker ---------------------------------------------------------------------
@@ -506,14 +459,10 @@ pub async fn delete_job(state: &AppState, scope: &MonitorScope, id: u32) -> AppR
 /// Run queued jobs until none is left; returns how many ran. The worker
 /// calls it; so can a test.
 pub async fn run_pending(state: &AppState) -> usize {
+    let store = jobs(state).await;
     let mut ran = 0;
     loop {
-        let next = media_jobs::Entity::find()
-            .filter(media_jobs::Column::Status.eq(QUEUED))
-            .order_by_asc(media_jobs::Column::Id)
-            .one(state.db())
-            .await;
-        let job = match next {
+        let job = match store.next_queued(state.db()).await {
             Ok(Some(j)) => j,
             Ok(None) => return ran,
             Err(e) => {
@@ -522,37 +471,32 @@ pub async fn run_pending(state: &AppState) -> usize {
             }
         };
         // Claim it; another instance may have.
-        let claimed = media_jobs::Entity::update_many()
-            .col_expr(media_jobs::Column::Status, Expr::value(RUNNING))
-            .col_expr(media_jobs::Column::StartedAt, Expr::value(now()))
-            .filter(media_jobs::Column::Id.eq(job.id))
-            .filter(media_jobs::Column::Status.eq(QUEUED))
-            .exec(state.db())
+        if !store
+            .claim(state.db(), job.id, now())
             .await
-            .map(|r| r.rows_affected == 1)
-            .unwrap_or(false);
-        if !claimed {
+            .unwrap_or(false)
+        {
             continue;
         }
         let result = match job.kind.as_str() {
             KIND_VIDEO => run_video(state, &job).await,
             other => Err(format!("unknown job kind {other}")),
         };
-        let mut am: media_jobs::ActiveModel = job.clone().into();
-        am.finished_at = Set(Some(now()));
+        let mut finished = job.clone();
+        finished.finished_at = Some(now());
         match result {
             Ok(output) => {
                 info!("media job {} done: {output}", job.id);
-                am.status = Set(DONE.into());
-                am.output = Set(Some(output));
+                finished.status = DONE.into();
+                finished.output = Some(output);
             }
             Err(e) => {
                 warn!("media job {} failed: {e}", job.id);
-                am.status = Set(FAILED.into());
-                am.error = Set(Some(e));
+                finished.status = FAILED.into();
+                finished.error = Some(e);
             }
         }
-        if let Err(e) = am.update(state.db()).await {
+        if let Err(e) = store.finish(state.db(), finished).await {
             warn!("media job {}: recording the result: {e}", job.id);
         }
         ran += 1;
@@ -586,46 +530,56 @@ async fn run_video(state: &AppState, job: &media_jobs::Model) -> Result<String, 
     let plan = plan_video(&VideoSource::from(&event), &req, digits);
     // Written beside the target, then renamed, so a reader never sees half.
     let partial = format!(".{name}.part.{format}");
-    let args = ffmpeg_args(
-        &plan,
-        &req,
+    let (options, dropped) = video_encode::options::parse(
         &config(state, "ZM_FFMPEG_INPUT_OPTIONS")
             .await
             .unwrap_or_default(),
         &config(state, "ZM_FFMPEG_OUTPUT_OPTIONS")
             .await
             .unwrap_or_default(),
-        &partial,
     );
-    // ZoneMinder's configured ffmpeg, else the one on PATH.
-    let ffmpeg = config(state, "ZM_PATH_FFMPEG")
-        .await
-        .filter(|p| !p.is_empty() && Path::new(p).exists())
-        .unwrap_or_else(|| "ffmpeg".into());
-    let run = tokio::process::Command::new(&ffmpeg)
-        .args(&args)
-        .current_dir(&dir)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
-        .output();
-    let out = match tokio::time::timeout(FFMPEG_TIMEOUT, run).await {
-        Ok(Ok(o)) => o,
-        Ok(Err(e)) => return Err(format!("could not run {ffmpeg}: {e}")),
-        Err(_) => {
-            let _ = tokio::fs::remove_file(dir.join(&partial)).await;
-            return Err("ffmpeg took too long".into());
+    if !dropped.is_empty() {
+        warn!(
+            "video for event {}: ignoring ZM_FFMPEG_*_OPTIONS {}",
+            event.id,
+            dropped.join(", ")
+        );
+    }
+    let source = if plan.from_video {
+        video_encode::Source::Recording(video_encode::file_in(&dir, &plan.input)?)
+    } else {
+        video_encode::Source::Jpegs {
+            dir: dir.clone(),
+            digits,
+            fps: plan.frame_rate,
         }
     };
-    if !out.status.success() {
+    let job = video_encode::Render {
+        source,
+        speed: req.rate,
+        fps: if plan.from_video { req.fps } else { None },
+        width: plan.width,
+        height: plan.height,
+        greyscale: req.transform == VideoTransform::Greyscale,
+        options,
+        output: dir.join(&partial),
+    };
+    let cancel = Arc::new(AtomicBool::new(false));
+    let run = tokio::task::spawn_blocking({
+        let cancel = cancel.clone();
+        move || video_encode::render(&job, &cancel)
+    });
+    let result = match tokio::time::timeout(VIDEO_TIMEOUT, run).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => Err(format!("video task failed: {e}")),
+        Err(_) => {
+            cancel.store(true, Ordering::Relaxed);
+            Err("making the video took too long".into())
+        }
+    };
+    if let Err(e) = result {
         let _ = tokio::fs::remove_file(dir.join(&partial)).await;
-        let err = String::from_utf8_lossy(&out.stderr);
-        let tail: Vec<&str> = err.lines().rev().take(5).collect();
-        return Err(format!(
-            "ffmpeg failed: {}",
-            tail.into_iter().rev().collect::<Vec<_>>().join(" | ")
-        ));
+        return Err(e);
     }
     tokio::fs::rename(dir.join(&partial), &target)
         .await
@@ -636,12 +590,7 @@ async fn run_video(state: &AppState, job: &media_jobs::Model) -> Result<String, 
 /// The queue's worker: re-queues jobs a restart interrupted, then runs jobs
 /// as they arrive.
 pub async fn worker(state: AppState) {
-    if let Err(e) = media_jobs::Entity::update_many()
-        .col_expr(media_jobs::Column::Status, Expr::value(QUEUED))
-        .filter(media_jobs::Column::Status.eq(RUNNING))
-        .exec(state.db())
-        .await
-    {
+    if let Err(e) = jobs(&state).await.requeue_running(state.db()).await {
         warn!("media jobs: re-queueing interrupted jobs: {e}");
     }
     loop {
@@ -730,12 +679,7 @@ mod tests {
             "5 fps, twice as fast"
         );
         assert_eq!((plan.width, plan.height), (640, 480), "even");
-        let args = ffmpeg_args(&plan, &r, "", "-c:v libx264", "out.mp4");
-        assert_eq!(
-            args.join(" "),
-            "-y -nostdin -framerate 10.00 -i %05d-capture.jpg -vf hue=s=0,scale=640:480 \
-             -c:v libx264 out.mp4"
-        );
+        assert!(!plan.from_video);
     }
 
     #[test]
@@ -752,10 +696,13 @@ mod tests {
             scale: Some(0.5),
             ..req()
         };
-        let args = ffmpeg_args(&plan_video(&event, &r, 5), &r, "", "", "o.mp4");
-        assert_eq!(
-            args.join(" "),
-            "-y -nostdin -i 12-video.mp4 -vf setpts=PTS/4,scale=960:540 -r 20.00 -an o.mp4"
+        let plan = plan_video(&event, &r, 5);
+        assert!(plan.from_video);
+        assert_eq!(plan.input, "12-video.mp4");
+        assert_eq!((plan.width, plan.height), (960, 540));
+        assert!(
+            (plan.frame_rate - 20.0).abs() < 1e-9,
+            "5 fps, four times as fast"
         );
     }
 }

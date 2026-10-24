@@ -30,7 +30,10 @@ use crate::server::state::AppState;
 use crate::util::claim::UserClaims;
 use crate::util::middleware::{extract_token_from_header, extract_token_from_query};
 
-/// A permission level, ordered `None < View < Edit`.
+/// A permission level, ordered `None < View < Edit < Create`.
+///
+/// `Create` only exists for `Monitors`: ZoneMinder lets `Edit` change
+/// existing monitors but only `Create` add new ones.
 #[derive(
     Debug,
     Clone,
@@ -53,6 +56,8 @@ pub enum Level {
     View,
     /// Read-write access.
     Edit,
+    /// Read-write access plus adding new items (`Monitors` only).
+    Create,
 }
 
 /// A snapshot of a user's per-feature permission levels, embedded in the JWT.
@@ -89,7 +94,7 @@ impl UserPermissions {
             stream: Level::View, // `Stream` has no `Edit` level in ZoneMinder
             events: Level::Edit,
             control: Level::Edit,
-            monitors: Level::Edit,
+            monitors: Level::Create,
             groups: Level::Edit,
             devices: Level::Edit,
             snapshots: Level::Edit,
@@ -139,8 +144,8 @@ fn levels(
         monitors: match monitors {
             enums::Monitors::None => Level::None,
             enums::Monitors::View => Level::View,
-            // `Create` is a stronger form of write access than `Edit`.
-            enums::Monitors::Edit | enums::Monitors::Create => Level::Edit,
+            enums::Monitors::Edit => Level::Edit,
+            enums::Monitors::Create => Level::Create,
         },
         groups: match groups {
             enums::Groups::None => Level::None,
@@ -211,6 +216,12 @@ impl UserPermissions {
             snapshots: self.snapshots.max(other.snapshots),
             system: self.system.max(other.system),
         }
+    }
+
+    /// Whether these permissions may add new monitors. ZoneMinder's API
+    /// allows `Monitors: Create` or `System: Edit`.
+    pub fn can_create_monitors(&self) -> bool {
+        self.monitors >= Level::Create || self.system >= Level::Edit
     }
 }
 
@@ -366,12 +377,54 @@ mod tests {
     }
 
     #[test]
+    fn create_outranks_edit() {
+        assert!(Level::Edit < Level::Create);
+    }
+
+    #[test]
+    fn role_levels_raise_but_never_lower_the_users() {
+        let user = UserPermissions {
+            events: Level::Edit,
+            monitors: Level::None,
+            ..Default::default()
+        };
+        let role = UserPermissions {
+            events: Level::View,
+            monitors: Level::View,
+            ..Default::default()
+        };
+        let merged = user.max(role);
+        assert_eq!(merged.events, Level::Edit);
+        assert_eq!(merged.monitors, Level::View);
+        assert_eq!(merged.system, Level::None);
+    }
+
+    #[test]
+    fn only_create_or_system_edit_may_add_monitors() {
+        let edit = UserPermissions {
+            monitors: Level::Edit,
+            ..Default::default()
+        };
+        assert!(!edit.can_create_monitors());
+        let create = UserPermissions {
+            monitors: Level::Create,
+            ..Default::default()
+        };
+        assert!(create.can_create_monitors());
+        let admin = UserPermissions {
+            system: Level::Edit,
+            ..Default::default()
+        };
+        assert!(admin.can_create_monitors());
+    }
+
+    #[test]
     fn superuser_grants_every_feature() {
         let p = UserPermissions::superuser();
+        assert_eq!(p.level(Feature::Monitors), Level::Create);
         for f in [
             Feature::Events,
             Feature::Control,
-            Feature::Monitors,
             Feature::Groups,
             Feature::Devices,
             Feature::Snapshots,

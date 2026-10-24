@@ -235,6 +235,24 @@ pub async fn schema_gate(
     }
 }
 
+/// Route layer for `POST /monitors`. ZoneMinder splits adding monitors
+/// (`Monitors: Create`, or `System: Edit` in its API) from changing them
+/// (`Edit`), which is all the route's `protect` layer checks. Runs before the
+/// handler so the check does not depend on the request body parsing.
+pub async fn require_monitor_create(
+    claims: UserClaims,
+    request: Request,
+    next: Next,
+) -> Result<Response, crate::error::AppError> {
+    if claims.perms.can_create_monitors() {
+        Ok(next.run(request).await)
+    } else {
+        Err(crate::error::AppError::PermissionDeniedError(
+            "Create access to Monitors required".to_string(),
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

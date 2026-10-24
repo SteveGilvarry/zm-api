@@ -171,6 +171,19 @@ path = "/tmp/hls"
 retention_minutes = 10
 
 
+# zm-api's RTSP server: live video for Home Assistant, VLC and NVRs, opened by
+# a signed link from POST /api/v3/live/{id}/rtsp/link. TCP (interleaved) only.
+# ZoneMinder's own zm_rtsp_server also defaults to 8554: run one or the other.
+[streaming.rtsp]
+enabled = false
+bind = "0.0.0.0"
+port = 8554
+# RTSPS with server.tls's certificate and key:
+# tls_port = 8322
+# Host name in the links; defaults to the host the link request was sent to.
+# public_host = "zm.example.com"
+max_connections = 64
+
 [synopsis]
 enabled = false
 encoder_backend = "native"

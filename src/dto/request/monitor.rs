@@ -76,6 +76,90 @@ pub fn is_safe_onvif_url(value: &str, ctx: &()) -> garde::Result {
     Ok(())
 }
 
+/// Schemes a capture `Path`/`SecondPath` may use. Anything else is refused, so
+/// a path can't name a source that runs a program: go2rtc, which ZoneMinder
+/// hands the raw `Path` to, runs `exec:`, `echo:` and `expr:` sources as
+/// commands and builds an ffmpeg command line from `ffmpeg:` ones.
+const CAPTURE_SCHEMES: &[&str] = &[
+    "rtsp", "rtsps", "rtmp", "rtmps", "http", "https", "udp", "tcp", "rtp", "srt", "mmsh",
+];
+
+/// A camera source path: empty, a local path (`File` and `Remote` monitors), or
+/// a `scheme://` URL with a scheme from [`CAPTURE_SCHEMES`].
+pub fn is_safe_capture_path(value: &str, ctx: &()) -> garde::Result {
+    is_safe_url_component(value, ctx)?;
+    let v = value.trim();
+    if v.is_empty() || v.starts_with('/') {
+        return Ok(());
+    }
+    match v.split_once("://") {
+        Some((scheme, _)) if CAPTURE_SCHEMES.contains(&scheme.to_ascii_lowercase().as_str()) => {
+            Ok(())
+        }
+        _ => Err(garde::Error::new(
+            "must be a local path or a URL with one of: rtsp, rtsps, rtmp, rtmps, http, https, udp, tcp, rtp, srt, mmsh",
+        )),
+    }
+}
+
+/// A `Local` monitor's capture device. ZoneMinder puts it in a shell command
+/// (`zmdc.pl start zmc -d '<Device>'`), so only a plain `/dev/...` path is
+/// accepted, matching upstream's own check in `zmpkg.pl`, plus no `..`.
+pub fn is_safe_device_path(value: &str, _ctx: &()) -> garde::Result {
+    if value.is_empty() {
+        return Ok(());
+    }
+    let rest = value.strip_prefix("/dev/").unwrap_or("");
+    let plain = !rest.is_empty()
+        && rest
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'/' | b'.' | b'-'));
+    if plain && !value.contains("..") {
+        Ok(())
+    } else {
+        Err(garde::Error::new(
+            "must be a /dev/ path of letters, digits, '_', '-', '.' and '/'",
+        ))
+    }
+}
+
+/// A storage area's filesystem path. ZoneMinder runs `df <Path>` through a
+/// shell, so only an absolute path of characters a shell treats literally is
+/// accepted.
+pub fn is_safe_storage_path(value: &str, _ctx: &()) -> garde::Result {
+    if value.is_empty() {
+        return Ok(());
+    }
+    let plain = value.starts_with('/')
+        && value.bytes().all(|b| {
+            b.is_ascii_alphanumeric()
+                || matches!(b, b'_' | b'/' | b'.' | b'-' | b'+' | b'@' | b':' | b',')
+        });
+    if plain {
+        Ok(())
+    } else {
+        Err(garde::Error::new(
+            "must be an absolute path of letters, digits and _ / . - + @ : ,",
+        ))
+    }
+}
+
+/// A PTZ control protocol. ZoneMinder loads `ZoneMinder::Control::<Protocol>`
+/// as a Perl module, so anything but a bare module name could load a file
+/// from elsewhere on disk.
+pub fn is_perl_module_name(value: &str, _ctx: &()) -> garde::Result {
+    if value
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    {
+        Ok(())
+    } else {
+        Err(garde::Error::new(
+            "must contain only letters, digits and '_'",
+        ))
+    }
+}
+
 // `event_start_command` and `event_end_command` are by design shell commands
 // that ZoneMinder execs, so we cannot block shell metacharacters without
 // breaking the feature. We can still bound the field and reject NUL and
@@ -202,7 +286,7 @@ pub struct CreateMonitorRequest {
     #[garde(inner(range(min = -1, max = 1)))]
     pub use_amcrest_api: Option<i8>,
 
-    #[garde(inner(length(max = 255)))]
+    #[garde(inner(length(max = 255), custom(is_safe_device_path)))]
     pub device: Option<String>,
 
     #[garde(inner(range(min = 0)))]
@@ -240,12 +324,12 @@ pub struct CreateMonitorRequest {
 
     // DB column `Path` is varchar(255).
     #[garde(inner(length(max = 255)))]
-    #[garde(inner(custom(is_safe_url_component)))]
+    #[garde(inner(custom(is_safe_capture_path)))]
     pub path: Option<String>,
 
     // DB column `SecondPath` is varchar(255).
     #[garde(inner(length(max = 255)))]
-    #[garde(inner(custom(is_safe_url_component)))]
+    #[garde(inner(custom(is_safe_capture_path)))]
     pub second_path: Option<String>,
 
     #[garde(inner(length(chars, max = 255)))]
@@ -854,6 +938,7 @@ pub struct UpdateMonitorRequest {
     pub use_amcrest_api: Option<i8>,
 
     #[garde(inner(length(max = 255)))]
+    #[garde(inner(custom(is_safe_device_path)))]
     pub device: Option<String>,
 
     #[garde(range(min = 0))]
@@ -887,11 +972,11 @@ pub struct UpdateMonitorRequest {
     pub sub_path: Option<String>,
 
     #[garde(inner(length(max = 255)))]
-    #[garde(inner(custom(is_safe_url_component)))]
+    #[garde(inner(custom(is_safe_capture_path)))]
     pub path: Option<String>,
 
     #[garde(inner(length(max = 255)))]
-    #[garde(inner(custom(is_safe_url_component)))]
+    #[garde(inner(custom(is_safe_capture_path)))]
     pub second_path: Option<String>,
 
     #[garde(inner(length(chars, max = 255)))]
@@ -1226,6 +1311,86 @@ pub struct AlarmControlRequest {
 #[cfg(test)]
 mod validator_tests {
     use super::*;
+
+    #[test]
+    fn capture_path_refuses_sources_that_run_programs() {
+        for bad in [
+            "exec:ffmpeg -i x -f rtsp {output}",
+            "echo:/bin/sh -c id",
+            "expr:let x = 1",
+            "ffmpeg:rtsp://cam#raw=-y /tmp/x",
+            "file:///etc/passwd",
+            "pipe:0",
+            "concat:/etc/passwd",
+            "admin:pw@10.0.0.5/stream",
+        ] {
+            assert!(is_safe_capture_path(bad, &()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn capture_path_accepts_camera_urls_and_local_paths() {
+        for good in [
+            "",
+            "rtsp://user:pw@10.0.0.5:554/Streaming/Channels/101",
+            "RTSPS://cam.example/live",
+            "http://10.0.0.5/mjpg/video.mjpg",
+            "/axis-cgi/mjpg/video.cgi",
+            "/var/lib/zm/sample.mp4",
+        ] {
+            assert!(is_safe_capture_path(good, &()).is_ok(), "{good}");
+        }
+    }
+
+    #[test]
+    fn device_path_must_be_a_plain_dev_path() {
+        assert!(is_safe_device_path("", &()).is_ok());
+        assert!(is_safe_device_path("/dev/video0", &()).is_ok());
+        assert!(is_safe_device_path("/dev/v4l/by-id/usb-Cam_1.0-video-index0", &()).is_ok());
+        for bad in [
+            "/dev/video0'; id; '",
+            "/dev/video0 $(id)",
+            "/dev/../etc/passwd",
+            "/tmp/x",
+            "/dev/",
+            "video0",
+        ] {
+            assert!(is_safe_device_path(bad, &()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn storage_path_must_be_shell_literal() {
+        assert!(is_safe_storage_path("", &()).is_ok());
+        assert!(is_safe_storage_path("/var/cache/zoneminder/events", &()).is_ok());
+        assert!(is_safe_storage_path("/mnt/nas-1/zm_events.2", &()).is_ok());
+        for bad in [
+            "/mnt/x; rm -rf /",
+            "/mnt/$(id)",
+            "/mnt/`id`",
+            "/mnt/a b",
+            "/mnt/x|id",
+            "relative/path",
+        ] {
+            assert!(is_safe_storage_path(bad, &()).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn control_protocol_must_be_a_bare_module_name() {
+        assert!(is_perl_module_name("", &()).is_ok());
+        assert!(is_perl_module_name("onvif", &()).is_ok());
+        assert!(is_perl_module_name("Hikvision_ISAPI2", &()).is_ok());
+        for bad in [
+            "../../../../tmp/x",
+            "Foo::Bar",
+            "Foo'Bar",
+            "x;system('id')",
+            "a b",
+        ] {
+            assert!(is_perl_module_name(bad, &()).is_err(), "{bad}");
+        }
+    }
 
     #[test]
     fn url_component_rejects_control_chars_and_crlf() {

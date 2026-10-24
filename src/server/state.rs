@@ -46,6 +46,9 @@ pub struct AppState {
     pub schema_behind: Option<Arc<str>>,
     /// Wakes the media job worker when a job is queued.
     pub media_job_wake: Arc<tokio::sync::Notify>,
+    /// Where media jobs are kept: zm-api's table if the database has it,
+    /// else a file in zm-api's state directory. Decided on first use.
+    pub media_job_store: crate::service::media_job_store::SharedJobStore,
 }
 
 impl AppState {
@@ -305,7 +308,9 @@ impl AppState {
             manager.set_native_maintenance(crate::daemon::manager::NativeJobs::from(
                 &config.maintenance,
             ));
-            Some(Arc::new(manager))
+            let manager = Arc::new(manager);
+            manager.spawn_unsafe_value_report();
+            Some(manager)
         } else {
             tracing::info!("Daemon controller disabled in configuration");
             None
@@ -346,6 +351,7 @@ impl AppState {
             revocations,
             schema_behind,
             media_job_wake: Arc::new(tokio::sync::Notify::new()),
+            media_job_store: Default::default(),
         })
     }
 
@@ -385,6 +391,7 @@ impl AppState {
             revocations: std::sync::Arc::new(crate::util::revocation::TokenRevocations::default()),
             schema_behind: None,
             media_job_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
+            media_job_store: Default::default(),
         }
     }
 

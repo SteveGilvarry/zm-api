@@ -78,6 +78,7 @@ pub struct UpdateStorageRequest {
     #[garde(inner(length(chars, max = 64)))]
     pub name: Option<String>,
     #[garde(inner(length(chars, max = 64)))]
+    #[garde(inner(custom(crate::dto::request::monitor::is_safe_storage_path)))]
     pub path: Option<String>,
     #[garde(skip)]
     pub r#type: Option<String>,

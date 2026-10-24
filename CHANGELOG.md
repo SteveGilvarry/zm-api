@@ -10,6 +10,15 @@ recognisable path forward.
 
 ### Added
 
+- **RTSP server for live video** (`[streaming.rtsp]`, off by default). Players
+  that take one URL (Home Assistant, VLC, NVRs) get a monitor's live video at
+  `rtsp://host:8554/live/{id}?st=…`, from
+  `POST /api/v3/live/{monitor_id}/rtsp/link`. The credential is the signed link
+  HLS already uses: one monitor, view only, an expiry, revoked with its user,
+  and checked again every minute while a stream plays. ZoneMinder's
+  `zm_rtsp_server` takes a username and password in the URL instead. H.264 or
+  H.265, RTP interleaved on the RTSP connection (TCP; UDP gets 461), RTSPS on
+  `tls_port` with `server.tls`'s certificate. Video only for now.
 - **Generate a video for an event** (#187), the first kind in the media job
   queue of `docs/FILTERS_PLAN.md`. `POST /api/v3/events/{id}/videos` queues
   ZoneMinder's Generate Video, with a format from `ZM_FFMPEG_FORMATS`, a
@@ -20,8 +29,8 @@ recognisable path forward.
   the event's video files with the options read back from their names, and
   `GET`/`DELETE .../videos/{name}` downloads or deletes one (not the
   recording). `GET /api/v3/jobs[/{id}]` shows the queue, and `DELETE` cancels
-  a queued job or removes a finished one. ffmpeg runs without a shell, one
-  job at a time, and jobs a restart interrupted run again.
+  a queued job or removes a finished one. Videos are made in-process with
+  libav, one job at a time, and jobs a restart interrupted run again.
 
 - **Event export** (#30): `POST /api/v3/events/export {ids, include}`
   streams a zip, built as it goes, with a `{event_id}/` folder per event.
@@ -677,6 +686,54 @@ recognisable path forward.
   default, and any other table that drifts is logged by name.
 
 ### Security
+
+- **Event videos no longer run the ffmpeg program.** Media jobs ran the
+  binary named by `ZM_PATH_FFMPEG` with `ZM_FFMPEG_INPUT_OPTIONS` and
+  `ZM_FFMPEG_OUTPUT_OPTIONS` as arguments, so anyone who could write the
+  Config table chose the program and its arguments. Videos are now
+  decoded, filtered, encoded and muxed in-process with libav.
+  `ZM_PATH_FFMPEG` is ignored. The option strings are parsed into an
+  allowlist of encoder and muxer settings (`-r`, `-c:v`, `-pix_fmt`,
+  `-preset`, `-tune`, `-profile:v`, `-level`, `-crf`, `-qp`, `-b:v`,
+  `-maxrate`, `-minrate`, `-bufsize`, `-g`, `-bf`, `-threads`,
+  `-movflags`). Anything else is dropped and logged, and
+  `PUT /api/v3/configs/{name}` refuses it. A recording is opened only if
+  `DefaultVideo` is a plain file name, and only as a local file in a
+  recording container, so it can't name a URL, a playlist or another file.
+
+- **Stored values can't change the commands ZoneMinder runs.** Anything that
+  becomes part of a command now needs `System: Edit` or is checked first:
+  - Filters with `AutoExecute` or a command, and monitor
+    `EventStartCommand`/`EventEndCommand`, need `System: Edit`, as in
+    ZoneMinder. Other users can't edit a filter that already runs a
+    command.
+  - Monitor `Path`/`SecondPath` must use a known capture scheme or be a
+    local path (go2rtc runs `exec:` sources). `Device` must be under `/dev/`.
+    `Storage.Path` is limited to characters a shell treats literally.
+    Controls `Protocol` must be a bare Perl module name.
+  - zm-api won't start zmc, zma, zmtrack, zmcontrol, zmfilter or zmaudit
+    while the rows they read hold such values, including rows written
+    outside zm-api. It also refuses zmfilter when the installed version
+    doesn't escape filter tags and an `AutoExecute` command uses text tags.
+    Unsafe stored values are logged at startup and every hour.
+
+- **Monitor access follows ZoneMinder's rules.** A user's monitors are
+  decided as ZoneMinder's `visibleMonitor` and `editableMonitor` decide
+  them: their own per-monitor grant, then their groups (a `None` group
+  denies), then their role's monitors and groups, then their `Monitors`
+  level. A group grant now covers its child groups. A user with no grant
+  rows got every monitor before; they now get what their `Monitors` level
+  allows, so `Monitors: None` sees none. The grants are read in one query.
+- **Adding a monitor needs `Monitors: Create`** (or `System: Edit`), as in
+  ZoneMinder. `Edit` changes existing monitors only.
+- **Live streaming needs `View` on the monitor**, not `Edit`, for every
+  method, since ZoneMinder treats watching as a read.
+- **`/live/sessions` and `/live/sources` list only the caller's monitors.**
+- **Group membership changes need `Edit` on the group**, and reads list only
+  groups the caller can see.
+- **Moving a stat to another monitor needs `Edit` on that monitor.**
+- **Admin changes to a user's access, and deleting a user, revoke their
+  tokens at once.**
 
 - **Private config values are hidden below System Edit** (#184).
   `GET /api/v3/configs` and `GET /api/v3/configs/{name}` returned `Private`

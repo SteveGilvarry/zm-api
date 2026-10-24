@@ -17,7 +17,11 @@ pub fn add_monitor_routes(router: Router<AppState>) -> Router<AppState> {
     let protected_routes = Router::new()
         .route(
             &format!("{}/monitors", api_prefix),
-            get(monitor::list_monitors).post(monitor::create_monitor),
+            get(monitor::list_monitors).merge(
+                axum::routing::post(monitor::create_monitor).route_layer(middleware::from_fn(
+                    crate::util::middleware::require_monitor_create,
+                )),
+            ),
         )
         .route(
             &format!("{}/monitors/{{id}}", api_prefix),

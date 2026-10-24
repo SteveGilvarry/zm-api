@@ -132,6 +132,7 @@ impl AppServer {
         if self.state.schema_behind.is_none() {
             tokio::spawn(crate::service::media_jobs::worker(self.state.clone()));
         }
+        let rtsp_state = self.state.clone();
         let router = create_router_app(self.state);
 
         // One shutdown signal, observed by the HTTP drain and by the daemon
@@ -139,6 +140,8 @@ impl AppServer {
         // systemd's TimeoutStopSec bounds the whole stop, so a slow in-flight
         // response used to eat the time zmc/zma needed to be SIGTERM'd.
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+        // zm-api's RTSP server, when `streaming.rtsp.enabled`.
+        crate::streaming::rtsp::start(rtsp_state, shutdown_rx.clone()).await;
         let daemon_stop = {
             let dm = daemon_manager.clone();
             tokio::spawn(async move {
