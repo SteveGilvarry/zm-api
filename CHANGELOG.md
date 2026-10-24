@@ -718,6 +718,18 @@ recognisable path forward.
 
 ### Security
 
+- **Live WebRTC sessions over the WebSocket are rechecked, capped and timed
+  out.** A token or signed link opened `/api/v3/live/{id}/webrtc/ws` once
+  and the session then ran until the client left. Now:
+  - The viewer's access is checked every minute, as WHEP does. A disabled
+    or revoked user, or one who lost Stream or the monitor, is cut off.
+  - WebSocket and WHEP sessions share one `streaming.webrtc.max_connections`
+    cap, taken in a single atomic step. Before, WHEP checked a count, so
+    sessions starting together could pass the limit, and the WebSocket had
+    no cap at all.
+  - A client that doesn't answer the offer within 30 seconds is closed. The
+    timer used to start only once it answered.
+
 - **Rate limits can't be dodged with a forged `X-Forwarded-For`.** With
   `trust_proxy_headers` on, which `prod.toml` sets, the limiters took the
   leftmost `X-Forwarded-For` address from any connection. A client reaching

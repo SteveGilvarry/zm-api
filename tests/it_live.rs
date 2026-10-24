@@ -12,8 +12,8 @@
 //! on that contract: auth gating yields `401`, and a cleared request never
 //! yields `200` for a stream-less monitor.
 //!
-//! The `/webrtc/ws` WebSocket-upgrade route is intentionally not covered —
-//! `oneshot` cannot drive a protocol upgrade.
+//! The `/webrtc/ws` WebSocket-upgrade route is in `it_live_ws.rs`, which
+//! serves a real socket: `oneshot` cannot drive a protocol upgrade.
 //!
 //! Requires the test database — run with:
 //!   APP_PROFILE=test-db cargo test --test it_live -- --include-ignored

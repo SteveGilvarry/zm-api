@@ -686,12 +686,32 @@ pub enum WebRtcSignalingMessage {
 pub async fn webrtc_websocket_handler(
     State(state): State<AppState>,
     Path(monitor_id): Path<u32>,
+    claims: Option<axum::Extension<crate::util::claim::UserClaims>>,
+    grant: Option<axum::Extension<crate::service::media_grant::MediaGrant>>,
     ws: WebSocketUpgrade,
 ) -> Result<Response, AppError> {
     info!(
         "WebRTC WebSocket signaling request for monitor {}",
         monitor_id
     );
+
+    // Who is watching, for the access recheck: the token's user, or the
+    // user a signed link was made for (from now, as a link has no iat).
+    let viewer = match (claims, grant) {
+        (Some(c), _) => Viewer {
+            uid: c.uid,
+            since: c.iat,
+        },
+        (None, Some(g)) => Viewer {
+            uid: g.uid,
+            since: chrono::Utc::now().timestamp(),
+        },
+        (None, None) => {
+            return Err(AppError::UnauthorizedError(
+                "Authentication required".to_string(),
+            ))
+        }
+    };
 
     // Check if source router is available
     let source_router = state.source_router.as_ref().ok_or_else(|| {
@@ -714,12 +734,20 @@ pub async fn webrtc_websocket_handler(
 
     let router = Arc::clone(source_router);
 
+    // A slot of `max_connections`, shared with WHEP, held until the session
+    // ends.
+    let limit = state.config.streaming.webrtc.max_connections as usize;
+    let slot = state.webrtc_slots.try_acquire(limit).ok_or_else(|| {
+        AppError::ServiceUnavailableError(format!("WebRTC session limit ({limit}) reached"))
+    })?;
+
     // Honor the operator's configured STUN/TURN servers instead of the
     // hardcoded Google STUN defaults (REVIEW_FIXES_PLAN §2.2).
     let webrtc_config = WebRtcLiveConfig::from_webrtc_config(&state.config.streaming.webrtc);
 
-    Ok(ws.on_upgrade(move |socket| {
-        handle_webrtc_websocket(router, monitor_id, webrtc_config, socket)
+    Ok(ws.on_upgrade(move |socket| async move {
+        let _slot = slot;
+        handle_webrtc_websocket(state, router, monitor_id, viewer, webrtc_config, socket).await
     }))
 }
 
@@ -745,9 +773,19 @@ async fn inject_startup_keyframe(
         .await
 }
 
+/// The user a WebSocket session streams to, rechecked while it runs.
+#[derive(Debug, Clone, Copy)]
+struct Viewer {
+    uid: u32,
+    /// Tokens revoked after this end the session.
+    since: i64,
+}
+
 async fn handle_webrtc_websocket(
+    state: AppState,
     source_router: Arc<crate::streaming::source::SourceRouter>,
     monitor_id: u32,
+    viewer: Viewer,
     webrtc_config: WebRtcLiveConfig,
     socket: WebSocket,
 ) {
@@ -905,9 +943,15 @@ async fn handle_webrtc_websocket(
     let mut ice_recorded = false;
     // Set once the trickle-candidate channel is drained (end-of-candidates).
     let mut candidates_done = false;
-    // Connection timeout: 30s after answer is set, if not streaming yet
+    // Connection timeout: the client has 30s to answer the offer, then 30s
+    // more for the connection to come up. A client that never answers would
+    // otherwise hold a session slot for good.
     let connection_timeout = tokio::time::sleep(Duration::from_secs(30));
     tokio::pin!(connection_timeout);
+    // The viewer's access is checked again every minute: a disabled or
+    // revoked user, or one who lost Stream or this monitor, is cut off.
+    let mut recheck = tokio::time::interval(crate::streaming::live::whep::RECHECK);
+    recheck.tick().await;
 
     // Main event loop
     loop {
@@ -1118,16 +1162,39 @@ async fn handle_webrtc_websocket(
                 }
             }
 
-            // Connection timeout: if answer was set but DTLS never completes
-            () = &mut connection_timeout, if answer_set && !streaming_started => {
-                error!("WebRTC connection timeout for session {} (30s after SDP answer)", session_id);
+            // Connection timeout: no answer, or no connection after it.
+            () = &mut connection_timeout, if !streaming_started => {
+                let message = if answer_set {
+                    "Connection timeout: DTLS handshake did not complete within 30 seconds"
+                } else {
+                    "Signalling timeout: no answer to the offer within 30 seconds"
+                };
+                warn!("WebRTC session {}: {}", session_id, message);
                 let error_msg = WebRtcSignalingMessage::Error {
-                    message: "Connection timeout: DTLS handshake did not complete within 30 seconds".to_string(),
+                    message: message.to_string(),
                 };
                 if let Ok(json) = serde_json::to_string(&error_msg) {
                     let _ = ws_sender.send(Message::Text(json.into())).await;
                 }
                 break;
+            }
+
+            _ = recheck.tick() => {
+                if let Err(e) = crate::service::media_grant::check_viewer(
+                    &state, viewer.uid, viewer.since, crate::util::authz::Feature::Stream, monitor_id,
+                ).await {
+                    info!(
+                        "WebRTC session {}: user {} lost access ({}); closing",
+                        session_id, viewer.uid, e
+                    );
+                    let error_msg = WebRtcSignalingMessage::Error {
+                        message: "Access to this stream has ended".to_string(),
+                    };
+                    if let Ok(json) = serde_json::to_string(&error_msg) {
+                        let _ = ws_sender.send(Message::Text(json.into())).await;
+                    }
+                    break;
+                }
             }
 
             // Handle video packets for streaming (only after DTLS connected)
