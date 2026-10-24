@@ -251,6 +251,9 @@ fn build_cors_layer() -> CorsLayer {
             HeaderName::from_static("accept"),
             HeaderName::from_static("origin"),
         ])
+        // WHEP answers carry the session URL in `Location`; a browser client
+        // can only read it when it's exposed.
+        .expose_headers([axum::http::header::LOCATION])
         .allow_credentials(true)
 }
 

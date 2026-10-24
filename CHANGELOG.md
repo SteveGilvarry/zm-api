@@ -10,6 +10,24 @@ recognisable path forward.
 
 ### Added
 
+- **Live event stream**, `GET /api/v3/events/stream` (Server-Sent Events):
+  `event_start`, `event_end` and `event_updated` (notes changed, where object
+  detection writes) for every monitor the caller may see, and each monitor's
+  `alarm_state` on connect and on change. Reconnect with `Last-Event-ID` or
+  `?since=` to replay missed events. One watcher reads alarm state from
+  shared memory four times a second and events from the `Events` table, and
+  runs only while someone is subscribed. Heartbeat every 15 s; the stream
+  ends at token expiry or loss of access.
+- **WHEP for live WebRTC** (RFC 9725): `POST /api/v3/live/{monitor_id}/webrtc/whep`
+  takes the viewer's SDP offer and answers `201` with the SDP answer
+  (zm-api's candidates included) and the session in `Location`;
+  `PATCH` it with trickled candidates, `DELETE` it to stop. Clients whose
+  browser makes the offer (Home Assistant's camera WebRTC, WHEP players) can
+  now play zm-api's WebRTC without go2rtc. `406` when the offer can't receive
+  the camera's codec. A session's user is checked again every minute.
+- `[streaming.webrtc]` `nat_ips` (advertise a public address, for 1:1 NAT or
+  containers) and `udp_port_min`/`udp_port_max` (media ports from a range
+  instead of ephemeral ones), for WHEP and the WebSocket path alike.
 - **RTSP server for live video** (`[streaming.rtsp]`, off by default). Players
   that take one URL (Home Assistant, VLC, NVRs) get a monitor's live video at
   `rtsp://host:8554/live/{id}?st=…`, from
