@@ -20,12 +20,21 @@ pub struct WebRtcSlot(Arc<WebRtcSlots>);
 impl WebRtcSlots {
     /// A slot, or `None` when `limit` are in use.
     pub fn try_acquire(self: &Arc<Self>, limit: usize) -> Option<WebRtcSlot> {
-        self.used
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                (n < limit).then_some(n + 1)
-            })
-            .ok()
-            .map(|_| WebRtcSlot(Arc::clone(self)))
+        // A compare-exchange loop rather than `fetch_update`, which newer Rust
+        // deprecates for `try_update`, which the MSRV (1.94) doesn't have.
+        let mut n = self.used.load(Ordering::Acquire);
+        loop {
+            if n >= limit {
+                return None;
+            }
+            match self
+                .used
+                .compare_exchange_weak(n, n + 1, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) => return Some(WebRtcSlot(Arc::clone(self))),
+                Err(current) => n = current,
+            }
+        }
     }
 
     pub fn in_use(&self) -> usize {
