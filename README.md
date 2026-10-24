@@ -424,7 +424,7 @@ zm-api is **dual-licensed**:
   changes.
 - 💼 **Commercial license.** For embedding zm-api in a closed-source product, or running a
   modified version as a hosted service without the AGPL's source-sharing obligation, a
-  commercial license is available. Contact the maintainer to enquire.
+  commercial license is available from ZoneMinder Inc. Contact them to enquire.
 
 Contributions are accepted under a [Contributor License Agreement](CLA.md) so the project
 can be offered under both licenses — see [`CONTRIBUTING.md`](CONTRIBUTING.md).

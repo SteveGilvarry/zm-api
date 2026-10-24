@@ -11,7 +11,7 @@ must be covered by the [Contributor License Agreement](CLA.md).
 
 **By opening a pull request you agree to the [CLA](CLA.md)** for that and all future
 contributions. You keep the copyright in your work — the CLA is a license grant, not an
-assignment, that lets the maintainer license the project under both AGPL and commercial
+assignment, that lets ZoneMinder Inc. license the project under both AGPL and commercial
 terms. Please read it before contributing.
 
 The **CLA Assistant** workflow checks this automatically: if you haven't signed, a bot
@@ -19,7 +19,7 @@ comments on your PR and the `CLA Assistant` status check fails. Reply on the PR 
 
 > I have read the CLA Document and I hereby sign the CLA
 
-Your signature is then recorded in `signatures/version1/cla.json` and the check passes.
+Your signature is then recorded in `signatures/version2/cla.json` and the check passes.
 You only sign once — future PRs are recognised automatically.
 
 ### Maintainer note — branch protection
