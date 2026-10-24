@@ -181,6 +181,13 @@ impl TestRequest {
         self
     }
 
+    /// Attach a raw body with its content type.
+    #[allow(dead_code)]
+    pub fn raw_body(mut self, body: &str, content_type: &'static str) -> Self {
+        self.body = Some((body.as_bytes().to_vec(), content_type));
+        self
+    }
+
     /// Send the request and collect the response.
     pub async fn send(self) -> TestResponse {
         let mut builder = Request::builder().method(self.method).uri(&self.path);
