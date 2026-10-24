@@ -4,7 +4,7 @@ use crate::dto::request::{
 };
 use crate::dto::response::MonitorResponse;
 use crate::dto::{PaginatedResponse, PaginationParams};
-use crate::entity::monitors;
+use crate::entity::{monitors, zones};
 use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
@@ -12,6 +12,7 @@ use crate::service::monitor_acl::MonitorScope;
 use crate::util::authz::Level;
 use rust_decimal::prelude::*;
 use sea_orm::ActiveValue::{NotSet, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
 use tracing::info;
 
 fn monitor_not_found(id: u32) -> AppError {
@@ -72,6 +73,66 @@ pub async fn get_by_id(
         .await?
         .ok_or_else(|| monitor_not_found(id))?;
     Ok(MonitorResponse::from(monitor).for_scope(scope))
+}
+
+/// The "All" zone ZoneMinder gives every new monitor: the whole picture,
+/// with the thresholds of ZoneMinder's "Default" zone preset. Since 1.39.3
+/// thresholds are a percentage of the zone, so this suits any resolution
+/// and orientation.
+fn default_zone(monitor_id: u32) -> zones::ActiveModel {
+    use crate::entity::sea_orm_active_enums::{CheckMethod, Units, ZoneType};
+    let pct = |v: i64, scale: u32| Some(Decimal::new(v, scale));
+    zones::ActiveModel {
+        monitor_id: Set(monitor_id),
+        name: Set("All".to_string()),
+        r#type: Set(ZoneType::Active),
+        units: Set(Units::Percent),
+        num_coords: Set(4),
+        coords: Set("0.00,0.00 100.00,0.00 100.00,100.00 0.00,100.00".to_string()),
+        area: Set(10000),
+        check_method: Set(CheckMethod::Blobs),
+        min_pixel_threshold: Set(Some(25)),
+        min_alarm_pixels: Set(pct(5, 1)),
+        max_alarm_pixels: Set(pct(75, 0)),
+        filter_x: Set(Some(3)),
+        filter_y: Set(Some(3)),
+        min_filter_pixels: Set(pct(35, 2)),
+        max_filter_pixels: Set(pct(75, 0)),
+        min_blob_pixels: Set(pct(3, 1)),
+        min_blobs: Set(Some(1)),
+        ..Default::default()
+    }
+}
+
+/// Turn the monitor's zones with its picture when Orientation changes.
+/// See [`crate::service::zone_orientation`].
+async fn reorient_zones<C: sea_orm::ConnectionTrait>(
+    conn: &C,
+    before: &monitors::Model,
+    after: &monitors::Model,
+) -> AppResult<()> {
+    if before.orientation == after.orientation {
+        return Ok(());
+    }
+    let zs = zones::Entity::find()
+        .filter(zones::Column::MonitorId.eq(after.id))
+        .all(conn)
+        .await?;
+    for z in zs {
+        let Some(coords) = crate::service::zone_orientation::reorient(
+            &z.coords,
+            &before.orientation,
+            &after.orientation,
+            after.width,
+            after.height,
+        ) else {
+            continue;
+        };
+        let mut am: zones::ActiveModel = z.into();
+        am.coords = Set(coords);
+        am.update(conn).await?;
+    }
+    Ok(())
 }
 
 pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<MonitorResponse> {
@@ -256,8 +317,12 @@ pub async fn create(state: &AppState, req: CreateMonitorRequest) -> AppResult<Mo
         wall_clock_timestamps: req.wall_clock_timestamps.map_or(NotSet, Set),
     };
 
-    // Use the repository to insert the new monitor
-    let result = repo::monitors::create(state.db(), monitor).await?;
+    // The monitor and its full-frame zone go in together, as ZoneMinder's
+    // monitor editor adds them: without a zone, Modect never alarms.
+    let txn = state.db().begin().await?;
+    let result = repo::monitors::create(&txn, monitor).await?;
+    default_zone(result.id).insert(&txn).await?;
+    txn.commit().await?;
     crate::service::monitor_daemons::created(state, &result).await;
 
     Ok(MonitorResponse::from(result))
@@ -755,8 +820,11 @@ pub async fn update(
         monitor.recording = Set(recording);
     }
 
-    // Use the repository to update the monitor
-    let updated_monitor = repo::monitors::update(state.db(), monitor).await?;
+    // The monitor and, when it turned, its zones change together.
+    let txn = state.db().begin().await?;
+    let updated_monitor = repo::monitors::update(&txn, monitor).await?;
+    reorient_zones(&txn, &before, &updated_monitor).await?;
+    txn.commit().await?;
     crate::service::monitor_daemons::updated(state, &before, &updated_monitor).await;
     Ok(MonitorResponse::from(updated_monitor))
 }
