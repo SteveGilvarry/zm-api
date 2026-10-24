@@ -8,6 +8,7 @@ use crate::dto::response::TagResponse;
 use crate::dto::PaginationParams;
 use crate::error::{AppError, AppResult};
 use crate::server::state::AppState;
+use crate::service::monitor_acl::MonitorScope;
 use garde::Validate;
 
 /// List all tags with pagination.
@@ -27,9 +28,10 @@ use garde::Validate;
 )]
 pub async fn list_tags(
     State(state): State<AppState>,
+    scope: MonitorScope,
     Query(params): Query<PaginationParams>,
 ) -> AppResult<Json<PaginatedTagsResponse>> {
-    let result = crate::service::tags::list_paginated(&state, &params).await?;
+    let result = crate::service::tags::list_paginated(&state, &params, &scope).await?;
     Ok(Json(result))
 }
 
@@ -53,10 +55,16 @@ pub async fn get_tag(
     Path(id): Path<u64>,
     Query(params): Query<TagDetailQuery>,
     State(state): State<AppState>,
+    scope: MonitorScope,
 ) -> AppResult<Json<TagDetailResponse>> {
-    let item =
-        crate::service::tags::get_by_id_with_events(&state, id, params.page, params.page_size)
-            .await?;
+    let item = crate::service::tags::get_by_id_with_events(
+        &state,
+        id,
+        params.page,
+        params.page_size,
+        &scope,
+    )
+    .await?;
     Ok(Json(item))
 }
 

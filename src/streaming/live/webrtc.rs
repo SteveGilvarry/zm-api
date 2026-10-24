@@ -17,21 +17,23 @@ use rtc::rtp_transceiver::rtp_sender::{
     RtpCodecKind,
 };
 use tokio::sync::RwLock;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 use webrtc::media_stream::track_local::static_sample::TrackLocalStaticSample;
 use webrtc::media_stream::track_local::TrackLocal;
 use webrtc::peer_connection::{
     register_default_interceptors, MediaEngine, PeerConnection, PeerConnectionBuilder,
-    PeerConnectionEventHandler, RTCConfigurationBuilder, RTCIceCandidateInit,
-    RTCIceConnectionState, RTCIceServer, RTCPeerConnectionIceEvent, RTCPeerConnectionState,
-    RTCSessionDescription, Registry, SettingEngineBuilder,
+    PeerConnectionEventHandler, RTCConfigurationBuilder, RTCIceCandidateInit, RTCIceCandidateType,
+    RTCIceConnectionState, RTCIceGatheringState, RTCIceServer, RTCPeerConnectionIceEvent,
+    RTCPeerConnectionState, RTCSessionDescription, Registry, SettingEngineBuilder,
 };
 use webrtc::rtp_transceiver::{RTCRtpTransceiverDirection, RTCRtpTransceiverInit, RtpSender};
 
+use crate::streaming::live::audio::AacToOpusTranscoder;
 use crate::streaming::source::{
     h264_nal_type, h265_nal_type, slice_starts_picture, VideoCodec, VideoPacket,
 };
+use crate::streaming::source::{AudioPacket, CachedKeyframe};
 
 // Re-export for consumers that imported from here
 pub use crate::streaming::source::extract_profile_level_id;
@@ -394,6 +396,48 @@ impl SendTrack {
         })
     }
 
+    /// Like [`Self::attach`], for the answering side: `add_track` binds the
+    /// track to the remote offer's transceiver of the same kind.
+    async fn attach_to_offer(
+        pc: &Arc<dyn PeerConnection>,
+        kind: RtpCodecKind,
+        codec: RTCRtpCodec,
+        track_id: &str,
+        stream_id: &str,
+    ) -> Result<Self, WebRtcLiveError> {
+        let ssrc = rand::random::<u32>();
+        let track = Arc::new(
+            TrackLocalStaticSample::new(
+                Instant::now(),
+                MediaStreamTrack::new(
+                    stream_id.to_string(),
+                    track_id.to_string(),
+                    track_id.to_string(),
+                    kind,
+                    vec![RTCRtpEncodingParameters {
+                        rtp_coding_parameters: RTCRtpCodingParameters {
+                            ssrc: Some(ssrc),
+                            ..Default::default()
+                        },
+                        codec,
+                        ..Default::default()
+                    }],
+                ),
+            )
+            .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?,
+        );
+        let sender = pc
+            .add_track(Arc::clone(&track) as Arc<dyn TrackLocal>)
+            .await
+            .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
+        Ok(Self {
+            track,
+            sender,
+            ssrc,
+            payload_type: OnceLock::new(),
+        })
+    }
+
     /// Record the payload type the answer negotiated for this sender. The
     /// first codec in the sender's parameters is the one the browser chose.
     async fn resolve_payload_type(&self) -> Result<(), WebRtcLiveError> {
@@ -540,6 +584,8 @@ pub enum WebRtcLiveError {
 
     #[error("No video track available")]
     NoVideoTrack,
+    #[error("Invalid offer: {0}")]
+    InvalidOffer(String),
 }
 
 /// Configuration for WebRTC live streaming
@@ -550,6 +596,11 @@ pub struct WebRtcLiveConfig {
     pub turn_username: Option<String>,
     pub turn_password: Option<String>,
     pub max_sessions: usize,
+    /// Public IPs to advertise in place of this host's own (1:1 NAT, Docker).
+    pub nat_ips: Vec<String>,
+    /// Bind each session's UDP socket to a free port in this range, so a
+    /// firewall or container only has to forward the range.
+    pub udp_ports: Option<(u16, u16)>,
 }
 
 impl Default for WebRtcLiveConfig {
@@ -563,6 +614,8 @@ impl Default for WebRtcLiveConfig {
             turn_username: None,
             turn_password: None,
             max_sessions: 100,
+            nat_ips: Vec::new(),
+            udp_ports: None,
         }
     }
 }
@@ -591,6 +644,11 @@ impl WebRtcLiveConfig {
             turn_username,
             turn_password,
             max_sessions: cfg.max_connections as usize,
+            nat_ips: cfg.nat_ips.clone(),
+            udp_ports: match (cfg.udp_port_min, cfg.udp_port_max) {
+                (Some(lo), Some(hi)) if lo <= hi => Some((lo, hi)),
+                _ => None,
+            },
         }
     }
 }
@@ -601,14 +659,30 @@ impl WebRtcLiveConfig {
 /// A failed bind fails the whole peer connection in webrtc 0.21, and hosts
 /// and containers with IPv6 switched off reject `[::]`, so IPv6 is probed
 /// once rather than assumed.
-fn udp_bind_addrs() -> Vec<String> {
+fn udp_bind_addrs(ports: Option<(u16, u16)>) -> Vec<String> {
     static IPV6: OnceLock<bool> = OnceLock::new();
     let ipv6 = *IPV6.get_or_init(|| std::net::UdpSocket::bind("[::]:0").is_ok());
-    let mut addrs = vec!["0.0.0.0:0".to_string()];
-    if ipv6 {
-        addrs.push("[::]:0".to_string());
+    let addrs_for = |port: u16| {
+        let mut addrs = vec![format!("0.0.0.0:{port}")];
+        if ipv6 {
+            addrs.push(format!("[::]:{port}"));
+        }
+        addrs
+    };
+    if let Some((lo, hi)) = ports {
+        // The first port free on every family. Another session can take it
+        // between this probe and the peer connection's bind; that bind then
+        // fails and the session errors, which the client retries.
+        for port in lo..=hi {
+            let free = std::net::UdpSocket::bind(("0.0.0.0", port)).is_ok()
+                && (!ipv6 || std::net::UdpSocket::bind(("::", port)).is_ok());
+            if free {
+                return addrs_for(port);
+            }
+        }
+        warn!("WebRTC: no free UDP port in {lo}-{hi}; using an ephemeral port");
     }
-    addrs
+    addrs_for(0)
 }
 
 /// Relays peer-connection events to the signaling handler's channels.
@@ -617,6 +691,7 @@ struct LiveEventHandler {
     pc_state_tx: tokio::sync::watch::Sender<RTCPeerConnectionState>,
     ice_connected_tx: tokio::sync::watch::Sender<bool>,
     candidate_tx: tokio::sync::mpsc::UnboundedSender<RTCIceCandidateInit>,
+    gathering_tx: tokio::sync::watch::Sender<bool>,
 }
 
 #[async_trait::async_trait]
@@ -644,6 +719,12 @@ impl PeerConnectionEventHandler for LiveEventHandler {
             RTCIceConnectionState::Connected | RTCIceConnectionState::Completed
         ) {
             let _ = self.ice_connected_tx.send(true);
+        }
+    }
+
+    async fn on_ice_gathering_state_change(&self, state: RTCIceGatheringState) {
+        if state == RTCIceGatheringState::Complete {
+            let _ = self.gathering_tx.send(true);
         }
     }
 
@@ -685,6 +766,8 @@ pub struct SessionHandshake {
     pub pc_state_rx: tokio::sync::watch::Receiver<RTCPeerConnectionState>,
     pub ice_connected_rx: tokio::sync::watch::Receiver<bool>,
     pub candidate_rx: tokio::sync::mpsc::UnboundedReceiver<RTCIceCandidateInit>,
+    /// Flips `true` when local ICE gathering completes.
+    pub gathering_rx: tokio::sync::watch::Receiver<bool>,
 }
 
 /// The H.264 `profile-level-id` values to advertise in the SDP offer.
@@ -738,6 +821,16 @@ fn ensure_trickle_ice_option(
     RTCSessionDescription::offer(sdp).map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))
 }
 
+/// A peer connection with its event channels, before tracks are attached.
+struct BuiltPeer {
+    peer_connection: Arc<dyn PeerConnection>,
+    codec_capability: RTCRtpCodec,
+    pc_state_rx: tokio::sync::watch::Receiver<RTCPeerConnectionState>,
+    ice_connected_rx: tokio::sync::watch::Receiver<bool>,
+    candidate_rx: tokio::sync::mpsc::UnboundedReceiver<RTCIceCandidateInit>,
+    gathering_rx: tokio::sync::watch::Receiver<bool>,
+}
+
 impl WebRtcLiveManager {
     /// Create a new WebRTC live manager
     pub fn new(config: WebRtcLiveConfig) -> Self {
@@ -748,23 +841,15 @@ impl WebRtcLiveManager {
         }
     }
 
-    /// Create a new WebRTC session for a monitor
-    ///
-    /// Builds the webrtc-rs API with interceptor registry and setting engine,
-    /// waits for ICE gathering to complete, and returns the full SDP offer
-    /// with embedded ICE candidates.
-    /// Create a new WebRTC session for a monitor.
-    ///
-    /// `profile_level_id` is the 6-hex-char value extracted from the H.264
-    /// SPS NAL (e.g. `"4d0033"` for Main Profile Level 5.1).  When `None`,
-    /// defaults to `"4d0033"` which covers most IP cameras.
-    pub async fn create_session(
+    /// The peer connection for a session: codecs registered, ICE configured,
+    /// event channels wired, no tracks yet.
+    async fn build_peer(
         &self,
         monitor_id: u32,
         codec: VideoCodec,
         profile_level_id: Option<&str>,
         audio: Option<AudioTrackKind>,
-    ) -> Result<SessionHandshake, WebRtcLiveError> {
+    ) -> Result<BuiltPeer, WebRtcLiveError> {
         // Check session limit
         if self.sessions.len() >= self.config.max_sessions {
             return Err(WebRtcLiveError::WebRtcError(
@@ -855,14 +940,19 @@ impl WebRtcLiveManager {
             .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
 
         // Configure ICE settings
-        let setting_engine = SettingEngineBuilder::new()
+        let mut setting_engine = SettingEngineBuilder::new()
             .with_lite(false)
             .with_ice_timeouts(
                 Some(Duration::from_secs(5)),
                 Some(Duration::from_secs(10)),
                 Some(Duration::from_millis(200)),
-            )
-            .build();
+            );
+        if !self.config.nat_ips.is_empty() {
+            // Advertise the public address in place of the host's own.
+            setting_engine = setting_engine
+                .with_nat_1to1_ips(self.config.nat_ips.clone(), RTCIceCandidateType::Host);
+        }
+        let setting_engine = setting_engine.build();
 
         // Create ICE servers configuration
         let mut ice_servers = vec![];
@@ -903,11 +993,14 @@ impl WebRtcLiveManager {
         let (candidate_tx, candidate_rx) =
             tokio::sync::mpsc::unbounded_channel::<RTCIceCandidateInit>();
 
+        let (gathering_tx, gathering_rx) = tokio::sync::watch::channel(false);
+
         let events = Arc::new(LiveEventHandler {
             monitor_id,
             pc_state_tx,
             ice_connected_tx,
             candidate_tx,
+            gathering_tx,
         });
 
         // Each wildcard binds one UDP socket per non-loopback interface of
@@ -919,11 +1012,78 @@ impl WebRtcLiveManager {
                 .with_interceptor_registry(registry)
                 .with_setting_engine(setting_engine)
                 .with_handler(events)
-                .with_udp_addrs(udp_bind_addrs())
+                .with_udp_addrs(udp_bind_addrs(self.config.udp_ports))
                 .build()
                 .await
                 .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?,
         );
+
+        Ok(BuiltPeer {
+            peer_connection,
+            codec_capability,
+            pc_state_rx,
+            ice_connected_rx,
+            candidate_rx,
+            gathering_rx,
+        })
+    }
+
+    /// Store a session and index it by monitor.
+    fn register(
+        &self,
+        monitor_id: u32,
+        peer_connection: Arc<dyn PeerConnection>,
+        video_track: SendTrack,
+        audio_track: Option<SendTrack>,
+    ) -> String {
+        let session_id = Uuid::new_v4();
+        let session = WebRtcLiveSession {
+            id: session_id,
+            monitor_id,
+            state: RwLock::new(WebRtcSessionState::New),
+            peer_connection,
+            video_track,
+            audio_track,
+            created_at: chrono::Utc::now(),
+            packets_sent: AtomicU64::new(0),
+            bytes_sent: AtomicU64::new(0),
+        };
+        let session_id_str = session_id.to_string();
+        self.sessions
+            .insert(session_id_str.clone(), Arc::new(RwLock::new(session)));
+        self.monitor_sessions
+            .entry(monitor_id)
+            .or_default()
+            .push(session_id_str.clone());
+        info!(
+            "Created WebRTC session {} for monitor {}",
+            session_id_str, monitor_id
+        );
+        session_id_str
+    }
+
+    /// Create a new WebRTC session for a monitor, as the offerer.
+    ///
+    /// `profile_level_id` is the camera's H.264 profile, for logging; the
+    /// offer advertises browser-universal profiles (see
+    /// `h264_offer_profile_level_ids`).
+    pub async fn create_session(
+        &self,
+        monitor_id: u32,
+        codec: VideoCodec,
+        profile_level_id: Option<&str>,
+        audio: Option<AudioTrackKind>,
+    ) -> Result<SessionHandshake, WebRtcLiveError> {
+        let BuiltPeer {
+            peer_connection,
+            codec_capability,
+            pc_state_rx,
+            ice_connected_rx,
+            candidate_rx,
+            gathering_rx,
+        } = self
+            .build_peer(monitor_id, codec, profile_level_id, audio)
+            .await?;
 
         let stream_id = format!("zm-live-{}", monitor_id);
 
@@ -966,25 +1126,16 @@ impl WebRtcLiveManager {
             .await
             .map_err(|e| WebRtcLiveError::WebRtcError(e.to_string()))?;
 
-        // Trickle ICE: return the offer NOW — with ICE ufrag/pwd, the DTLS
-        // fingerprint and the m-lines, but possibly no candidates yet — instead
-        // of blocking on `gathering_complete_promise()`. That gather wait was the
-        // dominant `offer_ms` cost: it stalled on STUN round-trips (and up to the
-        // ~5s STUN timeout if the servers were unreachable). Candidates now stream
-        // to the browser via `on_ice_candidate` as they are discovered, so the
-        // offer is sent in tens of ms regardless of STUN reachability, and DTLS
-        // can begin the moment the first candidate pair connects.
+        // Trickle ICE: return the offer NOW, with ICE ufrag/pwd, the DTLS
+        // fingerprint and the m-lines but possibly no candidates yet, instead
+        // of blocking on gathering (which stalled on STUN round-trips).
+        // Candidates stream to the browser via `on_ice_candidate`.
         let complete_offer = peer_connection.local_description().await.ok_or_else(|| {
             WebRtcLiveError::WebRtcError("No local description available after set".to_string())
         })?;
 
-        // Advertise trickle support (RFC 8838 §10). webrtc-rs does not emit
-        // `a=ice-options:trickle`; without it a strict answerer could wait for
-        // `a=end-of-candidates` instead of accepting our streamed candidates.
-        // Browsers accept trickle regardless, but signalling it is correct and
-        // helps non-browser peers. Insert once at session level (before the
-        // first media section); the PC's own local description is unchanged, so
-        // ICE ufrag/pwd/fingerprint still match.
+        // Advertise trickle support (RFC 8838 §10); webrtc-rs doesn't emit
+        // `a=ice-options:trickle`.
         let complete_offer = ensure_trickle_ice_option(complete_offer)?;
 
         debug!(
@@ -992,41 +1143,144 @@ impl WebRtcLiveManager {
             monitor_id
         );
 
-        // Create session
-        let session_id = Uuid::new_v4();
-        let session = WebRtcLiveSession {
-            id: session_id,
-            monitor_id,
-            state: RwLock::new(WebRtcSessionState::New),
-            peer_connection,
-            video_track,
-            audio_track,
-            created_at: chrono::Utc::now(),
-            packets_sent: AtomicU64::new(0),
-            bytes_sent: AtomicU64::new(0),
-        };
-
-        let session_id_str = session_id.to_string();
-        self.sessions
-            .insert(session_id_str.clone(), Arc::new(RwLock::new(session)));
-
-        // Track session by monitor
-        self.monitor_sessions
-            .entry(monitor_id)
-            .or_default()
-            .push(session_id_str.clone());
-
-        info!(
-            "Created WebRTC session {} for monitor {}",
-            session_id_str, monitor_id
-        );
-
+        let session_id = self.register(monitor_id, peer_connection, video_track, audio_track);
         Ok(SessionHandshake {
-            session_id: session_id_str,
+            session_id,
             offer: complete_offer,
             pc_state_rx,
             ice_connected_rx,
             candidate_rx,
+            gathering_rx,
+        })
+    }
+
+    /// Create a session that answers a client's offer (WHEP, RFC 9725).
+    ///
+    /// The offer is applied first so the send-only tracks bind to the
+    /// client's receive slots. Audio is attached only when the offer has an
+    /// audio section. The answer is returned once ICE gathering completes
+    /// (or `gather_wait` passes), so it carries this side's candidates and a
+    /// client that doesn't trickle can still connect. The returned
+    /// handshake's `offer` field holds the answer.
+    pub async fn answer_offer(
+        &self,
+        monitor_id: u32,
+        codec: VideoCodec,
+        profile_level_id: Option<&str>,
+        audio: Option<AudioTrackKind>,
+        offer_sdp: String,
+        gather_wait: Duration,
+    ) -> Result<SessionHandshake, WebRtcLiveError> {
+        if !offer_sdp.contains("m=video") {
+            return Err(WebRtcLiveError::InvalidOffer(
+                "the offer has no video section".to_string(),
+            ));
+        }
+        let audio = audio.filter(|_| offer_sdp.contains("m=audio"));
+        let offer = RTCSessionDescription::offer(offer_sdp)
+            .map_err(|e| WebRtcLiveError::InvalidOffer(e.to_string()))?;
+        let BuiltPeer {
+            peer_connection,
+            codec_capability,
+            pc_state_rx,
+            ice_connected_rx,
+            candidate_rx,
+            mut gathering_rx,
+        } = self
+            .build_peer(monitor_id, codec, profile_level_id, audio)
+            .await?;
+        let fail = |e: WebRtcLiveError| {
+            let pc = Arc::clone(&peer_connection);
+            async move {
+                let _ = pc.close().await;
+                e
+            }
+        };
+
+        if let Err(e) = peer_connection.set_remote_description(offer).await {
+            return Err(fail(WebRtcLiveError::InvalidOffer(e.to_string())).await);
+        }
+        let stream_id = format!("zm-live-{}", monitor_id);
+        let video_track = match SendTrack::attach_to_offer(
+            &peer_connection,
+            RtpCodecKind::Video,
+            codec_capability,
+            "video",
+            &stream_id,
+        )
+        .await
+        {
+            Ok(t) => t,
+            // No receive slot in the offer takes the camera's codec.
+            Err(e) => {
+                return Err(fail(WebRtcLiveError::UnsupportedCodec(format!(
+                    "the offer can't receive {}: {e}",
+                    codec.as_str()
+                )))
+                .await)
+            }
+        };
+        let audio_track = match audio {
+            Some(kind) => SendTrack::attach_to_offer(
+                &peer_connection,
+                RtpCodecKind::Audio,
+                kind.capability(),
+                "audio",
+                &stream_id,
+            )
+            .await
+            .ok(),
+            None => None,
+        };
+
+        let answer = match peer_connection.create_answer(None).await {
+            Ok(a) => a,
+            Err(e) => return Err(fail(WebRtcLiveError::WebRtcError(e.to_string())).await),
+        };
+        if let Err(e) = peer_connection.set_local_description(answer).await {
+            return Err(fail(WebRtcLiveError::WebRtcError(e.to_string())).await);
+        }
+
+        // The answer fixes each sender's payload type. No video codec in
+        // common (an H.265 camera, a browser without H.265) ends here.
+        if video_track.resolve_payload_type().await.is_err() {
+            return Err(fail(WebRtcLiveError::UnsupportedCodec(format!(
+                "the offer has no {} the camera's stream can be sent as",
+                codec.as_str()
+            )))
+            .await);
+        }
+        let audio_track = match audio_track {
+            Some(t) if t.resolve_payload_type().await.is_ok() => Some(t),
+            _ => None,
+        };
+
+        let _ = tokio::time::timeout(gather_wait, gathering_rx.wait_for(|done| *done)).await;
+        let answer = match peer_connection.local_description().await {
+            Some(a) => a,
+            None => {
+                return Err(fail(WebRtcLiveError::WebRtcError(
+                    "No local description after answering".to_string(),
+                ))
+                .await)
+            }
+        };
+
+        let session_id = self.register(monitor_id, peer_connection, video_track, audio_track);
+        if let Some(session) = self.get_session(&session_id) {
+            session
+                .read()
+                .await
+                .set_state(WebRtcSessionState::Connecting)
+                .await;
+        }
+        Ok(SessionHandshake {
+            session_id,
+            offer: answer,
+            pc_state_rx,
+            ice_connected_rx,
+            candidate_rx,
+            gathering_rx,
         })
     }
 
@@ -1181,6 +1435,133 @@ impl WebRtcLiveManager {
     /// List all sessions
     pub fn list_sessions(&self) -> Vec<String> {
         self.sessions.iter().map(|r| r.key().clone()).collect()
+    }
+}
+
+/// The audio track a session carries for a monitor's audio codec, and the
+/// transcoder it needs. G.711 passes through (a mandatory WebRTC codec); AAC
+/// becomes Opus, since browsers don't take AAC over RTP. A missing libopus
+/// leaves the session video-only rather than advertising audio it can't send.
+pub fn audio_plan(
+    monitor_id: u32,
+    codec: Option<crate::streaming::source::AudioCodec>,
+) -> (Option<AudioTrackKind>, Option<AacToOpusTranscoder>) {
+    use crate::streaming::source::AudioCodec;
+    match codec {
+        Some(AudioCodec::G711Ulaw) => (Some(AudioTrackKind::Pcmu), None),
+        Some(AudioCodec::G711Alaw) => (Some(AudioTrackKind::Pcma), None),
+        Some(AudioCodec::Aac) => match AacToOpusTranscoder::new() {
+            Ok(t) => (Some(AudioTrackKind::Opus), Some(t)),
+            Err(e) => {
+                warn!(
+                    "Monitor {monitor_id} has AAC audio but transcoding is unavailable ({e}); \
+                     video only"
+                );
+                (None, None)
+            }
+        },
+        Some(other) => {
+            debug!(
+                "Monitor {monitor_id} audio codec {other:?} not supported over WebRTC; video only"
+            );
+            (None, None)
+        }
+        None => (None, None),
+    }
+}
+
+/// Feeds a monitor's packets into one session: assembles NAL units into
+/// frames, sends the startup keyframe, passes G.711 through and transcodes
+/// AAC to Opus. The WebSocket and WHEP paths share it.
+pub struct MediaPump {
+    session_id: String,
+    assembler: AccessUnitAssembler,
+    transcoder: Option<AacToOpusTranscoder>,
+}
+
+impl MediaPump {
+    pub fn new(session_id: String, transcoder: Option<AacToOpusTranscoder>) -> Self {
+        Self {
+            session_id,
+            assembler: AccessUnitAssembler::new(),
+            transcoder,
+        }
+    }
+
+    /// Send a keyframe at connect time so the viewer sees a picture at once
+    /// instead of waiting a GOP. `false` when there's none or it failed.
+    pub async fn inject_keyframe(
+        &mut self,
+        manager: &WebRtcLiveManager,
+        keyframe: Option<&CachedKeyframe>,
+    ) -> bool {
+        let Some(ck) = keyframe else {
+            return false;
+        };
+        let au = AssembledAccessUnit {
+            data: ck.keyframe_au.clone(),
+            timestamp_us: ck.timestamp_us,
+            is_keyframe: true,
+        };
+        if let Err(e) = manager.write_access_unit(&self.session_id, &au).await {
+            warn!("Failed to inject startup keyframe: {}", e);
+            return false;
+        }
+        self.assembler.clear_needs_keyframe();
+        true
+    }
+
+    /// Feed one video packet; `true` when it completed a frame that was sent.
+    pub async fn video(&mut self, manager: &WebRtcLiveManager, packet: &VideoPacket) -> bool {
+        let Some(au) = self.assembler.push(packet) else {
+            return false;
+        };
+        match manager.write_access_unit(&self.session_id, &au).await {
+            Ok(()) => true,
+            Err(e) => {
+                debug!("Failed to write access unit: {}", e);
+                false
+            }
+        }
+    }
+
+    /// Feed one audio packet.
+    pub async fn audio(&mut self, manager: &WebRtcLiveManager, packet: &AudioPacket) {
+        use crate::streaming::source::AudioCodec;
+        match packet.codec {
+            AudioCodec::G711Alaw | AudioCodec::G711Ulaw => {
+                // 8 kHz, one byte per sample.
+                let duration = Duration::from_micros(packet.data.len() as u64 * 1_000_000 / 8_000);
+                if let Err(e) = manager
+                    .write_audio_sample(&self.session_id, &packet.data, duration)
+                    .await
+                {
+                    debug!("Failed to write audio sample: {}", e);
+                }
+            }
+            AudioCodec::Aac => {
+                let Some(transcoder) = self.transcoder.as_mut() else {
+                    return;
+                };
+                match transcoder.transcode(&packet.data) {
+                    Ok(frames) => {
+                        for frame in frames {
+                            if let Err(e) = manager
+                                .write_audio_sample(&self.session_id, &frame.data, frame.duration)
+                                .await
+                            {
+                                debug!("Failed to write Opus frame: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => debug!(
+                        "AAC→Opus transcode error for session {}: {}",
+                        self.session_id, e
+                    ),
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -1359,9 +1740,206 @@ mod tests {
         );
     }
 
+    /// A receive-only client, as a browser behind WHEP: offers to receive
+    /// video (H.264 and H.265 when `h265`), counts RTP packets that arrive.
+    struct Viewer {
+        pc: Arc<dyn PeerConnection>,
+        connected: tokio::sync::watch::Receiver<bool>,
+        packets: Arc<AtomicU64>,
+    }
+
+    struct ViewerEvents {
+        connected: tokio::sync::watch::Sender<bool>,
+        gathered: tokio::sync::watch::Sender<bool>,
+        packets: Arc<AtomicU64>,
+    }
+
+    #[async_trait::async_trait]
+    impl PeerConnectionEventHandler for ViewerEvents {
+        async fn on_ice_gathering_state_change(&self, state: RTCIceGatheringState) {
+            if state == RTCIceGatheringState::Complete {
+                let _ = self.gathered.send(true);
+            }
+        }
+        async fn on_connection_state_change(&self, state: RTCPeerConnectionState) {
+            if state == RTCPeerConnectionState::Connected {
+                let _ = self.connected.send(true);
+            }
+        }
+        async fn on_track(&self, track: Arc<dyn webrtc::media_stream::track_remote::TrackRemote>) {
+            let packets = self.packets.clone();
+            tokio::spawn(async move {
+                use webrtc::media_stream::track_remote::TrackRemoteEvent;
+                while let Some(event) = track.poll().await {
+                    match event {
+                        TrackRemoteEvent::OnRtpPacket(_) => {
+                            packets.fetch_add(1, Ordering::SeqCst);
+                        }
+                        TrackRemoteEvent::OnEnded => break,
+                        _ => {}
+                    }
+                }
+            });
+        }
+    }
+
+    /// A viewer and its offer (gathered, so it needs no trickle).
+    async fn viewer(codecs: &[(&str, &str)]) -> (Viewer, String) {
+        let mut media = MediaEngine::default();
+        for (i, (mime, fmtp)) in codecs.iter().enumerate() {
+            media
+                .register_codec(
+                    RTCRtpCodecParameters {
+                        rtp_codec: RTCRtpCodec {
+                            mime_type: mime.to_string(),
+                            clock_rate: 90000,
+                            channels: 0,
+                            sdp_fmtp_line: fmtp.to_string(),
+                            rtcp_feedback: vec![],
+                        },
+                        payload_type: 102 + i as u8,
+                    },
+                    RtpCodecKind::Video,
+                )
+                .unwrap();
+        }
+        let (connected_tx, connected) = tokio::sync::watch::channel(false);
+        let (gathered_tx, mut gathered) = tokio::sync::watch::channel(false);
+        let packets = Arc::new(AtomicU64::new(0));
+        let pc: Arc<dyn PeerConnection> = Arc::new(
+            PeerConnectionBuilder::new()
+                .with_media_engine(media)
+                .with_handler(Arc::new(ViewerEvents {
+                    connected: connected_tx,
+                    gathered: gathered_tx,
+                    packets: packets.clone(),
+                }))
+                .with_udp_addrs(vec!["0.0.0.0:0".to_string()])
+                .build()
+                .await
+                .unwrap(),
+        );
+        pc.add_transceiver_from_kind(
+            RtpCodecKind::Video,
+            Some(RTCRtpTransceiverInit {
+                direction: RTCRtpTransceiverDirection::Recvonly,
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap();
+        let offer = pc.create_offer(None).await.unwrap();
+        pc.set_local_description(offer).await.unwrap();
+        let _ = tokio::time::timeout(Duration::from_secs(3), gathered.wait_for(|g| *g)).await;
+        let sdp = pc.local_description().await.unwrap().sdp;
+        (
+            Viewer {
+                pc,
+                connected,
+                packets,
+            },
+            sdp,
+        )
+    }
+
+    const H264: (&str, &str) = (
+        "video/H264",
+        "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f",
+    );
+
+    /// WHEP: a receive-only offer is answered with a send-only video
+    /// section and this side's candidates; the viewer connects and gets RTP.
+    #[tokio::test]
+    async fn an_offer_is_answered_and_the_viewer_receives_video() {
+        let manager = lan_only_manager();
+        let (mut viewer, offer) = viewer(&[H264]).await;
+        let h = manager
+            .answer_offer(
+                1,
+                VideoCodec::H264,
+                None,
+                None,
+                offer,
+                Duration::from_secs(3),
+            )
+            .await
+            .expect("answer");
+        let answer = h.offer.sdp.clone();
+        assert!(answer.contains("a=sendonly"), "{answer}");
+        assert!(answer.contains("H264/90000"), "{answer}");
+        assert!(
+            answer.contains("a=candidate"),
+            "answer carries candidates: {answer}"
+        );
+        viewer
+            .pc
+            .set_remote_description(RTCSessionDescription::answer(answer).unwrap())
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(10), viewer.connected.wait_for(|c| *c))
+            .await
+            .expect("viewer connects within 10 s")
+            .unwrap();
+        let au = AssembledAccessUnit {
+            data: vec![
+                0, 0, 0, 1, 0x67, 0x42, 0xe0, 0x1f, 0, 0, 0, 1, 0x68, 0xce, 0, 0, 0, 1, 0x65, 0x88,
+                0x84,
+            ],
+            timestamp_us: 0,
+            is_keyframe: true,
+        };
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while viewer.packets.load(Ordering::SeqCst) == 0 {
+            assert!(Instant::now() < deadline, "no RTP reached the viewer");
+            let _ = manager.write_access_unit(&h.session_id, &au).await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        manager.remove_session(&h.session_id).await.unwrap();
+        let _ = viewer.pc.close().await;
+    }
+
+    #[tokio::test]
+    async fn an_offer_without_the_cameras_codec_is_refused() {
+        let manager = lan_only_manager();
+        let (viewer, offer) = viewer(&[H264]).await;
+        let err = manager
+            .answer_offer(
+                1,
+                VideoCodec::H265,
+                None,
+                None,
+                offer,
+                Duration::from_secs(1),
+            )
+            .await
+            .err()
+            .expect("an H.265 camera can't answer an H.264-only offer");
+        assert!(matches!(err, WebRtcLiveError::UnsupportedCodec(_)), "{err}");
+        assert_eq!(manager.session_count(), 0);
+        let _ = viewer.pc.close().await;
+    }
+
+    #[tokio::test]
+    async fn an_offer_without_video_is_refused() {
+        let manager = lan_only_manager();
+        let err = manager
+            .answer_offer(
+                1,
+                VideoCodec::H264,
+                None,
+                None,
+                "v=0\r\no=- 1 1 IN IP4 0.0.0.0\r\ns=-\r\nt=0 0\r\n".to_string(),
+                Duration::from_secs(1),
+            )
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(err, WebRtcLiveError::InvalidOffer(_)), "{err}");
+    }
+
     #[test]
     fn udp_bind_addrs_always_binds_ipv4_and_ipv6_only_when_available() {
-        let addrs = udp_bind_addrs();
+        let addrs = udp_bind_addrs(None);
         assert_eq!(addrs[0], "0.0.0.0:0");
         let ipv6 = std::net::UdpSocket::bind("[::]:0").is_ok();
         assert_eq!(addrs.contains(&"[::]:0".to_string()), ipv6);

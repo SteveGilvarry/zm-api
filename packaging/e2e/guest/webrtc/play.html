@@ -6,9 +6,14 @@
   E2E_WEBRTC_OK / E2E_WEBRTC_FAIL line.
 
   Query: api=http://host:port  token=<access token>  mid=<monitor id>
-  Protocol: the server sends {type:"offer"} on connect; we answer, exchange
-  {type:"icecandidate"} (sdpMid / sdpMLineIndex camelCase), and wait for
-  decoded frames. Mirrors zm-web's webrtcManager.ts.
+         [mode=whep]
+  Protocol (default): the server sends {type:"offer"} on connect; we answer,
+  exchange {type:"icecandidate"} (sdpMid / sdpMLineIndex camelCase), and wait
+  for decoded frames. Mirrors zm-web's webrtcManager.ts.
+  mode=whep: we make a receive-only offer, gather our candidates, POST it to
+  /live/{mid}/webrtc/whep (RFC 9725) and play the answer, as Home Assistant's
+  camera WebRTC does. Needs the page's origin allowed by CORS, or chromium
+  run with --disable-web-security.
 -->
 <meta charset="utf-8">
 <title>zm-api WebRTC e2e</title>
@@ -33,6 +38,39 @@
   };
 
   if (!api || !token || !mid) { finish(false, 'missing api, token or mid'); return; }
+
+  if (q.get('mode') === 'whep') {
+    (async () => {
+      try {
+        pc = new RTCPeerConnection({ iceServers: [] });
+        pc.addTransceiver('video', { direction: 'recvonly' });
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+        pc.ontrack = (t) => {
+          video.srcObject = t.streams[0] ?? new MediaStream([t.track]);
+          log(`track kind=${t.track.kind}`);
+        };
+        pc.onconnectionstatechange = () => { last.state = pc.connectionState; log(`connection=${pc.connectionState}`); };
+        pc.oniceconnectionstatechange = () => { last.ice = pc.iceConnectionState; };
+        await pc.setLocalDescription(await pc.createOffer());
+        await new Promise((done) => {
+          if (pc.iceGatheringState === 'complete') return done();
+          pc.onicegatheringstatechange = () => pc.iceGatheringState === 'complete' && done();
+          setTimeout(done, 3000);
+        });
+        const r = await fetch(`${api}/api/v3/live/${mid}/webrtc/whep`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/sdp', Authorization: `Bearer ${token}` },
+          body: pc.localDescription.sdp,
+        });
+        if (r.status !== 201) { finish(false, `whep POST ${r.status}: ${await r.text()}`); return; }
+        log(`whep session ${r.headers.get('Location')}`);
+        last.ready = true;
+        await pc.setRemoteDescription({ type: 'answer', sdp: await r.text() });
+      } catch (err) {
+        finish(false, `whep: ${err && err.message}`);
+      }
+    })();
+  } else {
   const wsUrl = api.replace(/^http/, 'ws') + `/api/v3/live/${mid}/webrtc/ws?token=${encodeURIComponent(token)}`;
   const ws = new WebSocket(wsUrl);
   ws.onerror = () => finish(false, 'websocket error');
@@ -82,6 +120,7 @@
       default: break;
     }
   };
+  }
 
   const started = performance.now();
   const poll = setInterval(async () => {

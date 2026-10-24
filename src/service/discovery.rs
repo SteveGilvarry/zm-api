@@ -33,7 +33,7 @@
 
 #![allow(clippy::result_large_err)]
 
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -219,7 +219,15 @@ pub async fn inspect(
     info!("Inspecting ONVIF device.");
     ensure_inspect_target_allowed(xaddr)?;
 
-    let transport = OnvifTransport::new(state.http.clone());
+    // Its own client, which doesn't follow redirects: the device's address
+    // was checked, and a redirect would take the request somewhere that
+    // wasn't (the server's loopback, or the internet).
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| AppError::InternalServerError(format!("http client: {e}")))?;
+    let transport = OnvifTransport::new(client);
 
     // --- Device service: identity + capabilities --------------------------
     let device = DeviceClient::new(transport.clone(), xaddr, creds.clone());
@@ -385,6 +393,46 @@ async fn resolve_service_urls(device: &DeviceClient, xaddr: &str) -> ServiceUrls
 /// scheme is disallowed, and [`AppError::PermissionDeniedError`] when the
 /// destination host is a public/unresolvable address (an exfiltration risk).
 fn ensure_inspect_target_allowed(xaddr: &str) -> AppResult<()> {
+    target_allowed(xaddr, &own_addresses())
+}
+
+/// This host's interface addresses, which an inspect may not reach: a
+/// service bound to all interfaces answers on them as it does on loopback.
+fn own_addresses() -> Vec<IpAddr> {
+    let Ok(addrs) = nix::ifaddrs::getifaddrs() else {
+        return Vec::new();
+    };
+    addrs
+        .filter_map(|a| a.address)
+        .filter_map(|sa| {
+            if let Some(v4) = sa.as_sockaddr_in() {
+                Some(IpAddr::V4(v4.ip()))
+            } else {
+                sa.as_sockaddr_in6().map(|v6| IpAddr::V6(v6.ip()))
+            }
+        })
+        .collect()
+}
+
+/// Cloud metadata services (AWS, GCP, Azure, ...; AWS's IPv6 one), which
+/// hand out credentials to whatever asks from inside the instance.
+const METADATA: [IpAddr; 2] = [
+    IpAddr::V4(Ipv4Addr::new(169, 254, 169, 254)),
+    IpAddr::V6(Ipv6Addr::new(0xfd00, 0xec2, 0, 0, 0, 0, 0, 0x254)),
+];
+
+/// A private address that is still off limits: this server (loopback, the
+/// unspecified address, its own interfaces) or a cloud metadata service.
+fn is_server_or_metadata(ip: IpAddr, own: &[IpAddr]) -> bool {
+    let ip = match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
+        v4 => v4,
+    };
+    ip.is_loopback() || ip.is_unspecified() || METADATA.contains(&ip) || own.contains(&ip)
+}
+
+/// [`ensure_inspect_target_allowed`] with the server's addresses passed in.
+fn target_allowed(xaddr: &str, own: &[IpAddr]) -> AppResult<()> {
     // Gate 1: scheme/shape. Reuse the monitor DTO's hardened validator so the
     // accepted-scheme policy stays in one place.
     is_safe_onvif_url(xaddr, &())
@@ -398,6 +446,16 @@ fn ensure_inspect_target_allowed(xaddr: &str) -> AppResult<()> {
     // caller cannot point us at an arbitrary public name. Match on the typed
     // `url::Host` so IPv6 literals (which `host_str()` returns bracketed, e.g.
     // `[fe80::1]`, defeating `IpAddr::from_str`) classify correctly.
+    let literal = match url.host() {
+        Some(Host::Ipv4(v4)) => Some(IpAddr::V4(v4)),
+        Some(Host::Ipv6(v6)) => Some(IpAddr::V6(v6)),
+        _ => None,
+    };
+    if let Some(ip) = literal.filter(|&ip| is_server_or_metadata(ip, own)) {
+        return Err(AppError::PermissionDeniedError(format!(
+            "ONVIF inspect target {ip} is this server or a cloud metadata address"
+        )));
+    }
     match url.host() {
         Some(Host::Ipv4(v4)) if is_private_v4(v4) => Ok(()),
         Some(Host::Ipv6(v6)) if is_private_v6(v6) => Ok(()),
@@ -463,14 +521,18 @@ fn onvif_to_app_error(e: OnvifError) -> AppError {
         OnvifError::Timeout => {
             AppError::ServiceUnavailableError("ONVIF device timed out".to_string())
         }
+        // The details (refused, reset, TLS, a redirect) stay in the log: in
+        // the response they would map out which ports answer.
         OnvifError::Http(err) => {
-            AppError::ServiceUnavailableError(format!("ONVIF transport error: {err}"))
+            warn!(error = %err, "ONVIF transport error.");
+            AppError::ServiceUnavailableError("the device did not answer as an ONVIF camera".into())
         }
         OnvifError::Discovery(msg) => {
             AppError::InternalServerError(format!("WS-Discovery failed: {msg}"))
         }
         OnvifError::Parse(msg) => {
-            AppError::ServiceUnavailableError(format!("malformed ONVIF response: {msg}"))
+            warn!(error = %msg, "Malformed ONVIF response.");
+            AppError::ServiceUnavailableError("the device's answer is not ONVIF".into())
         }
     }
 }
@@ -513,9 +575,60 @@ mod tests {
 
     #[test]
     fn inspect_target_allows_private_http_device() {
-        assert!(ensure_inspect_target_allowed("http://192.168.1.10/onvif/device_service").is_ok());
-        assert!(ensure_inspect_target_allowed("http://10.0.0.5:8080/onvif/device_service").is_ok());
-        assert!(ensure_inspect_target_allowed("http://127.0.0.1/onvif").is_ok());
+        for u in [
+            "http://192.168.1.10/onvif/device_service",
+            "http://10.0.0.5:8080/onvif/device_service",
+            // Link-local cameras (no DHCP) are fine; only the metadata address isn't.
+            "http://169.254.10.20/onvif",
+        ] {
+            assert!(target_allowed(u, &[]).is_ok(), "{u} should be allowed");
+        }
+    }
+
+    /// The server itself is never a camera: inspecting it would let a
+    /// Monitors editor probe the server's own ports and services.
+    #[test]
+    fn inspect_target_rejects_the_server_itself() {
+        let own: Vec<IpAddr> = vec!["192.168.0.45".parse().unwrap(), "fd12::45".parse().unwrap()];
+        for u in [
+            "http://127.0.0.1/onvif",
+            "http://127.0.0.53:8080/onvif",
+            "http://[::1]/onvif",
+            "http://[::ffff:127.0.0.1]/onvif",
+            "http://0.0.0.0/onvif",
+            "http://192.168.0.45:3306/",
+            "http://[fd12::45]/onvif",
+            "http://[::ffff:192.168.0.45]/onvif",
+        ] {
+            let err = target_allowed(u, &own).unwrap_err();
+            assert!(
+                matches!(err, AppError::PermissionDeniedError(_)),
+                "{u}: {err:?}"
+            );
+        }
+        assert!(target_allowed("http://192.168.0.46/onvif", &own).is_ok());
+    }
+
+    #[test]
+    fn inspect_target_rejects_cloud_metadata_addresses() {
+        for u in [
+            "http://169.254.169.254/latest/meta-data/",
+            "http://[fd00:ec2::254]/",
+        ] {
+            let err = ensure_inspect_target_allowed(u).unwrap_err();
+            assert!(
+                matches!(err, AppError::PermissionDeniedError(_)),
+                "{u}: {err:?}"
+            );
+        }
+    }
+
+    /// What a non-camera answered stays in the log, not the response, so
+    /// inspect can't read back an internal service.
+    #[test]
+    fn parse_errors_do_not_echo_the_reply() {
+        let e = onvif_to_app_error(OnvifError::Parse("<secret>root:x:0:0</secret>".into()));
+        assert!(!format!("{e:?}").contains("secret"), "{e:?}");
     }
 
     #[test]
@@ -530,13 +643,10 @@ mod tests {
         // url::Host classification must still accept them.
         for u in [
             "http://[fe80::1]/onvif/device_service", // link-local
-            "http://[::1]/onvif",                    // loopback
             "http://[fd00::1234]:8080/onvif",        // ULA
         ] {
-            assert!(
-                ensure_inspect_target_allowed(u).is_ok(),
-                "{u} should be allowed"
-            );
+            // A fixed address list: macOS gives lo0 fe80::1.
+            assert!(target_allowed(u, &[]).is_ok(), "{u} should be allowed");
         }
     }
 

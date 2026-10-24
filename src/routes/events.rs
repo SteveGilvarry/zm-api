@@ -25,6 +25,8 @@ pub fn routes() -> Router<AppState> {
                 .patch(handlers::events::update_event)
                 .delete(handlers::events::delete_event),
         )
+        // Live events and alarm states (Server-Sent Events)
+        .route("/stream", get(handlers::event_stream::stream_events))
         // Event counts grouped by hour
         .route("/counts/{hours}", get(handlers::events::get_event_counts))
         // Event counts grouped by monitor (for console view)

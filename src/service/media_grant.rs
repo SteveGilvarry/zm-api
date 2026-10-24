@@ -120,22 +120,47 @@ pub async fn authorize(
             "Signed URL is for another resource".to_string(),
         ));
     }
-    if state.revocations.is_revoked(signed.uid, signed.iat) {
+    check_viewer(
+        state,
+        signed.uid,
+        signed.iat,
+        feature_for(signed.resource),
+        signed.resource.monitor_id(),
+    )
+    .await?;
+    Ok(MediaGrant {
+        resource: signed.resource,
+        uid: signed.uid,
+        exp: signed.exp,
+        token: token.to_string(),
+    })
+}
+
+/// Whether user `uid`, holding a credential issued at `iat`, may still view
+/// `monitor_id`'s media under `feature`: not revoked since `iat`, enabled,
+/// `feature` View (their own level or their role's), and the monitor in their
+/// scope. Not found for a monitor they can't see.
+pub async fn check_viewer(
+    state: &AppState,
+    uid: u32,
+    iat: i64,
+    feature: Feature,
+    monitor_id: u32,
+) -> AppResult<()> {
+    if state.revocations.is_revoked(uid, iat) {
         return Err(unauthorized("Signed URL has been revoked"));
     }
-    let user = crate::repo::users::find_by_id(state.db(), signed.uid)
+    let user = crate::repo::users::find_by_id(state.db(), uid)
         .await?
         .filter(|u| u.enabled != 0)
         .ok_or_else(|| unauthorized("Signed URL has been revoked"))?;
-    let feature = feature_for(signed.resource);
     let perms = crate::util::authz::effective_permissions(state.db(), &user).await?;
     if perms.level(feature) < Level::View {
         return Err(AppError::PermissionDeniedError(format!(
             "View access to {feature:?} required"
         )));
     }
-    let monitor_id = signed.resource.monitor_id();
-    if !monitor_acl::resolve(state.db(), signed.uid, perms.monitors)
+    if !monitor_acl::resolve(state.db(), uid, perms.monitors)
         .await?
         .allows(monitor_id, Level::View)
     {
@@ -144,12 +169,7 @@ pub async fn authorize(
             resource_type: ResourceType::Monitor,
         }));
     }
-    Ok(MediaGrant {
-        resource: signed.resource,
-        uid: signed.uid,
-        exp: signed.exp,
-        token: token.to_string(),
-    })
+    Ok(())
 }
 
 /// Route layer for the streaming routes: authenticate `?st=` requests.

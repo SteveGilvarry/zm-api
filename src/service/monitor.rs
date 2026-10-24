@@ -38,7 +38,10 @@ pub async fn list_all(state: &AppState, scope: &MonitorScope) -> AppResult<Vec<M
     tracing::debug!("Listing all monitors.");
     let filter = scope.visible_ids(Level::View);
     let monitors = repo::monitors::find_all(state.db(), filter.as_deref()).await?;
-    Ok(monitors.into_iter().map(MonitorResponse::from).collect())
+    Ok(monitors
+        .into_iter()
+        .map(|m| MonitorResponse::from(m).for_scope(scope))
+        .collect())
 }
 
 pub async fn list_paginated(
@@ -52,7 +55,10 @@ pub async fn list_paginated(
     let (items, total) =
         repo::monitors::find_paginated(state.db(), params, filter.as_deref(), include_deleted)
             .await?;
-    let responses: Vec<MonitorResponse> = items.into_iter().map(MonitorResponse::from).collect();
+    let responses: Vec<MonitorResponse> = items
+        .into_iter()
+        .map(|m| MonitorResponse::from(m).for_scope(scope))
+        .collect();
     Ok(PaginatedResponse::from_params(responses, total, params))
 }
 
@@ -66,7 +72,7 @@ pub async fn get_by_id(
     let monitor = repo::monitors::find_by_id(state.db(), id)
         .await?
         .ok_or_else(|| monitor_not_found(id))?;
-    Ok(MonitorResponse::from(monitor))
+    Ok(MonitorResponse::from(monitor).for_scope(scope))
 }
 
 /// The "All" zone ZoneMinder gives every new monitor: the whole picture,

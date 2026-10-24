@@ -58,7 +58,6 @@ pub mod search; // Natural-language / semantic event search
 pub mod server;
 pub mod server_stats; // Server Stats
 pub mod servers; // Server info list
-pub mod sessions; // Sessions
 pub mod settings_tables; // EncoderTemplates, Menu_Items
 pub mod snapshots; // Snapshots
 pub mod snapshots_events; // Snapshots Events
@@ -252,6 +251,9 @@ fn build_cors_layer() -> CorsLayer {
             HeaderName::from_static("accept"),
             HeaderName::from_static("origin"),
         ])
+        // WHEP answers carry the session URL in `Location`; a browser client
+        // can only read it when it's exposed.
+        .expose_headers([axum::http::header::LOCATION])
         .allow_credentials(true)
 }
 
@@ -287,7 +289,8 @@ fn apply_common_middleware(router: Router<AppState>, cors: CorsLayer) -> Router<
 
     // Per-IP rate limiting — opt-in via config (`rate_limit_per_second = 0`
     // disables it). The key is the peer IP by default; forwarding headers are
-    // trusted only when `trust_proxy_headers` is set (see `IpKeyExtractor`).
+    // believed only with `trust_proxy_headers` set and from a
+    // `trusted_proxies` peer (see `IpKeyExtractor`).
     let rate_limit_layer = if mw.rate_limiting_enabled() {
         let (burst, was_defaulted) = mw.effective_rate_limit_burst();
         if was_defaulted {
@@ -301,9 +304,10 @@ fn apply_common_middleware(router: Router<AppState>, cors: CorsLayer) -> Router<
         match GovernorConfigBuilder::default()
             .per_second(mw.rate_limit_period_secs)
             .burst_size(burst)
-            .key_extractor(IpKeyExtractor {
-                trust_proxy: mw.trust_proxy_headers,
-            })
+            .key_extractor(IpKeyExtractor::new(
+                mw.trust_proxy_headers,
+                &mw.trusted_proxies,
+            ))
             .finish()
         {
             Some(conf) => {
@@ -371,9 +375,10 @@ pub fn create_router_app(state: AppState) -> Router {
             GovernorConfigBuilder::default()
                 .per_second(mw.auth_rate_limit_period_secs)
                 .burst_size(mw.auth_rate_limit_burst)
-                .key_extractor(IpKeyExtractor {
-                    trust_proxy: mw.trust_proxy_headers,
-                })
+                .key_extractor(IpKeyExtractor::new(
+                    mw.trust_proxy_headers,
+                    &mw.trusted_proxies,
+                ))
                 .finish()
         } else {
             None
@@ -574,7 +579,6 @@ pub fn create_router_app(state: AppState) -> Router {
         user_preferences::add_user_preference_routes(Router::new()),
         Feature::System,
     );
-    let session_routes = protect(sessions::add_session_routes(Router::new()), Feature::System);
     let montage_layout_routes = protect(
         montage_layouts::add_montage_layout_routes(Router::new()),
         Feature::System,
@@ -652,7 +656,6 @@ pub fn create_router_app(state: AppState) -> Router {
         .merge(tag_routes)
         .merge(trigger_x10_routes)
         .merge(user_preference_routes)
-        .merge(session_routes)
         .merge(state_routes)
         .merge(stat_routes)
         .merge(frame_routes)

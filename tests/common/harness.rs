@@ -88,6 +88,13 @@ impl TestApp {
         }
     }
 
+    /// The router itself, for tests that read a response's head without
+    /// waiting for its body (streams).
+    #[allow(dead_code)]
+    pub fn router(&self) -> Router {
+        self.router.clone()
+    }
+
     /// Begin building a request. The router is cloned per call so a single
     /// `TestApp` can serve any number of requests.
     pub fn request(&self, method: Method, path: &str) -> TestRequest {
@@ -178,6 +185,13 @@ impl TestRequest {
     pub fn json<T: Serialize>(mut self, body: &T) -> Self {
         let bytes = serde_json::to_vec(body).expect("serialize JSON test body");
         self.body = Some((bytes, "application/json"));
+        self
+    }
+
+    /// Attach a raw body with its content type.
+    #[allow(dead_code)]
+    pub fn raw_body(mut self, body: &str, content_type: &'static str) -> Self {
+        self.body = Some((body.as_bytes().to_vec(), content_type));
         self
     }
 
