@@ -2,7 +2,7 @@ name: CLA Assistant
 
 # Ensures every pull-request author has agreed to the Contributor License
 # Agreement (CLA.md) before their contribution can be merged. Signatures are
-# recorded in this repository (signatures/version1/cla.json on the
+# recorded in this repository (signatures/version2/cla.json on the
 # `cla-signatures` branch) — the project owns its own signature ledger.
 
 on:
@@ -30,7 +30,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          path-to-signatures: signatures/version1/cla.json
+          path-to-signatures: signatures/version2/cla.json
           path-to-document: https://github.com/SteveGilvarry/zm-api/blob/master/CLA.md
           branch: cla-signatures
           # Bots never need to sign.

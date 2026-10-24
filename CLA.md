@@ -5,7 +5,7 @@ Thank you for contributing to **zm-api**.
 zm-api is **dual-licensed**: it is offered to the public under the
 [GNU Affero General Public License v3.0](LICENSE), and may also be offered under
 separate **commercial license terms**. For the project to be distributed under both
-licenses, the project maintainer must hold sufficient rights in every contribution.
+licenses, ZoneMinder Inc. must hold sufficient rights in every contribution.
 
 This Contributor License Agreement ("Agreement") sets out the terms under which You
 contribute. It is based on widely-used agreements (e.g. the Apache Individual CLA) with an
@@ -17,9 +17,10 @@ licence grant, not an assignment.
 
 ## 1. Definitions
 
-- **"Maintainer"** means **Steven Gilvarry**, the current copyright steward of the
-  Project, and any successor or assignee to whom the Maintainer transfers the rights
-  granted under this Agreement (see Section 7).
+- **"Maintainer"** means **ZoneMinder Inc.**, a corporation under the Canada Business
+  Corporations Act (corporation number 1354182-7) and the steward of the Project, and
+  any successor or assignee to whom the Maintainer transfers the rights granted under this
+  Agreement (see Section 7).
 - **"You"** / **"Your"** means the individual or legal entity agreeing to this Agreement.
 - **"Contribution"** means any original work of authorship — code, documentation,
   configuration, or other material — that You intentionally submit to the Project for
@@ -78,8 +79,8 @@ law.
 
 The Maintainer **may assign, transfer, or sublicense the rights granted under this
 Agreement** — in whole or in part, and on such terms as the Maintainer determines — to any
-third party, including a company formed or designated to commercialise the Project (for
-example, ZoneMinder Inc). The Maintainer may also revoke or vary such an assignment. This
+third party, including an affiliate or a successor to its business. The Maintainer may
+also revoke or vary such an assignment. This
 Agreement, and the licences You grant, remain in effect for the benefit of the Maintainer
 and any such assignee.
 
@@ -88,6 +89,11 @@ and any such assignee.
 By submitting a Contribution to the Project, You agree to the terms of this Agreement for
 that and all future Contributions. If a Contribution is submitted on behalf of an entity,
 the individual submitting it represents that they are authorised to bind that entity.
+
+## 9. Earlier version
+
+Version 1 of this Agreement named Steven Gilvarry as Maintainer. Rights granted under
+version 1 may be assigned to ZoneMinder Inc. under its Section 7.
 
 ---
 
