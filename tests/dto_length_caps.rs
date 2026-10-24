@@ -10,7 +10,6 @@ use zm_api::dto::request::daemon::ApplyStateRequest;
 use zm_api::dto::request::monitor::UpdateMonitorRequest;
 use zm_api::dto::request::monitor_presets::UpdateMonitorPresetRequest;
 use zm_api::dto::request::object_types::UpdateObjectTypeRequest;
-use zm_api::dto::request::sessions::CreateSessionRequest;
 use zm_api::dto::request::states::CreateStateRequest;
 use zm_api::dto::request::tags::UpdateTagRequest;
 use zm_api::dto::request::users::UpdateUserRequest;
@@ -58,13 +57,6 @@ fn the_short_columns_are_the_easy_ones_to_overflow() {
     ));
     assert!(!valid::<UpdateObjectTypeRequest>(
         json!({ "name": "a".repeat(33) })
-    ));
-
-    assert!(valid::<CreateSessionRequest>(
-        json!({ "id": "a".repeat(32) })
-    ));
-    assert!(!valid::<CreateSessionRequest>(
-        json!({ "id": "a".repeat(33) })
     ));
 
     assert!(valid::<ApplyStateRequest>(

@@ -89,6 +89,12 @@ pub struct MiddlewareConfig {
     /// rate-limit bucket per request. When `false`, the socket peer IP is used.
     #[serde(default)]
     pub trust_proxy_headers: bool,
+    /// Proxies whose forwarding headers are believed when
+    /// `trust_proxy_headers` is on: addresses or CIDRs. Loopback by default
+    /// (a proxy on the same host). A request from anywhere else is keyed on
+    /// its own address, whatever its headers say.
+    #[serde(default = "default_trusted_proxies")]
+    pub trusted_proxies: Vec<String>,
     /// Governor replenish interval, in seconds, for the dedicated limiter on
     /// the authentication endpoints (`/auth/login`, `/auth/refresh`, and the
     /// other `/auth` + `/me` routes). Kept tight to blunt credential
@@ -102,6 +108,13 @@ pub struct MiddlewareConfig {
 
 fn default_body_limit_bytes() -> usize {
     2 * 1024 * 1024
+}
+
+fn default_trusted_proxies() -> Vec<String> {
+    crate::util::rate_limit::DEFAULT_TRUSTED_PROXIES
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 fn default_auth_rate_limit_period_secs() -> u64 {
@@ -119,6 +132,7 @@ impl Default for MiddlewareConfig {
             rate_limit_period_secs: 0,
             rate_limit_burst: 0,
             trust_proxy_headers: false,
+            trusted_proxies: default_trusted_proxies(),
             auth_rate_limit_period_secs: default_auth_rate_limit_period_secs(),
             auth_rate_limit_burst: default_auth_rate_limit_burst(),
         }

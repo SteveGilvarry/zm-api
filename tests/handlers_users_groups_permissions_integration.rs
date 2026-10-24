@@ -1,5 +1,5 @@
-// Integration tests for users, groups, permissions, and sessions with a real database
-// Run with: cargo test --test handlers_users_groups_permissions_sessions_integration -- --include-ignored
+// Integration tests for users, groups and permissions with a real database
+// Run with: cargo test --test handlers_users_groups_permissions_integration -- --include-ignored
 #![allow(clippy::needless_borrows_for_generic_args)]
 
 mod common;
@@ -12,13 +12,11 @@ use sea_orm::{ActiveModelTrait, DatabaseConnection, DbErr, EntityTrait, Set};
 use tower::ServiceExt;
 use zm_api::dto::request::groups_permissions::CreateGroupPermissionRequest;
 use zm_api::dto::request::monitors_permissions::CreateMonitorPermissionRequest;
-use zm_api::dto::request::sessions::{CreateSessionRequest, UpdateSessionRequest};
 use zm_api::dto::request::{CreateGroupRequest, CreateUserRequest};
 use zm_api::dto::response::{
-    GroupPermissionResponse, GroupResponse, MonitorPermissionResponse, SessionResponse,
-    UserResponse,
+    GroupPermissionResponse, GroupResponse, MonitorPermissionResponse, UserResponse,
 };
-use zm_api::entity::{groups_permissions, monitors, monitors_permissions, sessions, users};
+use zm_api::entity::{groups_permissions, monitors, monitors_permissions, users};
 
 fn auth_header() -> String {
     let token = zm_api::service::token::generate_tokens(
@@ -431,100 +429,5 @@ async fn test_api_monitors_permissions_create_delete() {
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
-}
-
-#[tokio::test]
-#[ignore = "Requires running test database - run with: ./scripts/db-manager.sh mysql"]
-async fn test_api_sessions_create_update_delete() {
-    let db = get_test_db()
-        .await
-        .expect("Failed to connect to test database");
-    let app = build_app(db);
-
-    let prefix = test_prefix();
-    let short = if prefix.len() > 16 {
-        &prefix[prefix.len() - 16..]
-    } else {
-        prefix.as_str()
-    };
-    let session_id = format!("s_{short}");
-    let create_body = serde_json::to_vec(&CreateSessionRequest {
-        id: session_id.clone(),
-        access: Some(1),
-        data: Some("test".to_string()),
-    })
-    .expect("serialize session");
-
-    let response = app
-        .clone()
-        .oneshot(
-            Request::post("/api/v3/sessions")
-                .header(header::AUTHORIZATION, auth_header())
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(create_body))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    let status = response.status();
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
-        .await
-        .unwrap();
-    if status != StatusCode::CREATED {
-        panic!(
-            "Unexpected status {}: {}",
-            status,
-            String::from_utf8_lossy(&bytes)
-        );
-    }
-    let created: SessionResponse = serde_json::from_slice(&bytes).unwrap();
-    let guard_session_id = created.id.clone();
-    let _g_session = RowGuard::new(
-        format!("Sessions#{guard_session_id}"),
-        move |db| async move {
-            let _ = sessions::Entity::delete_by_id(guard_session_id)
-                .exec(&db)
-                .await;
-        },
-    );
-    assert_eq!(created.id, session_id);
-
-    let update_body = serde_json::to_vec(&UpdateSessionRequest {
-        access: Some(2),
-        data: Some("updated".to_string()),
-    })
-    .expect("serialize session update");
-
-    let response = app
-        .clone()
-        .oneshot(
-            Request::patch(&format!("/api/v3/sessions/{}", session_id))
-                .header(header::AUTHORIZATION, auth_header())
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(update_body))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let bytes = body::to_bytes(response.into_body(), 64 * 1024)
-        .await
-        .unwrap();
-    let updated: SessionResponse = serde_json::from_slice(&bytes).unwrap();
-    assert_eq!(updated.access, Some(2));
-
-    let response = app
-        .oneshot(
-            Request::delete(&format!("/api/v3/sessions/{}", session_id))
-                .header(header::AUTHORIZATION, auth_header())
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 }

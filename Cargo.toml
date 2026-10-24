@@ -155,7 +155,8 @@ ffmpeg-next = "9"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 
 # Unix signal handling and filesystem utilities
-nix = { version = "0.31", features = ["signal", "fs", "hostname", "user"] }
+nix = { version = "0.31", features = ["signal", "fs", "hostname", "user", "net"] }
+ipnet = "2.12"
 
 # Low-level libc bindings for PR_SET_PDEATHSIG
 libc = "0.2"

@@ -10,6 +10,14 @@ recognisable path forward.
 
 ### Added
 
+- **Live event stream**, `GET /api/v3/events/stream` (Server-Sent Events):
+  `event_start`, `event_end` and `event_updated` (notes changed, where object
+  detection writes) for every monitor the caller may see, and each monitor's
+  `alarm_state` on connect and on change. Reconnect with `Last-Event-ID` or
+  `?since=` to replay missed events. One watcher reads alarm state from
+  shared memory four times a second and events from the `Events` table, and
+  runs only while someone is subscribed. Heartbeat every 15 s; the stream
+  ends at token expiry or loss of access.
 - **WHEP for live WebRTC** (RFC 9725): `POST /api/v3/live/{monitor_id}/webrtc/whep`
   takes the viewer's SDP offer and answers `201` with the SDP answer
   (zm-api's candidates included) and the session in `Location`;
@@ -708,6 +716,70 @@ recognisable path forward.
     no cap at all.
   - A client that doesn't answer the offer within 30 seconds is closed. The
     timer used to start only once it answered.
+
+- **Rate limits can't be dodged with a forged `X-Forwarded-For`.** With
+  `trust_proxy_headers` on, which `prod.toml` sets, the limiters took the
+  leftmost `X-Forwarded-For` address from any connection. A client reaching
+  zm-api directly could send a new address with each request and get a fresh
+  login allowance every time. Even behind a proxy the leftmost address is the
+  one the client wrote. Now the headers are believed only on connections from
+  `server.middleware.trusted_proxies` (new; loopback by default, for Apache on
+  the same host). The client is the rightmost address that isn't a trusted
+  proxy. A proxy on another host needs adding to `trusted_proxies`.
+
+- **Event playback no longer keeps every played event in memory.** HLS
+  playback of a recorded event (`/events/{id}/stream/...`) packaged the
+  video into memory and kept it there for the life of the process. Playing
+  events one after another grew memory without limit. The cache now holds at
+  most 256 MiB, drops the least recently played event first and any event
+  not played for 10 minutes, and doesn't keep an event bigger than that. It
+  also notices when an event's video file changes (a recording still being
+  written, or a regenerated video) and packages it again instead of serving
+  the old one.
+
+- **Tags only show events the caller can see.** `GET /api/v3/tags/{id}`
+  listed every event with the tag, including ones on monitors the caller is
+  denied, and `GET /api/v3/tags` counted them in `event_count`. Both now use
+  the caller's visible monitors, as `/events` does. `page=0` on a tag is
+  page 1, where it used to overflow.
+
+- **ONVIF inspect can't reach the server itself.** `POST
+  /api/v3/discovery/inspect` accepted loopback addresses, so a Monitors Edit
+  user could probe the server's own ports and read back what answered. It now
+  refuses loopback, the unspecified address, the server's own interface
+  addresses and the cloud metadata addresses (169.254.169.254,
+  fd00:ec2::254). It no longer follows redirects, and says only that a device
+  didn't answer as ONVIF instead of passing on transport or parse errors.
+  Cameras on private and link-local addresses work as before.
+
+- **Camera passwords inside monitor URLs are hidden from viewers.** `pass`
+  and `onvif_password` were already left out of monitor responses, but a
+  password in `path`, `second_path`, `control_address` or `onvif_url`
+  (`rtsp://user:pass@host`, `user:pass@host`, or a `pwd=` query parameter)
+  went to anyone with Monitors View. `GET /api/v3/monitors` and
+  `/monitors/{id}` now show it as `***` unless the caller can edit that
+  monitor. Editors still see the URLs as stored, because they edit them.
+
+- **Filters with automatic actions need Edit on every monitor.** `zmfilter.pl`
+  runs a saved filter over every monitor's events, whoever owns it. A user
+  limited to some monitors could save a filter with AutoDelete, AutoEmail or
+  another automatic action, and it would delete or send events from monitors
+  they can't see. `POST` and `PUT /api/v3/filters` now refuse such a filter
+  (403) unless the caller has Edit on every monitor or System Edit. Restricted
+  users can still save filters without actions, and can turn the actions off
+  on a filter they own. Filters already in the database are unchanged.
+
+- **`/api/v3/sessions` is removed.** It gave read and write access to
+  ZoneMinder's PHP web sessions to anyone with System access. A System View
+  user could read another user's session id, which is the classic UI's login
+  cookie, and the session data, which holds that user's row with its password
+  hash. With the admin's session id they could use the classic UI as admin. A
+  System Edit user could create or change session rows, and so forge a web
+  login as anyone. zm-api logs in with JWTs and never uses these sessions, so
+  the routes (`GET`/`POST /sessions`, `GET`/`PATCH`/`DELETE /sessions/{id}`)
+  are gone rather than restricted. The maintenance service still prunes
+  expired rows for installs that run the PHP UI.
+
 - **Event videos no longer run the ffmpeg program.** Media jobs ran the
   binary named by `ZM_PATH_FFMPEG` with `ZM_FFMPEG_INPUT_OPTIONS` and
   `ZM_FFMPEG_OUTPUT_OPTIONS` as arguments, so anyone who could write the

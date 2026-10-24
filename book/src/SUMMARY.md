@@ -23,6 +23,7 @@
 - [Authentication](guide/authentication.md)
 - [Permissions](guide/permissions.md)
 - [Live streaming](guide/streaming.md)
+- [Live events](guide/live-events.md)
 - [API reference](reference/api.md)
 
 # Reference
