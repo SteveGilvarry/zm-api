@@ -73,6 +73,7 @@ impl PtzManager {
         let config = self.build_config(monitor, control)?;
         let capabilities = PtzCapabilities::from(control);
         let protocol = control.protocol.as_deref().unwrap_or("unknown");
+        ensure_control_address_allowed(&config.address)?;
 
         let control_instance = self
             .registry
@@ -553,9 +554,47 @@ impl Default for PtzManager {
     }
 }
 
+/// A control address that is a URL is somewhere zm-api itself sends requests,
+/// with the monitor's credentials. Refuse one naming this server or a cloud
+/// metadata service: neither is a camera, and both answer things a monitor
+/// editor has no business asking.
+fn ensure_control_address_allowed(address: &str) -> PtzResult<()> {
+    if crate::service::discovery::url_is_server_or_metadata(address) {
+        return Err(PtzError::InvalidParameter(
+            "control address names this server or a cloud metadata service".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn a_control_address_may_not_name_this_server() {
+        for address in [
+            "http://127.0.0.1:9000/onvif/ptz_service",
+            "http://localhost/x",
+            "http://169.254.169.254/latest/meta-data/",
+        ] {
+            assert!(
+                matches!(
+                    ensure_control_address_allowed(address),
+                    Err(PtzError::InvalidParameter(_))
+                ),
+                "{address}"
+            );
+        }
+        for address in [
+            "http://192.168.1.60/onvif/ptz_service",
+            "/dev/ttyUSB0",
+            "192.168.1.60:80",
+            "",
+        ] {
+            assert!(ensure_control_address_allowed(address).is_ok(), "{address}");
+        }
+    }
     use crate::entity::monitors::Model as MonitorModel;
     use crate::entity::sea_orm_active_enums::{
         Analysing, AnalysisImage, AnalysisSource, Capturing, Decoding, DefaultCodec,

@@ -718,6 +718,28 @@ recognisable path forward.
 
 ### Security
 
+- **Moving a group needs edit access to its monitors.** A grant on a group
+  covers its child groups, so `PUT /api/v3/groups/{id}` with a new
+  `parent_id` changes which cameras every grant above it reaches. A user
+  with Groups Edit whose monitor access is restricted could move a group of
+  cameras they couldn't see under one their own grant covered. They now get
+  `403` unless they can already edit every monitor in the moved group.
+- **Generated videos have a size limit.** `POST /api/v3/events/{id}/videos`
+  accepted any `size` up to 99999x99999, or a 4x `scale` of the event, and
+  encoded it inside zm-api. Requests over 7680 on a side or 7680x4320 pixels
+  are refused with `400`.
+- **A user confined to some monitors can't set a local capture path.**
+  `Path`/`SecondPath` accept a file on the server, which let such a user
+  point their monitor at another monitor's recording and watch it. Changing
+  either to a local path now needs unrestricted monitor access (`403`
+  otherwise); URLs are unaffected.
+- **ONVIF PTZ requests go only where the control address says.** The PTZ
+  client follows no redirects and uses no system proxy, a control address
+  naming this server or a cloud metadata service is refused, and a reply
+  that isn't SOAP is no longer quoted in the error returned to the caller.
+- Dependency advisories: `utoipa-swagger-ui` 10.0.2 (zip 9) and lockfile
+  bumps for actix-web, actix-http and arrow.
+
 - **Live WebRTC sessions over the WebSocket are rechecked, capped and timed
   out.** A token or signed link opened `/api/v3/live/{id}/webrtc/ws` once
   and the session then ran until the client left. Now:

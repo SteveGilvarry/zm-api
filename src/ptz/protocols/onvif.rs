@@ -67,6 +67,19 @@ pub struct OnvifControl {
     monitor_id: u32,
 }
 
+/// The HTTP client PTZ commands go out on. The address comes from the
+/// monitor's `ControlAddress`, which a monitor editor sets, so the request
+/// goes to that address and nowhere else: no redirect is followed (a camera
+/// has no reason to send one, and it is how a request to a permitted host
+/// ends up at another) and no system proxy is used.
+fn ptz_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .build()
+        .unwrap_or_default()
+}
+
 impl OnvifControl {
     /// Build an [`OnvifControl`] from a generic [`PtzConnectionConfig`] and the
     /// camera's capability set.
@@ -76,11 +89,7 @@ impl OnvifControl {
     /// taken from `config.username` / `config.password`; when both are absent
     /// the client issues unauthenticated requests.
     pub fn new(config: PtzConnectionConfig, capabilities: PtzCapabilities) -> Self {
-        Self::with_transport(
-            OnvifTransport::new(reqwest::Client::new()),
-            config,
-            capabilities,
-        )
+        Self::with_transport(OnvifTransport::new(ptz_http_client()), config, capabilities)
     }
 
     /// Build an [`OnvifControl`] over a caller-supplied [`OnvifTransport`],
@@ -315,7 +324,13 @@ fn map_onvif_error(err: OnvifError) -> PtzError {
         }
         OnvifError::Timeout => PtzError::CommandTimeout("ONVIF request timed out".to_string()),
         OnvifError::Http(e) => PtzError::CameraOffline(format!("ONVIF transport error: {e}")),
-        OnvifError::Parse(msg) => PtzError::ProtocolError(format!("ONVIF parse error: {msg}")),
+        OnvifError::Parse(msg) => {
+            // `msg` can quote the reply body, and this error reaches the API
+            // caller: whatever answered at the control address would be read
+            // back to them. Keep it in the log.
+            tracing::debug!("ONVIF PTZ reply could not be used: {msg}");
+            PtzError::ProtocolError("ONVIF device sent an unusable reply".to_string())
+        }
         OnvifError::Discovery(msg) => {
             PtzError::ProtocolError(format!("ONVIF discovery error: {msg}"))
         }
@@ -500,10 +515,14 @@ mod tests {
             }),
             PtzError::ProtocolError(_)
         ));
-        assert!(matches!(
-            map_onvif_error(OnvifError::Parse("bad xml".to_string())),
-            PtzError::ProtocolError(_)
-        ));
+        match map_onvif_error(OnvifError::Parse(
+            "http 500 with no SOAP fault: root:x:0:0".to_string(),
+        )) {
+            PtzError::ProtocolError(msg) => {
+                assert!(!msg.contains("root:x"), "reply body echoed: {msg}")
+            }
+            other => panic!("got {other:?}"),
+        }
     }
 
     #[tokio::test]

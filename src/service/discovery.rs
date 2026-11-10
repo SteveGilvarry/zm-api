@@ -431,6 +431,25 @@ fn is_server_or_metadata(ip: IpAddr, own: &[IpAddr]) -> bool {
     ip.is_loopback() || ip.is_unspecified() || METADATA.contains(&ip) || own.contains(&ip)
 }
 
+/// Whether `url` names this server or a cloud metadata service: an IP literal
+/// [`is_server_or_metadata`] refuses, or `localhost`. Other host names are not
+/// resolved, so this is a guard against the obvious targets, not a proof.
+pub(crate) fn url_is_server_or_metadata(url: &str) -> bool {
+    host_is_server_or_metadata(url, &own_addresses())
+}
+
+fn host_is_server_or_metadata(url: &str, own: &[IpAddr]) -> bool {
+    match Url::parse(url).ok().as_ref().and_then(Url::host) {
+        Some(Host::Ipv4(v4)) => is_server_or_metadata(IpAddr::V4(v4), own),
+        Some(Host::Ipv6(v6)) => is_server_or_metadata(IpAddr::V6(v6), own),
+        Some(Host::Domain(d)) => {
+            let d = d.trim_end_matches('.').to_ascii_lowercase();
+            d == "localhost" || d.ends_with(".localhost")
+        }
+        None => false,
+    }
+}
+
 /// [`ensure_inspect_target_allowed`] with the server's addresses passed in.
 fn target_allowed(xaddr: &str, own: &[IpAddr]) -> AppResult<()> {
     // Gate 1: scheme/shape. Reuse the monitor DTO's hardened validator so the
@@ -731,5 +750,29 @@ mod tests {
             onvif_to_app_error(OnvifError::Discovery("bind: nope".into())),
             AppError::InternalServerError(_)
         ));
+    }
+
+    #[test]
+    fn server_and_metadata_urls_are_recognised() {
+        let own = [IpAddr::V4(Ipv4Addr::new(192, 168, 1, 5))];
+        for url in [
+            "http://127.0.0.1:8080/onvif/ptz_service",
+            "http://[::1]/x",
+            "http://[::ffff:127.0.0.1]/x",
+            "http://0.0.0.0/x",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://192.168.1.5/x",
+            "http://localhost:3306/",
+            "http://LOCALHOST./",
+        ] {
+            assert!(host_is_server_or_metadata(url, &own), "{url}");
+        }
+        for url in [
+            "http://192.168.1.60/onvif/ptz_service",
+            "https://cam.example.com/onvif/ptz",
+            "not a url",
+        ] {
+            assert!(!host_is_server_or_metadata(url, &own), "{url}");
+        }
     }
 }
