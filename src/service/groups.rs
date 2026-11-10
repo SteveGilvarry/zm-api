@@ -4,6 +4,7 @@ use crate::error::{AppError, AppResult, Resource, ResourceType};
 use crate::repo;
 use crate::server::state::AppState;
 use crate::service::group_acl::GroupScope;
+use crate::service::monitor_acl::{self, MonitorScope};
 use crate::util::authz::Level;
 
 /// The 404 returned both for a genuinely missing group and for a group the
@@ -47,6 +48,7 @@ pub async fn update(
     name: Option<String>,
     parent_id: Option<Option<u32>>,
     scope: &GroupScope,
+    monitors: &MonitorScope,
 ) -> AppResult<GroupResponse> {
     if !scope.allows(id, Level::Edit) {
         return Err(not_found(id));
@@ -55,9 +57,44 @@ pub async fn update(
     if let Some(Some(new_parent)) = parent_id {
         validate_new_parent(state, id, new_parent).await?;
     }
+    if let Some(new_parent) = parent_id {
+        ensure_may_reparent(state, id, new_parent, monitors).await?;
+    }
     let item = repo::groups::update(state.db(), id, name, parent_id).await?;
     let item = item.ok_or_else(|| not_found(id))?;
     Ok(GroupResponse::from(&item))
+}
+
+/// Moving a group changes which monitors every group grant above it reaches,
+/// the caller's own included: a grant on a group covers its descendants. A
+/// caller whose monitor access is restricted may therefore only move a group
+/// whose monitors they can already edit, or the move would be a way to hand
+/// themselves cameras (or lift a denying group off them).
+async fn ensure_may_reparent(
+    state: &AppState,
+    id: u32,
+    new_parent: Option<u32>,
+    monitors: &MonitorScope,
+) -> AppResult<()> {
+    if !monitors.is_restricted() {
+        return Ok(());
+    }
+    let Some(current) = repo::groups::find_by_id(state.db(), id).await? else {
+        return Err(not_found(id));
+    };
+    if current.parent_id == new_parent {
+        return Ok(());
+    }
+    let members = monitor_acl::group_monitor_ids(state.db(), id).await?;
+    if members
+        .iter()
+        .any(|mid| !monitors.allows(*mid, Level::Edit))
+    {
+        return Err(AppError::PermissionDeniedError(
+            "moving this group needs edit access to every monitor in it".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Reject re-parenting `id` under `new_parent` when it would self-parent, name
@@ -136,9 +173,16 @@ mod tests {
         // No query needed: self-parent is caught before any DB lookup.
         let db = MockDatabase::new(DatabaseBackend::MySql).into_connection();
         let state = AppState::for_test_with_db(db);
-        let err = update(&state, 5, None, Some(Some(5)), &GroupScope::All)
-            .await
-            .expect_err("a group cannot be its own parent");
+        let err = update(
+            &state,
+            5,
+            None,
+            Some(Some(5)),
+            &GroupScope::All,
+            &MonitorScope::All,
+        )
+        .await
+        .expect_err("a group cannot be its own parent");
         assert!(matches!(err, AppError::BadRequestError(_)), "got {err:?}");
     }
 
@@ -151,9 +195,16 @@ mod tests {
             .append_query_results::<GroupModel, _, _>(vec![vec![g10]])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let err = update(&state, 5, None, Some(Some(10)), &GroupScope::All)
-            .await
-            .expect_err("re-parenting into a cycle must be rejected");
+        let err = update(
+            &state,
+            5,
+            None,
+            Some(Some(10)),
+            &GroupScope::All,
+            &MonitorScope::All,
+        )
+        .await
+        .expect_err("re-parenting into a cycle must be rejected");
         assert!(matches!(err, AppError::BadRequestError(_)), "got {err:?}");
     }
 
@@ -164,10 +215,97 @@ mod tests {
             .append_query_results::<GroupModel, _, _>(vec![empty])
             .into_connection();
         let state = AppState::for_test_with_db(db);
-        let err = update(&state, 5, None, Some(Some(999)), &GroupScope::All)
-            .await
-            .expect_err("re-parenting under a missing group must be rejected");
+        let err = update(
+            &state,
+            5,
+            None,
+            Some(Some(999)),
+            &GroupScope::All,
+            &MonitorScope::All,
+        )
+        .await
+        .expect_err("re-parenting under a missing group must be rejected");
         assert!(matches!(err, AppError::BadRequestError(_)), "got {err:?}");
+    }
+
+    fn link(group_id: u32, monitor_id: u32) -> crate::entity::groups_monitors::Model {
+        crate::entity::groups_monitors::Model {
+            id: monitor_id,
+            group_id,
+            monitor_id,
+        }
+    }
+
+    /// Group 7 holds monitor 20. The mock answers: the new parent (cycle
+    /// walk), the group being moved, the hierarchy, its monitor links, and
+    /// then nothing for the update itself.
+    fn reparent_state() -> AppState {
+        let db = MockDatabase::new(DatabaseBackend::MySql)
+            .append_query_results::<GroupModel, _, _>(vec![vec![mk_group(5, "granted")]])
+            .append_query_results::<GroupModel, _, _>(vec![vec![mk_group(7, "hidden")]])
+            .append_query_results::<GroupModel, _, _>(vec![vec![
+                mk_group(5, "granted"),
+                mk_group(7, "hidden"),
+            ]])
+            .append_query_results(vec![vec![link(7, 20)]])
+            .append_query_results::<GroupModel, _, _>(vec![Vec::new()])
+            .into_connection();
+        AppState::for_test_with_db(db)
+    }
+
+    #[tokio::test]
+    async fn reparent_denied_when_a_member_monitor_is_out_of_scope() {
+        let monitors = MonitorScope::Restricted(std::collections::HashMap::new());
+        let err = update(
+            &reparent_state(),
+            7,
+            None,
+            Some(Some(5)),
+            &GroupScope::All,
+            &monitors,
+        )
+        .await
+        .expect_err("moving cameras the caller cannot see under a granted group");
+        assert!(
+            matches!(err, AppError::PermissionDeniedError(_)),
+            "got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn reparent_denied_when_a_member_monitor_is_view_only() {
+        let err = update(
+            &reparent_state(),
+            7,
+            None,
+            Some(Some(5)),
+            &GroupScope::All,
+            &MonitorScope::ViewOnly,
+        )
+        .await
+        .expect_err("an Edit grant on the parent would raise View to Edit");
+        assert!(
+            matches!(err, AppError::PermissionDeniedError(_)),
+            "got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn reparent_allowed_when_every_member_monitor_is_editable() {
+        let monitors =
+            MonitorScope::Restricted(std::collections::HashMap::from([(20, Level::Edit)]));
+        // Past the check: the mock has no row for the update, hence 404.
+        let err = update(
+            &reparent_state(),
+            7,
+            None,
+            Some(Some(5)),
+            &GroupScope::All,
+            &monitors,
+        )
+        .await
+        .expect_err("mock has no row to update");
+        assert!(matches!(err, AppError::NotFoundError(_)), "got {err:?}");
     }
 
     #[tokio::test]
@@ -223,10 +361,17 @@ mod tests {
             .into_connection();
         let state_ok = AppState::for_test_with_db(db_ok);
         assert_eq!(
-            update(&state_ok, 3, Some("new".into()), None, &GroupScope::All)
-                .await
-                .unwrap()
-                .name,
+            update(
+                &state_ok,
+                3,
+                Some("new".into()),
+                None,
+                &GroupScope::All,
+                &MonitorScope::All
+            )
+            .await
+            .unwrap()
+            .name,
             "new"
         );
 
@@ -236,10 +381,17 @@ mod tests {
             .into_connection();
         let state_none = AppState::for_test_with_db(db_none);
         assert!(matches!(
-            update(&state_none, 3, Some("x".into()), None, &GroupScope::All)
-                .await
-                .err()
-                .unwrap(),
+            update(
+                &state_none,
+                3,
+                Some("x".into()),
+                None,
+                &GroupScope::All,
+                &MonitorScope::All
+            )
+            .await
+            .err()
+            .unwrap(),
             AppError::NotFoundError(_)
         ));
     }

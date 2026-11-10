@@ -276,6 +276,15 @@ fn permission_level(p: &Permission) -> Option<Level> {
     }
 }
 
+/// The monitors a grant on `group_id` reaches: its own and those of its
+/// descendant groups.
+pub async fn group_monitor_ids(db: &DatabaseConnection, group_id: u32) -> AppResult<HashSet<u32>> {
+    Ok(group_members(db, &[group_id])
+        .await?
+        .remove(&group_id)
+        .unwrap_or_default())
+}
+
 /// The monitors of each granted group, including those of its descendant
 /// groups (ZoneMinder's `Group::MonitorIds`).
 async fn group_members(

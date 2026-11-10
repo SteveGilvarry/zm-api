@@ -84,10 +84,13 @@ pub async fn update_group(
     Path(id): Path<u32>,
     State(state): State<AppState>,
     scope: GroupScope,
+    monitors: crate::service::monitor_acl::MonitorScope,
     Json(req): Json<UpdateGroupRequest>,
 ) -> AppResult<Json<GroupResponse>> {
     req.validate().map_err(AppError::InvalidInputError)?;
-    let item = crate::service::groups::update(&state, id, req.name, req.parent_id, &scope).await?;
+    let item =
+        crate::service::groups::update(&state, id, req.name, req.parent_id, &scope, &monitors)
+            .await?;
     Ok(Json(item))
 }
 
