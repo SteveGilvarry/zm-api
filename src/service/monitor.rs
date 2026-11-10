@@ -352,6 +352,31 @@ pub fn ensure_may_set_event_commands(
     Ok(())
 }
 
+/// A local `Path`/`SecondPath` makes the capture daemon read a file on the
+/// server as the monitor's source: another monitor's recording, say, which
+/// the caller then watches through this one. A caller confined to some
+/// monitors may therefore not point one at a local path. Sending the current
+/// value again is not a change, and URLs and clearing the path stay open.
+pub fn ensure_may_set_local_path(
+    scope: &MonitorScope,
+    requested: [Option<&str>; 2],
+    current: [Option<&str>; 2],
+) -> AppResult<()> {
+    if !scope.is_restricted() {
+        return Ok(());
+    }
+    let changed_to_local = requested
+        .iter()
+        .zip(current)
+        .any(|(req, cur)| req.is_some_and(|r| r.trim().starts_with('/') && Some(r) != cur));
+    if changed_to_local {
+        return Err(AppError::PermissionDeniedError(
+            "setting a local file as a monitor's source needs access to every monitor".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub async fn update(
     state: &AppState,
     id: u32,
@@ -381,6 +406,14 @@ pub async fn update(
         [
             &monitor_model.event_start_command,
             &monitor_model.event_end_command,
+        ],
+    )?;
+    ensure_may_set_local_path(
+        scope,
+        [req.path.as_deref(), req.second_path.as_deref()],
+        [
+            monitor_model.path.as_deref(),
+            monitor_model.second_path.as_deref(),
         ],
     )?;
 
@@ -1049,6 +1082,58 @@ pub async fn control_alarm(
 
     // Return the current monitor state from DB
     Ok(MonitorResponse::from(monitor_model))
+}
+
+#[cfg(test)]
+mod local_path_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn confined() -> MonitorScope {
+        MonitorScope::Restricted(HashMap::from([(1, Level::Edit)]))
+    }
+
+    #[test]
+    fn a_confined_editor_cannot_point_a_monitor_at_a_local_file() {
+        let other = "/var/cache/zoneminder/events/2/2026-01-01/9/9-video.mp4";
+        let err = ensure_may_set_local_path(
+            &confined(),
+            [Some(other), None],
+            [Some("rtsp://cam/1"), None],
+        )
+        .expect_err("must be refused");
+        assert!(matches!(err, AppError::PermissionDeniedError(_)));
+        assert!(
+            ensure_may_set_local_path(&confined(), [None, Some(" /dev/video0")], [None, None])
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn a_confined_editor_may_still_set_urls_and_resend_the_current_path() {
+        assert!(ensure_may_set_local_path(
+            &confined(),
+            [Some("rtsp://cam/2"), Some("")],
+            [Some("rtsp://cam/1"), Some("/old")],
+        )
+        .is_ok());
+        assert!(ensure_may_set_local_path(
+            &confined(),
+            [Some("/clip.mp4"), None],
+            [Some("/clip.mp4"), None]
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn an_unrestricted_editor_may_set_a_local_path() {
+        assert!(ensure_may_set_local_path(
+            &MonitorScope::All,
+            [Some("/clip.mp4"), None],
+            [None, None]
+        )
+        .is_ok());
+    }
 }
 
 #[cfg(test)]
