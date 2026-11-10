@@ -171,6 +171,43 @@ impl From<&EventModel> for VideoSource {
     }
 }
 
+/// The largest frame a generated video may have: 8K on its long side and no
+/// more pixels than 7680x4320. Encoding runs inside zm-api, and a frame a
+/// request could size freely is memory the whole service does without.
+pub const MAX_VIDEO_SIDE: u32 = 7680;
+pub const MAX_VIDEO_PIXELS: u64 = 7680 * 4320;
+
+/// The frame size a request asks for, before any limit.
+fn requested_size(event: &VideoSource, req: &GenerateVideoRequest) -> (u32, u32) {
+    let (mut width, mut height) = (u32::from(event.width), u32::from(event.height));
+    if let Some(s) = req.scale {
+        width = (f64::from(width) * s) as u32;
+        height = (f64::from(height) * s) as u32;
+    } else if let Some((w, h)) = req.size.as_deref().and_then(|s| s.split_once('x')) {
+        width = w.parse().unwrap_or(width);
+        height = h.parse().unwrap_or(height);
+    }
+    (width, height)
+}
+
+fn within_bounds((width, height): (u32, u32)) -> bool {
+    width <= MAX_VIDEO_SIDE
+        && height <= MAX_VIDEO_SIDE
+        && u64::from(width) * u64::from(height) <= MAX_VIDEO_PIXELS
+}
+
+/// `size` shrunk, keeping its shape, until it is within the limits.
+fn bound_size(size: (u32, u32)) -> (u32, u32) {
+    if within_bounds(size) {
+        return size;
+    }
+    let (w, h) = (f64::from(size.0), f64::from(size.1));
+    let by_side = f64::from(MAX_VIDEO_SIDE) / w.max(h);
+    let by_area = (MAX_VIDEO_PIXELS as f64 / (w * h)).sqrt();
+    let k = by_side.min(by_area).min(1.0);
+    ((w * k).floor() as u32, (h * k).floor() as u32)
+}
+
 pub fn plan_video(event: &VideoSource, req: &GenerateVideoRequest, digits: usize) -> VideoPlan {
     let length = event.length_secs;
     let frames = f64::from(event.frames);
@@ -184,14 +221,8 @@ pub fn plan_video(event: &VideoSource, req: &GenerateVideoRequest, digits: usize
         (None, Some(f)) => f,
         (None, None) => natural,
     };
-    let (mut width, mut height) = (u32::from(event.width), u32::from(event.height));
-    if let Some(s) = req.scale {
-        width = (f64::from(width) * s) as u32;
-        height = (f64::from(height) * s) as u32;
-    } else if let Some((w, h)) = req.size.as_deref().and_then(|s| s.split_once('x')) {
-        width = w.parse().unwrap_or(width);
-        height = h.parse().unwrap_or(height);
-    }
+    // Jobs queued before the limit existed are still in the store.
+    let (width, height) = bound_size(requested_size(event, req));
     // Most encoders want even dimensions.
     let even = |v: u32| (v.max(2)) & !1;
     let from_video = !event.default_video.is_empty();
@@ -356,6 +387,13 @@ pub async fn enqueue_video(
         ));
     }
     let event = visible_event(state, scope, event_id, Level::Edit).await?;
+    let (width, height) = requested_size(&VideoSource::from(&event), &req);
+    if !within_bounds((width, height)) {
+        return Err(AppError::BadRequestError(format!(
+            "a {width}x{height} video is too large: at most {MAX_VIDEO_SIDE} on a side \
+             and {MAX_VIDEO_PIXELS} pixels"
+        )));
+    }
     let (formats, default) = offered_formats(state).await;
     let format = match req.format.take().or(default) {
         Some(f) if formats.contains(&f) => f,
@@ -704,5 +742,53 @@ mod tests {
             (plan.frame_rate - 20.0).abs() < 1e-9,
             "5 fps, four times as fast"
         );
+    }
+
+    fn source(width: u16, height: u16) -> VideoSource {
+        VideoSource {
+            frames: 50,
+            length_secs: 10.0,
+            width,
+            height,
+            default_video: "12-video.mp4".into(),
+        }
+    }
+
+    #[test]
+    fn an_oversized_request_is_out_of_bounds() {
+        let huge = GenerateVideoRequest {
+            size: Some("40000x40000".into()),
+            ..req()
+        };
+        assert!(!within_bounds(requested_size(&source(1920, 1080), &huge)));
+        let upscaled = GenerateVideoRequest {
+            scale: Some(4.0),
+            ..req()
+        };
+        assert!(!within_bounds(requested_size(
+            &source(3840, 2160),
+            &upscaled
+        )));
+        // 8K as recorded, and a 4x upscale of 1080p, are both fine.
+        assert!(within_bounds(requested_size(&source(7680, 4320), &req())));
+        assert!(within_bounds(requested_size(
+            &source(1920, 1080),
+            &upscaled
+        )));
+        // Within each side's limit, over the pixel budget.
+        assert!(!within_bounds((7680, 7680)));
+    }
+
+    #[test]
+    fn a_stored_oversized_job_is_planned_within_bounds() {
+        let huge = GenerateVideoRequest {
+            size: Some("40000x20000".into()),
+            ..req()
+        };
+        let plan = plan_video(&source(1920, 1080), &huge, 5);
+        assert!(within_bounds((plan.width, plan.height)));
+        assert_eq!((plan.width, plan.height), (7680, 3840), "shape kept");
+        let square = bound_size((99999, 99999));
+        assert!(within_bounds(square), "{square:?}");
     }
 }
