@@ -272,11 +272,14 @@ jobs:
       # read that file, so the ignore list is mirrored here. Keep the two in
       # sync. RUSTSEC-2023-0071: unfixable rsa transitive dep via sqlx-mysql.
       # RUSTSEC-2026-0235: rkyv 0.7.46 via webrtc/dtls (0.8.x is upgraded).
-      # RUSTSEC-2026-0367/0368/0369: zip 3 build-dep of utoipa-swagger-ui 9.
+      # RUSTSEC-2026-0459: libsqlite3-sys 0.30 is in Cargo.lock only, as an
+      # optional dependency of sqlx-sqlite that no enabled feature selects. It
+      # is never compiled (cargo tree -i libsqlite3-sys is empty), which is
+      # also why cargo-deny does not report it. Drop when sqlx moves past it.
       - name: Audit dependencies for known vulnerabilities
         run: >-
           cargo audit --ignore RUSTSEC-2023-0071 --ignore RUSTSEC-2026-0235
-          --ignore RUSTSEC-2026-0367 --ignore RUSTSEC-2026-0368 --ignore RUSTSEC-2026-0369
+          --ignore RUSTSEC-2026-0459
 
       - name: Check advisories, licenses and sources
         run: cargo deny check
